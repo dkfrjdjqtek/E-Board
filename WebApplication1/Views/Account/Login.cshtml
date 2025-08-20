@@ -1,0 +1,37 @@
+﻿@model WebApplication1.Models.LoginViewModel
+@{
+    ViewData["Title"] = "로그인";
+}
+<h1>로그인</h1>
+
+<!-- ✅ 이 줄이 있어야 컨트롤러에서 넣은 에러가 화면에 표시됩니다 -->
+<div asp-validation-summary="All" class="alert alert-danger mb-3"
+     style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
+
+<form asp-action="Login" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
+
+    <div class="mb-3">
+        <label asp-for="UserName" class="form-label"></label>
+        <input asp-for="UserName" class="form-control" />
+        <span asp-validation-for="UserName" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Password" class="form-label"></label>
+        <input asp-for="Password" class="form-control" />
+        <span asp-validation-for="Password" class="text-danger"></span>
+    </div>
+
+    <div class="form-check mb-3">
+        <input asp-for="RememberMe" class="form-check-input" />
+        <label asp-for="RememberMe" class="form-check-label"></label>
+    </div>
+
+    <button type="submit" class="btn btn-primary">로그인</button>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

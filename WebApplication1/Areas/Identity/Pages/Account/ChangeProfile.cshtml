@@ -1,0 +1,75 @@
+﻿@page
+@model YourApp.Areas.Identity.Pages.Account.ChangeProfileModel
+@{
+    ViewData["Title"] = "프로필 변경";
+}
+
+<h2>@ViewData["Title"]</h2>
+
+@if (TempData["StatusMessage"] != null)
+{
+    <div class="alert alert-success">@TempData["StatusMessage"]</div>
+}
+
+<form method="post" class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="Input.Email" class="form-label"></label>
+        <input asp-for="Input.Email" class="form-control" />
+        <span asp-validation-for="Input.Email" class="text-danger"></span>
+    </div>
+
+    <div class="col-md-6"></div>
+
+       <div class="col-md-6">
+        <label asp-for="Input.UserName" class="form-label"></label>
+        <input asp-for="Input.UserName" class="form-control" />
+        <span asp-validation-for="Input.UserName" class="text-danger"></span>
+       
+    </div>
+
+       <div class="col-md-6">
+              <label asp-for="Input.Department" class="form-label"></label>
+              <input asp-for="Input.Department" class="form-control" />
+              <span asp-validation-for="Input.Department" class="text-danger"></span>
+        
+    </div>
+
+       <div class="col-md-6">
+               <label asp-for="Input.Position" class="form-label"></label>
+               <input asp-for="Input.Position" class="form-control" />
+               <span asp-validation-for="Input.Position" class="text-danger"></span>
+        
+    </div>
+
+    <div class="col-md-6">
+        <label asp-for="Input.CurrentPassword" class="form-label"></label>
+        <input asp-for="Input.CurrentPassword" class="form-control" />
+        <span asp-validation-for="Input.CurrentPassword" class="text-danger"></span>
+    </div>
+    <div class="col-md-6"></div>
+
+    <div class="col-md-6">
+        <label asp-for="Input.NewPassword" class="form-label"></label>
+        <input asp-for="Input.NewPassword" class="form-control" />
+        <span asp-validation-for="Input.NewPassword" class="text-danger"></span>
+    </div>
+    <div class="col-md-6"></div>
+    <div class="col-md-6">
+        <label asp-for="Input.ConfirmNewPassword" class="form-label"></label>
+        <input asp-for="Input.ConfirmNewPassword" class="form-control" />
+        <span asp-validation-for="Input.ConfirmNewPassword" class="text-danger"></span>
+    </div>
+           <!-- 비밀번호 리셋 버튼 -->
+           <a asp-area="Identity" asp-page="/Account/Manage/ChangePassword"
+                class="btn btn-outline-secondary">
+                  비밀번호 리셋
+        
+    </a>
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary">저장하기</button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

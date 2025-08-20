@@ -1,0 +1,31 @@
+﻿@{
+    ViewData["Title"] = "2단계 인증 설정";
+}
+
+<h3>@ViewData["Title"]</h3>
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger">@TempData["Error"]</div>
+}
+@if (TempData["Msg"] != null)
+{
+    <div class="alert alert-success">@TempData["Msg"]</div>
+}
+
+<p>아래 QR 코드를 인증앱(예: Microsoft Authenticator, Google Authenticator)으로 스캔하세요.</p>
+<div class="mb-3">
+    <img src="@Url.Action("Qr","Mfa")" alt="Authenticator QR" />
+</div>
+
+<p>또는 수동으로 다음 키를 입력하세요:</p>
+<pre class="bg-light p-2">@ViewBag.SharedKey</pre>
+
+<form asp-action="Verify" method="post" class="row g-2 mt-3">
+    <div class="col-auto">
+        <input name="code" class="form-control" placeholder="6자리 코드" autocomplete="one-time-code" />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">확인</button>
+    </div>
+</form>
