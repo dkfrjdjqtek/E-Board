@@ -1,0 +1,112 @@
+﻿/* ───────── 기본 세팅 ───────── */
+html {
+    font-size: 14px;
+}
+
+@media (min-width:768px) {
+    html {
+        font-size: 16px;
+    }
+}
+
+html {
+    position: relative;
+    min-height: 100%;
+}
+
+body {
+    margin-bottom: 60px;
+}
+
+/* 폼/버튼 포커스 */
+.btn:focus,
+.btn:active:focus,
+.btn-link.nav-link:focus,
+.form-control:focus,
+.form-check-input:focus {
+    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+}
+
+/* ───────── 사이드바 (#sidebar-accordion) ───────── */
+#sidebar-accordion {
+    width: 200px !important;
+    min-width: 60px !important;
+    background: #6c757d !important;
+    border-right: 1px solid #6c757d !important;
+    box-sizing: border-box !important;
+}
+
+    /* 링크를 block + 전체 폭, 기본 배경/색 고정 */
+    #sidebar-accordion .nav-link {
+        display: block !important;
+        width: 100% !important;
+        padding: .75rem 1rem !important; /* 링크 자체에 패딩 부여 */
+        margin: 0 0 .5rem 0 !important;
+        background: #6c757d !important;
+        color: #fff !important;
+        text-decoration: none !important;
+    }
+
+        /* hover/keyboard focus 시: 전체 영역 반전 */
+        #sidebar-accordion .nav-link:hover,
+        #sidebar-accordion .nav-link:focus {
+            background: #4f5b66 !important;
+            color: #fff !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+    /* 최상위 토글이 펼쳐진 상태 */
+    #sidebar-accordion > a.nav-link[aria-expanded="true"] {
+        background: #495057 !important;
+        color: #fff !important;
+    }
+        #sidebar-accordion > a.nav-link[aria-expanded="true"]:not(:hover):not(:focus) {
+            background: #6c757d !important; /* 기본색 */
+            color: #fff !important;
+        }
+
+    /* 호버/포커스 시엔 언제나 반전 */
+    #sidebar-accordion > a.nav-link:hover,
+    #sidebar-accordion > a.nav-link:focus {
+        background: #4f5b66 !important;
+        color: #fff !important;
+    }
+
+    /* 서브메뉴 active 항목 */
+    #sidebar-accordion .collapse.show .nav-link.active {
+        background: #495057 !important;
+        color: #fff !important;
+    }
+
+    /* 서브메뉴 들여쓰기(아이콘 + 텍스트) */
+    #sidebar-accordion .collapse .nav-link {
+        padding-left: calc(1rem + 2.25rem) !important; /* 기본 1rem + 추가 들여쓰기 */
+    }
+
+    /* 화살표 아이콘 회전 */
+    #sidebar-accordion .toggle-icon {
+        transition: transform .2s ease;
+        transform: rotate(0deg) !important;
+    }
+
+    #sidebar-accordion a[aria-expanded="true"] .toggle-icon {
+        transform: rotate(180deg) !important;
+    }
+
+/* ───────── 반응형 (아이콘만) ───────── */
+@media(max-width:768px) {
+    #sidebar-accordion {
+        width: 60px !important;
+    }
+
+        #sidebar-accordion .nav-link {
+            justify-content: center !important;
+            padding: .75rem 0 !important;
+        }
+
+            #sidebar-accordion .nav-link span {
+                display: none !important;
+            }
+}
+ 

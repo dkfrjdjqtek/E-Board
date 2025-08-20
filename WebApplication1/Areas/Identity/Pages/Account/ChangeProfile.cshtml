@@ -1,0 +1,81 @@
+﻿@page
+@model WebApplication1.Areas.Identity.Pages.Account.ChangeProfileModel
+@{
+    ViewData["Title"] = "프로필 변경";
+}
+<h2>프로필 변경</h2>
+@*
+@if (TempData["StatusMessage"] is string msg)
+{
+     <div class="alert alert-success">@msg</div>
+}
+
+
+<div asp-validation-summary="All" class="alert alert-danger mb-3"
+     style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
+*@
+<form method="post">
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label asp-for="Input.Email" class="form-label"></label>
+            <input asp-for="Input.Email" class="form-control" />
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.UserName" class="form-label"></label>
+            <input asp-for="Input.UserName" class="form-control" readonly />
+        </div>
+        <!-- 지사(CompCd) ⬇️ 추가 -->
+        <div class="col-md-6">
+            <label asp-for="Input.CompCd" class="form-label"></label>
+            <select asp-for="Input.CompCd" asp-items="Model.CompOptions" class="form-select">
+                <option value="">-- 선택 --</option>
+            </select>
+            <span asp-validation-for="Input.CompCd" class="text-danger"></span>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="Input.DepartmentId" class="form-label"></label>
+            <select asp-for="Input.DepartmentId" asp-items="Model.DepartmentOptions" class="form-select">
+                <option value="">-- 선택 --</option>
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.PositionId" class="form-label"></label>
+            <select asp-for="Input.PositionId" asp-items="Model.PositionOptions" class="form-select">
+                <option value="">-- 선택 --</option>
+            </select>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="Input.DisplayName" class="form-label"></label>
+            <input asp-for="Input.DisplayName" class="form-control" />
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.PhoneNumber" class="form-label"></label>
+            <input asp-for="Input.PhoneNumber" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="Input.CurrentPassword" class="form-label"></label>
+            <input asp-for="Input.CurrentPassword" class="form-control" />
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.NewPassword" class="form-label"></label>
+            <input asp-for="Input.NewPassword" class="form-control" />
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.ConfirmNewPassword" class="form-label"></label>
+            <input asp-for="Input.ConfirmNewPassword" class="form-control" />
+        </div>
+    </div>
+    <div></div>
+    <!--<button type="submit" class="btn btn-primary mt-3">저장하기</button>-->
+    <div class="col-12 mt-3">
+        <button type="submit" class="btn btn-primary w-100 py-2">저장하기</button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
