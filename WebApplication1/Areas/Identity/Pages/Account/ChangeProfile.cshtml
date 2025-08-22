@@ -15,17 +15,30 @@
      style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
 *@
 <form method="post">
-    <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+    @*<div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>*@
+    <div asp-validation-summary="ModelOnly" class="mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "alert alert-danger")"role="alert"></div>
+         
     <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-md-6">            
             <label asp-for="Input.Email" class="form-label"></label>
-            <input asp-for="Input.Email" class="form-control" />
+            <div class="input-group">
+                <input asp-for="Input.Email" class="form-control" readonly />
+                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">변경</button>
+            </div>
         </div>
+            @*
+        <div class="col-md-6">
+            <label class="form-label">이메일</label>
+            <div class="input-group">
+                <input class="form-control" value="@Model.Input.Email" readonly />
+                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#emailChangeModal">변경</button>
+            </div>
+        </div>
+        *@
         <div class="col-md-6">
             <label asp-for="Input.UserName" class="form-label"></label>
             <input asp-for="Input.UserName" class="form-control" readonly />
         </div>
-        <!-- 지사(CompCd) ⬇️ 추가 -->
         <div class="col-md-6">
             <label asp-for="Input.CompCd" class="form-label"></label>
             <select asp-for="Input.CompCd" asp-items="Model.CompOptions" class="form-select">
@@ -38,18 +51,22 @@
             <label asp-for="Input.DepartmentId" class="form-label"></label>
             <select asp-for="Input.DepartmentId" asp-items="Model.DepartmentOptions" class="form-select">
                 <option value="">-- 선택 --</option>
+                
             </select>
+            <span asp-validation-for="Input.DepartmentId" class="text-danger"></span>
         </div>
         <div class="col-md-6">
             <label asp-for="Input.PositionId" class="form-label"></label>
             <select asp-for="Input.PositionId" asp-items="Model.PositionOptions" class="form-select">
                 <option value="">-- 선택 --</option>
             </select>
+            <span asp-validation-for="Input.PositionId" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input.DisplayName" class="form-label"></label>
             <input asp-for="Input.DisplayName" class="form-control" />
+            <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
         </div>
         <div class="col-md-6">
             <label asp-for="Input.PhoneNumber" class="form-label"></label>
@@ -58,15 +75,18 @@
 
         <div class="col-md-6">
             <label asp-for="Input.CurrentPassword" class="form-label"></label>
-            <input asp-for="Input.CurrentPassword" class="form-control" />
+            <input asp-for="Input.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
+            <span asp-validation-for="Input.CurrentPassword" class="text-danger"></span>
         </div>
         <div class="col-md-6">
             <label asp-for="Input.NewPassword" class="form-label"></label>
-            <input asp-for="Input.NewPassword" class="form-control" />
+            <input asp-for="Input.NewPassword" class="form-control" type="password" autocomplete="new-password" />
+            <span asp-validation-for="Input.NewPassword" class="text-danger"></span>
         </div>
         <div class="col-md-6">
             <label asp-for="Input.ConfirmNewPassword" class="form-label"></label>
-            <input asp-for="Input.ConfirmNewPassword" class="form-control" />
+            <input asp-for="Input.ConfirmNewPassword" class="form-control" type="password" autocomplete="new-password" />
+            <span asp-validation-for="Input.ConfirmNewPassword" class="text-danger"></span>
         </div>
     </div>
     <div></div>
@@ -75,6 +95,45 @@
         <button type="submit" class="btn btn-primary w-100 py-2">저장하기</button>
     </div>
 </form>
+
+<!-- 이메일 변경 모달 -->
+<div class="modal fade" id="changeEmailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-page-handler="SendEmailChange">
+                @Html.AntiForgeryToken()
+
+                <div class="modal-header">
+                    <h5 class="modal-title">이메일 변경</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+
+                    <div class="mb-3">
+                        <label asp-for="EmailChange.NewEmail" class="form-label"></label>
+                        <input asp-for="EmailChange.NewEmail" class="form-control" autocomplete="email" />
+                        <span asp-validation-for="EmailChange.NewEmail" class="text-danger"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="EmailChange.CurrentPassword" class="form-label"></label>
+                        <input asp-for="EmailChange.CurrentPassword"
+                               class="form-control"
+                               autocomplete="current-password" />
+                        <span asp-validation-for="EmailChange.CurrentPassword" class="text-danger"></span>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+                    <button type="submit" class="btn btn-primary">확인 메일 보내기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
