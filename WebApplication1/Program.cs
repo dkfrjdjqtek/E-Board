@@ -1,121 +1,116 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using WebApplication1.Data;
-using WebApplication1.Services; // 네임스페이스 맞추기
-using Fido2NetLib;
-using Fido2NetLib.Objects;
-using Microsoft.Extensions.Options;
 using WebApplication1.Models;
-
+using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory 등
+using Fido2NetLib;
+using Microsoft.AspNetCore.Localization;
+using System.Globalization;
+using Microsoft.Extensions.Options;
+using WebApplication1; 
 
 var builder = WebApplication.CreateBuilder(args);
 
+// -----------------------------
+// 1) 외부 서비스 구성
+// -----------------------------
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddTransient<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<WebAuthnService>();
 
-//// 1) DbContext
-//builder.Services.AddDbContext<ApplicationDbContext>(options =>
-//    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-//// 2) Identity (MVC 컨트롤러 기반)
-///* 
-//builder.Services
-//    .AddIdentity<IdentityUser, IdentityRole>(options => {
-//        // 비밀번호 정책 등 옵션
-//        options.SignIn.RequireConfirmedAccount = false;
-//        options.Password.RequireNonAlphanumeric = true;
-//        options.Password.RequireUppercase = true;
-//        options.Password.RequiredLength = 4;
-//    })
-//    .AddEntityFrameworkStores<ApplicationDbContext>()
-//    .AddDefaultTokenProviders()
-//    .AddDefaultUI();
-
-
-//builder.Services
-//    .AddDefaultIdentity<ApplicationUser>(options =>
-//    {
-//        options.SignIn.RequireConfirmedAccount = false;
-//    })
-//    .AddEntityFrameworkStores<ApplicationDbContext>();
-//*/
-//builder.Services
-//    .AddDefaultIdentity<ApplicationUser>(o => o.SignIn.RequireConfirmedAccount = false)
-//    .AddEntityFrameworkStores<ApplicationDbContext>();
-//// 3) Cookie 인증 경로 설정
-//builder.Services.ConfigureApplicationCookie(options => {
-//    options.LoginPath = "/Account/Login";
-//    options.AccessDeniedPath = "/Account/Login";
-//});
-
-//// 4) MVC + 정책
-//builder.Services.AddControllersWithViews();
-//builder.Services.AddAuthorization(options => {
-//    options.FallbackPolicy = new AuthorizationPolicyBuilder()
-//        .RequireAuthenticatedUser()
-//        .Build();
-//});
-
-// 1) DbContext
+// -----------------------------
+// 2) DbContext
+// -----------------------------
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// -----------------------------
+// 3) Identity (딱 한 번만 등록)
+// -----------------------------
+builder.Services
+    .AddIdentity<ApplicationUser, IdentityRole>(options =>
+    {
+        options.SignIn.RequireConfirmedAccount = false;
+        options.Password.RequireNonAlphanumeric = true;
+        options.Password.RequireUppercase = true;
+        options.Password.RequiredLength = 4;
+    })
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders() // UI는 직접 구현 -> AddDefaultUI() 불필요
+    .AddDefaultUI();
 
-// 2) Identity (ApplicationUser 기준, 필요하면 Role 포함)
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+// 이메일/비번재설정 등 토큰 유효시간
+builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
 {
-    options.SignIn.RequireConfirmedAccount = false;
-    options.Password.RequireNonAlphanumeric = true;
-    options.Password.RequireUppercase = true;
-    options.Password.RequiredLength = 4;
-})
-.AddEntityFrameworkStores<ApplicationDbContext>()
-.AddDefaultTokenProviders();   // (UI는 직접 만든 View 사용이므로 AddDefaultUI()는 불필요)
+    o.TokenLifespan = TimeSpan.FromMinutes(30);
+});
 
+// 커스텀 클레임 팩토리(있을 때만)
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 
-builder.Services.AddAuthorization(options =>
+// -----------------------------
+// 4) 쿠키/락아웃
+// -----------------------------
+builder.Services.ConfigureApplicationCookie(o =>
 {
-    options.AddPolicy("AdminOnly", policy =>
-        policy.RequireAssertion(ctx =>
-        {
-            var v = ctx.User.FindFirst("is_admin")?.Value;
-            return v == "1" || v == "2"; // 1:관리자, 2:슈퍼
-        }));
+    o.LoginPath = "/Account/Login";
+    o.AccessDeniedPath = "/Account/AccessDenied";
+    o.ReturnUrlParameter = "returnUrl";
+    o.SlidingExpiration = true;
+    o.ExpireTimeSpan = TimeSpan.FromHours(8);
+    o.Cookie.HttpOnly = true;
+    o.Cookie.SameSite = SameSiteMode.Lax;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 });
-
-// 3) 쿠키 경로
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    options.LoginPath = "/Account/Login";
-    options.AccessDeniedPath = "/Account/AccessDenied";
-    options.ReturnUrlParameter = "returnUrl";
-    // 쿠키/락아웃/슬라이딩 만료 (보안 관련 사항 추후 협의 필요)
-    options.SlidingExpiration = true;
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-});
-
 builder.Services.Configure<IdentityOptions>(o =>
 {
     o.Lockout.MaxFailedAccessAttempts = 5;
     o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(10);
-});// 쿠키/락아웃/슬라이딩 만료 (보안 관련 사항 추후 협의 필요)
+});
 
-// MVC
-builder.Services.AddControllersWithViews();
+// -----------------------------
+// 5) MVC/Razor + Authorization (하나로 합침)
+// -----------------------------
+//builder.Services.AddControllersWithViews();
+//builder.Services.AddRazorPages();
+
 builder.Services.AddAuthorization(options =>
 {
+    // 로그인 필수(기본 정책)
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
+
+    // 관리자 정책
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireAssertion(ctx =>
+        {
+            var v = ctx.User.FindFirst("is_admin")?.Value;
+            return v == "1" || v == "2"; // 1: 관리자, 2: 슈퍼관리자
+        }));
 });
-// 5) Fido2 설정
+
+builder.Services.AddRazorPages(options =>
+{
+    // 꼭 필요한 페이지만 열어둡니다
+    options.Conventions.AllowAnonymousToAreaFolder("Identity", "/Account");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Login");
+    ////options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Register");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPassword");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPasswordConfirmation");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPassword");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPasswordConfirmation");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmail");
+    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmailChange");
+    
+});
+
+// -----------------------------
+// 6) FIDO2
+// -----------------------------
 builder.Services.AddSingleton(provider =>
 {
     var cfg = new Fido2Configuration
@@ -128,13 +123,43 @@ builder.Services.AddSingleton(provider =>
     return new Fido2(cfg);
 });
 
+//Multi Language
+builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 
+builder.Services
+    .AddControllersWithViews()
+    .AddViewLocalization()
+    .AddDataAnnotationsLocalization(options =>
+    {
+        
+        options.DataAnnotationLocalizerProvider = (type, factory) =>
+            factory.Create(typeof(SharedResource));
+    });
 
-builder.Services.AddRazorPages();
+var cultures = new[] { "ko-KR", "en-US", "vi-VN", "id-ID", "zh-CN" }
+    .Select(c => new CultureInfo(c))
+    .ToList();
 
+builder.Services.Configure<RequestLocalizationOptions>(options =>
+{
+    options.DefaultRequestCulture = new RequestCulture("ko-KR");
+    options.SupportedCultures = cultures;
+    options.SupportedUICultures = cultures;
+
+    // Cookie > QueryString 순으로 탐지
+    options.RequestCultureProviders = new List<IRequestCultureProvider>
+    {
+        new CookieRequestCultureProvider(),
+        new QueryStringRequestCultureProvider()
+    };
+});
 var app = builder.Build();
 
-// pipeline
+app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
+
+// -----------------------------
+// 7) Pipeline
+// -----------------------------
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -145,25 +170,38 @@ else
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// -----------------------------
+// 8) 데이터 시드 (한 번만 실행)
+// -----------------------------
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     var um = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-    // ★ 현재 연결된 서버/DB 확인
+    // 연결된 DB 출력(확인용)
     var cnn = db.Database.GetDbConnection();
     app.Logger.LogWarning("Seeding to -> DataSource={DataSource}, Database={Database}",
         cnn.DataSource, cnn.Database);
 
     await SeedAsync(db, um);
 }
-async Task SeedAsync(ApplicationDbContext db, UserManager<ApplicationUser> um)
+
+static async Task SeedAsync(ApplicationDbContext db, UserManager<ApplicationUser> um)
 {
-    // ★ 여기가 빠져서 CS0103 에러가 난 겁니다.
     const string comp = "0001";
     const string adminEmail = "admin@local";
     const string adminPw = "Admin!2345";
-    // 1) 혹시라도 없으면 T-SQL로 보장(중복 무시)
+
+    // 없으면 생성(중복 무시)
     await db.Database.ExecuteSqlInterpolatedAsync($@"
 IF NOT EXISTS (SELECT 1 FROM dbo.PositionMasters WHERE CompCd = {comp} AND Code = N'E11')
 BEGIN
@@ -178,7 +216,6 @@ BEGIN
   VALUES ({comp}, N'D006', N'IT', 1, 60);
 END");
 
-    // 2) 다시 한 번만 조회해서 id 확보
     var posId = await db.PositionMasters
         .Where(x => x.CompCd == comp && x.Code == "E11")
         .Select(x => (int?)x.Id)
@@ -189,28 +226,9 @@ END");
         .Select(x => (int?)x.Id)
         .FirstOrDefaultAsync();
 
-    Console.WriteLine($"[Seed] E11 => {(posId is null ? "NULL" : posId.ToString())}");
-    Console.WriteLine($"[Seed] D006 => {(deptId is null ? "NULL" : deptId.ToString())}");
-
-    // 3) 여전히 null이면 바로 디버그용 덤프를 찍어 원인을 확인
     if (posId is null || deptId is null)
-    {
-        var pmDump = await db.PositionMasters
-            .Where(x => x.CompCd == comp)
-            .Select(x => new { x.Id, x.CompCd, x.Code, x.Name })
-            .ToListAsync();
-        var dmDump = await db.DepartmentMasters
-            .Where(x => x.CompCd == comp)
-            .Select(x => new { x.Id, x.CompCd, x.Code, x.Name })
-            .ToListAsync();
+        throw new InvalidOperationException("Seed 실패: E11 또는 D006을 다시 확인하세요.");
 
-        Console.WriteLine("[Seed][PM dump] " + string.Join(", ", pmDump.Select(r => $"{r.Id}:{r.CompCd}/{r.Code}/{r.Name}")));
-        Console.WriteLine("[Seed][DM dump] " + string.Join(", ", dmDump.Select(r => $"{r.Id}:{r.CompCd}/{r.Code}/{r.Name}")));
-
-        throw new InvalidOperationException("Seed 실패: E11 또는 D006을 다시 확인하세요(위 덤프 참고).");
-    }
-
-    // --- 관리자 생성/프로필 ---
     var admin = await um.FindByEmailAsync(adminEmail);
     if (admin is null)
     {
@@ -232,25 +250,17 @@ END");
     }
 }
 
+// -----------------------------
+// 9) 라우팅
+// -----------------------------
+app.MapControllerRoute(
+    name: "areas",
+    pattern: "{area:exists}/{controller=Home}/{action=Index}/{id?}");
 
-    using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var um = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-    await SeedAsync(db, um);
-}
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-// MVC 라우팅만
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
 app.MapRazorPages();
+
 app.Run();

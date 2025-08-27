@@ -1,5 +1,4 @@
 using System.Text;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -8,7 +7,6 @@ using WebApplication1.Models;
 
 namespace WebApplication1.Areas.Identity.Pages.Account;
 
-[AllowAnonymous]
 public class ConfirmEmailChangeModel : PageModel
 {
     private readonly UserManager<ApplicationUser> _userManager;
@@ -22,14 +20,11 @@ public class ConfirmEmailChangeModel : PageModel
         _signInManager = signInManager;
     }
 
-    public async Task<IActionResult> OnGetAsync(string? userId, string? email, string? code)
+    public async Task<IActionResult> OnGetAsync(string userId, string email, string code)
     {
-        // 파라미터 검증
-        if (string.IsNullOrWhiteSpace(userId) ||
-            string.IsNullOrWhiteSpace(email) ||
-            string.IsNullOrWhiteSpace(code))
+        if (userId is null || email is null || code is null)
         {
-            TempData["StatusMessage"] = "요청이 올바르지 않습니다.";
+            TempData["StatusMessage"] = "잘못된 요청입니다.";
             return RedirectToPage("/Account/ChangeProfile");
         }
 
@@ -40,23 +35,24 @@ public class ConfirmEmailChangeModel : PageModel
             return RedirectToPage("/Account/ChangeProfile");
         }
 
-        // 토큰 디코딩
+        // 토큰 디코드
         var decoded = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(code));
 
-        // 이메일 변경 + 확인 처리
+        // 이메일 변경 확정
         var result = await _userManager.ChangeEmailAsync(user, email, decoded);
         if (!result.Succeeded)
         {
-            TempData["StatusMessage"] = string.Join(" ",
-                result.Errors.Select(e => e.Description));
+            TempData["StatusMessage"] = "이메일 변경 링크가 유효하지 않거나 만료되었습니다.";
             return RedirectToPage("/Account/ChangeProfile");
         }
 
-        // (선택) 이메일을 사용자명과 동일하게 쓰는 정책이면 아래도 수행
+        // (선택) UserName도 이메일로 맞출 경우
         // await _userManager.SetUserNameAsync(user, email);
 
+        // 로그인 갱신
         await _signInManager.RefreshSignInAsync(user);
-        TempData["StatusMessage"] = "이메일이 변경/확인되었습니다.";
+
+        TempData["StatusMessage"] = "이메일이 변경되었습니다.";
         return RedirectToPage("/Account/ChangeProfile");
     }
 }

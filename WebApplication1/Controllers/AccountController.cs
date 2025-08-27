@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using WebApplication1.Models; // ApplicationUser, LoginViewModel
+using Microsoft.Extensions.Localization;
 
 namespace WebApplication1.Controllers
 {
@@ -12,12 +13,15 @@ namespace WebApplication1.Controllers
     {
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IStringLocalizer<SharedResource> _S;
 
         public AccountController(SignInManager<ApplicationUser> signInManager,
-                                 UserManager<ApplicationUser> userManager)
+                                 UserManager<ApplicationUser> userManager,
+                                 IStringLocalizer<SharedResource> S)
         {
             _signInManager = signInManager;
             _userManager = userManager;
+            _S = S;
         }
         [HttpGet]
         public IActionResult AccessDenied(string? returnUrl = null)
@@ -52,7 +56,7 @@ namespace WebApplication1.Controllers
 
             if (user is null)
             {
-                ModelState.AddModelError(nameof(LoginViewModel.UserName), "존재하지 않는 사용자입니다.");
+                ModelState.AddModelError(nameof(LoginViewModel.UserName), _S["Login_UserNotExist"]);
                 return View(model); // 같은 URL에서 표시
             }
 
@@ -70,18 +74,18 @@ namespace WebApplication1.Controllers
 
             if (result.IsLockedOut)
             {
-                ModelState.AddModelError(string.Empty, "비밀번호 오류 누적으로 잠금 상태입니다. 잠시 후 다시 시도하세요.");
+                ModelState.AddModelError(string.Empty, _S["Login_LockedOut"]);
                 return View(model);
             }
 
             if (result.IsNotAllowed)
             {
-                ModelState.AddModelError(string.Empty, "로그인이 허용되지 않았습니다. (이메일 확인 또는 2단계 인증 필요)");
+                ModelState.AddModelError(string.Empty, _S["Login_NotAllowed"]);
                 return View(model);
             }
 
             // 비밀번호 틀림
-            ModelState.AddModelError(nameof(LoginViewModel.Password), "비밀번호가 올바르지 않습니다.");
+            ModelState.AddModelError(nameof(LoginViewModel.Password), _S["Login_WrongPassword"]);
             return View(model);
         }
 

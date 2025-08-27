@@ -15,30 +15,11 @@
      style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
 *@
 <form method="post">
-    @*<div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>*@
-    <div asp-validation-summary="ModelOnly" class="mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "alert alert-danger")"role="alert"></div>
-         
+    @Html.AntiForgeryToken()
+    @*<div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+    <div asp-validation-summary="ModelOnly" class="mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "alert alert-danger")"role="alert"></div>*@
+    <div asp-validation-summary="All" class="alert alert-danger mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "")" role="alert"></div>
     <div class="row g-3">
-        <div class="col-md-6">            
-            <label asp-for="Input.Email" class="form-label"></label>
-            <div class="input-group">
-                <input asp-for="Input.Email" class="form-control" readonly />
-                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">변경</button>
-            </div>
-        </div>
-            @*
-        <div class="col-md-6">
-            <label class="form-label">이메일</label>
-            <div class="input-group">
-                <input class="form-control" value="@Model.Input.Email" readonly />
-                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#emailChangeModal">변경</button>
-            </div>
-        </div>
-        *@
-        <div class="col-md-6">
-            <label asp-for="Input.UserName" class="form-label"></label>
-            <input asp-for="Input.UserName" class="form-control" readonly />
-        </div>
         <div class="col-md-6">
             <label asp-for="Input.CompCd" class="form-label"></label>
             <select asp-for="Input.CompCd" asp-items="Model.CompOptions" class="form-select">
@@ -46,12 +27,27 @@
             </select>
             <span asp-validation-for="Input.CompCd" class="text-danger"></span>
         </div>
-
+        <div class="col-md-6">
+            <label asp-for="Input.DisplayName" class="form-label"></label>
+            <input asp-for="Input.DisplayName" class="form-control" />
+            <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.UserName" class="form-label"></label>
+            <input asp-for="Input.UserName" class="form-control" readonly />
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Input.Email" class="form-label"></label>
+            <div class="input-group">
+                <input asp-for="Input.Email" class="form-control" readonly />
+                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">변경</button>
+            </div>
+        </div>
         <div class="col-md-6">
             <label asp-for="Input.DepartmentId" class="form-label"></label>
             <select asp-for="Input.DepartmentId" asp-items="Model.DepartmentOptions" class="form-select">
                 <option value="">-- 선택 --</option>
-                
+
             </select>
             <span asp-validation-for="Input.DepartmentId" class="text-danger"></span>
         </div>
@@ -63,11 +59,20 @@
             <span asp-validation-for="Input.PositionId" class="text-danger"></span>
         </div>
 
+            @*
         <div class="col-md-6">
-            <label asp-for="Input.DisplayName" class="form-label"></label>
-            <input asp-for="Input.DisplayName" class="form-control" />
-            <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
+            <label class="form-label">이메일</label>
+            <div class="input-group">
+                <input class="form-control" value="@Model.Input.Email" readonly />
+                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#emailChangeModal">변경</button>
+            </div>
         </div>
+        *@
+
+
+
+
+
         <div class="col-md-6">
             <label asp-for="Input.PhoneNumber" class="form-label"></label>
             <input asp-for="Input.PhoneNumber" class="form-control" />

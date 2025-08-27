@@ -1,9 +1,15 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+﻿@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+
+@{
+    // 레이아웃의 <title>에 쓰이는 페이지 제목도 리소스로
+    ViewData["Title"] = S["Home_Title"];
 }
-@* 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
-</div>
-*@
+
+<h1 class="display-4">@S["Home_Welcome"]</h1>
+
+<p>
+    @S["Home_Intro"]
+    <a href="https://learn.microsoft.com/aspnet/core" target="_blank" rel="noopener">
+        @S["Home_Intro_LinkText"]
+    </a>.
+</p>

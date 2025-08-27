@@ -1,0 +1,209 @@
+﻿@model WebApplication1.Models.ViewModels.AdminUserProfileVM
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+<h2 class="mt-3">관리자용 사용자 프로필</h2>
+
+@if (TempData["StatusMessage"] is string msg)
+{
+    <div class="alert alert-info">@msg</div>
+}
+
+<!-- 계정 검색 + 콤보 -->
+<form method="get" class="row g-2 align-items-end mb-3">
+    <!-- 검색 입력 + 내부 불러오기 버튼 -->
+    <div class="col-md-4">
+        <label class="form-label">계정 검색(아이디/이메일)</label>
+        <div class="input-group">
+            <input name="q" value="@Model.Q" class="form-control" placeholder="검색어" />
+            <button class="btn btn-outline-primary" type="submit" title="불러오기">
+                <i class="bi bi-search"></i>
+                <span class="d-none d-sm-inline ms-1">불러오기</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 계정 선택(변경 시 자동 제출) -->
+    <div class="col-md-6">
+        <label class="form-label">계정 선택</label>
+        <select name="id" class="form-select" onchange="this.form.submit()">
+            <option value="">- 계정을 선택하세요 -</option>
+            @foreach (var a in Model.Accounts)
+            {
+                <option value="@a.Value"
+                        selected="@(a.Value == Model.SelectedUserId ? "selected" : null)">
+                    @a.Text
+                </option>
+            }
+        </select>
+    </div>
+
+    <!-- 사용자 추가 버튼(이 자리에 배치) -->
+    <div class="col-md-2">
+        @* 컨트롤러에서 신규 사용자 생성 화면을 제공할 경우 *@
+        <a class="btn btn-success w-100" asp-action="Create">
+            <i class="bi bi-person-plus"></i> 사용자 추가
+        </a>
+
+        @* Identity Register 페이지가 있다면 위 a 대신 아래 라인 사용
+        <a class="btn btn-success w-100" asp-area="Identity" asp-page="/Account/Register">
+            <i class="bi bi-person-plus"></i> 사용자 추가
+        </a>
+        *@
+    </div>
+</form>
+
+@*@if (!string.IsNullOrEmpty(Model.SelectedUserId))*@
+@if (!string.IsNullOrEmpty(Model.SelectedUserId) || Model.IsCreate)
+{
+    <!-- 메인 편집 폼 -->
+    @*<form asp-action="Save" method="post" class="border rounded p-3">*@
+    <form asp-action="@(Model.IsCreate ? "Create" : "Save")" method="post" class="border rounded p-3">
+        @Html.AntiForgeryToken()
+
+        @if (!Model.IsCreate)
+        {
+            <input type="hidden" asp-for="SelectedUserId" />
+        }
+
+        <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+
+        <div class="row g-3">
+            <!-- 1행: 사업장 / 이름 -->
+            <div class="col-12 col-md-6">
+                <label asp-for="CompCd" class="form-label">사업장</label>
+                <select asp-for="CompCd" asp-items="Model.CompList" class="form-select">
+                    <option value="">-- 선택 --</option>
+                </select>
+                <span asp-validation-for="CompCd" class="text-danger"></span>
+            </div>
+            <div class="col-12 col-md-6">
+                <label asp-for="DisplayName" class="form-label">이름</label>
+                <input asp-for="DisplayName" class="form-control" />
+                <span asp-validation-for="DisplayName" class="text-danger"></span>
+            </div>
+
+            <!-- 2행: ID / E-Mail(변경 버튼) -->
+            @if (Model.IsCreate)
+            {
+                <div class="col-12 col-md-6">
+                    <label asp-for="UserName" class="form-label">ID</label>
+                    <input asp-for="UserName" class="form-control" />
+                    <span asp-validation-for="UserName" class="text-danger"></span>
+                </div>
+                <div class="col-12 col-md-6">
+                    <label asp-for="Email" class="form-label">E-Mail</label>
+                    <input asp-for="Email" class="form-control" type="email" />
+                    <span asp-validation-for="Email" class="text-danger"></span>
+                </div>
+            }
+            else
+            {
+                <div class="col-12 col-md-6">
+                    <label class="form-label">ID</label>
+                    <input class="form-control" value="@Model.UserName" readonly />
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label">E-Mail</label>
+                    <div class="input-group">
+                        <input class="form-control" value="@Model.Email" readonly />
+                        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#emailModal">변경</button>
+                    </div>
+                    <div class="form-text">변경은 인증 메일로 진행됩니다.</div>
+                </div>
+            }
+
+            <!-- 3행: 부서 / 직급 -->
+            <div class="col-12 col-md-6">
+                <label asp-for="DepartmentId" class="form-label">부서</label>
+                <select asp-for="DepartmentId" asp-items="Model.DeptList" class="form-select">
+                    <option value="">-- 선택 --</option>
+                </select>
+                <span asp-validation-for="DepartmentId" class="text-danger"></span>
+            </div>
+            <div class="col-12 col-md-6">
+                <label asp-for="PositionId" class="form-label">직급</label>
+                <select asp-for="PositionId" asp-items="Model.PosList" class="form-select">
+                    <option value="">-- 선택 --</option>
+                </select>
+                <span asp-validation-for="PositionId" class="text-danger"></span>
+            </div>
+
+            <!-- 4행: 전화번호 / 관리자 권한 부여 -->
+            <div class="col-12 col-md-6">
+                <label asp-for="PhoneNumber" class="form-label"></label>
+                <input asp-for="PhoneNumber" class="form-control" />
+                <span asp-validation-for="PhoneNumber" class="text-danger"></span>
+            </div>
+            <!--<div class="col-12 col-md-6 d-flex align-items-end">
+                <div class="form-check">
+                    <input asp-for="IsAdminChecked" class="form-check-input" type="checkbox" id="chkAdmin" />
+                    <label for="chkAdmin" class="form-check-label">관리자 권한 부여(is_admin=1)</label>
+                </div>
+            </div> -->
+            <div class="col-12 col-md-6">
+                <label class="form-label d-block">권한</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" asp-for="AdminLevel" value="0" id="al0" />
+                    <label class="form-check-label" for="al0">일반</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" asp-for="AdminLevel" value="1" id="al1" />
+                    <label class="form-check-label" for="al1">매니저</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" asp-for="AdminLevel" value="2" id="al2" />
+                    <label class="form-check-label" for="al2">관리자</label>
+                </div>
+                <span asp-validation-for="AdminLevel" class="text-danger"></span>
+            </div>
+        </div>
+
+        <div class="row g-2 mt-4">
+            <div class="col-12 col-md-6">
+                <button type="submit"
+                        class="btn btn-primary w-100 py-2">
+                    @(Model.IsCreate ? "추가" : "저장")
+                </button>
+            </div>
+
+            @if (!Model.IsCreate)
+            {
+                <div class="col-12 col-md-6">
+                    <button type="submit"
+                            class="btn btn-warning w-100 py-2"
+                            formaction="@Url.Action("ResetPassword", "AdminUserProfile", new { id = Model.SelectedUserId })"
+                            formmethod="post"
+                            formnovalidate
+                            onclick="return confirm('임시 비밀번호를 발급할까요?');">
+                        비밀번호 초기화
+                    </button>
+                </div>
+            }
+        </div>
+    </form>
+
+    <!-- 이메일 변경 모달 -->
+    <div class="modal fade" id="emailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form asp-action="SendChangeEmail" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.SelectedUserId" />
+                    <div class="modal-header">
+                        <h5 class="modal-title">이메일 변경 요청</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label">새 이메일</label>
+                        <input name="newEmail" type="email" class="form-control" required />
+                        <div class="form-text">새 이메일로 확인 링크를 발송합니다.</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary" type="submit">발송</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}

@@ -26,25 +26,27 @@ body {
 .form-check-input:focus {
     box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
 }
-
 /* ───────── 사이드바 (#sidebar-accordion) ───────── */
 #sidebar-accordion {
-    width: 200px !important;
+    width: 300px !important;
     min-width: 60px !important;
     background: #6c757d !important;
     border-right: 1px solid #6c757d !important;
     box-sizing: border-box !important;
 }
 
-    /* 링크를 block + 전체 폭, 기본 배경/색 고정 */
+    /* 링크: 한 줄, 전체폭, 플렉스 정렬 */
     #sidebar-accordion .nav-link {
-        display: block !important;
+        display: flex !important; /* ← block 강제 해제 */
+        align-items: center !important;
         width: 100% !important;
-        padding: .75rem 1rem !important; /* 링크 자체에 패딩 부여 */
+        padding: .75rem 1rem !important;
         margin: 0 0 .5rem 0 !important;
         background: #6c757d !important;
         color: #fff !important;
         text-decoration: none !important;
+        white-space: nowrap !important; /* 줄바꿈 방지 */
+        gap: .5rem;
     }
 
         /* hover/keyboard focus 시: 전체 영역 반전 */
@@ -61,17 +63,11 @@ body {
         background: #495057 !important;
         color: #fff !important;
     }
+
         #sidebar-accordion > a.nav-link[aria-expanded="true"]:not(:hover):not(:focus) {
-            background: #6c757d !important; /* 기본색 */
+            background: #6c757d !important;
             color: #fff !important;
         }
-
-    /* 호버/포커스 시엔 언제나 반전 */
-    #sidebar-accordion > a.nav-link:hover,
-    #sidebar-accordion > a.nav-link:focus {
-        background: #4f5b66 !important;
-        color: #fff !important;
-    }
 
     /* 서브메뉴 active 항목 */
     #sidebar-accordion .collapse.show .nav-link.active {
@@ -79,23 +75,33 @@ body {
         color: #fff !important;
     }
 
-    /* 서브메뉴 들여쓰기(아이콘 + 텍스트) */
+    /* 서브메뉴 들여쓰기 */
     #sidebar-accordion .collapse .nav-link {
-        padding-left: calc(1rem + 2.25rem) !important; /* 기본 1rem + 추가 들여쓰기 */
+        padding-left: calc(1rem + 2.25rem) !important;
     }
 
-    /* 화살표 아이콘 회전 */
-    #sidebar-accordion .toggle-icon {
+    /* 아이콘/텍스트/캐럿 정렬 보정 */
+    #sidebar-accordion .nav-link img {
+        flex: 0 0 auto;
+    }
+
+    #sidebar-accordion .nav-link span {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    /* 라벨 늘어나도 한 줄 */
+    #sidebar-accordion .nav-link .toggle-icon {
+        margin-left: auto; /* 항상 우측 끝 */
         transition: transform .2s ease;
-        transform: rotate(0deg) !important;
+        opacity: .85;
     }
 
-    #sidebar-accordion a[aria-expanded="true"] .toggle-icon {
-        transform: rotate(180deg) !important;
+    #sidebar-accordion .nav-link:not(.collapsed) .toggle-icon {
+        transform: rotate(180deg); /* 펼침 시 회전 */
     }
 
 /* ───────── 반응형 (아이콘만) ───────── */
-@media(max-width:768px) {
+@media (max-width:768px) {
     #sidebar-accordion {
         width: 60px !important;
     }
@@ -109,4 +115,3 @@ body {
                 display: none !important;
             }
 }
- 

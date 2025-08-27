@@ -1,79 +1,98 @@
-﻿@{
-    // 현재 URL에 따라 초기 펼침 상태 결정(필요 없으면 false로 두셔도 됩니다)
-    var path = Context.Request.Path.Value?.ToLowerInvariant() ?? "";
-    bool isApprovalOpen = path.StartsWith("/approval");
-    bool isSettingsOpen = path.StartsWith("/identity/account/changeprofile") || path.StartsWith("/role");
+﻿@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{   
+
+    // 현재 URL에 따라 초기 펼침 상태 결정
+    var path = (Context.Request.Path.Value ?? "").ToLowerInvariant();
+    bool isApprovalOpen =
+        path.StartsWith("/approval");
+
+    bool isSettingsOpen =
+        path.StartsWith("/identity/account/changeprofile")
+        || path.StartsWith("/role")
+        || path.StartsWith("/mfa")
+        || path.StartsWith("/adminuserprofile");
 }
 
-<!-- p-3 제거하고 px-0로 변경: 링크 배경이 좌우 꽉 차도록 -->
 <nav id="sidebar-accordion" class="nav flex-column vh-100 bg-dark text-light px-0">
 
-    <!-- 전자결재 (토글) -->
-    <a class="nav-link d-flex align-items-center @(isApprovalOpen ? "" : "collapsed")"
-       data-bs-toggle="collapse"
-       href="#approvalSubMenu"
-       role="button"
-       aria-expanded="@(isApprovalOpen.ToString().ToLower())"
-       aria-controls="approvalSubMenu">
-        <img src="~/images/sidebar1-approval.png" alt="전자결재" width="32" height="32" class="me-2" />
-        <span class="flex-grow-1">전자결재</span>
+    <!-- 전자결재 -->
+    <a class="nav-link collapse-toggle @(isApprovalOpen ? "" : "collapsed")"
+       data-bs-toggle="collapse" href="#approvalSubMenu" role="button"
+       aria-expanded="@(isApprovalOpen.ToString().ToLower())" aria-controls="approvalSubMenu">
+        <img src="~/images/sidebar1-approval.png" alt="@(S["Sidebar_Menu1"])" width="32" height="32" class="me-2 flex-shrink-0" />
+        <span class="menu-text">@S["Sidebar_Menu1"]</span>
         <i class="bi bi-chevron-down toggle-icon"></i>
     </a>
 
     <div id="approvalSubMenu"
          class="collapse @(isApprovalOpen ? "show" : "")"
          data-bs-parent="#sidebar-accordion">
-        <a asp-controller="Approval" asp-action="Write" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-write.png" alt="문서작성" width="28" height="28" class="me-2" />
-            <span>문서작성</span>
+        <a asp-area="" asp-controller="Approval" asp-action="Write" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-write.png" alt="@(S["Sidebar_Menu1Sub1"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu1Sub1"]</span>
         </a>
-        <a asp-controller="Approval" asp-action="Approve" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-approval.png" alt="문서승인" width="28" height="28" class="me-2" />
-            <span>문서승인</span>
+        <a asp-area="" asp-controller="Approval" asp-action="Approve" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-approval.png" alt="@(S["Sidebar_Menu1Sub2"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu1Sub2"]</span>
         </a>
-        <a asp-controller="Approval" asp-action="Shared" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-share.png" alt="문서공유" width="28" height="28" class="me-2" />
-            <span>문서공유</span>
+        <a asp-area="" asp-controller="Approval" asp-action="Shared" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-share.png" alt="@(S["Sidebar_Menu1Sub3"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu1Sub3"]</span>
         </a>
     </div>
 
-    <!-- 게시판 (단일 링크) -->
-    <a asp-controller="Board" asp-action="Index" class="nav-link d-flex align-items-center">
-        <img src="~/images/sidebar1-bbs.png" alt="게시판" width="32" height="32" class="me-2" />
-        <span>게시판</span>
+    <!-- 게시판 -->
+    <a asp-area="" asp-controller="Board" asp-action="Index" class="nav-link d-flex align-items-center">
+        <img src="~/images/sidebar1-bbs.png" alt="@(S["Sidebar_Menu2"])" width="32" height="32" class="me-2" />
+        <span>@S["Sidebar_Menu2"]</span>
     </a>
 
-    <!-- 설정 (토글) -->
-    <a class="nav-link d-flex align-items-center @(isSettingsOpen ? "" : "collapsed")"
+    <!-- 설정 (토글) 
+    <a class="nav-link d-flex align-items-center @(isSettingsOpen ? "" : "collapsed")"-->
+    <a class="nav-link w-100 d-flex align-items-center @(isSettingsOpen ? "" : "collapsed")"
        data-bs-toggle="collapse"
        href="#settingsSubMenu"
        role="button"
        aria-expanded="@(isSettingsOpen.ToString().ToLower())"
        aria-controls="settingsSubMenu">
-        <img src="~/images/sidebar1-setting.png" alt="설정" width="32" height="32" class="me-2" />
-        <span class="flex-grow-1">설정</span>
-        <i class="bi bi-chevron-down toggle-icon"></i>
+        <img src="~/images/sidebar1-setting.png" alt="@(S["Sidebar_Menu3"])" width="32" height="32" class="me-2" />
+        <span class="flex-grow-1">@S["Sidebar_Menu3"]</span>
+        <!--<i class="bi bi-chevron-down toggle-icon"></i> -->
+        <i class="bi bi-chevron-down toggle-icon ms-auto"></i>
     </a>
 
     <div id="settingsSubMenu"
          class="collapse @(isSettingsOpen ? "show" : "")"
          data-bs-parent="#sidebar-accordion">
+
+        <!-- 사용자 설정 (Identity Razor Page) -->
         <a asp-area="Identity" asp-page="/Account/ChangeProfile" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-usersetting.png" alt="사용자 설정" width="28" height="28" class="me-2" />
-            <span>사용자 설정</span>
+            <img src="~/images/sidebar2-usersetting.png" alt="@(S["Sidebar_Menu3Sub1"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu3Sub1"]</span>
         </a>
-        <!-- _Sidebar.cshtml 예시 (설정 하위) -->
-        <a asp-controller="Mfa" asp-action="Setup" class="nav-link d-flex align-items-center mb-2">
-            <img src="~/images/sidebar2-usersetting.png" width="28" height="28" class="me-2" />
-            <span>2단계 인증(앱) 설정</span>
+
+        <!-- 2단계 인증 (루트 MVC 컨트롤러) -->
+        <a asp-area="" asp-controller="Mfa" asp-action="Setup" class="nav-link d-flex align-items-center mb-2">
+            <img src="~/images/sidebar2-user2fa.png" alt="@(S["Sidebar_Menu3Sub2"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu3Sub2"]</span>
         </a>
-        @* @  if (User.HasClaim("is_admin", "1") || User.HasClaim("is_admin", "2"))     { *@
-        <a class="nav-item"><a class="nav-link" asp-controller="Users" asp-action="Index">사용자 관리</a>
-        </a>
-        @* } *@
-        <a asp-controller="Role" asp-action="Index" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-authoritysetting.png" alt="권한 설정" width="28" height="28" class="me-2" />
-            <span>권한 설정</span>
+
+        @* 관리자만 노출 *@
+        @if (User.HasClaim("is_admin", "1") || User.HasClaim("is_admin", "2"))
+        {
+            <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "AdminUserProfile" ? "active" : "")"
+               asp-area="" asp-controller="AdminUserProfile" asp-action="Index">
+                <img src="~/images/sidebar2-usermanage.png"
+                     alt="@(S["Sidebar_AdminUserManage"])"
+                     width="28" height="28" class="me-2" />
+                <span>@S["Sidebar_AdminUserManage"]</span>
+            </a>
+        }
+
+        <!-- 권한 설정 (루트 MVC 컨트롤러) -->
+        <a asp-area="" asp-controller="Role" asp-action="Index" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-authoritysetting.png" alt="@(S["Sidebar_Menu3Sub3"])" width="28" height="28" class="me-2" />
+            <span>@S["Sidebar_Menu3Sub3"]</span>
         </a>
     </div>
 </nav>
