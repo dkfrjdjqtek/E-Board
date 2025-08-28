@@ -1,33 +1,97 @@
 ﻿/* ───────── 기본 세팅 ───────── */
-html {
-    font-size: 14px;
+
+/* 헤더 높이만 바꾸면 사이드바 sticky 자동 보정됩니다 */
+:root {
+    --header-h: 56px;
 }
 
-@media (min-width:768px) {
-    html {
-        font-size: 16px;
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden; /* 가로 스크롤 방지 */
+    height : auto;
+    min-height : 100%;
+    /* ↓ 아래 2가지는 제거합니다 (세로 스크롤 생성의 주범)
+       height: 100%;
+       min-height: 100%;
+    */
+}
+
+/* 전체 레이아웃 래퍼 (#shell: _Layout에 있음) */
+#shell {
+    min-height: 100dvh; /* 화면 높이 채우고 */
+    display: flex; /* 푸터를 바닥으로 밀기 위해 column */
+    flex-direction: column;
+}
+
+/* 메인 컨텐츠 래퍼 (#main: _Layout에 있음) */
+#main {
+    flex: 1 1 auto;
+    min-height: 0; /* 내부 스크롤 계산 시 필요 */
+    padding-block: 1rem;
+}
+
+/* ───────── 헤더(sticky-top) ───────── */
+/* 부트스트랩 .sticky-top이 z-index:1020라서 OK, 필요시만 조정 */
+.sticky-top {
+    z-index: 1030;
+}
+
+/* 실제 화면에서 DevTools로 측정한 헤더/푸터 높이를 넣어 주세요 */
+:root {
+    --header-h: 64px; /* navbar 실제 높이 (보통 56~64px) */
+    footer-h: 22px; /*--footer-h: 48px; /* footer 실제 높이 (텍스트 1줄 + padding) */
+}
+
+/* 페이지 전체 레이아웃 */
+#shell {
+    min-height: 100svh; /* 최신 뷰포트 단위 */
+    display: flex;
+    flex-direction: column;
+}
+
+/* 컨텐츠가 적을 때도 스크롤 안 생기도록 메인 최소 높이 보정 */
+#main {
+    flex: 1 1 auto;
+    min-height: calc(100svh - var(--header-h) - var(--footer-h) - 1px);
+    /* 필요하면 padding 조절 */
+    /* padding-block: 1rem; */
+}
+
+/* 사이드바: 헤더를 피해 sticky + 내부 스크롤, 높이 보정(-1px) */
+#sidebar-accordion {
+    position: sticky;
+    top: var(--header-h);
+    /*height: calc(100svh - var(--header-h) - 1px);*/
+    height: calc(100svh - var(--header-h));
+    overflow-y: auto;
+}
+
+/* 가로 스크롤 방지(혹시 모를 1px 오버 수평도 제거) */
+html, body {
+    overflow-x: hidden;
+}
+
+/* (선택) 부트스트랩 기본 보더·패딩으로 인한 1px 오버가 남으면 더 줄여도 됨 */
+@media (min-width: 0) {
+    #main {
+        min-height: calc(100svh - var(--header-h) - var(--footer-h) - 2px);
+    }
+
+    #sidebar-accordion {
+        height: calc(100svh - var(--header-h) - 2px);
     }
 }
 
-html {
-    position: relative;
-    min-height: 100%;
-}
 
-body {
-    margin-bottom: 60px;
-}
-
-/* 폼/버튼 포커스 */
-.btn:focus,
-.btn:active:focus,
-.btn-link.nav-link:focus,
-.form-control:focus,
-.form-check-input:focus {
-    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
-}
 /* ───────── 사이드바 (#sidebar-accordion) ───────── */
+
+/* 레이아웃(헤더) 아래에서 sticky + 내부 스크롤 */
 #sidebar-accordion {
+    position: sticky;
+    top: var(--header-h);
+    height: calc(100dvh - var(--header-h)) !important;
+    overflow-y: auto;
     width: 300px !important;
     min-width: 60px !important;
     background: #6c757d !important;
@@ -37,8 +101,9 @@ body {
 
     /* 링크: 한 줄, 전체폭, 플렉스 정렬 */
     #sidebar-accordion .nav-link {
-        display: flex !important; /* ← block 강제 해제 */
+        display: flex !important;
         align-items: center !important;
+        gap: .5rem;
         width: 100% !important;
         padding: .75rem 1rem !important;
         margin: 0 0 .5rem 0 !important;
@@ -46,10 +111,9 @@ body {
         color: #fff !important;
         text-decoration: none !important;
         white-space: nowrap !important; /* 줄바꿈 방지 */
-        gap: .5rem;
     }
 
-        /* hover/keyboard focus 시: 전체 영역 반전 */
+        /* hover/keyboard focus 시 스타일 */
         #sidebar-accordion .nav-link:hover,
         #sidebar-accordion .nav-link:focus {
             background: #4f5b66 !important;
@@ -65,7 +129,7 @@ body {
     }
 
         #sidebar-accordion > a.nav-link[aria-expanded="true"]:not(:hover):not(:focus) {
-            background: #6c757d !important;
+            background: #6c757d !important; /* 기본색 유지 */
             color: #fff !important;
         }
 
@@ -80,7 +144,7 @@ body {
         padding-left: calc(1rem + 2.25rem) !important;
     }
 
-    /* 아이콘/텍스트/캐럿 정렬 보정 */
+    /* 아이콘/텍스트/캐럿 정렬 */
     #sidebar-accordion .nav-link img {
         flex: 0 0 auto;
     }
@@ -89,7 +153,7 @@ body {
         flex: 1 1 auto;
         min-width: 0;
     }
-    /* 라벨 늘어나도 한 줄 */
+
     #sidebar-accordion .nav-link .toggle-icon {
         margin-left: auto; /* 항상 우측 끝 */
         transition: transform .2s ease;
@@ -97,7 +161,7 @@ body {
     }
 
     #sidebar-accordion .nav-link:not(.collapsed) .toggle-icon {
-        transform: rotate(180deg); /* 펼침 시 회전 */
+        transform: rotate(180deg);
     }
 
 /* ───────── 반응형 (아이콘만) ───────── */
@@ -114,4 +178,33 @@ body {
             #sidebar-accordion .nav-link span {
                 display: none !important;
             }
+}
+
+/* ───────── 포커스(폼/버튼) ───────── */
+.btn:focus,
+.btn:active:focus,
+.btn-link.nav-link:focus,
+.form-control:focus,
+.form-check-input:focus {
+    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+}
+
+/* ───────── 유효성 요약(Validation Summary) ───────── */
+.validation-summary-errors ul,
+.validation-summary-valid ul {
+    margin: 0;
+    padding-left: 0;
+}
+
+.validation-summary-errors li {
+    list-style: none;
+}
+
+.validation-summary-valid,
+.field-validation-valid {
+    display: none;
+}
+
+.validation-summary-errors {
+    display: block;
 }

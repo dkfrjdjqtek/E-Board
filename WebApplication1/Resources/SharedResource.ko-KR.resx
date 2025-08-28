@@ -245,7 +245,7 @@
     <value>비밀번호는 필수입니다.</value>
   </data>
   <data name="RP_Pwd_Len" xml:space="preserve">
-    <value>비밀번호는 최소 6자 이상이어야 합니다.</value>
+    <value>비밀번호는 최소 {2}자 이상이어야 합니다.</value>
   </data>
   <data name="RP_PwdConfirm_Label" xml:space="preserve">
     <value>비밀번호 확인</value>
@@ -297,5 +297,71 @@
   </data>
   <data name="Admin_ResetLink_GenerateBtn" xml:space="preserve">
     <value>재설정 링크 생성</value>
+  </data>
+  <data name="FPC_Message" xml:space="preserve">
+    <value>입력하신 메일로 비밀번호 재설정 링크를 전송했습니다.</value>
+  </data>
+  <data name="FPC_BTN_BackToLogin" xml:space="preserve">
+    <value>로그인 되돌아가기</value>
+  </data>
+  <data name="FP_UserName_Label" xml:space="preserve">
+    <value>아이디</value>
+  </data>
+  <data name="FP_UserName_Placeholder" xml:space="preserve">
+    <value>아이디를 입력하세요.</value>
+  </data>
+  <data name="FP_UserName_Required" xml:space="preserve">
+    <value>아이디는 필수입니다.</value>
+  </data>
+  <data name="FP_Email_Label" xml:space="preserve">
+    <value>이메일</value>
+  </data>
+  <data name="FP_Email_Placeholder" xml:space="preserve">
+    <value>이메일을 입력하세요.</value>
+  </data>
+  <data name="FP_Email_Required" xml:space="preserve">
+    <value>이메일은 필수입니다.</value>
+  </data>
+  <data name="FP_Email_Invalid" xml:space="preserve">
+    <value>올바른 이메일 형식이 아닙니다.</value>
+  </data>
+  <data name="FP_SendButton" xml:space="preserve">
+    <value>재설정 링크 보내기</value>
+  </data>
+  <data name="FP_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 비밀번호 재설정 안내</value>
+  </data>
+  <data name="FP_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;
+  &lt;h2 style="margin:0 0 12px"&gt;비밀번호 재설정&lt;/h2&gt;
+
+  &lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;
+  &lt;p&gt;아래 버튼을 클릭하시면 계정의 비밀번호를 재설정하실 수 있습니다.&lt;/p&gt;
+
+  &lt;p style="margin:20px 0"&gt;
+    &lt;a href="{1}"
+       style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;
+              text-decoration:none;display:inline-block"&gt;비밀번호 재설정&lt;/a&gt;
+  &lt;/p&gt;
+
+  &lt;p style="color:#6c757d;margin:8px 0 0"&gt;
+    이 링크는 &lt;strong&gt;수신된 시간으로부터 30분간&lt;/strong&gt; 유효합니다.
+  &lt;/p&gt;
+
+  &lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;
+  &lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;
+
+  &lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;
+
+  &lt;p style="color:#6c757d"&gt;
+    본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.
+  &lt;/p&gt;
+&lt;/body&gt;</value>
+  </data>
+  <data name="FPC_Title" xml:space="preserve">
+    <value>비밀번호 재설정 확인</value>
+  </data>
+  <data name="RP_Email_Invalid" xml:space="preserve">
+    <value>올바른 이메일 형식이 아닙니다.</value>
   </data>
 </root>

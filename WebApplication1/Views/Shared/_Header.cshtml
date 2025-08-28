@@ -2,8 +2,8 @@
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @using Microsoft.AspNetCore.Http.Extensions
 
-
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark flex-shrink-0">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+    
     <div class="container-fluid">
         <!-- 왼쪽 로고 + 타이틀 -->
         <a class="navbar-brand d-flex align-items-center" href="@Url.Action("Index","Home")">
@@ -48,6 +48,7 @@
                     {
                         <li>
                             <a class="dropdown-item d-flex align-items-center gap-2 @(c.Code==current.Code?"active":"")"
+                               asp-area=""
                                asp-controller="Language" asp-action="Set"
                                asp-route-culture="@c.Code"
                                asp-route-returnUrl="@returnUrl">
@@ -67,7 +68,7 @@
             <!-- 로그인/회원가입 -->
             @if (User.Identity?.IsAuthenticated ?? false)
             {
-                <form asp-controller="Account" asp-action="Logout" method="post"
+                    <form asp-area="" asp-controller="Account" asp-action="Logout" method="post"
                       class="d-flex align-items-center m-0">
                     @Html.AntiForgeryToken()
                     <img src="~/images/sidebar1-logout.png"
@@ -82,14 +83,14 @@
             }
             else
             {
-                <a asp-controller="Account" asp-action="Login"
+                    <a asp-area="" asp-controller="Account" asp-action="Login"
                    class="nav-link d-flex align-items-center me-3 p-0 text-light">
                         <img src="~/images/sidebar1-login.png"
                              alt="@(S["Header_LogIn"])" width="38" height="38"
                          class="nav-link text-light me-2" />
                         <span>@S["Header_LogIn"]</span>
                 </a>
-                <a asp-controller="Account" asp-action="Register"
+                    <a asp-area="" asp-controller="Account" asp-action="Register"
                    class="nav-link d-flex align-items-center p-0 text-light">
                         <img src="~/images/sidebar1-login.png"
                              alt="@(S["Header_Register"])"
