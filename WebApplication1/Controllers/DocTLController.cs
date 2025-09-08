@@ -1,19 +1,21 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// 2025.09.09
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Security.Claims;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.IO;
-using System.Linq;
-using System.Security.Claims;
-using ClosedXML.Excel;
 using WebApplication1.Data;
 using WebApplication1.Models;
 
 namespace WebApplication1.Controllers
 {
+    // 2025.09.09
     [Authorize]
     [Route("DocumentTemplates")]
     public class DocTLController : Controller
@@ -22,6 +24,7 @@ namespace WebApplication1.Controllers
         private readonly IStringLocalizer<SharedResource> _S;
         private readonly IWebHostEnvironment _env;
 
+        // 2025.09.09
         public DocTLController(ApplicationDbContext db, IStringLocalizer<SharedResource> S, IWebHostEnvironment env)
         {
             _db = db;
@@ -29,208 +32,114 @@ namespace WebApplication1.Controllers
             _env = env;
         }
 
-        // ── Claims helpers ──────────────────────────────────────────────────────
+        // 2025.09.09
+        private static bool IsExcelOpenXml(IFormFile f)
+        {
+            if (f is null || f.Length == 0) return false;
+            var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
+            return ext == ".xlsx" || ext == ".xlsm";
+        }
+
+        // 2025.09.09
         private string? CurrentUserId()
         {
-            return User?.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? User?.FindFirst("sub")?.Value;
+            return User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         }
 
-        private string? GetClaim(params string[] keys)
+        // 2025.09.09
+        private async Task<(bool ok, string userName, string compCd, string compName, int? deptId, string? deptName, int adminLevel)> GetUserContextAsync()
         {
-            foreach (var k in keys)
-            {
-                var v = User?.FindFirst(k)?.Value;
-                if (!string.IsNullOrWhiteSpace(v)) return v;
-            }
-            return null;
-        }
-
-        private bool IsAdminUser() =>
-            User.HasClaim("is_admin", "1") || User.HasClaim("is_admin", "2")
-            || (User?.IsInRole("Admin") ?? false) || (User?.IsInRole("Administrator") ?? false);
-
-        private int GetAdminLevel()
-        {
-            if (User.HasClaim("is_admin", "2") || (User?.IsInRole("Administrator") ?? false)) return 2;
-            if (User.HasClaim("is_admin", "1") || (User?.IsInRole("Admin") ?? false)) return 1;
-            return 0;
-        }
-
-        // CompCd 문자열을 CompMasters에 맞춰 정규화(코드/이름 모두 허용)
-        private async Task<string?> NormalizeCompCdAsync(string? compClaim)
-        {
-            if (string.IsNullOrWhiteSpace(compClaim)) return null;
-            var cd = await _db.CompMasters
-                .Where(c => c.CompCd == compClaim || c.Name == compClaim)
-                .Select(c => c.CompCd)
-                .FirstOrDefaultAsync();
-            return cd ?? compClaim;
-        }
-
-        // DB(UserProfiles) 또는 클레임으로 사용자 사업장 결정
-        private async Task<(string compCd, string compName)> ResolveUserCompAsync()
-        {
-            // DB 우선
             var uid = CurrentUserId();
-            if (!string.IsNullOrEmpty(uid))
+            if (string.IsNullOrWhiteSpace(uid))
+                return (false, "", "", "", null, null, 0);
+
+            var profile = await _db.UserProfiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.UserId == uid);
+
+            var userName = User?.Identity?.Name ?? profile?.DisplayName ?? "";
+
+            string compCd = profile?.CompCd ?? "";
+            string compName = "";
+            if (!string.IsNullOrWhiteSpace(compCd))
             {
-                var up = await _db.UserProfiles.AsNoTracking()
-                    .Where(p => p.UserId == uid)
-                    .Select(p => p.CompCd)
+                compName = await _db.CompMasters
+                    .Where(c => c.CompCd == compCd)
+                    .Select(c => c.Name)
+                    .FirstOrDefaultAsync() ?? "";
+            }
+
+            int? deptId = profile?.DepartmentId;
+            string? deptName = null;
+            if (deptId.HasValue)
+            {
+                deptName = await _db.DepartmentMasters
+                    .Where(d => d.Id == deptId.Value)
+                    .Select(d => d.Name)
                     .FirstOrDefaultAsync();
-
-                if (!string.IsNullOrWhiteSpace(up))
-                {
-                    var row = await _db.CompMasters.AsNoTracking()
-                                .Where(c => c.CompCd == up)
-                                .Select(c => new { c.CompCd, c.Name })
-                                .FirstOrDefaultAsync();
-                    if (row != null) return (row.CompCd, row.Name);
-                }
             }
 
-            // 폴백: 클레임 → 정규화
-            var claim = GetClaim("CompCd", "compcd", "COMP_CD", "comp", "site", "Site") ?? "";
-            var norm = await NormalizeCompCdAsync(claim) ?? "";
-            var found = await _db.CompMasters.AsNoTracking()
-                            .Where(c => c.CompCd == norm)
-                            .Select(c => new { c.CompCd, c.Name })
-                            .FirstOrDefaultAsync();
+            int adminLevel = profile?.IsAdmin ?? 0;
 
-            if (found != null) return (found.CompCd, found.Name);
-
-            var first = await _db.CompMasters.AsNoTracking()
-                           .OrderBy(c => c.CompCd)
-                           .Select(c => new { c.CompCd, c.Name })
-                           .FirstOrDefaultAsync();
-            return first is null ? ("", "") : (first.CompCd, first.Name);
+            return (true, userName, compCd, compName, deptId, deptName, adminLevel);
         }
 
-        // 클레임/이름/코드로 부서 Id 추적
-        private async Task<int?> ResolveUserDeptIdAsync(string compCd)
-        {
-            var rawId = GetClaim("DepartmentId", "departmentid", "DeptId", "deptid", "DEPT_ID", "DeptID");
-            var rawCode = GetClaim("DepartmentCode", "departmentcode", "DeptCode", "deptcode", "DEPT_CODE");
-            var rawName = GetClaim("DepartmentName", "departmentname", "DeptName", "deptname", "DEPT_NAME", "Dept");
-
-            if (!string.IsNullOrWhiteSpace(rawId) && int.TryParse(rawId, out var idParsed))
-                return idParsed;
-
-            // ← 여기서 구체 타입 명시로 인한 CS0234가 났었습니다. var로 변경.
-            var q = _db.DepartmentMasters.AsNoTracking().Where(d => d.CompCd == compCd);
-
-            if (!string.IsNullOrWhiteSpace(rawCode))
-            {
-                var byCode = await q.Where(d => d.Code == rawCode)
-                                    .Select(d => (int?)d.Id).FirstOrDefaultAsync();
-                if (byCode.HasValue) return byCode.Value;
-            }
-
-            if (!string.IsNullOrWhiteSpace(rawName))
-            {
-                var byName = await q.Where(d => d.Name == rawName)
-                                    .Select(d => (int?)d.Id).FirstOrDefaultAsync();
-                if (byName.HasValue) return byName.Value;
-            }
-
-            if (!string.IsNullOrWhiteSpace(rawId))
-            {
-                var byStr = await q.Where(d => d.Code == rawId || d.Name == rawId)
-                                   .Select(d => (int?)d.Id).FirstOrDefaultAsync();
-                if (byStr.HasValue) return byStr.Value;
-            }
-
-            return null;
-        }
-
-        // ── Actions ────────────────────────────────────────────────────────────
-        [HttpGet("", Name = "DocumentTemplates.Index")]
+        // 2025.09.09 GET /
+        [HttpGet("")]
         public async Task<IActionResult> Index()
         {
             var vm = new DocTLViewModel();
 
-            var adminLevel = GetAdminLevel();
-            ViewBag.IsAdmin = adminLevel > 0;
+            var ctx = await GetUserContextAsync();
 
-            var userName = GetClaim("name", "Name", "nickname", "preferred_username") ?? (User?.Identity?.Name ?? "");
+            ViewBag.IsAdmin = ctx.adminLevel > 0;
+            ViewBag.AdminLevel = ctx.adminLevel;
+            ViewBag.UserName = ctx.userName;
+            ViewBag.UserCompCd = ctx.compCd;
+            ViewBag.CompName = ctx.compName;
+            ViewBag.UserDepartmentId = ctx.deptId;
+            ViewBag.DeptName = ctx.deptName ?? _S["_CM_Common"];
 
-            // DB(UserProfiles) 우선
-            string? dbCompCd = null; int? dbDeptId = null;
-            var uid = CurrentUserId();
-            if (!string.IsNullOrEmpty(uid))
+            vm.CompOptions = await _db.CompMasters
+                .OrderBy(c => c.CompCd)
+                .Select(c => new SelectListItem
+                {
+                    Value = c.CompCd,       // 내부코드
+                    Text = c.Name,          // 표시명(MN/NS 등)
+                    Selected = c.CompCd == ctx.compCd
+                })
+                .ToListAsync();
+
+            // 부서 콤보 초기 2항목
+            vm.DepartmentOptions.Add(new SelectListItem
             {
-                var up = await _db.UserProfiles.AsNoTracking()
-                    .Where(p => p.UserId == uid)
-                    .Select(p => new { p.CompCd, p.DepartmentId })
-                    .FirstOrDefaultAsync();
-                dbCompCd = up?.CompCd;
-                dbDeptId = up?.DepartmentId;
-            }
-
-            // 클레임 폴백 + 정규화
-            var claimComp = GetClaim("CompCd", "compcd", "COMP_CD") ?? "";
-            var normCompCd = await NormalizeCompCdAsync(dbCompCd ?? claimComp) ?? "";
-
-            // 사업장 드롭다운
-            var comps = await _db.CompMasters.OrderBy(c => c.CompCd).ToListAsync();
-            var selectedComp = comps.FirstOrDefault(c => c.CompCd == normCompCd) ?? comps.FirstOrDefault();
-
-            vm.CompOptions = comps.Select(c => new SelectListItem
+                Value = "__SELECT__",
+                Text = $"--{_S["_CM_Select"]}--",
+                Selected = true
+            });
+            vm.DepartmentOptions.Add(new SelectListItem
             {
-                Value = c.CompCd,
-                Text = c.Name,
-                Selected = selectedComp != null && c.CompCd == selectedComp.CompCd
-            }).ToList();
-
-            // 부서 콤보 기본 2개
-            vm.DepartmentOptions.Add(new SelectListItem { Value = "__SELECT__", Text = $"--{_S["_CM_Select"]}--", Selected = true });
-            vm.DepartmentOptions.Add(new SelectListItem { Value = "", Text = $"--{_S["_CM_Common"]}--" });
-
-            ViewBag.UserName = userName;
-            ViewBag.UserCompCd = selectedComp?.CompCd ?? "";
-            ViewBag.CompName = selectedComp?.Name ?? "";
-
-            // 표시용 부서명
-            string? deptName = null;
-            if ((dbDeptId ?? 0) > 0)
-                deptName = await _db.DepartmentMasters
-                            .Where(d => d.Id == dbDeptId)
-                            .Select(d => d.Name)
-                            .FirstOrDefaultAsync();
-            ViewBag.DeptName = deptName ?? "";
-            ViewBag.AdminLevel = adminLevel;
+                Value = "",
+                Text = $"--{_S["_CM_Common"]}--"
+            });
 
             return View("DocTL", vm);
         }
 
+        // 2025.09.09 GET /get-departments
         [HttpGet("get-departments")]
         public async Task<IActionResult> GetDepartments([FromQuery] string compCd)
         {
-            var admin = IsAdminUser();
+            var ctx = await GetUserContextAsync();
+            var isAdmin = ctx.adminLevel > 0;
 
-            // DB(UserProfiles) 우선
-            string? dbCompCd = null; int? dbDeptId = null;
-            var uid = CurrentUserId();
-            if (!string.IsNullOrEmpty(uid))
-            {
-                var up = await _db.UserProfiles.AsNoTracking()
-                    .Where(p => p.UserId == uid)
-                    .Select(p => new { p.CompCd, p.DepartmentId })
-                    .FirstOrDefaultAsync();
-                dbCompCd = up?.CompCd;
-                dbDeptId = up?.DepartmentId;
-            }
+            if (!isAdmin)
+                compCd = ctx.compCd;
 
-            var claimComp = GetClaim("CompCd", "compcd", "COMP_CD") ?? "";
-            var userCompCd = await NormalizeCompCdAsync(dbCompCd ?? claimComp) ?? "";
-
-            if (!admin) compCd = userCompCd;
-
-            var itemsCore = Enumerable.Empty<object>();
+            var list = Enumerable.Empty<object>();
             if (!string.IsNullOrWhiteSpace(compCd))
             {
-                itemsCore = await _db.DepartmentMasters
+                list = await _db.DepartmentMasters
                     .Where(d => d.CompCd == compCd)
                     .OrderBy(d => d.Name)
                     .Select(d => new { id = d.Id, text = d.Name })
@@ -241,40 +150,36 @@ namespace WebApplication1.Controllers
             {
                 new { id = "__SELECT__", text = $"--{_S["_CM_Select"]}--" },
                 new { id = (int?)null,   text = $"--{_S["_CM_Common"]}--" }
-            }.Concat(itemsCore);
+            }.Concat(list);
 
-            string selectedValue;
-            var effDept = dbDeptId ?? 0;
-            if (!admin)
-                selectedValue = effDept > 0 ? effDept.ToString() : "";
-            else
-                selectedValue = string.Equals(compCd, userCompCd, StringComparison.OrdinalIgnoreCase)
-                    ? (effDept > 0 ? effDept.ToString() : "")
+            var selectedValue =
+                (!isAdmin || string.Equals(compCd, ctx.compCd, StringComparison.OrdinalIgnoreCase))
+                    ? (ctx.deptId?.ToString() ?? "")
                     : "__SELECT__";
 
             return Ok(new { items, selectedValue });
         }
 
+        // 2025.09.09 GET /get-documents
         [HttpGet("get-documents")]
         public async Task<IActionResult> GetDocuments([FromQuery] string compCd, [FromQuery] int? departmentId)
         {
-            if (!IsAdminUser())
-            {
-                string? dbCompCd = null;
-                var uid = CurrentUserId();
-                if (!string.IsNullOrEmpty(uid))
-                    dbCompCd = await _db.UserProfiles.AsNoTracking()
-                                .Where(p => p.UserId == uid)
-                                .Select(p => p.CompCd)
-                                .FirstOrDefaultAsync();
+            var ctx = await GetUserContextAsync();
+            if (ctx.adminLevel == 0)
+                compCd = ctx.compCd;
 
-                var claimComp = GetClaim("CompCd", "compcd", "COMP_CD") ?? "";
-                compCd = await NormalizeCompCdAsync(dbCompCd ?? claimComp) ?? compCd;
-            }
-            // 아직 목록은 더미
+            // 실제 목록 연결 전까지 빈 목록
             return Ok(new { items = Array.Empty<object>() });
         }
 
+        // 2025.09.09 GET /new-template
+        [HttpGet("new-template")]
+        public IActionResult NewTemplate([FromQuery] string? compCd, [FromQuery] int? departmentId)
+        {
+            return View();
+        }
+
+        // 2025.09.09 GET /open
         [HttpGet("open")]
         public IActionResult Open([FromQuery] string compCd, [FromQuery] int? departmentId, [FromQuery] string docCode)
         {
@@ -282,12 +187,7 @@ namespace WebApplication1.Controllers
             return Content($"[OPEN] compCd={compCd}, dept={dept}, doc={docCode}");
         }
 
-        [HttpGet("new-template")]
-        public IActionResult NewTemplate([FromQuery] string? compCd, [FromQuery] int? departmentId)
-        {
-            return View();
-        }
-
+        // 2025.09.09 POST /new-template
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd,
@@ -296,42 +196,45 @@ namespace WebApplication1.Controllers
                                                          [FromForm] string docName,
                                                          [FromForm] IFormFile? excelFile)
         {
-            if (!IsAdminUser())
-            {
-                var resolved = await ResolveUserCompAsync();
-                compCd = resolved.compCd;
-            }
+            var ctx = await GetUserContextAsync();
+            if (ctx.adminLevel == 0)
+                compCd = ctx.compCd;
 
             if (string.IsNullOrWhiteSpace(compCd))
             {
                 TempData["Alert"] = _S["DTL_Alert_SiteRequired"];
-                return RedirectToRoute("DocumentTemplates.Index");
+                return RedirectToAction(nameof(Index));
             }
             if (string.IsNullOrWhiteSpace(docName))
             {
                 TempData["Alert"] = _S["DTL_Alert_EnterDocName"];
-                return RedirectToRoute("DocumentTemplates.Index");
+                return RedirectToAction(nameof(Index));
             }
             if (excelFile is null || excelFile.Length == 0)
             {
                 TempData["Alert"] = _S["DTL_Alert_ExcelRequired"];
-                return RedirectToRoute("DocumentTemplates.Index");
+                return RedirectToAction(nameof(Index));
             }
             if (!IsExcelOpenXml(excelFile))
             {
                 TempData["Alert"] = _S["DTL_Alert_ExcelOpenXmlOnly"];
-                return RedirectToRoute("DocumentTemplates.Index");
+                return RedirectToAction(nameof(Index));
             }
 
+            // 업로드 원본 보관
             var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates", "files");
             Directory.CreateDirectory(baseDir);
+
             static string Safe(string s) => string.Concat((s ?? string.Empty).Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_'));
+
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var ext = Path.GetExtension(excelFile.FileName).ToLowerInvariant();
             var fileName = $"{Safe(compCd!)}_{Safe(docName)}_{stamp}_{Guid.NewGuid():N}{ext}";
             var excelPath = Path.Combine(baseDir, fileName);
+
             using (var fs = System.IO.File.Create(excelPath))
                 await excelFile.CopyToAsync(fs);
+
             ViewBag.ExcelPath = excelPath;
 
             using var wb = new XLWorkbook(excelPath);
@@ -365,13 +268,14 @@ namespace WebApplication1.Controllers
             return View("DocTLMap");
         }
 
-        // ── Excel parser ────────────────────────────────────────────────────────
+        // 2025.09.09 ===== Excel Parser =====
         private sealed class MetaInfo
         {
             public int? ApprovalCount { get; set; }
             public string? TitleCell { get; set; }
         }
 
+        // 2025.09.09
         private MetaInfo ReadMetaCX(XLWorkbook wb)
         {
             var meta = new MetaInfo();
@@ -386,17 +290,17 @@ namespace WebApplication1.Controllers
 
                 if (string.Equals(key, "ApprovalCount", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var n))
                     meta.ApprovalCount = n;
+
                 if (string.Equals(key, "TitleCell", StringComparison.OrdinalIgnoreCase))
                     meta.TitleCell = val;
             }
             return meta;
         }
 
+        // 2025.09.09
         private string? ResolveTitleByNameOrMetaCX(XLWorkbook wb, MetaInfo meta)
         {
-#pragma warning disable CS0618
             var nr = wb.NamedRanges.FirstOrDefault(n => string.Equals(n.Name, "F_Title", StringComparison.OrdinalIgnoreCase));
-#pragma warning restore CS0618
             if (nr != null && nr.Ranges.Any())
                 return nr.Ranges.First().FirstCell().GetString().Trim();
 
@@ -409,11 +313,15 @@ namespace WebApplication1.Controllers
                     var ws = parts.Length == 2 ? wb.Worksheets.Worksheet(parts[0]) : wb.Worksheets.First();
                     return ws.Cell(addr).GetString().Trim();
                 }
-                catch { }
+                catch
+                {
+                    // ignore
+                }
             }
             return null;
         }
 
+        // 2025.09.09
         private sealed class CommentParseResultCX
         {
             public string? Title { get; set; }
@@ -422,6 +330,7 @@ namespace WebApplication1.Controllers
             public List<ApprovalDef> Approvals { get; set; } = new();
         }
 
+        // 2025.09.09
         private static Dictionary<string, string> ParseCommentTags(string text)
         {
             var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -431,18 +340,23 @@ namespace WebApplication1.Controllers
             {
                 var line = raw.Trim();
                 if (line.Length == 0) continue;
+
                 var eq = line.IndexOf('=');
                 var col = line.IndexOf(':');
                 var pos = (eq >= 0 && col >= 0) ? Math.Min(eq, col) : (eq >= 0 ? eq : col);
+
                 if (pos <= 0) continue;
+
                 var k = line[..pos].Trim();
                 var v = line[(pos + 1)..].Trim();
                 if (k.Length == 0) continue;
+
                 dict[k] = v;
             }
             return dict;
         }
 
+        // 2025.09.09
         private CommentParseResultCX ParseByCommentsCX(XLWorkbook wb)
         {
             var result = new CommentParseResultCX();
@@ -464,24 +378,42 @@ namespace WebApplication1.Controllers
                     if (tags.TryGetValue("Field", out var key) && !string.IsNullOrWhiteSpace(key))
                     {
                         var type = tags.TryGetValue("Type", out var t) && !string.IsNullOrWhiteSpace(t)
-                                   ? NormalizeType(t)
-                                   : TryInferTypeFromValidationCX(ws, cell) ?? "Text";
+                            ? NormalizeType(t)
+                            : TryInferTypeFromValidationCX(ws, cell) ?? "Text";
 
-                        result.Fields.Add(new FieldDef { Key = key.Trim(), Type = type, Cell = ToCellRef(cell) });
+                        result.Fields.Add(new FieldDef
+                        {
+                            Key = key.Trim(),
+                            Type = type,
+                            Cell = ToCellRef(cell)
+                        });
                         continue;
                     }
 
-                    if (tags.TryGetValue("Approval", out var slotStr) && int.TryParse(slotStr, out int slot)
-                        && tags.TryGetValue("Part", out var part) && !string.IsNullOrWhiteSpace(part))
+                    if (tags.TryGetValue("Approval", out var slotStr) &&
+                        int.TryParse(slotStr, out int slot) &&
+                        tags.TryGetValue("Part", out var part) &&
+                        !string.IsNullOrWhiteSpace(part))
                     {
-                        result.Approvals.Add(new ApprovalDef { Slot = slot, Part = part.Trim(), Cell = ToCellRef(cell) });
+                        result.Approvals.Add(new ApprovalDef
+                        {
+                            Slot = slot,
+                            Part = part.Trim(),
+                            Cell = ToCellRef(cell)
+                        });
                         if (slot > result.MaxApprovalSlot) result.MaxApprovalSlot = slot;
                         continue;
                     }
 
-                    if (tags.TryGetValue("ApprovalKey", out var ak) && TryParseApprovalKey(ak, out int s, out string p))
+                    if (tags.TryGetValue("ApprovalKey", out var ak) &&
+                        TryParseApprovalKey(ak, out int s, out string p))
                     {
-                        result.Approvals.Add(new ApprovalDef { Slot = s, Part = p, Cell = ToCellRef(cell) });
+                        result.Approvals.Add(new ApprovalDef
+                        {
+                            Slot = s,
+                            Part = p,
+                            Cell = ToCellRef(cell)
+                        });
                         if (s > result.MaxApprovalSlot) result.MaxApprovalSlot = s;
                         continue;
                     }
@@ -495,15 +427,16 @@ namespace WebApplication1.Controllers
                 .ToList();
 
             result.Approvals = result.Approvals
-                 .GroupBy(a => new { a.Slot, Part = a.Part.ToLowerInvariant() })
-                 .Select(g => g.Last())
-                 .OrderBy(a => a.Slot)
-                 .ThenBy(a => a.Part, StringComparer.OrdinalIgnoreCase)
-                 .ToList();
+                .GroupBy(a => new { a.Slot, Part = a.Part.ToLowerInvariant() })
+                .Select(g => g.Last())
+                .OrderBy(a => a.Slot)
+                .ThenBy(a => a.Part, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             return result;
         }
 
+        // 2025.09.09
         private static string NormalizeType(string t)
         {
             t = t.Trim().ToLowerInvariant();
@@ -512,6 +445,7 @@ namespace WebApplication1.Controllers
             return "Text";
         }
 
+        // 2025.09.09
         private static string? TryInferTypeFromValidationCX(IXLWorksheet ws, IXLCell cell)
         {
             foreach (var dv in ws.DataValidations)
@@ -529,17 +463,22 @@ namespace WebApplication1.Controllers
             return null;
         }
 
+        // 2025.09.09
         private static bool TryParseApprovalKey(string input, out int slot, out string part)
         {
-            slot = 0; part = "";
+            slot = 0;
+            part = "";
             if (string.IsNullOrWhiteSpace(input)) return false;
+
             var m = Regex.Match(input, @"^A(\d+)_(\w+)$", RegexOptions.IgnoreCase);
             if (!m.Success) return false;
+
             slot = int.Parse(m.Groups[1].Value);
             part = m.Groups[2].Value;
             return true;
         }
 
+        // 2025.09.09
         private static CellRef ToCellRef(IXLCell cell)
         {
             var ws = cell.Worksheet;
@@ -562,7 +501,7 @@ namespace WebApplication1.Controllers
             };
         }
 
-        // ── POCO ────────────────────────────────────────────────────────────────
+        // 2025.09.09 ===== POCO =====
         public sealed class TemplateDescriptor
         {
             public string CompCd { get; set; } = default!;
@@ -599,7 +538,7 @@ namespace WebApplication1.Controllers
             public string A1 { get; set; } = "";
         }
 
-        // ── Map Save ───────────────────────────────────────────────────────────
+        // 2025.09.09 POST /map-save
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
         public IActionResult MapSave([FromForm] string descriptor, [FromForm] string? excelPath)
@@ -608,14 +547,22 @@ namespace WebApplication1.Controllers
                 return BadRequest("No descriptor");
 
             TemplateDescriptor? model;
-            try { model = JsonSerializer.Deserialize<TemplateDescriptor>(descriptor); }
-            catch { return BadRequest("Invalid descriptor"); }
+            try
+            {
+                model = JsonSerializer.Deserialize<TemplateDescriptor>(descriptor);
+            }
+            catch
+            {
+                return BadRequest("Invalid descriptor");
+            }
+
             if (model == null) return BadRequest("Empty descriptor");
 
             var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
             Directory.CreateDirectory(baseDir);
 
             static string Safe(string s) => string.Concat(s.Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_'));
+
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var name = $"{Safe(model.CompCd)}_{Safe(model.DocName)}_{stamp}_{Guid.NewGuid():N}.json";
             var path = Path.Combine(baseDir, name);

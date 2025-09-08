@@ -1,11 +1,12 @@
 ﻿@model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
+    // 2025.09.09
     ViewData["Title"] = S["DTL_Title_DocManage"];
-    var isAdmin = (bool)(ViewBag.IsAdmin ?? false); // 2025.09.08
+    var isAdmin = (bool)(ViewBag.IsAdmin ?? false);
 }
 <style>
-    /* 2025.09.08 */
+    /* 2025.09.09 */
     .flex-eq {
         flex: 1 0 0;
         min-width: 0;
@@ -18,6 +19,7 @@
 
 <div class="container-fluid py-3">
     <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <!-- 2025.09.09 Site -->
         <div>
             <label class="form-label mb-1">@S["DTL_Label_Site"]</label>
             <select id="compSelect" class="form-select form-select-sm" name="SelectedCompCd" @(isAdmin ? "" : "disabled")>
@@ -26,17 +28,16 @@
                     if (it.Selected)
                     {
                         <option selected value="@it.Value">@it.Text</option>
-                        ;
                     }
                     else
                     {
                         <option value="@it.Value">@it.Text</option>
-                        ;
                     }
                 }
             </select>
         </div>
 
+        <!-- 2025.09.09 Department -->
         <div>
             <label class="form-label mb-1">@S["DTL_Label_Dept"]</label>
             <select id="deptSelect" class="form-select form-select-sm" name="SelectedDepartmentId">
@@ -45,17 +46,16 @@
                     if (it.Selected)
                     {
                         <option selected value="@it.Value">@it.Text</option>
-                        ;
                     }
                     else
                     {
                         <option value="@it.Value">@it.Text</option>
-                        ;
                     }
                 }
             </select>
         </div>
 
+        <!-- 2025.09.09 Type + Document Name -->
         <div class="d-flex flex-grow-1 gap-2" style="min-width:360px;">
             <div class="flex-eq">
                 <label class="form-label mb-1">@S["DTL_Label_Kind"]</label>
@@ -67,12 +67,12 @@
                     @foreach (var it in Model.DocumentOptions)
                     {
                         <option value="@it.Value">@it.Text</option>
-                        ;
                     }
                 </select>
             </div>
         </div>
 
+        <!-- 2025.09.09 Buttons -->
         <div class="d-flex align-items-end gap-2 ms-auto" style="width:360px;">
             <a id="btnLoad" class="btn btn-secondary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_Load"]</a>
             <a id="btnNewTemplate" class="btn btn-primary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_NewTemplate"]</a>
@@ -84,6 +84,7 @@
 
 @section Scripts {
     <script>
+        // 2025.09.09
         (function () {
             const BASE = "/DocumentTemplates";
 
@@ -106,7 +107,7 @@
                 clearOptions(sel);
                 for (const it of (items || [])) {
                     const op = document.createElement('option');
-                    op.value = (it.id ?? '').toString(); // null -> ""(공용), "__SELECT__" 유지
+                    op.value = (it.id ?? '').toString();
                     op.text = it.text ?? '';
                     sel.add(op);
                 }
@@ -130,6 +131,7 @@
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 fillOptions(deptSel, data.items || []);
 
+                // 서버에서 selectedValue 제공: "123" | "" | "__SELECT__"
                 let target = "__SELECT__";
                 if (typeof data.selectedValue !== 'undefined') {
                     const want = String(data.selectedValue);
@@ -181,7 +183,7 @@
     </script>
 
     <script>
-        // 2025.09.08 배너
+        // 2025.09.09 상단 배너에 사용자 컨텍스트 표시
         (function () {
             const USER_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserName ?? "")));
             const USER_COMP = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserCompCd ?? "")));
@@ -197,17 +199,19 @@
 
             const text = parts.join(" · ");
 
-            window.addEventListener('load', () => {
+            window.addEventListener('load', () => showBanner(text));
+
+            function showBanner(message) {
                 const wrap = document.createElement('div');
                 wrap.className = 'position-fixed top-0 end-0 p-3';
                 wrap.style.zIndex = '1080';
                 wrap.innerHTML =
                     `<div class="alert alert-primary border shadow-sm mb-0" role="alert" style="min-width: 28rem;">
-                        ${text}
-                     </div>`;
+                                ${message}
+                             </div>`;
                 document.body.appendChild(wrap);
                 setTimeout(() => wrap.remove(), 5000);
-            });
+            }
         })();
     </script>
 }
