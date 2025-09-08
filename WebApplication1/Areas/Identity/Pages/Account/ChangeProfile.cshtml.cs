@@ -1,18 +1,18 @@
-﻿// Areas/Identity/Pages/Account/ChangeProfile.cshtml.cs
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Localization;
+using System.Globalization;
+using System.Text.Encodings.Web;
 using WebApplication1.Data;
 using WebApplication1.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.AspNetCore.Identity.UI.Services;
-using System.Text.Encodings.Web;
 
 namespace WebApplication1.Areas.Identity.Pages.Account
 {
@@ -22,74 +22,106 @@ namespace WebApplication1.Areas.Identity.Pages.Account
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly ApplicationDbContext _db;
-        private readonly ILogger<ChangeProfileModel> _logger;
         private readonly IEmailSender _emailSender;
+        private readonly IStringLocalizer<SharedResource> _S;
 
-        [TempData] public string? DevEmailLink { get; set; }
+        private static string Ui2() => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
         public ChangeProfileModel(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
             ApplicationDbContext db,
-            ILogger<ChangeProfileModel> logger,
-            IEmailSender emailSender)
+            IEmailSender emailSender,
+            IStringLocalizer<SharedResource> s)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _db = db;
-            _logger = logger;
             _emailSender = emailSender;
+            _S = s;
         }
 
-        // ===== ViewModels =====
         public class InputModel
         {
-            [EmailAddress, Display(Name = "E-Mail")]
+            [EmailAddress(ErrorMessage = "CP_Email_Invalid")]
+            [Display(Name = "CP_Email_Label")]
+            [Required(ErrorMessage = "CP_Email_Req")]
             public string? Email { get; set; }
 
-            [Display(Name = "ID")]
-            public string? UserName { get; set; }   // 읽기전용 표시
+            [Display(Name = "CP_UserName_Label")]
+            public string? UserName { get; set; }
 
-            [Display(Name = "부서")] public int? DepartmentId { get; set; }
-            [Display(Name = "직급")] public int? PositionId { get; set; }
-            [Display(Name = "이름")] public string? DisplayName { get; set; }
-            [Phone, Display(Name = "전화번호")] public string? PhoneNumber { get; set; }
-            [Display(Name = "사업장")] public string? CompCd { get; set; }
+            [Display(Name = "CP_Department_Label")]
+            [Required(ErrorMessage = "CP_Department_Invalid")]
+            public int? DepartmentId { get; set; }
 
-            // 비밀번호 변경(선택)
-            [DataType(DataType.Password), Display(Name = "현재 비밀번호")]
+            [Display(Name = "CP_Position_Label")]
+            [Required(ErrorMessage = "CP_Position_Invalid")]
+            public int? PositionId { get; set; }
+
+            [Display(Name = "CP_DisplayName_Label")]
+            [Required(ErrorMessage = "CP_DisplayName_Req")]
+            public string? DisplayName { get; set; }
+
+            [Phone(ErrorMessage = "CP_Phone_Invalid")]
+            [Display(Name = "CP_Phone_Label")]
+            public string? PhoneNumber { get; set; }
+
+            [Display(Name = "CP_CompCd_Label")]
+            [Required(ErrorMessage = "CP_CompCd_Invalid")]
+            public string? CompCd { get; set; }
+
+            [DataType(DataType.Password), Display(Name = "CP_CurrentPwd_Label")]
             public string? CurrentPassword { get; set; }
 
-            [DataType(DataType.Password), Display(Name = "새 비밀번호")]
+            [DataType(DataType.Password), Display(Name = "CP_NewPwd_Label")]
             public string? NewPassword { get; set; }
 
-            [DataType(DataType.Password), Display(Name = "새 비밀번호 확인")]
-            [Compare("NewPassword", ErrorMessage = "새 비밀번호가 일치하지 않습니다.")]
+            [DataType(DataType.Password), Display(Name = "CP_NewPwdConfirm_Label")]
+            [Compare("NewPassword", ErrorMessage = "CP_NewPwd_NotMatch")]
             public string? ConfirmNewPassword { get; set; }
         }
 
         public class EmailChangeInput
         {
-            [Required, EmailAddress, Display(Name = "새 이메일")]
+            [Required(ErrorMessage = "CP_EmailChange_NewEmail_Req")]
+            [EmailAddress(ErrorMessage = "CP_Email_Invalid")]
+            [Display(Name = "CP_EmailChange_NewEmail_Label")]
             public string? NewEmail { get; set; }
 
-            [Required, DataType(DataType.Password), Display(Name = "현재 비밀번호")]
+            [Required(ErrorMessage = "CP_EmailChange_CurrentPwd_Req")]
+            [DataType(DataType.Password)]
+            [Display(Name = "CP_EmailChange_CurrentPwd_Label")]
             public string? CurrentPassword { get; set; }
         }
 
-        // ===== Bindings =====
         [BindProperty] public InputModel Input { get; set; } = new();
-
-        // EmailChange는 메인 저장(Post)에서 자동 바인딩/검증되지 않도록 둡니다.
-        // (모달 핸들러에서 [FromForm] 파라미터로만 검증/사용)
         public EmailChangeInput? EmailChange { get; set; }
 
-        // ===== Dropdowns =====
         public SelectList CompOptions { get; set; } = default!;
         public SelectList DepartmentOptions { get; set; } = default!;
         public SelectList PositionOptions { get; set; } = default!;
 
-        // ===== GET =====
+        private async Task LoadParentFormAsync(ApplicationUser user)
+        {
+            await LoadOptionsAsync(); // 드롭다운 유지
+
+            var profile = await _db.UserProfiles
+                .AsNoTracking()
+                .SingleOrDefaultAsync(p => p.UserId == user.Id);
+
+            Input = new InputModel
+            {
+                Email = user.Email,
+                UserName = user.UserName,
+                PhoneNumber = user.PhoneNumber,
+                DisplayName = profile?.DisplayName,
+                DepartmentId = profile?.DepartmentId,
+                PositionId = profile?.PositionId,
+                CompCd = profile?.CompCd
+            };
+        }
+
         public async Task<IActionResult> OnGetAsync()
         {
             var user = await _userManager.GetUserAsync(User);
@@ -111,80 +143,88 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 CompCd = profile?.CompCd
             };
 
-            EmailChange = new EmailChangeInput(); // 뷰 렌더용
+            EmailChange = new EmailChangeInput();
             return Page();
         }
 
-        // ===== POST: 프로필 저장 =====
-        public async Task<IActionResult> OnPostAsync()
+        // 부모 저장
+        public async Task<IActionResult> OnPostSaveAsync()
         {
+            // 0) 모달 키 전부 제거
+            foreach (var key in ModelState.Keys
+                         .Where(k => k.StartsWith("EmailChange.", StringComparison.OrdinalIgnoreCase)
+                                  || string.Equals(k, "EmailChange", StringComparison.OrdinalIgnoreCase))
+                         .ToList())
+            {
+                ModelState.Remove(key);
+            }
+
             var user = await _userManager.GetUserAsync(User);
             if (user is null) return RedirectToPage("/Account/Login");
 
-            // 드롭다운(검증 실패 시에도 리스트가 비지 않도록 먼저 바인딩)
             await LoadOptionsAsync();
 
-            // 비번 입력값 공백 정규화
-            Input.NewPassword = (Input.NewPassword ?? string.Empty).Trim();
-            Input.ConfirmNewPassword = (Input.ConfirmNewPassword ?? string.Empty).Trim();
-            Input.CurrentPassword = (Input.CurrentPassword ?? string.Empty).Trim();
+            Input.NewPassword = (Input.NewPassword ?? "").Trim();
+            Input.ConfirmNewPassword = (Input.ConfirmNewPassword ?? "").Trim();
+            Input.CurrentPassword = (Input.CurrentPassword ?? "").Trim();
 
-            // 1) 서버측 유효성 (활성만 허용)
-            if (string.IsNullOrWhiteSpace(Input.CompCd) ||
-                !await _db.CompMasters.AnyAsync(c => c.IsActive && c.CompCd == Input.CompCd))
-                ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.CompCd)}", "유효한 사업장을 선택하세요.");
+            // 1) 비밀번호 변경 의사 판단
+            var wantsPwChange = (Input.NewPassword?.Length ?? 0) > 0 ||
+                                (Input.ConfirmNewPassword?.Length ?? 0) > 0 ||
+                                (Input.CurrentPassword?.Length ?? 0) > 0;
 
-            if (Input.DepartmentId is null ||
-                !await _db.DepartmentMasters.AnyAsync(d => d.IsActive && d.Id == Input.DepartmentId))
-                ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.DepartmentId)}", "유효한 부서를 선택하세요.");
-
-            if (Input.PositionId is null ||
-                !await _db.PositionMasters.AnyAsync(p => p.IsActive && p.Id == Input.PositionId))
-                ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.PositionId)}", "유효한 직급을 선택하세요.");
-
-            if (string.IsNullOrWhiteSpace(Input.DisplayName))
-                ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.DisplayName)}", "이름을 입력하세요.");
-
-            // 2) 비밀번호 변경 의사가 있는 경우에만 검증/변경 수행
-            var wantsPwChange = Input.NewPassword.Length > 0 || Input.ConfirmNewPassword.Length > 0;
             if (wantsPwChange)
             {
-                if (Input.NewPassword.Length == 0)
-                    ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.NewPassword)}", "새 비밀번호를 입력하세요.");
+                // 필수 체크
+                if (string.IsNullOrWhiteSpace(Input.CurrentPassword))
+                    AddErrorOnce($"{nameof(Input)}.{nameof(Input.CurrentPassword)}", _S["CP_CurrentPwd_Req"].Value);
 
-                if (Input.ConfirmNewPassword.Length == 0)
-                    ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.ConfirmNewPassword)}", "새 비밀번호 확인을 입력하세요.");
+                if (string.IsNullOrWhiteSpace(Input.NewPassword))
+                    AddErrorOnce($"{nameof(Input)}.{nameof(Input.NewPassword)}", _S["CP_NewPwd_Req"].Value);
 
-                if (Input.NewPassword.Length > 0 &&
-                    Input.ConfirmNewPassword.Length > 0 &&
+                if (string.IsNullOrWhiteSpace(Input.ConfirmNewPassword))
+                    AddErrorOnce($"{nameof(Input)}.{nameof(Input.ConfirmNewPassword)}", _S["CP_NewPwdConfirm_Req"].Value);
+
+                if (!string.IsNullOrEmpty(Input.NewPassword) &&
+                    !string.IsNullOrEmpty(Input.ConfirmNewPassword) &&
                     Input.NewPassword != Input.ConfirmNewPassword)
                 {
-                    ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.ConfirmNewPassword)}", "새 비밀번호가 일치하지 않습니다.");
+                    AddErrorOnce($"{nameof(Input)}.{nameof(Input.ConfirmNewPassword)}", _S["CP_NewPwd_NotMatch"].Value);
                 }
 
-                if (Input.CurrentPassword.Length == 0)
-                    ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.CurrentPassword)}", "현재 비밀번호를 입력하세요.");
-            }
+                if (!ModelState.IsValid)
+                {
+                    EmailChange = new EmailChangeInput();
+                    return Page();
+                }
 
-            if (!ModelState.IsValid)
-            {
-                EmailChange = new EmailChangeInput(); // 뷰 다시 렌더용
-                return Page();
-            }
+                // 현재 비밀번호 확인
+                var ok = await _userManager.CheckPasswordAsync(user, Input.CurrentPassword!);
+                if (!ok)
+                {
+                    AddErrorOnce($"{nameof(Input)}.{nameof(Input.CurrentPassword)}", _S["CP_CurrentPwd_Wrong"].Value);
+                    EmailChange = new EmailChangeInput();
+                    return Page();
+                }
 
-            // 3) 비밀번호 변경
-            if (wantsPwChange)
-            {
+                // 실제 변경 (※ 한 번만!)
                 var cr = await _userManager.ChangePasswordAsync(user, Input.CurrentPassword!, Input.NewPassword!);
                 if (!cr.Succeeded)
                 {
-                    foreach (var e in cr.Errors) ModelState.AddModelError("", e.Description);
+                    foreach (var e in cr.Errors)
+                        AddErrorOnce($"{nameof(Input)}.{nameof(Input.NewPassword)}", e.Description); // 필드 키 귀속
                     EmailChange = new EmailChangeInput();
                     return Page();
                 }
             }
 
-            // 4) 프로필 로드/저장
+            // 2) 프로필/연락처 저장
+            if (!ModelState.IsValid)
+            {
+                EmailChange = new EmailChangeInput();
+                return Page();
+            }
+
             var profile = await _db.UserProfiles.SingleOrDefaultAsync(p => p.UserId == user.Id);
             if (profile is null)
             {
@@ -197,7 +237,6 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             }
             else
             {
-                // 기존 프로필에도 CompCd 반영
                 profile.CompCd = Input.CompCd!.Trim().ToUpperInvariant();
             }
 
@@ -205,25 +244,24 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             profile.DepartmentId = Input.DepartmentId;
             profile.PositionId = Input.PositionId;
 
-            // 5) 사용자 기본 필드
-            if (!string.IsNullOrWhiteSpace(Input.Email) &&
-                !string.Equals(user.Email, Input.Email, StringComparison.OrdinalIgnoreCase))
+            // 이메일/전화는 변경된 경우에만 호출
+            if (!string.Equals(user.Email, Input.Email, StringComparison.OrdinalIgnoreCase))
             {
                 var er = await _userManager.SetEmailAsync(user, Input.Email);
                 if (!er.Succeeded)
                 {
-                    foreach (var e in er.Errors) ModelState.AddModelError("", e.Description);
+                    foreach (var e in er.Errors) AddErrorOnce("Input.Email", e.Description);
                     EmailChange = new EmailChangeInput();
                     return Page();
                 }
             }
 
-            if (Input.PhoneNumber != user.PhoneNumber)
+            if (!string.Equals(user.PhoneNumber, Input.PhoneNumber, StringComparison.Ordinal))
             {
                 var pr = await _userManager.SetPhoneNumberAsync(user, Input.PhoneNumber);
                 if (!pr.Succeeded)
                 {
-                    foreach (var e in pr.Errors) ModelState.AddModelError("", e.Description);
+                    foreach (var e in pr.Errors) AddErrorOnce("Input.PhoneNumber", e.Description);
                     EmailChange = new EmailChangeInput();
                     return Page();
                 }
@@ -232,7 +270,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             var ur = await _userManager.UpdateAsync(user);
             if (!ur.Succeeded)
             {
-                foreach (var e in ur.Errors) ModelState.AddModelError("", e.Description);
+                foreach (var e in ur.Errors) AddErrorOnce("Input.DisplayName", e.Description);
                 EmailChange = new EmailChangeInput();
                 return Page();
             }
@@ -240,32 +278,48 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             await _db.SaveChangesAsync();
             await _signInManager.RefreshSignInAsync(user);
 
-            TempData["StatusMessage"] = "프로필이 저장되었습니다.";
-            return RedirectToPage(); // GET으로 리다이렉트하여 최신 값 표시
+            TempData["StatusMessage"] = _S["CP_Save_Success"].Value;
+            return RedirectToPage();
         }
 
-        // ===== POST: 이메일 변경 확인 메일 발송(모달) =====
+        // 이메일 변경(모달)
         public async Task<IActionResult> OnPostSendEmailChangeAsync([FromForm] EmailChangeInput emailChange)
         {
+            ModelState.Clear();
+
+            // 모달 필드만 검증
+            if (!TryValidateModel(emailChange, "EmailChange"))
+            {
+                var u = await _userManager.GetUserAsync(User);
+                if (u is null) return RedirectToPage("/Account/Login");
+
+                await LoadParentFormAsync(u);
+                EmailChange = emailChange;
+                ViewData["OpenEmailModal"] = true;
+                return Page();
+            }
+
             var user = await _userManager.GetUserAsync(User);
             if (user is null) return RedirectToPage("/Account/Login");
 
             await LoadOptionsAsync();
 
-            if (!TryValidateModel(emailChange)) { EmailChange = emailChange; return Page(); }
-
             var pwOk = await _userManager.CheckPasswordAsync(user, emailChange.CurrentPassword!);
             if (!pwOk)
             {
-                ModelState.AddModelError("EmailChange.CurrentPassword", "현재 비밀번호가 올바르지 않습니다.");
+                await LoadParentFormAsync(user);
+                AddErrorOnce("EmailChange.CurrentPassword", _S["CP_EmailChange_CurrentPwd_Wrong"].Value);
                 EmailChange = emailChange;
+                ViewData["OpenEmailModal"] = true;
                 return Page();
             }
 
             if (string.Equals(user.Email, emailChange.NewEmail, StringComparison.OrdinalIgnoreCase))
             {
-                ModelState.AddModelError("EmailChange.NewEmail", "기존 이메일과 동일합니다.");
+                await LoadParentFormAsync(user);
+                AddErrorOnce("EmailChange.NewEmail", _S["CP_EmailChange_SameAsOld"].Value);
                 EmailChange = emailChange;
+                ViewData["OpenEmailModal"] = true;
                 return Page();
             }
 
@@ -274,65 +328,92 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             var callbackUrl = Url.Page("/Account/ConfirmEmailChange", null,
                 new { userId = user.Id, email = emailChange.NewEmail, code }, Request.Scheme);
 
-            // === 여기부터 커스텀 제목/본문 ===
             var displayName = (await _db.UserProfiles
                 .AsNoTracking()
                 .Where(p => p.UserId == user.Id)
                 .Select(p => p.DisplayName)
-                .FirstOrDefaultAsync()) ?? user.UserName ?? "사용자";
-            string subject = "[Han Young E-Board] 이메일 변경 확인 안내";
+                .FirstOrDefaultAsync()) ?? user.UserName ?? "User";
 
-            string body = $@"
-                        <!doctype html>
-                        <html lang=""ko"">
-                          <body style=""font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"">
-                            <h2 style=""margin:0 0 12px"">이메일 변경 확인</h2>
-
-                            <p>안녕하세요, <strong>{displayName}</strong> 님.</p>
-                            <p>아래 버튼을 클릭하시면 해당 계정의 이메일을
-                               <strong>{HtmlEncoder.Default.Encode(emailChange.NewEmail!)}</strong> 로 변경합니다.</p>
-
-                            <p style=""margin:20px 0"">
-                              <a href=""{HtmlEncoder.Default.Encode(callbackUrl!)}""
-                                 style=""background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;
-                                        text-decoration:none;display:inline-block"">이메일 변경 확인</a>
-                            </p>
-
-                            <!-- ▼ 유효시간 안내 추가 -->
-                            <p style=""color:#6c757d;margin:8px 0 0"">
-                              이 메일의 확인 링크는 <strong>수신된 시간으로부터 30분간</strong> 유효합니다.
-                            </p>
-                            <!-- ▲ 유효시간 안내 추가 -->
-
-                            <p>버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.</p>
-                            <p style=""word-break:break-all;color:#555"">{HtmlEncoder.Default.Encode(callbackUrl!)}</p>
-
-                            <hr style=""margin:24px 0;border:none;border-top:1px solid #eee""/>
-
-                            <p style=""color:#6c757d"">
-                              만약 본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.
-                            </p>
-                          </body>
-                        </html>";
-
+            string subject = _S["CP_EmailChange_Subject"].Value;
+            string body = _S["CP_EmailChange_BodyHtml",
+                HtmlEncoder.Default.Encode(displayName),
+                HtmlEncoder.Default.Encode(emailChange.NewEmail!),
+                HtmlEncoder.Default.Encode(callbackUrl!)].Value;
 
             await _emailSender.SendEmailAsync(emailChange.NewEmail!, subject, body);
 
-            TempData["StatusMessage"] = "확인 메일을 보냈습니다. 메일함을 확인하세요.";
+            TempData["StatusMessage"] = _S["CP_EmailChange_Mail_Sent"].Value;
             return RedirectToPage();
         }
 
-        // ===== 공통 =====
         private async Task LoadOptionsAsync()
         {
-            var comps = await _db.CompMasters.Where(c => c.IsActive).OrderBy(c => c.CompCd).ToListAsync();
-            var deps = await _db.DepartmentMasters.Where(d => d.IsActive).OrderBy(d => d.Name).ToListAsync();
-            var poss = await _db.PositionMasters.Where(p => p.IsActive).OrderBy(p => p.RankLevel).ToListAsync();
+            var lang = Ui2();
 
-            // 지사명 컬럼명이 Name으로 정의되어 있다고 가정 (다르면 여기만 바꾸세요)
-            CompOptions = new SelectList(comps, "CompCd", "Name");
-            DepartmentOptions = new SelectList(deps, "Id", "Name");
-            PositionOptions = new SelectList(poss, "Id", "Name");
+            var comps = await _db.CompMasters
+                .Where(c => c.IsActive)
+                .OrderBy(c => c.CompCd)
+                .Select(c => new { Value = c.CompCd, Text = c.Name })
+                .AsNoTracking()
+                .ToListAsync();
+            CompOptions = new SelectList(comps, "Value", "Text", Input?.CompCd);
+
+            var deps = await _db.DepartmentMasters
+                .Where(d => d.IsActive)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.SortOrder,
+                    Fallback = d.Name,
+                    LocName = _db.DepartmentMasterLoc
+                                .Where(l => l.DepartmentId == d.Id && l.LangCode == lang)
+                                .Select(l => l.Name)
+                                .FirstOrDefault()
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            var depItems = deps
+                .Select(d => new { Value = d.Id, Text = string.IsNullOrWhiteSpace(d.LocName) ? d.Fallback : d.LocName, d.SortOrder })
+                .OrderBy(x => x.SortOrder)
+                .ToList();
+            DepartmentOptions = new SelectList(depItems, "Value", "Text", Input?.DepartmentId);
+
+            var posRows = await (
+                from p in _db.PositionMasters
+                where p.IsActive
+                join l in _db.PositionMasterLoc.Where(x => x.LangCode == lang)
+                     on p.Id equals l.PositionId into gj
+                from l in gj.DefaultIfEmpty()
+                orderby p.RankLevel, p.Id
+                select new
+                {
+                    p.Id,
+                    p.RankLevel,
+                    Fallback = p.Name,
+                    LocName = l != null ? l.Name : null,
+                    ShortName = l != null ? l.ShortName : null
+                }
+            ).AsNoTracking().ToListAsync();
+
+            var posItems = posRows
+                .Select(p => new
+                {
+                    Value = p.Id,
+                    Text = !string.IsNullOrWhiteSpace(p.ShortName) ? p.ShortName
+                         : !string.IsNullOrWhiteSpace(p.LocName) ? p.LocName
+                         : p.Fallback,
+                    p.RankLevel
+                })
+                .OrderBy(x => x.RankLevel)
+                .ToList();
+            PositionOptions = new SelectList(posItems, "Value", "Text", Input?.PositionId);
+        }
+
+        private void AddErrorOnce(string key, string message)
+        {
+            if (!ModelState.TryGetValue(key, out var entry) || !entry.Errors.Any(e => e.ErrorMessage == message))
+                ModelState.AddModelError(key, message);
         }
     }
 }

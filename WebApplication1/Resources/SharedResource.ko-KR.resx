@@ -209,10 +209,10 @@
     <value>개인 정보 관리</value>
   </data>
   <data name="Sidebar_Menu3Sub2" xml:space="preserve">
-    <value>2차 인증</value>
+    <value>문서 서식 관리</value>
   </data>
   <data name="Sidebar_Menu3Sub3" xml:space="preserve">
-    <value>사용자 관리</value>
+    <value>2차 인증</value>
   </data>
   <data name="FP_Title" xml:space="preserve">
     <value>비밀번호 찾기</value>
@@ -281,10 +281,10 @@
     <value>사용자를 찾을 수 없거나 이메일이 없습니다.</value>
   </data>
   <data name="Admin_ResetLink_Email_Subject" xml:space="preserve">
-    <value>비밀번호 재설정 안내</value>
+    <value>[Han Young E-Board] 관리자에 의한 비밀번호 재설정 안내</value>
   </data>
   <data name="Admin_ResetLink_Email_BodyHtml" xml:space="preserve">
-    <value>아래 링크로 비밀번호를 재설정하세요: &lt;a href="{0}"&gt;비밀번호 재설정&lt;/a&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;비밀번호 재설정 안내&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;관리자에 의해 귀하의 계정 비밀번호가 재설정되었습니다. 아래 버튼을 클릭하여 새로운 비밀번호를 설정하시기 바랍니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;새 비밀번호 설정&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신된 시간으로부터 30분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 발송된 메일입니다. 회신하지 마세요.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시요.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="Admin_ResetLink_Email_Sent" xml:space="preserve">
     <value>재설정 링크를 이메일로 보냈습니다.</value>
@@ -332,36 +332,273 @@
     <value>[Han Young E-Board] 비밀번호 재설정 안내</value>
   </data>
   <data name="FP_Email_BodyHtml" xml:space="preserve">
-    <value>&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;
-  &lt;h2 style="margin:0 0 12px"&gt;비밀번호 재설정&lt;/h2&gt;
-
-  &lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;
-  &lt;p&gt;아래 버튼을 클릭하시면 계정의 비밀번호를 재설정하실 수 있습니다.&lt;/p&gt;
-
-  &lt;p style="margin:20px 0"&gt;
-    &lt;a href="{1}"
-       style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;
-              text-decoration:none;display:inline-block"&gt;비밀번호 재설정&lt;/a&gt;
-  &lt;/p&gt;
-
-  &lt;p style="color:#6c757d;margin:8px 0 0"&gt;
-    이 링크는 &lt;strong&gt;수신된 시간으로부터 30분간&lt;/strong&gt; 유효합니다.
-  &lt;/p&gt;
-
-  &lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;
-  &lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;
-
-  &lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;
-
-  &lt;p style="color:#6c757d"&gt;
-    본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.
-  &lt;/p&gt;
-&lt;/body&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;비밀번호 재설정&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하시면 계정의 비밀번호를 재설정하실 수 있습니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;비밀번호 재설정&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신된 시간으로부터 30분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 발송된 메일입니다. 회신하지 마세요.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시요.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="FPC_Title" xml:space="preserve">
     <value>비밀번호 재설정 확인</value>
   </data>
   <data name="RP_Email_Invalid" xml:space="preserve">
     <value>올바른 이메일 형식이 아닙니다.</value>
+  </data>
+  <data name="CP_Title" xml:space="preserve">
+    <value>프로필 변경</value>
+  </data>
+  <data name="CP_Intro" xml:space="preserve">
+    <value>계정의 기본 정보를 업데이트하세요.</value>
+  </data>
+  <data name="CP_UserName_Label" xml:space="preserve">
+    <value>아이디</value>
+  </data>
+  <data name="CP_UserName_Placeholder" xml:space="preserve">
+    <value>아이디 또는 사용자명</value>
+  </data>
+  <data name="CP_UserName_Req" xml:space="preserve">
+    <value>사용자명을 입력하세요.</value>
+  </data>
+  <data name="CP_UserName_Len" xml:space="preserve">
+    <value>아이디는 최소 {2}자, 최대 {1}자입니다.</value>
+  </data>
+  <data name="CP_Email_Label" xml:space="preserve">
+    <value>이메일</value>
+  </data>
+  <data name="CP_Email_Placeholder" xml:space="preserve">
+    <value>you@example.com</value>
+  </data>
+  <data name="CP_Email_Req" xml:space="preserve">
+    <value>이메일을 입력하세요.</value>
+  </data>
+  <data name="CP_Email_Invalid" xml:space="preserve">
+    <value>올바른 이메일 형식이 아닙니다.</value>
+  </data>
+  <data name="CP_Phone_Label" xml:space="preserve">
+    <value>전화번호</value>
+  </data>
+  <data name="CP_Phone_Placeholder" xml:space="preserve">
+    <value>숫자와 기호만 입력</value>
+  </data>
+  <data name="CP_Phone_Invalid" xml:space="preserve">
+    <value>올바른 전화번호 형식이 아닙니다.</value>
+  </data>
+  <data name="CP_Department_Label" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="CP_Department_Placeholder" xml:space="preserve">
+    <value>예: 영업팀</value>
+  </data>
+  <data name="CP_Department_Len" xml:space="preserve">
+    <value>부서명은 최대 {1}자입니다.</value>
+  </data>
+  <data name="CP_Position_Label" xml:space="preserve">
+    <value>직책</value>
+  </data>
+  <data name="CP_Position_Placeholder" xml:space="preserve">
+    <value>예: 과장</value>
+  </data>
+  <data name="CP_Position_Len" xml:space="preserve">
+    <value>직책은 최대 {1}자입니다.</value>
+  </data>
+  <data name="CP_Save" xml:space="preserve">
+    <value>저장</value>
+  </data>
+  <data name="CP_Cancel" xml:space="preserve">
+    <value>취소</value>
+  </data>
+  <data name="CP_Save_Success" xml:space="preserve">
+    <value>프로필이 저장되었습니다.</value>
+  </data>
+  <data name="CP_Save_Fail" xml:space="preserve">
+    <value>프로필 저장 중 오류가 발생했습니다.</value>
+  </data>
+  <data name="CP_ValidationSummary" xml:space="preserve">
+    <value>입력값을 다시 확인하세요.</value>
+  </data>
+  <data name="CP_DisplayName_Label" xml:space="preserve">
+    <value>이름</value>
+  </data>
+  <data name="CP_DisplayName_Req" xml:space="preserve">
+    <value>이름을 입력하세요.</value>
+  </data>
+  <data name="CP_CompCd_Label" xml:space="preserve">
+    <value>사업장</value>
+  </data>
+  <data name="CP_CompCd_Placeholder" xml:space="preserve">
+    <value>사업장 선택</value>
+  </data>
+  <data name="CP_CompCd_Invalid" xml:space="preserve">
+    <value>유효한 사업장을 선택하세요.</value>
+  </data>
+  <data name="CP_Department_Invalid" xml:space="preserve">
+    <value>유효한 부서를 선택하세요.</value>
+  </data>
+  <data name="CP_Position_Invalid" xml:space="preserve">
+    <value>유효한 직급을 선택하세요.</value>
+  </data>
+  <data name="CP_CurrentPwd_Label" xml:space="preserve">
+    <value>현재 비밀번호</value>
+  </data>
+  <data name="CP_NewPwd_Label" xml:space="preserve">
+    <value>새 비밀번호</value>
+  </data>
+  <data name="CP_NewPwdConfirm_Label" xml:space="preserve">
+    <value>새 비밀번호 확인</value>
+  </data>
+  <data name="CP_NewPwd_Req" xml:space="preserve">
+    <value>새 비밀번호를 입력하세요.</value>
+  </data>
+  <data name="CP_NewPwdConfirm_Req" xml:space="preserve">
+    <value>새 비밀번호 확인을 입력하세요.</value>
+  </data>
+  <data name="CP_NewPwd_NotMatch" xml:space="preserve">
+    <value>새 비밀번호와 확인이 일치하지 않습니다.</value>
+  </data>
+  <data name="CP_EmailChange_NewEmail_Label" xml:space="preserve">
+    <value>새 이메일</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
+    <value>현재 비밀번호</value>
+  </data>
+  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+    <value>새 이메일을 입력하세요.</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
+    <value>현재 비밀번호를 입력하세요.</value>
+  </data>
+  <data name="CP_EmailChange_SameAsOld" xml:space="preserve">
+    <value>기존 이메일과 동일합니다.</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Wrong" xml:space="preserve">
+    <value>현재 비밀번호가 올바르지 않습니다.</value>
+  </data>
+  <data name="CP_EmailChange_Mail_Sent" xml:space="preserve">
+    <value>확인 메일을 보냈습니다. 메일함을 확인하세요.</value>
+  </data>
+  <data name="CP_EmailChange_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 이메일 변경 확인</value>
+  </data>
+  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;이메일 변경 확인&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하면 계정의 이메일이 &lt;strong&gt;{1}&lt;/strong&gt; 으로 변경됩니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;이메일 변경 확인&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신 시점부터 30분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 아래 주소를 복사해 브라우저에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시요.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="_CM_Select" xml:space="preserve">
+    <value>선택</value>
+  </data>
+  <data name="_CM_Change" xml:space="preserve">
+    <value>변경</value>
+  </data>
+  <data name="CP_MD_Title" xml:space="preserve">
+    <value>이메일 변경</value>
+  </data>
+  <data name="CP_MD_SendConfirmationMail" xml:space="preserve">
+    <value>확인 메일 보내기</value>
+  </data>
+  <data name="_CM_Close" xml:space="preserve">
+    <value>닫기</value>
+  </data>
+  <data name="Sidebar_Menu3Sub4" xml:space="preserve">
+    <value>사용자 관리</value>
+  </data>
+  <data name="_CM_PrivacyPolicy" xml:space="preserve">
+    <value>개인정보 처리방침</value>
+  </data>
+  <data name="_CM_TermsofUse" xml:space="preserve">
+    <value>이용약관</value>
+  </data>
+  <data name="_CM_MainTitle" xml:space="preserve">
+    <value>한영산업㈜ 전자 게시판</value>
+  </data>
+  <data name="CP_CurrentPwd_Req" xml:space="preserve">
+    <value>현재 비밀번호를 입력하세요.</value>
+  </data>
+  <data name="CP_CurrentPwd_Wrong" xml:space="preserve">
+    <value>현재 비밀번호가 올바르지 않습니다.</value>
+  </data>
+  <data name="Sidebar_Menu3Sub5" xml:space="preserve">
+    <value>시스템 설정</value>
+  </data>
+  <data name="FPC_LogInButton" xml:space="preserve">
+    <value>비밀번호 분실</value>
+  </data>
+  <data name="Sidebar_Menu1Sub4" xml:space="preserve">
+    <value>기타 문서</value>
+  </data>
+  <data name="Sidebar_Menu2Sub1" xml:space="preserve">
+    <value>하위항목1</value>
+  </data>
+  <data name="Sidebar_Menu2Sub2" xml:space="preserve">
+    <value>하위항목2</value>
+  </data>
+  <data name="Sidebar_Menu2Sub3" xml:space="preserve">
+    <value>하위항목3</value>
+  </data>
+  <data name="_CM_Common" xml:space="preserve">
+    <value>공용</value>
+  </data>
+  <data name="DTL_Title_DocManage" xml:space="preserve">
+    <value>문서 템플릿 관리</value>
+  </data>
+  <data name="DTL_Label_Site" xml:space="preserve">
+    <value>사업장</value>
+  </data>
+  <data name="DTL_Label_Dept" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="DTL_Label_Kind" xml:space="preserve">
+    <value>종류</value>
+  </data>
+  <data name="DTL_Label_DocName" xml:space="preserve">
+    <value>문서명</value>
+  </data>
+  <data name="DTL_Btn_Load" xml:space="preserve">
+    <value>불러오기</value>
+  </data>
+  <data name="DTL_Btn_NewTemplate" xml:space="preserve">
+    <value>문서 템플릿 생성</value>
+  </data>
+  <data name="DTL_Common" xml:space="preserve">
+    <value>공용</value>
+  </data>
+  <data name="DTL_Alert_SelectDoc" xml:space="preserve">
+    <value>문서명을 먼저 선택하세요.</value>
+  </data>
+  <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
+    <value>지원 형식은 .xlsx/.xlsm 입니다. 구형 .xls 파일은 변환 후 업로드하세요. 예) 엑셀에서 해당 파일을 연 후 '다른 이름으로 저장'하기를 선택한 후 파일 형식을 'Excel 통합 문서 (*.xlsx)'로 저장하십시오.</value>
+  </data>
+  <data name="DTL_Title_NewTemplate" xml:space="preserve">
+    <value>문서 템플릿 생성</value>
+  </data>
+  <data name="DTL_Placeholder_DocName" xml:space="preserve">
+    <value>문서명 입력</value>
+  </data>
+  <data name="DTL_Placeholder_ExcelPath" xml:space="preserve">
+    <value>엑셀 파일 경로</value>
+  </data>
+  <data name="DTL_Label_Excel" xml:space="preserve">
+    <value>엑셀 파일</value>
+  </data>
+  <data name="DTL_Btn_LoadExcel" xml:space="preserve">
+    <value>엑셀 로드</value>
+  </data>
+  <data name="DTL_Section_Fields" xml:space="preserve">
+    <value>입력 필드 매핑</value>
+  </data>
+  <data name="DTL_Section_Approvals" xml:space="preserve">
+    <value>결재란 매핑</value>
+  </data>
+  <data name="DTL_Col_FieldKey" xml:space="preserve">
+    <value>필드 키</value>
+  </data>
+  <data name="DTL_Col_Type" xml:space="preserve">
+    <value>유형</value>
+  </data>
+  <data name="DTL_Col_CellA1" xml:space="preserve">
+    <value>셀 위치(A1)</value>
+  </data>
+  <data name="DTL_Col_Slot" xml:space="preserve">
+    <value>슬롯</value>
+  </data>
+  <data name="DTL_Col_Part" xml:space="preserve">
+    <value>파트</value>
+  </data>
+  <data name="_CM_Save" xml:space="preserve">
+    <value>저장</value>
   </data>
 </root>

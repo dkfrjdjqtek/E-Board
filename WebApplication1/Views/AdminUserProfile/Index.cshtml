@@ -1,5 +1,6 @@
 ﻿@model WebApplication1.Models.ViewModels.AdminUserProfileVM
 @addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
 
 <h2 class="mt-3">관리자용 사용자 프로필</h2>
 
@@ -72,7 +73,7 @@
             <div class="col-12 col-md-6">
                 <label asp-for="CompCd" class="form-label">사업장</label>
                 <select asp-for="CompCd" asp-items="Model.CompList" class="form-select">
-                    <option value="">-- 선택 --</option>
+                    <option value="">-- @_S["_CM_Select"] --</option>
                 </select>
                 <span asp-validation-for="CompCd" class="text-danger"></span>
             </div>
@@ -116,14 +117,14 @@
             <div class="col-12 col-md-6">
                 <label asp-for="DepartmentId" class="form-label">부서</label>
                 <select asp-for="DepartmentId" asp-items="Model.DeptList" class="form-select">
-                    <option value="">-- 선택 --</option>
+                    <option value="">-- @_S["_CM_Select"] --</option>
                 </select>
                 <span asp-validation-for="DepartmentId" class="text-danger"></span>
             </div>
             <div class="col-12 col-md-6">
                 <label asp-for="PositionId" class="form-label">직급</label>
                 <select asp-for="PositionId" asp-items="Model.PosList" class="form-select">
-                    <option value="">-- 선택 --</option>
+                    <option value="">-- @_S["_CM_Select"] --</option>
                 </select>
                 <span asp-validation-for="PositionId" class="text-danger"></span>
             </div>

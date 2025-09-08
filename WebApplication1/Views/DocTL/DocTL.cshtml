@@ -1,0 +1,213 @@
+﻿@model WebApplication1.Models.DocTLViewModel
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["DTL_Title_DocManage"];
+    var isAdmin = (bool)(ViewBag.IsAdmin ?? false); // 2025.09.08
+}
+<style>
+    /* 2025.09.08 */
+    .flex-eq {
+        flex: 1 0 0;
+        min-width: 0;
+    }
+
+    .table thead th {
+        white-space: nowrap;
+    }
+</style>
+
+<div class="container-fluid py-3">
+    <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <div>
+            <label class="form-label mb-1">@S["DTL_Label_Site"]</label>
+            <select id="compSelect" class="form-select form-select-sm" name="SelectedCompCd" @(isAdmin ? "" : "disabled")>
+                @foreach (var it in Model.CompOptions)
+                {
+                    if (it.Selected)
+                    {
+                        <option selected value="@it.Value">@it.Text</option>
+                        ;
+                    }
+                    else
+                    {
+                        <option value="@it.Value">@it.Text</option>
+                        ;
+                    }
+                }
+            </select>
+        </div>
+
+        <div>
+            <label class="form-label mb-1">@S["DTL_Label_Dept"]</label>
+            <select id="deptSelect" class="form-select form-select-sm" name="SelectedDepartmentId">
+                @foreach (var it in Model.DepartmentOptions)
+                {
+                    if (it.Selected)
+                    {
+                        <option selected value="@it.Value">@it.Text</option>
+                        ;
+                    }
+                    else
+                    {
+                        <option value="@it.Value">@it.Text</option>
+                        ;
+                    }
+                }
+            </select>
+        </div>
+
+        <div class="d-flex flex-grow-1 gap-2" style="min-width:360px;">
+            <div class="flex-eq">
+                <label class="form-label mb-1">@S["DTL_Label_Kind"]</label>
+                <select id="kindSelect" class="form-select form-select-sm"></select>
+            </div>
+            <div class="flex-eq">
+                <label class="form-label mb-1">@S["DTL_Label_DocName"]</label>
+                <select id="docSelect" class="form-select form-select-sm" name="SelectedDocumentCode">
+                    @foreach (var it in Model.DocumentOptions)
+                    {
+                        <option value="@it.Value">@it.Text</option>
+                        ;
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-end gap-2 ms-auto" style="width:360px;">
+            <a id="btnLoad" class="btn btn-secondary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_Load"]</a>
+            <a id="btnNewTemplate" class="btn btn-primary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_NewTemplate"]</a>
+        </div>
+    </div>
+
+    <div id="docArea"></div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const BASE = "/DocumentTemplates";
+
+            const compSel = document.getElementById('compSelect');
+            const deptSel = document.getElementById('deptSelect');
+            const kindSel = document.getElementById('kindSelect');
+            const docSel = document.getElementById('docSelect');
+            const btnNew = document.getElementById('btnNewTemplate');
+            const btnLoad = document.getElementById('btnLoad');
+
+            async function fetchJson(url) {
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) throw new Error('Network error');
+                return await res.json();
+            }
+            function clearOptions(sel, keepFirst = false) {
+                while (sel.options.length > (keepFirst ? 1 : 0)) sel.remove(keepFirst ? 1 : 0);
+            }
+            function fillOptions(sel, items) {
+                clearOptions(sel);
+                for (const it of (items || [])) {
+                    const op = document.createElement('option');
+                    op.value = (it.id ?? '').toString(); // null -> ""(공용), "__SELECT__" 유지
+                    op.text = it.text ?? '';
+                    sel.add(op);
+                }
+            }
+
+            async function loadDocuments() {
+                const compCd = compSel.value;
+                const deptVal = deptSel.value; // "__SELECT__" | "" | "123"
+                if (!compCd || deptVal === "__SELECT__") { clearOptions(docSel); updateBtnLinks(); return; }
+                const q = new URLSearchParams({ compCd });
+                if (deptVal !== "") q.append('departmentId', deptVal);
+                const data = await fetchJson(`${BASE}/get-documents?${q.toString()}`);
+                fillOptions(docSel, data.items || []);
+                updateBtnLinks();
+            }
+
+            async function loadDepartments() {
+                const compCd = compSel?.value || '';
+                if (!compCd) { clearOptions(deptSel); clearOptions(docSel); updateBtnLinks(); return; }
+
+                const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
+                fillOptions(deptSel, data.items || []);
+
+                let target = "__SELECT__";
+                if (typeof data.selectedValue !== 'undefined') {
+                    const want = String(data.selectedValue);
+                    const has = Array.from(deptSel.options).some(o => o.value === want);
+                    target = has ? want : "__SELECT__";
+                }
+                deptSel.value = target;
+
+                await loadDocuments();
+                updateBtnLinks();
+            }
+
+            function updateBtnLinks() {
+                const compCd = compSel.value || '';
+                const deptVal = deptSel.value || '';
+                const docCode = docSel.value || '';
+
+                const qsNew = new URLSearchParams();
+                if (compCd) qsNew.append('compCd', compCd);
+                if (deptVal !== '' && deptVal !== '__SELECT__') qsNew.append('departmentId', deptVal);
+                btnNew.href = `${BASE}/new-template${qsNew.toString() ? '?' + qsNew.toString() : ''}`;
+
+                if (docCode) {
+                    const qsOpen = new URLSearchParams();
+                    if (compCd) qsOpen.append('compCd', compCd);
+                    if (deptVal !== '' && deptVal !== '__SELECT__') qsOpen.append('departmentId', deptVal);
+                    qsOpen.append('docCode', docCode);
+                    btnLoad.dataset.href = `${BASE}/open?${qsOpen.toString()}`;
+                    btnLoad.classList.remove('disabled');
+                } else {
+                    btnLoad.dataset.href = '';
+                    btnLoad.classList.add('disabled');
+                }
+            }
+
+            btnLoad.addEventListener('click', () => {
+                const href = btnLoad.dataset.href || '';
+                if (!href) { alert('@S["DTL_Alert_SelectDoc"]'); return; }
+                window.location.href = href;
+            });
+
+            compSel.addEventListener('change', async () => { await loadDepartments(); });
+            deptSel.addEventListener('change', async () => { await loadDocuments(); });
+            kindSel.addEventListener('change', async () => { await loadDocuments(); });
+            docSel.addEventListener('change', () => { updateBtnLinks(); });
+
+            (async function init() { await loadDepartments(); })();
+        })();
+    </script>
+
+    <script>
+        // 2025.09.08 배너
+        (function () {
+            const USER_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserName ?? "")));
+            const USER_COMP = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserCompCd ?? "")));
+            const COMP_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.CompName ?? "")));
+            const DEPT_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.DeptName ?? "")));
+            const ADMIN_LEVEL = @Convert.ToInt32(ViewBag.AdminLevel ?? 0);
+
+            const parts = [];
+            if (USER_NAME) parts.push(`사용자: ${USER_NAME}`);
+            if (COMP_NAME || USER_COMP) parts.push(`사업장: ${COMP_NAME || USER_COMP} (${USER_COMP})`);
+            if (DEPT_NAME) parts.push(`부서: ${DEPT_NAME}`);
+            parts.push(`관리자 레벨: ${ADMIN_LEVEL}`);
+
+            const text = parts.join(" · ");
+
+            window.addEventListener('load', () => {
+                const wrap = document.createElement('div');
+                wrap.className = 'position-fixed top-0 end-0 p-3';
+                wrap.style.zIndex = '1080';
+                wrap.innerHTML =
+                    `<div class="alert alert-primary border shadow-sm mb-0" role="alert" style="min-width: 28rem;">
+                        ${text}
+                     </div>`;
+                document.body.appendChild(wrap);
+                setTimeout(() => wrap.remove(), 5000);
+            });
+        })();
+    </script>
+}

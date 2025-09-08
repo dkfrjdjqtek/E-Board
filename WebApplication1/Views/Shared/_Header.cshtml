@@ -3,7 +3,6 @@
 @using Microsoft.AspNetCore.Http.Extensions
 
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
-    
     <div class="container-fluid">
         <!-- 왼쪽 로고 + 타이틀 -->
         <a class="navbar-brand d-flex align-items-center" href="@Url.Action("Index","Home")">
@@ -23,12 +22,10 @@
         };
             var ui = CultureInfo.CurrentUICulture.Name;
             var current = cultures.FirstOrDefault(c => c.Code.Equals(ui, StringComparison.OrdinalIgnoreCase)) ?? cultures[0];
-            //var returnUrl = (Context.Request.Path + Context.Request.QueryString).ToString();
             var returnUrl = Context.Request.GetEncodedPathAndQuery();
             var flagBase = Url.Content("~/images/Flags/");   // ← 폴더 경로 통일
         }
 
-        
         <div class="ms-auto d-flex align-items-center flex-nowrap gap-3">
 
             <!-- 언어 선택(부트스트랩 드롭다운 + 링크) -->
@@ -61,90 +58,93 @@
                 </ul>
             </div>
 
-       
-        <!-- 오른쪽 로그인/회원가입 -->
-        <div class="d-flex ms-auto align-items-center">
-
-            <!-- 로그인/회원가입 -->
-            @if (User.Identity?.IsAuthenticated ?? false)
-            {
+            <!-- 오른쪽 로그인/회원가입 -->
+            <div class="d-flex ms-auto align-items-center">
+                @if (User.Identity?.IsAuthenticated ?? false)
+                {
                     <form asp-area="" asp-controller="Account" asp-action="Logout" method="post"
-                      class="d-flex align-items-center m-0">
-                    @Html.AntiForgeryToken()
-                    <img src="~/images/sidebar1-logout.png"
+                          class="d-flex align-items-center m-0">
+                        @Html.AntiForgeryToken()
+                        <img src="~/images/sidebar1-logout.png"
                              alt="@(S["Header_LogOut"])"
-                         width="38" height="38"
-                         class="nav-link text-light me-2" />
-                    <button type="submit"
-                            class="btn btn-link text-decoration-none text-light p-0">
+                             width="38" height="38"
+                             class="nav-link text-light me-2" />
+                        <button type="submit"
+                                class="btn btn-link text-decoration-none text-light p-0">
                             @S["Header_LogOut"]
-                    </button>
-                </form>
-            }
-            else
-            {
+                        </button>
+                    </form>
+                }
+                else
+                {
                     <a asp-area="" asp-controller="Account" asp-action="Login"
-                   class="nav-link d-flex align-items-center me-3 p-0 text-light">
+                       class="nav-link d-flex align-items-center me-3 p-0 text-light">
                         <img src="~/images/sidebar1-login.png"
                              alt="@(S["Header_LogIn"])" width="38" height="38"
-                         class="nav-link text-light me-2" />
+                             class="nav-link text-light me-2" />
                         <span>@S["Header_LogIn"]</span>
-                </a>
+                    </a>
+                    /* 회원가입은 필요 시 활성화 
                     <a asp-area="" asp-controller="Account" asp-action="Register"
-                   class="nav-link d-flex align-items-center p-0 text-light">
+                       class="nav-link d-flex align-items-center p-0 text-light">
                         <img src="~/images/sidebar1-login.png"
                              alt="@(S["Header_Register"])"
-                         width="38" height="38"
-                         class="nav-link text-light me-2" />
+                             width="38" height="38"
+                             class="nav-link text-light me-2" />
                         <span>@S["Header_Register"]</span>
-                </a>
-            }
+                    </a>
+                    */
+                }
+            </div>
+
         </div>
     </div>
-        <style>
-            .btn-lang {
-                --flag-size: 38px;
+
+    <style>
+        .btn-lang {
+            --flag-size: 38px;
+        }
+            /* 필요 시 18/20/22로만 바꾸면 됨 */
+            .btn-lang img {
+                width: var(--flag-size) !important;
+                height: var(--flag-size) !important;
+                display: block;
+                border-radius: 50%;
             }
-                /* 필요 시 18/20/22로만 바꾸면 됨 */
-                .btn-lang img {
-                    width: var(--flag-size) !important;
-                    height: var(--flag-size) !important;
-                    display: block;
-                    border-radius: 50%;
-                }
-            .btn-lang { 
-                background: transparent;
+
+        .btn-lang {
+            background: transparent;
+            border: none !important;
+            padding: 0.125rem; /* 클릭영역 최소 확보 (원하면 0으로) */
+            line-height: 1;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+
+            .btn-lang:hover,
+            .btn-lang:active,
+            .btn-lang:focus,
+            .btn-lang:focus-visible,
+            .btn-lang.show,
+            .btn-lang.dropdown-toggle:focus {
                 border: none !important;
-                padding: 0.125rem; /* 클릭영역 최소 확보 (원하면 0으로) */
-                line-height: 1;
                 box-shadow: none !important;
                 outline: none !important;
             }
+            /* ▼ 캐럿 숨김 */
+            .btn-lang.dropdown-toggle::after {
+                display: none !important;
+            }
 
-                .btn-lang:hover,
-                .btn-lang:active,
-                .btn-lang:focus,
-                .btn-lang:focus-visible,
-                .btn-lang.show,
-                .btn-lang.dropdown-toggle:focus {
-                    border: none !important;
-                    box-shadow: none !important;
-                    outline: none !important;
-                }
-                /* ▼ 캐럿 숨김 */
-                .btn-lang.dropdown-toggle::after {
-                    display: none !important;
-                }
-                
-                .btn-lang:focus {
-                    outline: none;
-                    box-shadow: none;
-                }
+            .btn-lang:focus {
+                outline: none;
+                box-shadow: none;
+            }
 
-                .btn-lang:focus-visible {
-                    outline: 2px solid #7aa2ff; /* 원하는 색상 */
-                    outline-offset: 2px;
-                    border-radius: 9999px;
-                }
-        </style>
+            .btn-lang:focus-visible {
+                outline: 2px solid #7aa2ff; /* 원하는 색상 */
+                outline-offset: 2px;
+                border-radius: 9999px;
+            }
+    </style>
 </nav>

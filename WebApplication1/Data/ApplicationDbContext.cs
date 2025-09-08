@@ -14,8 +14,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<DepartmentMaster> DepartmentMasters => Set<DepartmentMaster>();
     public DbSet<PositionMaster> PositionMasters => Set<PositionMaster>();
-    public DbSet<DepartmentMasterLoc> DepartmentMasterLocs => Set<DepartmentMasterLoc>();
-    public DbSet<PositionMasterLoc> PositionMasterLocs => Set<PositionMasterLoc>();
+    public DbSet<DepartmentMasterLoc> DepartmentMasterLoc => Set<DepartmentMasterLoc>();
+    public DbSet<PositionMasterLoc> PositionMasterLoc => Set<PositionMasterLoc>();
     public DbSet<CompMaster> CompMasters => Set<CompMaster>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

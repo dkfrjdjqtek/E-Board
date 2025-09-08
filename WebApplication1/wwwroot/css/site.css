@@ -20,3 +20,11 @@ html {
 body {
   margin-bottom: 60px;
 }
+
+.modal-backdrop {
+    z-index: 1055;
+}
+
+.modal {
+    z-index: 1060;
+}

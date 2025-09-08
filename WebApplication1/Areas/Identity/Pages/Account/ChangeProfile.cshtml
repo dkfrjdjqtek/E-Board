@@ -1,81 +1,90 @@
 ﻿@page
 @model WebApplication1.Areas.Identity.Pages.Account.ChangeProfileModel
+@using Microsoft.AspNetCore.Mvc.ModelBinding
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
+
 @{
-    ViewData["Title"] = "프로필 변경";
+    // 부모 폼(Input.*)만 수집. ""(모델레벨)과 EmailChange.*는 배제
+    var parentErrors =
+        ViewData.ModelState
+            .Where(kvp => kvp.Key?.StartsWith("Input.", StringComparison.OrdinalIgnoreCase) == true)
+            .SelectMany(kvp => kvp.Value?.Errors ?? Enumerable.Empty<ModelError>())
+            .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? e.Exception?.Message : e.ErrorMessage)
+            .Where(msg => !string.IsNullOrWhiteSpace(msg))
+            .Distinct()
+            .ToList();
 }
-<h2>프로필 변경</h2>
-@*
-@if (TempData["StatusMessage"] is string msg)
+
+<h2 class="mb-3">@_S["CP_Title"]</h2>
+
+@if (parentErrors.Count > 0)
 {
-     <div class="alert alert-success">@msg</div>
+    <div class="alert alert-danger mb-3" role="alert" id="parent-summary">
+        <ul class="mb-0">
+            @foreach (var msg in parentErrors)
+            {
+                <li>@msg</li>
+            }
+        </ul>
+    </div>
 }
 
-
-<div asp-validation-summary="All" class="alert alert-danger mb-3"
-     style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
-*@
-<form method="post">
+<form id="parentForm" method="post" asp-page-handler="Save" novalidate>
     @Html.AntiForgeryToken()
-    @*<div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
-    <div asp-validation-summary="ModelOnly" class="mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "alert alert-danger")"role="alert"></div>*@
-    <div asp-validation-summary="All" class="alert alert-danger mb-3 @(ViewData.ModelState.IsValid ? "d-none" : "")" role="alert"></div>
+
+    @* ⛔ 부모 폼의 asp-validation-summary는 제거 *@
+    @* <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div> *@
+
     <div class="row g-3">
         <div class="col-md-6">
             <label asp-for="Input.CompCd" class="form-label"></label>
             <select asp-for="Input.CompCd" asp-items="Model.CompOptions" class="form-select">
-                <option value="">-- 선택 --</option>
+                <option value="">-- @_S["_CM_Select"] --</option>
             </select>
             <span asp-validation-for="Input.CompCd" class="text-danger"></span>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.DisplayName" class="form-label"></label>
             <input asp-for="Input.DisplayName" class="form-control" />
             <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.UserName" class="form-label"></label>
             <input asp-for="Input.UserName" class="form-control" readonly />
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.Email" class="form-label"></label>
             <div class="input-group">
                 <input asp-for="Input.Email" class="form-control" readonly />
-                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">변경</button>
+                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">
+                    @_S["_CM_Change"]
+                </button>
             </div>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.DepartmentId" class="form-label"></label>
             <select asp-for="Input.DepartmentId" asp-items="Model.DepartmentOptions" class="form-select">
-                <option value="">-- 선택 --</option>
-
+                <option value="">-- @_S["_CM_Select"] --</option>
             </select>
             <span asp-validation-for="Input.DepartmentId" class="text-danger"></span>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.PositionId" class="form-label"></label>
             <select asp-for="Input.PositionId" asp-items="Model.PositionOptions" class="form-select">
-                <option value="">-- 선택 --</option>
+                <option value="">-- @_S["_CM_Select"] --</option>
             </select>
             <span asp-validation-for="Input.PositionId" class="text-danger"></span>
         </div>
 
-            @*
-        <div class="col-md-6">
-            <label class="form-label">이메일</label>
-            <div class="input-group">
-                <input class="form-control" value="@Model.Input.Email" readonly />
-                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#emailChangeModal">변경</button>
-            </div>
-        </div>
-        *@
-
-
-
-
-
         <div class="col-md-6">
             <label asp-for="Input.PhoneNumber" class="form-label"></label>
             <input asp-for="Input.PhoneNumber" class="form-control" />
+            <span asp-validation-for="Input.PhoneNumber" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
@@ -83,21 +92,22 @@
             <input asp-for="Input.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
             <span asp-validation-for="Input.CurrentPassword" class="text-danger"></span>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.NewPassword" class="form-label"></label>
             <input asp-for="Input.NewPassword" class="form-control" type="password" autocomplete="new-password" />
             <span asp-validation-for="Input.NewPassword" class="text-danger"></span>
         </div>
+
         <div class="col-md-6">
             <label asp-for="Input.ConfirmNewPassword" class="form-label"></label>
             <input asp-for="Input.ConfirmNewPassword" class="form-control" type="password" autocomplete="new-password" />
             <span asp-validation-for="Input.ConfirmNewPassword" class="text-danger"></span>
         </div>
     </div>
-    <div></div>
-    <!--<button type="submit" class="btn btn-primary mt-3">저장하기</button>-->
+
     <div class="col-12 mt-3">
-        <button type="submit" class="btn btn-primary w-100 py-2">저장하기</button>
+        <button type="submit" form="parentForm" class="btn btn-primary w-100 py-2">@_S["CP_Save"]</button>
     </div>
 </form>
 
@@ -105,16 +115,16 @@
 <div class="modal fade" id="changeEmailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" asp-page-handler="SendEmailChange">
+            <form id="emailChangeForm" method="post" asp-page-handler="SendEmailChange">
                 @Html.AntiForgeryToken()
 
                 <div class="modal-header">
-                    <h5 class="modal-title">이메일 변경</h5>
+                    <h5 class="modal-title">@_S["CP_MD_Title"]</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
 
                 <div class="modal-body">
-                    <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3" role="alert"></div>
+                    <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div>
 
                     <div class="mb-3">
                         <label asp-for="EmailChange.NewEmail" class="form-label"></label>
@@ -124,16 +134,14 @@
 
                     <div class="mb-3">
                         <label asp-for="EmailChange.CurrentPassword" class="form-label"></label>
-                        <input asp-for="EmailChange.CurrentPassword"
-                               class="form-control"
-                               autocomplete="current-password" />
+                        <input asp-for="EmailChange.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
                         <span asp-validation-for="EmailChange.CurrentPassword" class="text-danger"></span>
                     </div>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
-                    <button type="submit" class="btn btn-primary">확인 메일 보내기</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">@_S["_CM_Close"]</button>
+                    <button type="submit" form="emailChangeForm" class="btn btn-primary">@_S["CP_MD_SendConfirmationMail"]</button>
                 </div>
             </form>
         </div>
@@ -142,4 +150,89 @@
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+
+    @* 서버 검증 실패 시 모달 재오픈 *@
+    @if ((ViewData["OpenEmailModal"] as bool?) == true)
+    {
+        <script>
+            window.addEventListener('load', function () {
+                var el = document.getElementById('changeEmailModal');
+                if (el) new bootstrap.Modal(el, { backdrop: 'static', focus: true }).show();
+            });
+        </script>
+    }
+
+    @* 부모(클라이언트 검증) → 상단 커스텀 요약에 반영 *@
+    <script>
+        (function () {
+            var $form = $('#parentForm');
+            if ($form.length === 0) return;
+
+            function ensureSummary() {
+                var $summary = $('#parent-summary');
+                if ($summary.length === 0) {
+                    $summary = $(
+                        '<div id="parent-summary" class="alert alert-danger mb-3" role="alert" style="display:none;">' +
+                        '<ul class="mb-0"></ul>' +
+                        '</div>'
+                    );
+                    $form.before($summary);
+                }
+                return $summary;
+            }
+
+            function renderSummary(msgs) {
+                var $summary = ensureSummary();
+                var $ul = $summary.find('ul');
+                $ul.empty();
+                msgs.forEach(function (m) { $('<li/>').text(m).appendTo($ul); });
+                $summary.toggle(msgs.length > 0);
+            }
+
+            // 현재 검증 결과만 수집 (Input.*만)
+            function collectMessagesNow() {
+                var v = $form.data('validator');
+                if (!v) return [];
+                var msgs = [];
+
+                // errorMap: name -> message (현재 invalid만)
+                Object.keys(v.errorMap || {}).forEach(function (name) {
+                    if (name.indexOf('Input.') === 0) {
+                        var msg = v.errorMap[name];
+                        if (msg) msgs.push(msg);
+                    }
+                });
+
+                // 보조: errorList에도 들어오므로 합치되 중복 제거
+                (v.errorList || []).forEach(function (item) {
+                    var el = item.element;
+                    var name = el && el.name;
+                    if (name && name.indexOf('Input.') === 0 && item.message) {
+                        msgs.push(item.message);
+                    }
+                });
+
+                return Array.from(new Set(msgs));
+            }
+
+            // 자동 검증(키입력/포커스아웃) 비활성화 → 저장 시 1회만
+            $(function () {
+                var v = $form.data('validator');
+                if (v) {
+                    v.settings.onkeyup = false;
+                    v.settings.onfocusout = false;
+                    v.settings.onclick = false;
+                }
+            });
+
+            // 저장(제출) 시 검증이 실패하면 그 “현재 결과”만 요약에 표시
+            $form.on('invalid-form.validate', function () {
+                renderSummary(collectMessagesNow());
+            });
+
+            ensureSummary();
+        })();
+    </script>
+
+
 }

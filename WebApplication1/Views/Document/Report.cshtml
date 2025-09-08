@@ -1,0 +1,11 @@
+﻿@* Views/Document/Report.cshtml *@
+@{
+    ViewData["Title"] = "문서 작성";
+    Layout = "_Layout";
+}
+<div class="card">
+    <div class="card-body p-0" style="height:calc(100vh - 220px);">
+        <iframe src="@Url.Action("RawReport","Document")"
+                style="border:none;width:100%;height:100%;"></iframe>
+    </div>
+</div>

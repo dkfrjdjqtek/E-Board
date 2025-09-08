@@ -97,4 +97,508 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="DTL_Title_DocManage" xml:space="preserve">
+    <value>Manajemen Templat Dokumen</value>
+  </data>
+  <data name="DTL_Label_Site" xml:space="preserve">
+    <value>Lokasi</value>
+  </data>
+  <data name="DTL_Label_Dept" xml:space="preserve">
+    <value>Departemen</value>
+  </data>
+  <data name="DTL_Label_Kind" xml:space="preserve">
+    <value>Jenis</value>
+  </data>
+  <data name="DTL_Label_DocName" xml:space="preserve">
+    <value>Nama Dokumen</value>
+  </data>
+  <data name="DTL_Btn_Load" xml:space="preserve">
+    <value>Muat</value>
+  </data>
+  <data name="DTL_Btn_NewTemplate" xml:space="preserve">
+    <value>Buat Templat Dokumen</value>
+  </data>
+  <data name="_CM_Select" xml:space="preserve">
+    <value>Pilih</value>
+  </data>
+  <data name="DTL_Common" xml:space="preserve">
+    <value>Umum</value>
+  </data>
+  <data name="DTL_Alert_SelectDoc" xml:space="preserve">
+    <value>Silakan pilih nama dokumen terlebih dahulu.</value>
+  </data>
+  <data name="Header_Lan_CN" xml:space="preserve">
+    <value>Bahasa Tionghoa</value>
+  </data>
+  <data name="Header_Lan_ID" xml:space="preserve">
+    <value>Bahasa Indonesia</value>
+  </data>
+  <data name="Header_Lan_KO" xml:space="preserve">
+    <value>Bahasa Korea</value>
+  </data>
+  <data name="Header_Lan_US" xml:space="preserve">
+    <value>Bahasa Inggris</value>
+  </data>
+  <data name="Header_Lan_VN" xml:space="preserve">
+    <value>Bahasa Vietnam</value>
+  </data>
+  <data name="Header_LogIn" xml:space="preserve">
+    <value>Masuk</value>
+  </data>
+  <data name="Header_LogOut" xml:space="preserve">
+    <value>Keluar</value>
+  </data>
+  <data name="Header_Register" xml:space="preserve">
+    <value>Daftar</value>
+  </data>
+  <data name="Home_Intro" xml:space="preserve">
+    <value>Pelajari</value>
+  </data>
+  <data name="Home_Intro_LinkText" xml:space="preserve">
+    <value>Membangun aplikasi Web dengan ASP.NET Core</value>
+  </data>
+  <data name="Home_Title" xml:space="preserve">
+    <value>Beranda</value>
+  </data>
+  <data name="Home_Welcome" xml:space="preserve">
+    <value>Selamat datang</value>
+  </data>
+  <data name="Login_ForgotPassword" xml:space="preserve">
+    <value>Setel ulang kata sandi</value>
+  </data>
+  <data name="Login_Login" xml:space="preserve">
+    <value>Masuk</value>
+  </data>
+  <data name="Login_Title" xml:space="preserve">
+    <value>Masuk</value>
+  </data>
+  <data name="Sidebar_AdminUserManage" xml:space="preserve">
+    <value>Hanya admin</value>
+  </data>
+  <data name="Sidebar_Menu1" xml:space="preserve">
+    <value>Persetujuan elektronik</value>
+  </data>
+  <data name="Sidebar_Menu1Sub1" xml:space="preserve">
+    <value>Buat dokumen</value>
+  </data>
+  <data name="Sidebar_Menu1Sub2" xml:space="preserve">
+    <value>Persetujuan</value>
+  </data>
+  <data name="Sidebar_Menu1Sub3" xml:space="preserve">
+    <value>Dokumen dibagikan</value>
+  </data>
+  <data name="Sidebar_Menu1Sub4" xml:space="preserve">
+    <value>Lain-lain</value>
+  </data>
+  <data name="Sidebar_Menu2" xml:space="preserve">
+    <value>Papan buletin</value>
+  </data>
+  <data name="Sidebar_Menu2Sub1" xml:space="preserve">
+    <value>Subitem 1</value>
+  </data>
+  <data name="Sidebar_Menu2Sub2" xml:space="preserve">
+    <value>Subitem 2</value>
+  </data>
+  <data name="Sidebar_Menu2Sub3" xml:space="preserve">
+    <value>Subitem 3</value>
+  </data>
+  <data name="Sidebar_Menu3" xml:space="preserve">
+    <value>Pengaturan</value>
+  </data>
+  <data name="Sidebar_Menu3Sub1" xml:space="preserve">
+    <value>PIM</value>
+  </data>
+  <data name="Sidebar_Menu3Sub2" xml:space="preserve">
+    <value>Templat dokumen</value>
+  </data>
+  <data name="Sidebar_Menu3Sub3" xml:space="preserve">
+    <value>Autentikasi 2FA</value>
+  </data>
+  <data name="Login_Summary" xml:space="preserve">
+    <value>Harap perbaiki kesalahan di bawah ini.</value>
+  </data>
+  <data name="Login_UserName_Label" xml:space="preserve">
+    <value>ID atau email</value>
+  </data>
+  <data name="Login_UserName_Placeholder" xml:space="preserve">
+    <value>Masukkan ID/email</value>
+  </data>
+  <data name="Login_UserName_Required" xml:space="preserve">
+    <value>ID atau email wajib diisi.</value>
+  </data>
+  <data name="Login_Password_Label" xml:space="preserve">
+    <value>Kata sandi</value>
+  </data>
+  <data name="Login_Password_Placeholder" xml:space="preserve">
+    <value>Masukkan kata sandi</value>
+  </data>
+  <data name="Login_Password_Required" xml:space="preserve">
+    <value>Kata sandi wajib diisi.</value>
+  </data>
+  <data name="Login_RememberMe_Label" xml:space="preserve">
+    <value>Tetap masuk</value>
+  </data>
+  <data name="Login_InvalidCredentials" xml:space="preserve">
+    <value>ID atau kata sandi tidak valid.</value>
+  </data>
+  <data name="Login_LockedOut" xml:space="preserve">
+    <value>Akun Anda dikunci.</value>
+  </data>
+  <data name="Login_Requires2FA" xml:space="preserve">
+    <value>Diperlukan autentikasi dua faktor.</value>
+  </data>
+  <data name="Login_NotAllowed" xml:space="preserve">
+    <value>Tidak diizinkan masuk.</value>
+  </data>
+  <data name="Login_WrongPassword" xml:space="preserve">
+    <value>Kata sandi salah.</value>
+  </data>
+  <data name="Login_UserNotExist" xml:space="preserve">
+    <value>Pengguna tidak ada.</value>
+  </data>
+  <data name="FP_Title" xml:space="preserve">
+    <value>Lupa kata sandi</value>
+  </data>
+  <data name="FP_User_Label" xml:space="preserve">
+    <value>ID atau email</value>
+  </data>
+  <data name="FP_User_Req" xml:space="preserve">
+    <value>ID atau email wajib diisi.</value>
+  </data>
+  <data name="FP_SendLink" xml:space="preserve">
+    <value>Kirim tautan reset</value>
+  </data>
+  <data name="FP_Info_Sent" xml:space="preserve">
+    <value>Jika ada akun untuk alamat yang Anda masukkan, kami telah mengirim tautan reset.</value>
+  </data>
+  <data name="RP_Title" xml:space="preserve">
+    <value>Setel ulang kata sandi</value>
+  </data>
+  <data name="RP_Email_Label" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="RP_Email_Req" xml:space="preserve">
+    <value>Email wajib diisi.</value>
+  </data>
+  <data name="RP_Pwd_Label" xml:space="preserve">
+    <value>Kata sandi baru</value>
+  </data>
+  <data name="RP_Pwd_Req" xml:space="preserve">
+    <value>Kata sandi wajib diisi.</value>
+  </data>
+  <data name="RP_Pwd_Len" xml:space="preserve">
+    <value>Kata sandi minimal {2} karakter.</value>
+  </data>
+  <data name="RP_PwdConfirm_Label" xml:space="preserve">
+    <value>Konfirmasi kata sandi</value>
+  </data>
+  <data name="RP_PwdConfirm_NotMatch" xml:space="preserve">
+    <value>Kata sandi dan konfirmasi tidak cocok.</value>
+  </data>
+  <data name="RP_Do" xml:space="preserve">
+    <value>Atur kata sandi baru</value>
+  </data>
+  <data name="RP_Done" xml:space="preserve">
+    <value>Kata sandi Anda telah disetel ulang. Anda sekarang dapat masuk.</value>
+  </data>
+  <data name="Login_ForgotPasswordv" xml:space="preserve">
+    <value>Lupa kata sandi</value>
+  </data>
+  <data name="Back_To_Login" xml:space="preserve">
+    <value>Kembali ke Masuk</value>
+  </data>
+  <data name="Admin_ResetLink_Title" xml:space="preserve">
+    <value>Kirim tautan reset (Admin)</value>
+  </data>
+  <data name="Admin_ResetLink_User_Label" xml:space="preserve">
+    <value>Pengguna (ID atau email)</value>
+  </data>
+  <data name="Admin_ResetLink_User_Req" xml:space="preserve">
+    <value>Pengguna wajib diisi.</value>
+  </data>
+  <data name="Admin_ResetLink_SendEmail_Label" xml:space="preserve">
+    <value>Juga kirim melalui email</value>
+  </data>
+  <data name="Admin_ResetLink_UserNotFound" xml:space="preserve">
+    <value>Pengguna tidak ditemukan atau tidak ada email.</value>
+  </data>
+  <data name="Admin_ResetLink_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Petunjuk reset kata sandi oleh administrator</value>
+  </data>
+  <data name="Admin_ResetLink_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Administrator telah membuat &lt;strong&gt;tautan reset sementara&lt;/strong&gt; untuk akun Anda. Klik tombol di bawah untuk mengatur kata sandi baru.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="Admin_ResetLink_Email_Sent" xml:space="preserve">
+    <value>Tautan reset telah dikirim melalui email.</value>
+  </data>
+  <data name="Admin_ResetLink_Link_Label" xml:space="preserve">
+    <value>Tautan reset sementara</value>
+  </data>
+  <data name="Admin_ResetLink_OpenBtn" xml:space="preserve">
+    <value>Buka</value>
+  </data>
+  <data name="Admin_ResetLink_GenerateBtn" xml:space="preserve">
+    <value>Buat tautan reset</value>
+  </data>
+  <data name="FPC_BTN_BackToLogin" xml:space="preserve">
+    <value>Kembali ke Masuk</value>
+  </data>
+  <data name="FPC_Message" xml:space="preserve">
+    <value>Tautan penyetelan ulang kata sandi telah dikirim ke email yang Anda masukkan.</value>
+  </data>
+  <data name="FP_UserName_Label" xml:space="preserve">
+    <value>ID</value>
+  </data>
+  <data name="FP_UserName_Placeholder" xml:space="preserve">
+    <value>Masukkan ID Anda.</value>
+  </data>
+  <data name="FP_UserName_Required" xml:space="preserve">
+    <value>ID wajib diisi.</value>
+  </data>
+  <data name="FP_Email_Label" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="FP_Email_Placeholder" xml:space="preserve">
+    <value>Masukkan email Anda.</value>
+  </data>
+  <data name="FP_Email_Required" xml:space="preserve">
+    <value>Email wajib diisi.</value>
+  </data>
+  <data name="FP_Email_Invalid" xml:space="preserve">
+    <value>Alamat email tidak valid.</value>
+  </data>
+  <data name="FP_SendButton" xml:space="preserve">
+    <value>Kirim tautan reset</value>
+  </data>
+  <data name="FP_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Petunjuk penyetelan ulang kata sandi</value>
+  </data>
+  <data name="FP_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Kami menerima permintaan &lt;strong&gt;setel ulang kata sandi&lt;/strong&gt; Anda. Klik tombol di bawah untuk melanjutkan. Jika bukan Anda yang meminta, abaikan email ini.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="FPC_LogInButton" xml:space="preserve">
+    <value>Lupa kata sandi</value>
+  </data>
+  <data name="FPC_Title" xml:space="preserve">
+    <value>Konfirmasi setel ulang kata sandi</value>
+  </data>
+  <data name="RP_Email_Invalid" xml:space="preserve">
+    <value>Alamat email tidak valid.</value>
+  </data>
+  <data name="CP_Title" xml:space="preserve">
+    <value>Edit Profil</value>
+  </data>
+  <data name="CP_Intro" xml:space="preserve">
+    <value>Perbarui informasi akun Anda.</value>
+  </data>
+  <data name="CP_UserName_Label" xml:space="preserve">
+    <value>ID</value>
+  </data>
+  <data name="CP_UserName_Placeholder" xml:space="preserve">
+    <value>ID atau nama pengguna</value>
+  </data>
+  <data name="CP_UserName_Req" xml:space="preserve">
+    <value>Harap masukkan nama pengguna.</value>
+  </data>
+  <data name="CP_UserName_Len" xml:space="preserve">
+    <value>ID harus antara {2} dan {1} karakter.</value>
+  </data>
+  <data name="CP_Email_Label" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="CP_Email_Placeholder" xml:space="preserve">
+    <value>you@example.com</value>
+  </data>
+  <data name="CP_Email_Req" xml:space="preserve">
+    <value>Harap masukkan email Anda.</value>
+  </data>
+  <data name="CP_Email_Invalid" xml:space="preserve">
+    <value>Format email tidak valid.</value>
+  </data>
+  <data name="CP_Phone_Label" xml:space="preserve">
+    <value>Nomor telepon</value>
+  </data>
+  <data name="CP_Phone_Placeholder" xml:space="preserve">
+    <value>Hanya angka dan simbol</value>
+  </data>
+  <data name="CP_Phone_Invalid" xml:space="preserve">
+    <value>Format nomor telepon tidak valid.</value>
+  </data>
+  <data name="CP_Department_Label" xml:space="preserve">
+    <value>Departemen</value>
+  </data>
+  <data name="CP_Department_Placeholder" xml:space="preserve">
+    <value>mis: Penjualan</value>
+  </data>
+  <data name="CP_Department_Len" xml:space="preserve">
+    <value>Nama departemen maksimal {1} karakter.</value>
+  </data>
+  <data name="CP_Position_Label" xml:space="preserve">
+    <value>Jabatan</value>
+  </data>
+  <data name="CP_Position_Placeholder" xml:space="preserve">
+    <value>mis: Manajer</value>
+  </data>
+  <data name="CP_Position_Len" xml:space="preserve">
+    <value>Jabatan maksimal {1} karakter.</value>
+  </data>
+  <data name="CP_Save" xml:space="preserve">
+    <value>Simpan</value>
+  </data>
+  <data name="CP_Cancel" xml:space="preserve">
+    <value>Batal</value>
+  </data>
+  <data name="CP_Save_Success" xml:space="preserve">
+    <value>Profil Anda telah disimpan.</value>
+  </data>
+  <data name="CP_Save_Fail" xml:space="preserve">
+    <value>Terjadi kesalahan saat menyimpan profil Anda.</value>
+  </data>
+  <data name="CP_ValidationSummary" xml:space="preserve">
+    <value>Harap periksa kesalahan di bawah ini.</value>
+  </data>
+  <data name="CP_DisplayName_Label" xml:space="preserve">
+    <value>Nama</value>
+  </data>
+  <data name="CP_DisplayName_Req" xml:space="preserve">
+    <value>Harap masukkan nama Anda.</value>
+  </data>
+  <data name="CP_CompCd_Label" xml:space="preserve">
+    <value>Lokasi</value>
+  </data>
+  <data name="CP_CompCd_Placeholder" xml:space="preserve">
+    <value>Pilih lokasi</value>
+  </data>
+  <data name="CP_CompCd_Invalid" xml:space="preserve">
+    <value>Silakan pilih lokasi yang valid.</value>
+  </data>
+  <data name="CP_Department_Invalid" xml:space="preserve">
+    <value>Silakan pilih departemen yang valid.</value>
+  </data>
+  <data name="CP_Position_Invalid" xml:space="preserve">
+    <value>Silakan pilih jabatan yang valid.</value>
+  </data>
+  <data name="CP_CurrentPwd_Label" xml:space="preserve">
+    <value>Kata sandi saat ini</value>
+  </data>
+  <data name="CP_NewPwd_Label" xml:space="preserve">
+    <value>Kata sandi baru</value>
+  </data>
+  <data name="CP_NewPwdConfirm_Label" xml:space="preserve">
+    <value>Konfirmasi kata sandi baru</value>
+  </data>
+  <data name="CP_NewPwd_Req" xml:space="preserve">
+    <value>Harap masukkan kata sandi baru.</value>
+  </data>
+  <data name="CP_NewPwdConfirm_Req" xml:space="preserve">
+    <value>Harap konfirmasi kata sandi baru.</value>
+  </data>
+  <data name="CP_NewPwd_NotMatch" xml:space="preserve">
+    <value>Kata sandi baru dan konfirmasinya tidak cocok.</value>
+  </data>
+  <data name="CP_EmailChange_NewEmail_Label" xml:space="preserve">
+    <value>Email baru</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
+    <value>Kata sandi saat ini</value>
+  </data>
+  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+    <value>Harap masukkan email baru.</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
+    <value>Harap masukkan kata sandi saat ini.</value>
+  </data>
+  <data name="CP_EmailChange_SameAsOld" xml:space="preserve">
+    <value>Sama dengan email saat ini.</value>
+  </data>
+  <data name="CP_EmailChange_CurrentPwd_Wrong" xml:space="preserve">
+    <value>Kata sandi saat ini salah.</value>
+  </data>
+  <data name="CP_EmailChange_Mail_Sent" xml:space="preserve">
+    <value>Email konfirmasi telah dikirim. Silakan periksa kotak masuk Anda.</value>
+  </data>
+  <data name="CP_EmailChange_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Konfirmasi perubahan email Anda</value>
+  </data>
+  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Anda meminta perubahan email login. Untuk melindungi akun, klik tombol di bawah untuk mengonfirmasi perubahan.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="_CM_Change" xml:space="preserve">
+    <value>Ubah</value>
+  </data>
+  <data name="CP_MD_SendConfirmationMail" xml:space="preserve">
+    <value>Kirim email konfirmasi</value>
+  </data>
+  <data name="CP_MD_Title" xml:space="preserve">
+    <value>Ubah email</value>
+  </data>
+  <data name="_CM_Close" xml:space="preserve">
+    <value>Tutup</value>
+  </data>
+  <data name="Sidebar_Menu3Sub4" xml:space="preserve">
+    <value>Manajemen pengguna</value>
+  </data>
+  <data name="_CM_PrivacyPolicy" xml:space="preserve">
+    <value>Kebijakan Privasi</value>
+  </data>
+  <data name="_CM_TermsofUse" xml:space="preserve">
+    <value>Ketentuan Penggunaan</value>
+  </data>
+  <data name="_CM_MainTitle" xml:space="preserve">
+    <value>Papan Elektronik Han Young</value>
+  </data>
+  <data name="CP_CurrentPwd_Req" xml:space="preserve">
+    <value>Harap masukkan kata sandi saat ini.</value>
+  </data>
+  <data name="CP_CurrentPwd_Wrong" xml:space="preserve">
+    <value>Kata sandi saat ini Anda salah.</value>
+  </data>
+  <data name="Sidebar_Menu3Sub5" xml:space="preserve">
+    <value>Pengaturan sistem</value>
+  </data>
+  <data name="_CM_Common" xml:space="preserve">
+    <value>Umum</value>
+  </data>
+  <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
+    <value>Format yang didukung adalah .xlsx/.xlsm. File .xls lama harus dikonversi sebelum diunggah. Contoh: buka file di Excel, pilih 'Simpan Sebagai', lalu atur jenis file ke 'Excel Workbook (*.xlsx)'.</value>
+  </data>
+  <data name="DTL_Title_NewTemplate" xml:space="preserve">
+    <value>Buat Template Dokumen</value>
+  </data>
+  <data name="DTL_Placeholder_DocName" xml:space="preserve">
+    <value>Masukkan nama dokumen</value>
+  </data>
+  <data name="DTL_Placeholder_ExcelPath" xml:space="preserve">
+    <value>Path file Excel</value>
+  </data>
+  <data name="DTL_Label_Excel" xml:space="preserve">
+    <value>File Excel</value>
+  </data>
+  <data name="DTL_Btn_LoadExcel" xml:space="preserve">
+    <value>Muat dari Excel</value>
+  </data>
+  <data name="DTL_Section_Fields" xml:space="preserve">
+    <value>Pemetaan Bidang Input</value>
+  </data>
+  <data name="DTL_Section_Approvals" xml:space="preserve">
+    <value>Pemetaan Area Persetujuan</value>
+  </data>
+  <data name="DTL_Col_FieldKey" xml:space="preserve">
+    <value>Kunci Field</value>
+  </data>
+  <data name="DTL_Col_Type" xml:space="preserve">
+    <value>Tipe</value>
+  </data>
+  <data name="DTL_Col_CellA1" xml:space="preserve">
+    <value>Sel (A1)</value>
+  </data>
+  <data name="DTL_Col_Slot" xml:space="preserve">
+    <value>Slot</value>
+  </data>
+  <data name="DTL_Col_Part" xml:space="preserve">
+    <value>Bagian</value>
+  </data>
+  <data name="_CM_Save" xml:space="preserve">
+    <value>Simpan</value>
+  </data>
 </root>

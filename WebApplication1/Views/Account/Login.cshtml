@@ -1,37 +1,30 @@
 ﻿@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @model WebApplication1.Models.LoginViewModel
-@{
-    //ViewData["Title"] = "로그인";
-    ViewData["Title"] = S["Login_Title"];
-    
-}
-<h1>@S["Login_Login"]</h1>
 
-<!-- 상단 요약 에러 -->
-<!--
-<div asp-validation-summary="All" class="alert alert-danger mb-3"
-     style="display:@(ViewData.ModelState.ErrorCount>0?"block":"none")"></div>
--->
-@if (ViewData.ModelState.ErrorCount > 0)
-{
-    <div class="alert alert-danger mb-3">
-        @S["Login_Summary"]
-    </div>
+@{
+    ViewData["Title"] = S["Login_Title"];
 }
+
+<h1>@S["Login_Login"]</h1>
 
 <form asp-action="Login" method="post">
     @Html.AntiForgeryToken()
     <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
 
+    <!-- ★ 폼 내부로 이동: 클라이언트/서버 모두에서 동작 -->
+    <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div>
+   
     <div class="mb-3">
         <label asp-for="UserName" class="form-label"></label>
-        <input asp-for="UserName" class="form-control" autocomplete="username" placeholder="@S["Login_UserName_Placeholder"]" />
+        <input asp-for="UserName" class="form-control" autocomplete="username"
+               placeholder="@S["Login_UserName_Placeholder"]" />
         <span asp-validation-for="UserName" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="Password" class="form-label"></label>
-        <input asp-for="Password" class="form-control" autocomplete="current-password" placeholder="@S["Login_Password_Placeholder"]" />
+        <input asp-for="Password" class="form-control" autocomplete="current-password"
+               placeholder="@S["Login_Password_Placeholder"]" />
         <span asp-validation-for="Password" class="text-danger"></span>
     </div>
 
@@ -42,16 +35,12 @@
 
     <div class="row g-2 mt-3">
         <div class="col-12 col-md-8">
-            <button type="submit" class="btn btn-primary w-100 py-2">
-                @S["Header_LogIn"]
-            </button>
+            <button type="submit" class="btn btn-primary w-100 py-2">@S["Header_LogIn"]</button>
         </div>
-
         <div class="col-12 col-md-4">
-            <a asp-area="Identity"
-               asp-page="/Account/ForgotPassword"
+            <a asp-area="Identity" asp-page="/Account/ForgotPassword"
                class="btn btn-warning w-100 py-2" role="button">
-                @S["Login_ForgotPassword"]  @* 비밀번호 초기화 *@
+                @S["Login_ForgotPassword"]
             </a>
         </div>
     </div>

@@ -1,21 +1,22 @@
-using Microsoft.AspNetCore.Authorization;
+Ôªøusing Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using WebApplication1.Data;
 using WebApplication1.Models;
-using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory µÓ
+using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory Îì±
 using Fido2NetLib;
 using Microsoft.AspNetCore.Localization;
 using System.Globalization;
 using Microsoft.Extensions.Options;
-using WebApplication1; 
+using WebApplication1;
+using Microsoft.AspNetCore.WebUtilities; // QueryHelpers
 
 var builder = WebApplication.CreateBuilder(args);
 
 // -----------------------------
-// 1) ø‹∫Œ º≠∫ÒΩ∫ ±∏º∫
+// 1) Ïô∏Î∂Ä ÏÑúÎπÑÏä§ Íµ¨ÏÑ±
 // -----------------------------
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddTransient<IEmailSender, SmtpEmailSender>();
@@ -28,7 +29,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // -----------------------------
-// 3) Identity (µ¸ «— π¯∏∏ µÓ∑œ)
+// 3) Identity (Îî± Ìïú Î≤àÎßå Îì±Î°ù)
 // -----------------------------
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -39,74 +40,76 @@ builder.Services
         options.Password.RequiredLength = 4;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders() // UI¥¬ ¡˜¡¢ ±∏«ˆ -> AddDefaultUI() ∫“« ø‰
+    .AddDefaultTokenProviders() // UIÎäî ÏßÅÏ†ë Íµ¨ÌòÑ -> AddDefaultUI() Î∂àÌïÑÏöîÌïòÎÇò, ÏûàÏñ¥ÎèÑ Î¨¥Î∞©
     .AddDefaultUI();
 
-// ¿Ã∏ﬁ¿œ/∫Òπ¯¿Áº≥¡§ µÓ ≈‰≈´ ¿Ø»øΩ√∞£
+// ÏùµÎ™Ö ÌóàÏö©: ÌïÑÏöîÌïú Identity ÌéòÏù¥ÏßÄÎßå (Ìè¥Îçî Ï†ÑÏ≤¥ ÌóàÏö© Ï†úÍ±∞)
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Login");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPassword");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPasswordConfirmation");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPassword");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPasswordConfirmation");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmail");
+    options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmailChange");
+    options.Conventions.AllowAnonymousToPage("/Account/Login");
+    options.Conventions.AllowAnonymousToPage("/Account/AccessDenied"); // Ïª§Ïä§ÌÖÄ Ï†ëÍ∑ºÍ±∞Î∂Ä ÌéòÏù¥ÏßÄÎèÑ Ïì∞Î©¥ Ìï®Íªò
+});
+
+// Ïø†ÌÇ§ ÏÑ§Ï†ï(Îã®Ïùº Î∏îÎ°ù, Î≥ÄÏàòÎ™Ö options Ïú†ÏßÄ)
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Account/Login";                // ‚Üê Îã®Ïùº Í≤ΩÎ°ú
+    options.AccessDeniedPath = "/Account/AccessDenied";
+    options.ReturnUrlParameter = "returnUrl";
+
+    // ÎßåÎ£å/Ïø†ÌÇ§
+    options.SlidingExpiration = true;
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+    // Ïñ¥ÎîîÏÑúÎì† Î°úÍ∑∏Ïù∏ Î¶¨Îã§Ïù¥Î†âÌä∏ Î∞úÏÉù Ïãú /Account/Login ÏúºÎ°ú
+    options.Events.OnRedirectToLogin = context =>
+    {
+        var returnUrl = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
+        var loginUrl = QueryHelpers.AddQueryString(options.LoginPath, options.ReturnUrlParameter, returnUrl);
+        context.Response.Redirect(loginUrl);
+        return Task.CompletedTask;
+    };
+});
+
+// Ïù¥Î©îÏùº/ÎπÑÎ≤àÏû¨ÏÑ§Ï†ï Îì± ÌÜ†ÌÅ∞ Ïú†Ìö®ÏãúÍ∞Ñ
 builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
 {
     o.TokenLifespan = TimeSpan.FromMinutes(30);
 });
 
-// ƒøΩ∫≈“ ≈¨∑π¿” ∆—≈‰∏Æ(¿÷¿ª ∂ß∏∏)
+// Ïª§Ïä§ÌÖÄ ÌÅ¥Î†àÏûÑ Ìå©ÌÜ†Î¶¨(ÏûàÏùÑ ÎïåÎßå)
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 
 // -----------------------------
-// 4) ƒÌ≈∞/∂Ùæ∆øÙ
+// 4) Authorization
 // -----------------------------
-builder.Services.ConfigureApplicationCookie(o =>
-{
-    o.LoginPath = "/Account/Login";
-    o.AccessDeniedPath = "/Account/AccessDenied";
-    o.ReturnUrlParameter = "returnUrl";
-    o.SlidingExpiration = true;
-    o.ExpireTimeSpan = TimeSpan.FromHours(8);
-    o.Cookie.HttpOnly = true;
-    o.Cookie.SameSite = SameSiteMode.Lax;
-    o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-});
-builder.Services.Configure<IdentityOptions>(o =>
-{
-    o.Lockout.MaxFailedAccessAttempts = 5;
-    o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(10);
-});
-
-// -----------------------------
-// 5) MVC/Razor + Authorization («œ≥™∑Œ «’ƒß)
-// -----------------------------
-//builder.Services.AddControllersWithViews();
-//builder.Services.AddRazorPages();
-
 builder.Services.AddAuthorization(options =>
 {
-    // ∑Œ±◊¿Œ « ºˆ(±‚∫ª ¡§√•)
+    // Î°úÍ∑∏Ïù∏ ÌïÑÏàò(Í∏∞Î≥∏ Ï†ïÏ±Ö)
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
 
-    // ∞¸∏Æ¿⁄ ¡§√•
+    // Í¥ÄÎ¶¨Ïûê Ï†ïÏ±Ö
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireAssertion(ctx =>
         {
             var v = ctx.User.FindFirst("is_admin")?.Value;
-            return v == "1" || v == "2"; // 1: ∞¸∏Æ¿⁄, 2: Ω¥∆€∞¸∏Æ¿⁄
+            return v == "1" || v == "2"; // 1: Í¥ÄÎ¶¨Ïûê, 2: ÏäàÌçºÍ¥ÄÎ¶¨Ïûê
         }));
 });
 
-builder.Services.AddRazorPages(options =>
-{
-    // ≤¿ « ø‰«— ∆‰¿Ã¡ˆ∏∏ ø≠æÓµ”¥œ¥Ÿ
-    options.Conventions.AllowAnonymousToAreaFolder("Identity", "/Account");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Login");
-    ////options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Register");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPassword");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ForgotPasswordConfirmation");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPassword");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ResetPasswordConfirmation");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmail");
-    //options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmailChange");
-    
-});
+
 
 // -----------------------------
 // 6) FIDO2
@@ -123,7 +126,7 @@ builder.Services.AddSingleton(provider =>
     return new Fido2(cfg);
 });
 
-//Multi Language
+// Multi Language
 builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 
 builder.Services
@@ -131,7 +134,6 @@ builder.Services
     .AddViewLocalization()
     .AddDataAnnotationsLocalization(options =>
     {
-        
         options.DataAnnotationLocalizerProvider = (type, factory) =>
             factory.Create(typeof(SharedResource));
     });
@@ -146,13 +148,14 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
     options.SupportedCultures = cultures;
     options.SupportedUICultures = cultures;
 
-    // Cookie > QueryString º¯¿∏∑Œ ≈Ω¡ˆ
+    // Cookie > QueryString ÏàúÏúºÎ°ú ÌÉêÏßÄ
     options.RequestCultureProviders = new List<IRequestCultureProvider>
     {
         new CookieRequestCultureProvider(),
         new QueryStringRequestCultureProvider()
     };
 });
+
 var app = builder.Build();
 
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
@@ -174,84 +177,28 @@ else
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+// Í∏∞Ï°¥ /Identity/Account/Login Ï†ëÍ∑º Ï∞®Îã® ‚Üí /Account/Login ÏúºÎ°ú ÏòÅÍµ¨ Î¶¨Îã§Ïù¥Î†âÌä∏
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.Equals("/Identity/Account/Login", StringComparison.OrdinalIgnoreCase))
+    {
+        var to = QueryHelpers.AddQueryString("/Account/Login",
+                  "returnUrl",
+                  ctx.Request.Query["returnUrl"].FirstOrDefault()
+                  ?? (ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString));
+        ctx.Response.Redirect(to, permanent: true); // 301/308 Î¶¨Îã§Ïù¥Î†âÌä∏
+        return;
+    }
+    await next();
+});
+
 app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 // -----------------------------
-// 8) µ•¿Ã≈Õ Ω√µÂ («— π¯∏∏ Ω««‡)
-// -----------------------------
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var um = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-    // ø¨∞·µ» DB √‚∑¬(»Æ¿ŒøÎ)
-    var cnn = db.Database.GetDbConnection();
-    app.Logger.LogWarning("Seeding to -> DataSource={DataSource}, Database={Database}",
-        cnn.DataSource, cnn.Database);
-
-    await SeedAsync(db, um);
-}
-
-static async Task SeedAsync(ApplicationDbContext db, UserManager<ApplicationUser> um)
-{
-    const string comp = "0001";
-    const string adminEmail = "admin@local";
-    const string adminPw = "Admin!2345";
-
-    // æ¯¿∏∏È ª˝º∫(¡ﬂ∫π π´Ω√)
-    await db.Database.ExecuteSqlInterpolatedAsync($@"
-IF NOT EXISTS (SELECT 1 FROM dbo.PositionMasters WHERE CompCd = {comp} AND Code = N'E11')
-BEGIN
-  INSERT dbo.PositionMasters(CompCd, Code, Name, IsActive, RankLevel, IsApprover, SortOrder)
-  VALUES ({comp}, N'E11', N'ªÛπ´', 1, 220, 1, 220);
-END");
-
-    await db.Database.ExecuteSqlInterpolatedAsync($@"
-IF NOT EXISTS (SELECT 1 FROM dbo.DepartmentMasters WHERE CompCd = {comp} AND Code = N'D006')
-BEGIN
-  INSERT dbo.DepartmentMasters(CompCd, Code, Name, IsActive, SortOrder)
-  VALUES ({comp}, N'D006', N'IT', 1, 60);
-END");
-
-    var posId = await db.PositionMasters
-        .Where(x => x.CompCd == comp && x.Code == "E11")
-        .Select(x => (int?)x.Id)
-        .FirstOrDefaultAsync();
-
-    var deptId = await db.DepartmentMasters
-        .Where(x => x.CompCd == comp && x.Code == "D006")
-        .Select(x => (int?)x.Id)
-        .FirstOrDefaultAsync();
-
-    if (posId is null || deptId is null)
-        throw new InvalidOperationException("Seed Ω«∆–: E11 ∂«¥¬ D006¿ª ¥ŸΩ√ »Æ¿Œ«œººø‰.");
-
-    var admin = await um.FindByEmailAsync(adminEmail);
-    if (admin is null)
-    {
-        admin = new ApplicationUser { UserName = adminEmail, Email = adminEmail, EmailConfirmed = true };
-        await um.CreateAsync(admin, adminPw);
-    }
-
-    if (!await db.UserProfiles.AnyAsync(p => p.UserId == admin.Id))
-    {
-        db.UserProfiles.Add(new UserProfile
-        {
-            UserId = admin.Id,
-            CompCd = comp,
-            DisplayName = "∞¸∏Æ¿⁄",
-            DepartmentId = deptId!.Value,
-            PositionId = posId!.Value
-        });
-        await db.SaveChangesAsync();
-    }
-}
-
-// -----------------------------
-// 9) ∂ÛøÏ∆√
+// 9) ÎùºÏö∞ÌåÖ
 // -----------------------------
 app.MapControllerRoute(
     name: "areas",

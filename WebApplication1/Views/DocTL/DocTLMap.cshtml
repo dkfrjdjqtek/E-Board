@@ -1,0 +1,183 @@
+﻿@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["DTL_Title_NewTemplate"];
+}
+<div class="container-fluid py-3">
+    <h5 class="mb-3">@S["DTL_Title_NewTemplate"]</h5>
+    <div class="alert alert-info">MAP view loaded.</div>
+
+    <script id="desc-json" type="application/json">
+        @Html.Raw(ViewBag.DescriptorJson ?? "{}")
+    </script>
+
+    <div class="d-flex gap-2 mt-3">
+        <a id="btnSave" class="btn btn-primary" href="javascript:void(0)">@S["_CM_Save"]</a>
+        <a class="btn btn-secondary" href="javascript:history.back()">@S["_CM_Close"]</a>
+    </div>
+</div>
+
+<style>
+    .flex-eq {
+        flex: 1 0 0;
+        min-width: 0
+    }
+
+    .table thead th {
+        white-space: nowrap
+    }
+
+    .cell-a1 {
+        width: 12rem
+    }
+
+    .key-input {
+        min-width: 10rem
+    }
+</style>
+
+<div class="container-fluid py-3">
+    <h5 class="mb-3">@S["DTL_Title_NewTemplate"]</h5>
+
+    <!-- 서버에서 내려온 디스크립터(JSON) -->
+    <script id="desc-json" type="application/json">
+        @Html.Raw(ViewBag.DescriptorJson ?? "{}")
+    </script>
+
+    <div class="row g-3">
+        <!-- 필드 매핑 -->
+        <div class="col-12 col-lg-7">
+            <div class="card">
+                <div class="card-header py-2">@S["DTL_Section_Fields"]</div>
+                <div class="card-body p-2">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>@S["DTL_Col_FieldKey"]</th>
+                                    <th style="width:8rem">@S["DTL_Col_Type"]</th>
+                                    <th class="cell-a1">@S["DTL_Col_CellA1"]</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tblFieldsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 결재 매핑 -->
+        <div class="col-12 col-lg-5">
+            <div class="card">
+                <div class="card-header py-2">@S["DTL_Section_Approvals"]</div>
+                <div class="card-body p-2">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="width:4rem">@S["DTL_Col_Slot"]</th>
+                                    <th style="width:6rem">@S["DTL_Col_Part"]</th>
+                                    <th class="cell-a1">@S["DTL_Col_CellA1"]</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tblApprBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 하단 버튼(다음 단계에서 저장 연결) -->
+    <div class="d-flex gap-2 mt-3">
+        <a id="btnSave" class="btn btn-primary flex-eq" href="javascript:void(0)">@S["_CM_Save"]</a>
+        <a class="btn btn-secondary flex-eq" href="javascript:history.back()">@S["_CM_Close"]</a>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const raw = (document.getElementById('desc-json')?.textContent || '{}').trim();
+            let desc = {};
+            try { desc = JSON.parse(raw); } catch { desc = {}; }
+
+            const fieldsBody = document.getElementById('tblFieldsBody');
+            const apprBody = document.getElementById('tblApprBody');
+
+            function opt(val, text, sel) { const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
+
+            function render() {
+                // Fields
+                fieldsBody.innerHTML = '';
+                (desc.Fields || []).forEach((f, i) => {
+                    const tr = document.createElement('tr');
+
+                    const tdKey = document.createElement('td');
+                    const inpKey = document.createElement('input');
+                    inpKey.className = 'form-control form-control-sm key-input';
+                    inpKey.value = f.Key || '';
+                    inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
+                    tdKey.appendChild(inpKey);
+
+                    const tdType = document.createElement('td');
+                    const sel = document.createElement('select');
+                    sel.className = 'form-select form-select-sm';
+                    sel.append(opt('Text', 'Text', (f.Type || 'Text') === 'Text'));
+                    sel.append(opt('Date', 'Date', (f.Type || 'Text') === 'Date'));
+                    sel.append(opt('Num', 'Num', (f.Type || 'Text') === 'Num'));
+                    sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
+                    tdType.appendChild(sel);
+
+                    const tdA1 = document.createElement('td');
+                    const inpA1 = document.createElement('input');
+                    inpA1.className = 'form-control form-control-sm';
+                    inpA1.value = (f.Cell && f.Cell.A1) || '';
+                    inpA1.addEventListener('input', e => {
+                        desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                        desc.Fields[i].Cell.A1 = e.target.value;
+                    });
+                    tdA1.appendChild(inpA1);
+
+                    tr.append(tdKey, tdType, tdA1);
+                    fieldsBody.appendChild(tr);
+                });
+
+                // Approvals
+                apprBody.innerHTML = '';
+                (desc.Approvals || []).forEach((a, i) => {
+                    const tr = document.createElement('tr');
+
+                    const tdS = document.createElement('td');
+                    const inpS = document.createElement('input');
+                    inpS.type = 'number'; inpS.min = '1';
+                    inpS.className = 'form-control form-control-sm';
+                    inpS.value = a.Slot ?? 1;
+                    inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1'); });
+                    tdS.appendChild(inpS);
+
+                    const tdP = document.createElement('td');
+                    const inpP = document.createElement('input');
+                    inpP.className = 'form-control form-control-sm';
+                    inpP.value = a.Part || '';
+                    inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
+                    tdP.appendChild(inpP);
+
+                    const tdA1 = document.createElement('td');
+                    const inpA1 = document.createElement('input');
+                    inpA1.className = 'form-control form-control-sm';
+                    inpA1.value = (a.Cell && a.Cell.A1) || '';
+                    inpA1.addEventListener('input', e => {
+                        desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                        desc.Approvals[i].Cell.A1 = e.target.value;
+                    });
+                    tdA1.appendChild(inpA1);
+
+                    tr.append(tdS, tdP, tdA1);
+                    apprBody.appendChild(tr);
+                });
+            }
+
+            render();
+        })();
+    </script>
+}
