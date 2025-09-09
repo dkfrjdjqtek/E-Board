@@ -571,19 +571,19 @@
     <value>불러오기</value>
   </data>
   <data name="DTL_Btn_NewTemplate" xml:space="preserve">
-    <value>문서 템플릿 생성</value>
+    <value>새 템플릿</value>
   </data>
   <data name="DTL_Common" xml:space="preserve">
     <value>공용</value>
   </data>
   <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>문서명을 먼저 선택하세요.</value>
+    <value>문서를 선택하세요.</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
-    <value>지원 형식은 .xlsx/.xlsm 입니다. 구형 .xls 파일은 변환 후 업로드하세요. 예) 엑셀에서 해당 파일을 연 후 '다른 이름으로 저장'하기를 선택한 후 파일 형식을 'Excel 통합 문서 (*.xlsx)'로 저장하십시오.</value>
+    <value>.xlsx/.xlsm(Excel Open XML) 파일만 가능합니다.</value>
   </data>
   <data name="DTL_Title_NewTemplate" xml:space="preserve">
-    <value>문서 템플릿 생성</value>
+    <value>새 템플릿</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
     <value>문서명 입력</value>
@@ -598,10 +598,10 @@
     <value>엑셀 로드</value>
   </data>
   <data name="DTL_Section_Fields" xml:space="preserve">
-    <value>입력 필드 매핑</value>
+    <value>입력 필드</value>
   </data>
   <data name="DTL_Section_Approvals" xml:space="preserve">
-    <value>결재란 매핑</value>
+    <value>결재란</value>
   </data>
   <data name="DTL_Col_FieldKey" xml:space="preserve">
     <value>필드 키</value>
@@ -610,15 +610,78 @@
     <value>유형</value>
   </data>
   <data name="DTL_Col_CellA1" xml:space="preserve">
-    <value>셀 위치(A1)</value>
+    <value>셀(A1)</value>
   </data>
   <data name="DTL_Col_Slot" xml:space="preserve">
     <value>슬롯</value>
   </data>
   <data name="DTL_Col_Part" xml:space="preserve">
-    <value>파트</value>
+    <value>항목</value>
   </data>
   <data name="_CM_Save" xml:space="preserve">
     <value>저장</value>
+  </data>
+  <data name="_CM_Add" xml:space="preserve">
+    <value>추가</value>
+  </data>
+  <data name="DTL_Preview_Title" xml:space="preserve">
+    <value>엑셀 미리보기</value>
+  </data>
+  <data name="DTL_Preview_Tip" xml:space="preserve">
+    <value>A1 입력칸을 먼저 클릭한 뒤, 아래 그리드에서 셀을 클릭하면 해당 주소가 채워집니다.</value>
+  </data>
+  <data name="DTL_Preview_MaxNote" xml:space="preserve">
+    <value>50행 × 26열 미리보기입니다.</value>
+  </data>
+  <data name="DTL_Btn_PickCell" xml:space="preserve">
+    <value>셀선택</value>
+  </data>
+  <data name="DTL_Map_NoRows" xml:space="preserve">
+    <value>행이 없습니다. [추가] 버튼으로 행을 추가하세요.</value>
+  </data>
+  <data name="DTL_NoPreview" xml:space="preserve">
+    <value>미리보기가 없습니다. 엑셀 첫 시트에 내용이 있는지 확인하세요.</value>
+  </data>
+  <data name="DTL_Section_Preview" xml:space="preserve">
+    <value>미리보기</value>
+  </data>
+  <data name="DTL_Info_ClickToFill" xml:space="preserve">
+    <value>A1 입력칸을 먼저 클릭한 뒤, 아래 그리드에서 셀을 클릭하면 해당 주소가 채워집니다.</value>
+  </data>
+  <data name="DTL_Msg_NoRows" xml:space="preserve">
+    <value>행이 없습니다. [추가] 버튼으로 행을 추가하세요.</value>
+  </data>
+  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
+    <value>사업장을 선택하세요.</value>
+  </data>
+  <data name="DTL_Alert_EnterDocName" xml:space="preserve">
+    <value>문서명을 입력하세요.</value>
+  </data>
+  <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
+    <value>엑셀 파일을 첨부하세요.</value>
+  </data>
+  <data name="DTL_Type_Text" xml:space="preserve">
+    <value>텍스트</value>
+  </data>
+  <data name="DTL_Type_Date" xml:space="preserve">
+    <value>날짜</value>
+  </data>
+  <data name="DTL_Type_Num" xml:space="preserve">
+    <value>숫자</value>
+  </data>
+  <data name="_CM_All" xml:space="preserve">
+    <value>전체</value>
+  </data>
+  <data name="DTL_Kind_Report" xml:space="preserve">
+    <value>보고서</value>
+  </data>
+  <data name="DTL_Kind_Memo" xml:space="preserve">
+    <value>메모</value>
+  </data>
+  <data name="DTL_Btn_ChooseFile" xml:space="preserve">
+    <value>파일 선택</value>
+  </data>
+  <data name="DTL_File_NoFile" xml:space="preserve">
+    <value>선택된 파일 없음</value>
   </data>
 </root>

@@ -101,22 +101,22 @@
     <value>文档模板管理</value>
   </data>
   <data name="DTL_Label_Site" xml:space="preserve">
-    <value>事业场所</value>
+    <value>站点</value>
   </data>
   <data name="DTL_Label_Dept" xml:space="preserve">
     <value>部门</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
-    <value>类型</value>
+    <value>类别</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
-    <value>文档名</value>
+    <value>文档名称</value>
   </data>
   <data name="DTL_Btn_Load" xml:space="preserve">
     <value>加载</value>
   </data>
   <data name="DTL_Btn_NewTemplate" xml:space="preserve">
-    <value>创建文档模板</value>
+    <value>新建模板</value>
   </data>
   <data name="_CM_Select" xml:space="preserve">
     <value>选择</value>
@@ -125,7 +125,7 @@
     <value>公用</value>
   </data>
   <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>请先选择文档名。</value>
+    <value>请选择文档。</value>
   </data>
   <data name="Header_Lan_CN" xml:space="preserve">
     <value>中文</value>
@@ -557,13 +557,13 @@
     <value>系统设置</value>
   </data>
   <data name="_CM_Common" xml:space="preserve">
-    <value>公用</value>
+    <value>通用</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
-    <value>支持的格式为 .xlsx/.xlsm。旧版 .xls 文件请先转换后再上传。示例：在 Excel 中打开文件，选择“另存为”，然后将文件类型设置为“Excel 工作簿 (*.xlsx)”。</value>
+    <value>仅支持 .xlsx/.xlsm（Excel Open XML）文件。</value>
   </data>
   <data name="DTL_Title_NewTemplate" xml:space="preserve">
-    <value>创建文档模板</value>
+    <value>新建模板</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
     <value>输入文档名称</value>
@@ -578,10 +578,10 @@
     <value>加载 Excel</value>
   </data>
   <data name="DTL_Section_Fields" xml:space="preserve">
-    <value>输入字段映射</value>
+    <value>字段</value>
   </data>
   <data name="DTL_Section_Approvals" xml:space="preserve">
-    <value>审批区映射</value>
+    <value>审批</value>
   </data>
   <data name="DTL_Col_FieldKey" xml:space="preserve">
     <value>字段键</value>
@@ -590,7 +590,7 @@
     <value>类型</value>
   </data>
   <data name="DTL_Col_CellA1" xml:space="preserve">
-    <value>单元格(A1)</value>
+    <value>单元格 (A1)</value>
   </data>
   <data name="DTL_Col_Slot" xml:space="preserve">
     <value>序号</value>
@@ -600,5 +600,68 @@
   </data>
   <data name="_CM_Save" xml:space="preserve">
     <value>保存</value>
+  </data>
+  <data name="_CM_Add" xml:space="preserve">
+    <value>添加</value>
+  </data>
+  <data name="DTL_Preview_Title" xml:space="preserve">
+    <value>Excel 预览</value>
+  </data>
+  <data name="DTL_Preview_Tip" xml:space="preserve">
+    <value>请先点击 A1 输入框，然后在下方网格中点击单元格以填入其地址。</value>
+  </data>
+  <data name="DTL_Preview_MaxNote" xml:space="preserve">
+    <value>50 行 × 26 列预览。</value>
+  </data>
+  <data name="DTL_Btn_PickCell" xml:space="preserve">
+    <value>选择单元格</value>
+  </data>
+  <data name="DTL_Map_NoRows" xml:space="preserve">
+    <value>没有行。请点击 [添加] 按钮新增一行。</value>
+  </data>
+  <data name="DTL_NoPreview" xml:space="preserve">
+    <value>无预览。请检查 Excel 第一张工作表是否有内容。</value>
+  </data>
+  <data name="DTL_Section_Preview" xml:space="preserve">
+    <value>预览</value>
+  </data>
+  <data name="DTL_Info_ClickToFill" xml:space="preserve">
+    <value>请先点击 A1 输入框，然后在下方网格中点击单元格以填入其地址。</value>
+  </data>
+  <data name="DTL_Msg_NoRows" xml:space="preserve">
+    <value>没有行。请点击 [添加] 按钮新增一行。</value>
+  </data>
+  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
+    <value>请选择站点。</value>
+  </data>
+  <data name="DTL_Alert_EnterDocName" xml:space="preserve">
+    <value>请输入文档名称。</value>
+  </data>
+  <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
+    <value>请上传 Excel 文件。</value>
+  </data>
+  <data name="DTL_Type_Text" xml:space="preserve">
+    <value>文本</value>
+  </data>
+  <data name="DTL_Type_Date" xml:space="preserve">
+    <value>日期</value>
+  </data>
+  <data name="DTL_Type_Num" xml:space="preserve">
+    <value>数字</value>
+  </data>
+  <data name="_CM_All" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="DTL_Kind_Report" xml:space="preserve">
+    <value>报告</value>
+  </data>
+  <data name="DTL_Kind_Memo" xml:space="preserve">
+    <value>备忘录</value>
+  </data>
+  <data name="DTL_Btn_ChooseFile" xml:space="preserve">
+    <value>选择文件</value>
+  </data>
+  <data name="DTL_File_NoFile" xml:space="preserve">
+    <value>未选择文件</value>
   </data>
 </root>

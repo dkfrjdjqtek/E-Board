@@ -113,10 +113,10 @@
     <value>Tên tài liệu</value>
   </data>
   <data name="DTL_Btn_Load" xml:space="preserve">
-    <value>Nạp</value>
+    <value>Tải</value>
   </data>
   <data name="DTL_Btn_NewTemplate" xml:space="preserve">
-    <value>Tạo mẫu tài liệu</value>
+    <value>Mẫu mới</value>
   </data>
   <data name="_CM_Select" xml:space="preserve">
     <value>Chọn</value>
@@ -125,7 +125,7 @@
     <value>Chung</value>
   </data>
   <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>Vui lòng chọn tên tài liệu trước.</value>
+    <value>Vui lòng chọn tài liệu.</value>
   </data>
   <data name="Header_Lan_CN" xml:space="preserve">
     <value>Tiếng Trung</value>
@@ -560,10 +560,10 @@
     <value>Chung</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
-    <value>Định dạng được hỗ trợ là .xlsx/.xlsm. Tệp .xls cũ cần được chuyển đổi trước khi tải lên. Ví dụ: mở tệp trong Excel, chọn 'Lưu dưới dạng', rồi đặt loại tệp thành 'Sổ làm việc Excel (*.xlsx)'.</value>
+    <value>Chỉ chấp nhận tệp .xlsx/.xlsm (Excel Open XML).</value>
   </data>
   <data name="DTL_Title_NewTemplate" xml:space="preserve">
-    <value>Tạo mẫu tài liệu</value>
+    <value>Mẫu mới</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
     <value>Nhập tên tài liệu</value>
@@ -578,16 +578,16 @@
     <value>Tải từ Excel</value>
   </data>
   <data name="DTL_Section_Fields" xml:space="preserve">
-    <value>Ánh xạ trường nhập</value>
+    <value>Trường dữ liệu</value>
   </data>
   <data name="DTL_Section_Approvals" xml:space="preserve">
-    <value>Ánh xạ khu vực phê duyệt</value>
+    <value>Phê duyệt</value>
   </data>
   <data name="DTL_Col_FieldKey" xml:space="preserve">
-    <value>Khóa trường</value>
+    <value>Mã trường</value>
   </data>
   <data name="DTL_Col_Type" xml:space="preserve">
-    <value>Kiểu</value>
+    <value>Loại</value>
   </data>
   <data name="DTL_Col_CellA1" xml:space="preserve">
     <value>Ô (A1)</value>
@@ -600,5 +600,68 @@
   </data>
   <data name="_CM_Save" xml:space="preserve">
     <value>Lưu</value>
+  </data>
+  <data name="_CM_Add" xml:space="preserve">
+    <value>Thêm</value>
+  </data>
+  <data name="DTL_Preview_Title" xml:space="preserve">
+    <value>Xem trước Excel</value>
+  </data>
+  <data name="DTL_Preview_Tip" xml:space="preserve">
+    <value>Hãy bấm ô nhập A1 trước, sau đó bấm một ô trong lưới bên dưới để điền địa chỉ đó.</value>
+  </data>
+  <data name="DTL_Preview_MaxNote" xml:space="preserve">
+    <value>Bản xem trước 50 hàng × 26 cột.</value>
+  </data>
+  <data name="DTL_Btn_PickCell" xml:space="preserve">
+    <value>Chọn ô</value>
+  </data>
+  <data name="DTL_Map_NoRows" xml:space="preserve">
+    <value>Không có hàng. Nhấn [Thêm] để thêm hàng.</value>
+  </data>
+  <data name="DTL_NoPreview" xml:space="preserve">
+    <value>Không có bản xem trước. Vui lòng kiểm tra trang tính đầu tiên có nội dung.</value>
+  </data>
+  <data name="DTL_Section_Preview" xml:space="preserve">
+    <value>Xem trước</value>
+  </data>
+  <data name="DTL_Info_ClickToFill" xml:space="preserve">
+    <value>Hãy bấm ô nhập A1 trước, sau đó bấm một ô trong lưới bên dưới để điền địa chỉ đó.</value>
+  </data>
+  <data name="DTL_Msg_NoRows" xml:space="preserve">
+    <value>Không có hàng. Nhấn [Thêm] để thêm hàng.</value>
+  </data>
+  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
+    <value>Vui lòng chọn cơ sở.</value>
+  </data>
+  <data name="DTL_Alert_EnterDocName" xml:space="preserve">
+    <value>Vui lòng nhập tên tài liệu.</value>
+  </data>
+  <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
+    <value>Vui lòng đính kèm tệp Excel.</value>
+  </data>
+  <data name="DTL_Type_Text" xml:space="preserve">
+    <value>Văn bản</value>
+  </data>
+  <data name="DTL_Type_Date" xml:space="preserve">
+    <value>Ngày</value>
+  </data>
+  <data name="DTL_Type_Num" xml:space="preserve">
+    <value>Số</value>
+  </data>
+  <data name="_CM_All" xml:space="preserve">
+    <value>Tất cả</value>
+  </data>
+  <data name="DTL_Kind_Report" xml:space="preserve">
+    <value>Báo cáo</value>
+  </data>
+  <data name="DTL_Kind_Memo" xml:space="preserve">
+    <value>Ghi nhớ</value>
+  </data>
+  <data name="DTL_Btn_ChooseFile" xml:space="preserve">
+    <value>Chọn tệp</value>
+  </data>
+  <data name="DTL_File_NoFile" xml:space="preserve">
+    <value>Chưa chọn tệp</value>
   </data>
 </root>

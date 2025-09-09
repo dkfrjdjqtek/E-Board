@@ -98,10 +98,10 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="DTL_Title_DocManage" xml:space="preserve">
-    <value>Manajemen Templat Dokumen</value>
+    <value>Manajemen Template Dokumen</value>
   </data>
   <data name="DTL_Label_Site" xml:space="preserve">
-    <value>Lokasi</value>
+    <value>Situs</value>
   </data>
   <data name="DTL_Label_Dept" xml:space="preserve">
     <value>Departemen</value>
@@ -116,7 +116,7 @@
     <value>Muat</value>
   </data>
   <data name="DTL_Btn_NewTemplate" xml:space="preserve">
-    <value>Buat Templat Dokumen</value>
+    <value>Template Baru</value>
   </data>
   <data name="_CM_Select" xml:space="preserve">
     <value>Pilih</value>
@@ -125,7 +125,7 @@
     <value>Umum</value>
   </data>
   <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>Silakan pilih nama dokumen terlebih dahulu.</value>
+    <value>Silakan pilih dokumen.</value>
   </data>
   <data name="Header_Lan_CN" xml:space="preserve">
     <value>Bahasa Tionghoa</value>
@@ -560,10 +560,10 @@
     <value>Umum</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
-    <value>Format yang didukung adalah .xlsx/.xlsm. File .xls lama harus dikonversi sebelum diunggah. Contoh: buka file di Excel, pilih 'Simpan Sebagai', lalu atur jenis file ke 'Excel Workbook (*.xlsx)'.</value>
+    <value>Hanya file .xlsx/.xlsm (Excel Open XML) yang diizinkan.</value>
   </data>
   <data name="DTL_Title_NewTemplate" xml:space="preserve">
-    <value>Buat Template Dokumen</value>
+    <value>Template Baru</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
     <value>Masukkan nama dokumen</value>
@@ -578,13 +578,13 @@
     <value>Muat dari Excel</value>
   </data>
   <data name="DTL_Section_Fields" xml:space="preserve">
-    <value>Pemetaan Bidang Input</value>
+    <value>Bidang</value>
   </data>
   <data name="DTL_Section_Approvals" xml:space="preserve">
-    <value>Pemetaan Area Persetujuan</value>
+    <value>Persetujuan</value>
   </data>
   <data name="DTL_Col_FieldKey" xml:space="preserve">
-    <value>Kunci Field</value>
+    <value>Kunci Bidang</value>
   </data>
   <data name="DTL_Col_Type" xml:space="preserve">
     <value>Tipe</value>
@@ -600,5 +600,68 @@
   </data>
   <data name="_CM_Save" xml:space="preserve">
     <value>Simpan</value>
+  </data>
+  <data name="_CM_Add" xml:space="preserve">
+    <value>Tambah</value>
+  </data>
+  <data name="DTL_Preview_Title" xml:space="preserve">
+    <value>Pratinjau Excel</value>
+  </data>
+  <data name="DTL_Preview_Tip" xml:space="preserve">
+    <value>Klik kotak input A1 terlebih dahulu, lalu klik sel pada grid di bawah untuk mengisi alamatnya.</value>
+  </data>
+  <data name="DTL_Preview_MaxNote" xml:space="preserve">
+    <value>Pratinjau 50 baris × 26 kolom.</value>
+  </data>
+  <data name="DTL_Btn_PickCell" xml:space="preserve">
+    <value>Pilih Sel</value>
+  </data>
+  <data name="DTL_Map_NoRows" xml:space="preserve">
+    <value>Tidak ada baris. Klik [Tambah] untuk menambahkan baris.</value>
+  </data>
+  <data name="DTL_NoPreview" xml:space="preserve">
+    <value>Tidak ada pratinjau. Periksa apakah lembar pertama memiliki konten.</value>
+  </data>
+  <data name="DTL_Section_Preview" xml:space="preserve">
+    <value>Pratinjau</value>
+  </data>
+  <data name="DTL_Info_ClickToFill" xml:space="preserve">
+    <value>Klik kotak input A1 terlebih dahulu, lalu klik sel pada grid di bawah untuk mengisi alamatnya.</value>
+  </data>
+  <data name="DTL_Msg_NoRows" xml:space="preserve">
+    <value>Tidak ada baris. Klik [Tambah] untuk menambahkan baris.</value>
+  </data>
+  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
+    <value>Silakan pilih situs.</value>
+  </data>
+  <data name="DTL_Alert_EnterDocName" xml:space="preserve">
+    <value>Silakan masukkan nama dokumen.</value>
+  </data>
+  <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
+    <value>Silakan unggah file Excel.</value>
+  </data>
+  <data name="DTL_Type_Text" xml:space="preserve">
+    <value>Teks</value>
+  </data>
+  <data name="DTL_Type_Date" xml:space="preserve">
+    <value>Tanggal</value>
+  </data>
+  <data name="DTL_Type_Num" xml:space="preserve">
+    <value>Angka</value>
+  </data>
+  <data name="_CM_All" xml:space="preserve">
+    <value>Semua</value>
+  </data>
+  <data name="DTL_Kind_Report" xml:space="preserve">
+    <value>Laporan</value>
+  </data>
+  <data name="DTL_Kind_Memo" xml:space="preserve">
+    <value>Memo</value>
+  </data>
+  <data name="DTL_Btn_ChooseFile" xml:space="preserve">
+    <value>Pilih file</value>
+  </data>
+  <data name="DTL_File_NoFile" xml:space="preserve">
+    <value>Tidak ada file yang dipilih</value>
   </data>
 </root>

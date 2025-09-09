@@ -82,9 +82,75 @@
     <div id="docArea"></div>
 </div>
 
+<!-- New Template Modal (inline) -->
+<div class="modal fade" id="newTemplateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">@S["DTL_Title_NewTemplate"]</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form id="frmNewTemplate" method="post" enctype="multipart/form-data" action="/DocumentTemplates/new-template" novalidate>
+                @Html.AntiForgeryToken()
+
+                <!-- 관리자만 선택 가능, 비관리자는 disabled + hidden으로 값 전송 -->
+                <input type="hidden" name="compCd" id="nt-compCd" />
+                <div class="modal-body">
+                    <div id="nt-alert" class="alert alert-danger d-none mb-3"></div>
+
+                    <input type="hidden" name="compCd" id="nt-compCd" />
+
+                    <div class="row g-3">
+                        <!-- 사이트 / 부서 / 종류 -->
+                        <div class="col-md-4">
+                            <label class="form-label mb-1">@S["DTL_Label_Site"]</label>
+                            <select id="nt-compSel" class="form-select form-select-sm" @(isAdmin ? "" : "disabled")></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label mb-1">@S["DTL_Label_Dept"]</label>
+                            <select id="nt-deptSel" name="departmentId" class="form-select form-select-sm"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label mb-1">@S["DTL_Label_Kind"]</label>
+                            <select id="nt-kindSel" name="kind" class="form-select form-select-sm"></select>
+                        </div>
+                        <!-- 문서명 (서버 유효성 통과용) -->
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">@S["DTL_Label_DocName"]</label>
+                            <input id="nt-docName" type="text" name="docName"
+                                   class="form-control form-control-sm" required />
+                        </div>
+
+                        <!-- 다국어 커스텀 파일 선택 -->
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">@S["DTL_Label_Excel"]</label>
+                            <div class="input-group input-group-sm">
+                                <input id="nt-excel" type="file" name="excelFile"
+                                       class="d-none" accept=".xlsx,.xlsm" required />
+                                <label for="nt-excel" class="btn btn-outline-secondary">
+                                    @S["DTL_Btn_ChooseFile"]
+                                </label>
+                                <input id="nt-excel-fake" type="text" class="form-control"
+                                       value="@S["DTL_File_NoFile"]" readonly />
+                            </div>
+                            <div class="form-text">@S["DTL_Alert_ExcelOpenXmlOnly"]</div>
+                        </div>
+                    </div><!-- /.row -->
+                </div><!-- /.modal-body -->
+                
+                <div class="modal-footer">
+                    <div class="d-grid w-100" style="grid-template-columns: 1fr 1fr; gap: .5rem;">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">@S["_CM_Save"]</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100" data-bs-dismiss="modal">@S["_CM_Close"]</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 @section Scripts {
     <script>
-        // 2025.09.09
         (function () {
             const BASE = "/DocumentTemplates";
 
@@ -95,6 +161,16 @@
             const btnNew = document.getElementById('btnNewTemplate');
             const btnLoad = document.getElementById('btnLoad');
 
+            const TXT_NOFILE = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_File_NoFile"].Value));
+            const realFile = document.getElementById('nt-excel');
+            const fakeFile = document.getElementById('nt-excel-fake');
+
+            if (realFile && fakeFile) {
+                realFile.addEventListener('change', () => {
+                    const name = realFile.files?.[0]?.name || TXT_NOFILE;
+                    fakeFile.value = name;
+                });
+            }
             async function fetchJson(url) {
                 const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                 if (!res.ok) throw new Error('Network error');
@@ -107,40 +183,47 @@
                 clearOptions(sel);
                 for (const it of (items || [])) {
                     const op = document.createElement('option');
-                    op.value = (it.id ?? '').toString();
+                    op.value = (it.id ?? '').toString();   // null -> "" 유지
                     op.text = it.text ?? '';
                     sel.add(op);
                 }
             }
 
-            async function loadDocuments() {
-                const compCd = compSel.value;
-                const deptVal = deptSel.value; // "__SELECT__" | "" | "123"
-                if (!compCd || deptVal === "__SELECT__") { clearOptions(docSel); updateBtnLinks(); return; }
-                const q = new URLSearchParams({ compCd });
-                if (deptVal !== "") q.append('departmentId', deptVal);
-                const data = await fetchJson(`${BASE}/get-documents?${q.toString()}`);
-                fillOptions(docSel, data.items || []);
-                updateBtnLinks();
-            }
-
             async function loadDepartments() {
-                const compCd = compSel?.value || '';
+                const compCd = compSel.value || '';
                 if (!compCd) { clearOptions(deptSel); clearOptions(docSel); updateBtnLinks(); return; }
 
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
+
+                // 서버가 준 전체 옵션 채우기
                 fillOptions(deptSel, data.items || []);
 
-                // 서버에서 selectedValue 제공: "123" | "" | "__SELECT__"
+                // 서버가 지정한 기본 값(selectedValue) 적용
                 let target = "__SELECT__";
-                if (typeof data.selectedValue !== 'undefined') {
-                    const want = String(data.selectedValue);
+                if (typeof data.selectedValue !== "undefined") {
+                    const want = String(data.selectedValue ?? "");
                     const has = Array.from(deptSel.options).some(o => o.value === want);
                     target = has ? want : "__SELECT__";
                 }
                 deptSel.value = target;
 
                 await loadDocuments();
+                updateBtnLinks();
+            }
+
+            async function loadDocuments() {
+                const compCd = compSel.value;
+                const deptVal = deptSel.value; // "__SELECT__" | ""(공용) | "123"(부서ID)
+                if (!compCd || deptVal === "__SELECT__") { clearOptions(docSel); updateBtnLinks(); return; }
+
+                const q = new URLSearchParams({ compCd });
+                const kindVal = kindSel.value || '';
+                if (kindVal) q.append('kind', kindVal);
+
+                if (deptVal !== "") q.append('departmentId', deptVal);
+
+                const data = await fetchJson(`${BASE}/get-documents?${q.toString()}`);
+                fillOptions(docSel, data.items || []);
                 updateBtnLinks();
             }
 
@@ -152,18 +235,21 @@
                 const qsNew = new URLSearchParams();
                 if (compCd) qsNew.append('compCd', compCd);
                 if (deptVal !== '' && deptVal !== '__SELECT__') qsNew.append('departmentId', deptVal);
+                const kindVal = kindSel.value || '';
+                if (kindVal) qsNew.append('kind', kindVal);
                 btnNew.href = `${BASE}/new-template${qsNew.toString() ? '?' + qsNew.toString() : ''}`;
 
                 if (docCode) {
                     const qsOpen = new URLSearchParams();
                     if (compCd) qsOpen.append('compCd', compCd);
                     if (deptVal !== '' && deptVal !== '__SELECT__') qsOpen.append('departmentId', deptVal);
+                    if (kindVal) qsOpen.append('kind', kindVal);
                     qsOpen.append('docCode', docCode);
                     btnLoad.dataset.href = `${BASE}/open?${qsOpen.toString()}`;
-                    btnLoad.classList.remove('disabled');
+                    //btnLoad.classList.remove('disabled');
                 } else {
                     btnLoad.dataset.href = '';
-                    btnLoad.classList.add('disabled');
+                    //btnLoad.classList.add('disabled');
                 }
             }
 
@@ -178,40 +264,122 @@
             kindSel.addEventListener('change', async () => { await loadDocuments(); });
             docSel.addEventListener('change', () => { updateBtnLinks(); });
 
-            (async function init() { await loadDepartments(); })();
+            // 초기 로드
+            (async function init() {
+                // 테스트용 Kind 옵션(추후 디비에서 가져오기)
+                document.getElementById('kindSelect').innerHTML =
+                    '<option value="">@S["_CM_All"]</option>' +
+                    '<option value="report">@S["DTL_Kind_Report"]</option>' +
+                    '<option value="memo">@S["DTL_Kind_Memo"]</option>';
+                await loadDepartments();
+            })();
         })();
     </script>
 
     <script>
-        // 2025.09.09 상단 배너에 사용자 컨텍스트 표시
         (function () {
-            const USER_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserName ?? "")));
-            const USER_COMP = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.UserCompCd ?? "")));
-            const COMP_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.CompName ?? "")));
-            const DEPT_NAME = @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)(ViewBag.DeptName ?? "")));
-            const ADMIN_LEVEL = @Convert.ToInt32(ViewBag.AdminLevel ?? 0);
+            const mEl = document.getElementById('newTemplateModal');
+            const modal = () => new bootstrap.Modal(mEl, { backdrop: 'static', keyboard: false });
+            function ensureModalAtBody() { if (mEl.parentElement !== document.body) document.body.appendChild(mEl); }
 
-            const parts = [];
-            if (USER_NAME) parts.push(`사용자: ${USER_NAME}`);
-            if (COMP_NAME || USER_COMP) parts.push(`사업장: ${COMP_NAME || USER_COMP} (${USER_COMP})`);
-            if (DEPT_NAME) parts.push(`부서: ${DEPT_NAME}`);
-            parts.push(`관리자 레벨: ${ADMIN_LEVEL}`);
+            // 부모 셀렉트
+            const compSel = document.getElementById('compSelect');
+            const deptSel = document.getElementById('deptSelect');
+            const kindSel = document.getElementById('kindSelect');
+            const btnNew = document.getElementById('btnNewTemplate');
 
-            const text = parts.join(" · ");
+            // 모달 셀렉트 + hidden
+            const ntCompSel = document.getElementById('nt-compSel');
+            const ntDeptSel = document.getElementById('nt-deptSel');
+            const ntKindSel = document.getElementById('nt-kindSel');
+            const ntCompCd = document.getElementById('nt-compCd');
+            const ntAlert = document.getElementById('nt-alert');
 
-            window.addEventListener('load', () => showBanner(text));
+            const BASE = "/DocumentTemplates";
 
-            function showBanner(message) {
-                const wrap = document.createElement('div');
-                wrap.className = 'position-fixed top-0 end-0 p-3';
-                wrap.style.zIndex = '1080';
-                wrap.innerHTML =
-                    `<div class="alert alert-primary border shadow-sm mb-0" role="alert" style="min-width: 28rem;">
-                                ${message}
-                             </div>`;
-                document.body.appendChild(wrap);
-                setTimeout(() => wrap.remove(), 5000);
+            function showAlert(msg) {
+                if (!ntAlert) return;
+                ntAlert.textContent = msg || '';
+                ntAlert.classList.toggle('d-none', !msg);
             }
+            function copyOptions(from, to) {
+                to.innerHTML = '';
+                Array.from(from.options).forEach(o => to.add(new Option(o.text, o.value, false, o.selected)));
+            }
+            async function fetchJson(url) {
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) throw new Error('Network error');
+                return res.json();
+            }
+            function fillOptionsFromItems(sel, items) {
+                sel.innerHTML = '';
+                (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? ''))));
+            }
+            async function refreshDeptFor(compCd, preferValue /* optional */) {
+                const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
+                fillOptionsFromItems(ntDeptSel, data.items || []);
+                // 인자 > 서버 selectedValue > 기본
+                let target = "__SELECT__";
+                const cand = (preferValue ?? data.selectedValue);
+                if (typeof cand !== "undefined") {
+                    const want = String(cand ?? "");
+                    const has = Array.from(ntDeptSel.options).some(o => o.value === want);
+                    target = has ? want : "__SELECT__";
+                }
+                ntDeptSel.value = target;
+            }
+
+            async function openNewTemplateModal() {
+                showAlert('');
+                ensureModalAtBody();
+
+                const compCd = compSel.value || '';
+                if (!compCd) { alert('@S["DTL_Alert_SiteRequired"]'); return; }
+
+                // 1) 사업장 동기화(관리자만 변경 가능)
+                copyOptions(compSel, ntCompSel);
+                ntCompSel.value = compCd;
+                ntCompCd.value = compCd;
+
+                // 2) 부서: 선택된 사업장 기준으로 로드, 부모 선택값 우선
+                await refreshDeptFor(ntCompSel.value, deptSel.value);
+                if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
+
+                // 3) 종류: 부모 옵션 복제
+                copyOptions(kindSel, ntKindSel);
+
+                modal().show();
+            }
+
+            // 관리자: 모달 내 사업장 변경 시 부서 재로딩 + hidden 동기화
+            ntCompSel.addEventListener('change', async () => {
+                ntCompCd.value = ntCompSel.value;
+                await refreshDeptFor(ntCompSel.value);
+                if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
+            });
+
+            // 버튼 → 모달 열기
+            btnNew.addEventListener('click', function (e) {
+                e.preventDefault();
+                openNewTemplateModal();
+            });
+
+            // 제출 전 검증
+            document.getElementById('frmNewTemplate').addEventListener('submit', function (e) {
+                showAlert('');
+                const dn = this.elements['docName']?.value?.trim();
+                const fx = this.elements['excelFile']?.files?.[0];
+                if (!dn) { e.preventDefault(); showAlert('@S["DTL_Alert_EnterDocName"]'); return; }
+                if (!fx) { e.preventDefault(); showAlert('@S["DTL_Alert_ExcelRequired"]'); return; }
+                if (!/\.xlsx$|\.xlsm$/i.test(fx.name)) {
+                    e.preventDefault(); showAlert('@S["DTL_Alert_ExcelOpenXmlOnly"]');
+                }
+            });
+
+            // 쿼리로 진입 시 자동 오픈
+            const sp = new URLSearchParams(location.search);
+            if (sp.get('openNewTemplate') === '1') setTimeout(() => openNewTemplateModal(), 0);
         })();
     </script>
 }
+
