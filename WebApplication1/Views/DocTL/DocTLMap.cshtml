@@ -1,4 +1,5 @@
-﻿@using System.Text.Json
+﻿// File: Views/DocTL/DocTLMap.cshtml
+@using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DTL_Title_NewTemplate"];
@@ -29,49 +30,47 @@
     .cell-a1 .input-group {
         max-width: 14rem;
     }
-    /* 필요 시 폭 조정 */
+
     .cell-a1 .form-control {
         max-width: 8rem;
     }
-    /* A1 텍스트 폭 */
+
     .cell-a1 .btn {
         white-space: nowrap;
     }
 
-    /* 미리보기 영역은 스크롤을 허용해서 넘치지 않게 처리 */
+    /* 미리보기: 넘치면 스크롤 */
     #xlPreview {
-        overflow: auto; /* 가로/세로 스크롤 */
-        max-height: 520px; /* 높이 제한 원하시면 조절 */
+        overflow: auto;
+        max-height: 520px;
         border: 1px solid #e5e7eb;
         border-radius: .25rem;
     }
 
-    /* preview table */
-    #xlPreview table {
-        table-layout: fixed;
-        border-collapse: collapse;
-        width: max-content;
-        min-width: 100%;
-    }
+        #xlPreview table {
+            table-layout: fixed;
+            border-collapse: collapse;
+            width: max-content;
+            min-width: 100%;
+        }
 
-    #xlPreview th, #xlPreview td {
-        border: 1px solid #e5e7eb;
-        padding: 2px 4px;
-        font-size: 12px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
+        #xlPreview th, #xlPreview td {
+            border: 1px solid #e5e7eb;
+            padding: 2px 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
-    #xlPreview .rc {
-        background: #f9fafb;
-    }
+        #xlPreview .rc {
+            background: #f9fafb;
+        }
 </style>
 
 <div class="container-fluid py-3">
     <h5 class="mb-3">@S["DTL_Title_NewTemplate"]</h5>
 
-    @* 성공 메세지는 배너로 안 띄움(토스트만), 오류만 배너로 표시 *@
     @{
         var alertMsg = (TempData["Alert"] as string) ?? (ViewBag.Alert as string);
     }
@@ -166,11 +165,17 @@
 
 @section Scripts {
     <script>
-        // 다국어 문자열(스크립트에서 사용하는 텍스트)
+        // 스크립트에서 쓰는 다국어 텍스트 (★ JS 안전 주입)
         const L = {
             PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
-            NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value))
-        };
+            NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
+            NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value))
+                };
+        const T = {
+            TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
+            TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
+            TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
+                };
     </script>
 
     <script>
@@ -180,8 +185,10 @@
             let preview = {};
             try { preview = JSON.parse(raw); } catch { preview = {}; }
             const wrap = document.getElementById('xlPreview');
-            if (!preview.cells) { if (wrap) wrap.innerHTML = `<div class="text-muted">@S["DTL_NoPreview"]</div>`; return; }
-
+            if (!preview.cells) {
+                if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>';
+                return;
+            }
 
             const merges = preview.merges || [];
             const skip = Array.from({ length: preview.rows + 1 }, () => Array(preview.cols + 1).fill(false));
@@ -242,11 +249,13 @@
             window.__a1 = window.__a1 || {};
 
             function render() {
+                /* ===== Fields ===== */
                 if (desc.Fields.length === 0) desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
                 fieldsBody.innerHTML = '';
                 desc.Fields.forEach((f, i) => {
                     const tr = document.createElement('tr');
 
+                    // Key
                     const tdKey = document.createElement('td');
                     const inpKey = document.createElement('input');
                     inpKey.className = 'form-control form-control-sm key-input';
@@ -254,23 +263,21 @@
                     inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
                     tdKey.appendChild(inpKey);
 
+                    // Type
                     const tdType = document.createElement('td');
                     const sel = document.createElement('select');
                     sel.className = 'form-select form-select-sm';
-                    sel.append(opt('Text', '@S["DTL_Type_Text"]', (f.Type || 'Text') === 'Text'));
-                    sel.append(opt('Date', '@S["DTL_Type_Date"]', (f.Type || 'Text') === 'Date'));
-                    sel.append(opt('Num', '@S["DTL_Type_Num"]', (f.Type || 'Text') === 'Num'));
+                    sel.append(opt('Text', T.TypeText, (f.Type || 'Text') === 'Text'));
+                    sel.append(opt('Date', T.TypeDate, (f.Type || 'Text') === 'Date'));
+                    sel.append(opt('Num', T.TypeNum, (f.Type || 'Text') === 'Num'));
                     sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
                     tdType.appendChild(sel);
 
+                    // Cell (A1) + 버튼
                     const tdA1 = document.createElement('td');
                     tdA1.className = 'cell-a1';
-                    const inputA1 = document.createElement('input');
-                    inputA1.className = 'form-control form-control-sm d-inline-block';
-                    inputA1.style.width = '8rem';
-                    inputA1.value = (f.Cell && f.Cell.A1) || '';
-                    inputA1.addEventListener('input', e => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = e.target.value; });
-                    inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
+                    const grp = document.createElement('div');
+                    grp.className = 'input-group input-group-sm';
 
                     const inputA1 = document.createElement('input');
                     inputA1.className = 'form-control';
@@ -290,26 +297,33 @@
                     });
 
                     const pickBtn = document.createElement('button');
-                    pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary btn-sm ms-2'; pickBtn.textContent = L.PickCell;
+                    pickBtn.type = 'button';
+                    pickBtn.className = 'btn btn-outline-secondary';
+                    pickBtn.textContent = L.PickCell;
                     pickBtn.addEventListener('click', () => {
                         inputA1.focus();
                         document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
                     });
+
                     grp.append(inputA1, pickBtn);
                     tdA1.appendChild(grp);
+
                     tr.append(tdKey, tdType, tdA1);
                     fieldsBody.appendChild(tr);
                 });
 
-                // 결재
+                /* ===== Approvals ===== */
                 apprBody.innerHTML = '';
                 if (desc.Approvals.length === 0) {
-                    const tr = document.createElement('tr'); const td = document.createElement('td');
-                    td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows; tr.appendChild(td); apprBody.appendChild(tr);
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
+                    tr.appendChild(td); apprBody.appendChild(tr);
                 } else {
                     desc.Approvals.forEach((a, i) => {
                         const tr = document.createElement('tr');
 
+                        // Slot
                         const tdS = document.createElement('td');
                         const inpS = document.createElement('input');
                         inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
@@ -317,6 +331,7 @@
                         inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1'); });
                         tdS.appendChild(inpS);
 
+                        // Part
                         const tdP = document.createElement('td');
                         const inpP = document.createElement('input');
                         inpP.className = 'form-control form-control-sm';
@@ -324,30 +339,53 @@
                         inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
                         tdP.appendChild(inpP);
 
+                        // Cell + 버튼
                         const tdA1 = document.createElement('td');
+                        tdA1.className = 'cell-a1';
+                        const grp = document.createElement('div');
+                        grp.className = 'input-group input-group-sm';
+
                         const inputA1 = document.createElement('input');
-                        inputA1.className = 'form-control form-control-sm d-inline-block';
-                        inputA1.style.width = '8rem';
+                        inputA1.className = 'form-control';
                         inputA1.value = (a.Cell && a.Cell.A1) || '';
-                        inputA1.addEventListener('input', e => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = e.target.value; });
-                        inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
+                        inputA1.addEventListener('input', e => {
+                            desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                            desc.Approvals[i].Cell.A1 = e.target.value;
+                        });
+                        inputA1.addEventListener('focus', () => {
+                            window.__a1.set = (a1) => {
+                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                                desc.Approvals[i].Cell.A1 = a1;
+                                inputA1.value = a1;
+                                inputA1.classList.add('a1-active');
+                                setTimeout(() => inputA1.classList.remove('a1-active'), 800);
+                            };
+                        });
 
                         const pickBtn = document.createElement('button');
-                        pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary btn-sm ms-2'; pickBtn.textContent = L.PickCell;
+                        pickBtn.type = 'button';
+                        pickBtn.className = 'btn btn-outline-secondary';
+                        pickBtn.textContent = L.PickCell;
                         pickBtn.addEventListener('click', () => {
                             inputA1.focus();
                             document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
                         });
 
-                        tdA1.append(inputA1, pickBtn);
+                        grp.append(inputA1, pickBtn);
+                        tdA1.appendChild(grp);
+
                         tr.append(tdS, tdP, tdA1);
                         apprBody.appendChild(tr);
                     });
                 }
             }
 
-            document.getElementById('btnAddField').addEventListener('click', () => { desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render(); });
-            document.getElementById('btnAddAppr').addEventListener('click', () => { desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } }); render(); });
+            document.getElementById('btnAddField').addEventListener('click', () => {
+                desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render();
+            });
+            document.getElementById('btnAddAppr').addEventListener('click', () => {
+                desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } }); render();
+            });
             document.getElementById('btnSave').addEventListener('click', () => {
                 document.getElementById('descriptor').value = JSON.stringify(desc);
                 document.getElementById('mapForm').submit();

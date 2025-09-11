@@ -1,18 +1,34 @@
-﻿@page
+﻿@* File: Areas/Identity/Pages/Account/ChangeProfile.cshtml *@
+@page
 @model WebApplication1.Areas.Identity.Pages.Account.ChangeProfileModel
 @using Microsoft.AspNetCore.Mvc.ModelBinding
+@using Microsoft.AspNetCore.Mvc.Rendering
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
 
 @{
     // 부모 폼(Input.*)만 수집. ""(모델레벨)과 EmailChange.*는 배제
-    var parentErrors =
-        ViewData.ModelState
-            .Where(kvp => kvp.Key?.StartsWith("Input.", StringComparison.OrdinalIgnoreCase) == true)
-            .SelectMany(kvp => kvp.Value?.Errors ?? Enumerable.Empty<ModelError>())
-            .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? e.Exception?.Message : e.ErrorMessage)
-            .Where(msg => !string.IsNullOrWhiteSpace(msg))
-            .Distinct()
-            .ToList();
+    // ⚠️ CS8602 방지: LINQ 체인 대신 명시적 null 체크
+    var parentErrors = new List<string>();
+    foreach (var kvp in ViewData.ModelState)
+    {
+        var key = kvp.Key;
+        if (string.IsNullOrEmpty(key) || !key.StartsWith("Input.", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        var entry = kvp.Value;
+        if (entry == null || entry.Errors == null || entry.Errors.Count == 0)
+            continue;
+
+        foreach (var e in entry.Errors)
+        {
+            var msg = !string.IsNullOrWhiteSpace(e.ErrorMessage)
+                ? e.ErrorMessage
+                : e.Exception?.Message;
+
+            if (!string.IsNullOrWhiteSpace(msg) && !parentErrors.Contains(msg))
+                parentErrors.Add(msg);
+        }
+    }
 }
 
 <h2 class="mb-3">@_S["CP_Title"]</h2>
@@ -37,28 +53,28 @@
 
     <div class="row g-3">
         <div class="col-md-6">
-            <label asp-for="Input.CompCd" class="form-label"></label>
-            <select asp-for="Input.CompCd" asp-items="Model.CompOptions" class="form-select">
+            <label asp-for="Input!.CompCd" class="form-label"></label>
+            <select asp-for="Input!.CompCd" asp-items="Model.CompOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input.CompCd" class="text-danger"></span>
+            <span asp-validation-for="Input!.CompCd" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.DisplayName" class="form-label"></label>
-            <input asp-for="Input.DisplayName" class="form-control" />
-            <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
+            <label asp-for="Input!.DisplayName" class="form-label"></label>
+            <input asp-for="Input!.DisplayName" class="form-control" />
+            <span asp-validation-for="Input!.DisplayName" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.UserName" class="form-label"></label>
-            <input asp-for="Input.UserName" class="form-control" readonly />
+            <label asp-for="Input!.UserName" class="form-label"></label>
+            <input asp-for="Input!.UserName" class="form-control" readonly />
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.Email" class="form-label"></label>
+            <label asp-for="Input!.Email" class="form-label"></label>
             <div class="input-group">
-                <input asp-for="Input.Email" class="form-control" readonly />
+                <input asp-for="Input!.Email" class="form-control" readonly />
                 <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#changeEmailModal">
                     @_S["_CM_Change"]
                 </button>
@@ -66,43 +82,43 @@
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.DepartmentId" class="form-label"></label>
-            <select asp-for="Input.DepartmentId" asp-items="Model.DepartmentOptions" class="form-select">
+            <label asp-for="Input!.DepartmentId" class="form-label"></label>
+            <select asp-for="Input!.DepartmentId" asp-items="Model.DepartmentOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input.DepartmentId" class="text-danger"></span>
+            <span asp-validation-for="Input!.DepartmentId" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.PositionId" class="form-label"></label>
-            <select asp-for="Input.PositionId" asp-items="Model.PositionOptions" class="form-select">
+            <label asp-for="Input!.PositionId" class="form-label"></label>
+            <select asp-for="Input!.PositionId" asp-items="Model.PositionOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input.PositionId" class="text-danger"></span>
+            <span asp-validation-for="Input!.PositionId" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.PhoneNumber" class="form-label"></label>
-            <input asp-for="Input.PhoneNumber" class="form-control" />
-            <span asp-validation-for="Input.PhoneNumber" class="text-danger"></span>
+            <label asp-for="Input!.PhoneNumber" class="form-label"></label>
+            <input asp-for="Input!.PhoneNumber" class="form-control" />
+            <span asp-validation-for="Input!.PhoneNumber" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.CurrentPassword" class="form-label"></label>
-            <input asp-for="Input.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
-            <span asp-validation-for="Input.CurrentPassword" class="text-danger"></span>
+            <label asp-for="Input!.CurrentPassword" class="form-label"></label>
+            <input asp-for="Input!.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
+            <span asp-validation-for="Input!.CurrentPassword" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.NewPassword" class="form-label"></label>
-            <input asp-for="Input.NewPassword" class="form-control" type="password" autocomplete="new-password" />
-            <span asp-validation-for="Input.NewPassword" class="text-danger"></span>
+            <label asp-for="Input!.NewPassword" class="form-label"></label>
+            <input asp-for="Input!.NewPassword" class="form-control" type="password" autocomplete="new-password" />
+            <span asp-validation-for="Input!.NewPassword" class="text-danger"></span>
         </div>
 
         <div class="col-md-6">
-            <label asp-for="Input.ConfirmNewPassword" class="form-label"></label>
-            <input asp-for="Input.ConfirmNewPassword" class="form-control" type="password" autocomplete="new-password" />
-            <span asp-validation-for="Input.ConfirmNewPassword" class="text-danger"></span>
+            <label asp-for="Input!.ConfirmNewPassword" class="form-label"></label>
+            <input asp-for="Input!.ConfirmNewPassword" class="form-control" type="password" autocomplete="new-password" />
+            <span asp-validation-for="Input!.ConfirmNewPassword" class="text-danger"></span>
         </div>
     </div>
 
@@ -127,21 +143,16 @@
                     <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div>
 
                     <div class="mb-3">
-                        <label asp-for="EmailChange.NewEmail" class="form-label"></label>
-                        <input asp-for="EmailChange.NewEmail" class="form-control" autocomplete="email" />
-                        <span asp-validation-for="EmailChange.NewEmail" class="text-danger"></span>
+                        <label asp-for="EmailChange!.NewEmail" class="form-label"></label>
+                        <input asp-for="EmailChange!.NewEmail" class="form-control" autocomplete="email" />
+                        <span asp-validation-for="EmailChange!.NewEmail" class="text-danger"></span>
                     </div>
 
                     <div class="mb-3">
-                        <label asp-for="EmailChange.CurrentPassword" class="form-label"></label>
-                        <input asp-for="EmailChange.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
-                        <span asp-validation-for="EmailChange.CurrentPassword" class="text-danger"></span>
+                        <label asp-for="EmailChange!.CurrentPassword" class="form-label"></label>
+                        <input asp-for="EmailChange!.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
+                        <span asp-validation-for="EmailChange!.CurrentPassword" class="text-danger"></span>
                     </div>
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">@_S["_CM_Close"]</button>
-                    <button type="submit" form="emailChangeForm" class="btn btn-primary">@_S["CP_MD_SendConfirmationMail"]</button>
                 </div>
             </form>
         </div>
@@ -233,6 +244,4 @@
             ensureSummary();
         })();
     </script>
-
-
 }

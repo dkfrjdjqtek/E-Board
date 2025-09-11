@@ -520,9 +520,6 @@
   <data name="CP_EmailChange_Subject" xml:space="preserve">
     <value>[Han Young E-Board] Konfirmasi perubahan email Anda</value>
   </data>
-  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Anda meminta perubahan email login. Untuk melindungi akun, klik tombol di bawah untuk mengonfirmasi perubahan.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
-  </data>
   <data name="_CM_Change" xml:space="preserve">
     <value>Ubah</value>
   </data>
@@ -663,5 +660,8 @@
   </data>
   <data name="DTL_File_NoFile" xml:space="preserve">
     <value>Tidak ada file yang dipilih</value>
+  </data>
+  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Anda meminta perubahan email login. Untuk melindungi akun, silakan klik tombol di bawah untuk mengonfirmasi perubahan.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Tautan ini berlaku selama {2} menit.&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
 </root>

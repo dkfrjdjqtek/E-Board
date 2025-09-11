@@ -96,7 +96,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
         }
 
         [BindProperty] public InputModel Input { get; set; } = new();
-        public EmailChangeInput? EmailChange { get; set; }
+        public EmailChangeInput? EmailChange { get; set; } = new();
 
         public SelectList CompOptions { get; set; } = default!;
         public SelectList DepartmentOptions { get; set; } = default!;

@@ -580,7 +580,7 @@
     <value>문서를 선택하세요.</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
-    <value>.xlsx/.xlsm(Excel Open XML) 파일만 가능합니다.</value>
+    <value>Excel Open XML 형식의 .xlsx/.xlsm 파일만 허용됩니다.</value>
   </data>
   <data name="DTL_Title_NewTemplate" xml:space="preserve">
     <value>새 템플릿</value>

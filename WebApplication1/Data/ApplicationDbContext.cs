@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WebApplication1.Models;
+using WebApplication1.Data.Config;
 
 namespace WebApplication1.Data;
 
@@ -17,6 +18,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DepartmentMasterLoc> DepartmentMasterLoc => Set<DepartmentMasterLoc>();
     public DbSet<PositionMasterLoc> PositionMasterLoc => Set<PositionMasterLoc>();
     public DbSet<CompMaster> CompMasters => Set<CompMaster>();
+
+    // ▼ 새 테이블 DbSet
+    public DbSet<TemplateKindMaster> TemplateKindMasters { get; set; } = null!;
+    public DbSet<TemplateKindMasterLoc> TemplateKindMasterLoc { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -37,6 +43,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<PositionMasterLoc>().ToTable("PositionMasterLoc", "dbo");
         modelBuilder.Entity<DepartmentMasterLoc>().ToTable("DepartmentMasterLoc", "dbo");
         modelBuilder.Entity<WebAuthnCredential>().ToTable("WebAuthnCredentials", "dbo");
+
+        // 기존 개별 Config 사용 시 충돌 가능하므로 주석 처리
+        // modelBuilder.ApplyConfiguration(new TemplateKindMasterConfig());
+        // modelBuilder.ApplyConfiguration(new TemplateKindMasterLocConfig());
+        // 또는 프로젝트에서 이미 사용 중이라면
+        // modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
         // ========== WebAuthnCredential ==========
         modelBuilder.Entity<WebAuthnCredential>(b =>
@@ -68,7 +80,6 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         // ========== UserProfile(1:1) ==========
         modelBuilder.Entity<UserProfile>(e =>
         {
-            // PK를 UserId로 명확히
             e.HasKey(p => p.UserId);
 
             e.HasIndex(x => x.UserId).IsUnique();
@@ -76,8 +87,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.DisplayName).HasMaxLength(64);
 
             e.HasOne(p => p.User)
-             .WithOne() // ← ApplicationUser에 Profile 네비게이션이 없다면 이렇게!
-                        // .WithOne(u => u.Profile) // ← 만약 추가하실 거면 이 줄로 바꿔도 됨
+             .WithOne()
              .HasForeignKey<UserProfile>(p => p.UserId)
              .OnDelete(DeleteBehavior.Cascade);
 
@@ -88,9 +98,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.HasOne(p => p.Position).WithMany()
              .HasForeignKey(p => p.PositionId)
              .OnDelete(DeleteBehavior.SetNull);
-            // IsAdmin: 0: 일반, 1: 관리자, 2: 슈퍼관리자
-            e.Property(x => x.IsAdmin).HasDefaultValue(0);
 
+            e.Property(x => x.IsAdmin).HasDefaultValue(0);
             e.Property<byte[]>("RowVersion").IsRowVersion();
         });
 
@@ -180,6 +189,57 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
              .HasForeignKey(x => x.PositionId)
              .OnDelete(DeleteBehavior.Cascade);
 
+            e.Property<byte[]>("RowVersion").IsRowVersion();
+        });
+
+        // ============================================================
+        // ========== TemplateKindMaster / TemplateKindMasterLoc ======
+        // DB 스크립트에 맞춘 정확한 매핑 (Loc에 CompCd/DepartmentId/RowVersion 포함)
+        // ============================================================
+
+        // TemplateKindMasters
+        modelBuilder.Entity<TemplateKindMaster>(e =>
+        {
+            e.ToTable("TemplateKindMasters", "dbo");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.CompCd).HasMaxLength(10).IsRequired().HasConversion(UpperTrim);
+            e.Property(x => x.DepartmentId).IsRequired().HasDefaultValue(0);
+            e.Property(x => x.Code).HasMaxLength(32).IsRequired().HasConversion(UpperTrim);
+            e.Property(x => x.Name).HasMaxLength(64).IsRequired();
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.Property(x => x.SortOrder).HasDefaultValue(0);
+
+            e.HasIndex(x => new { x.CompCd, x.Code }).IsUnique().HasDatabaseName("UX_TemplateKindMasters_CompCd_Code");
+            e.HasIndex(x => new { x.CompCd, x.DepartmentId }).HasDatabaseName("IX_TemplateKindMasters_CompCd_Department");
+
+            // 섀도우 RowVersion(엔터티 클래스에 속성 없어도 됨)
+            e.Property<byte[]>("RowVersion").IsRowVersion();
+        });
+
+        // --- TemplateKindMasterLoc ---
+        modelBuilder.Entity<TemplateKindMasterLoc>(e =>
+        {
+            e.ToTable("TemplateKindMasterLoc", "dbo");
+
+            // PK = (Id, LangCode)  ← 규칙 고정
+            e.HasKey(x => new { x.Id, x.LangCode });
+
+            // FK는 항상 Id
+            e.HasOne<TemplateKindMaster>()
+             .WithMany()
+             .HasForeignKey(x => x.Id)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.Property(x => x.CompCd).HasMaxLength(10).IsRequired().HasConversion(UpperTrim);
+            e.Property(x => x.DepartmentId).IsRequired().HasDefaultValue(0);
+            e.Property(x => x.LangCode).HasMaxLength(10).IsRequired().HasConversion(LowerTrim);
+            e.Property(x => x.Name).HasMaxLength(64).IsRequired();
+
+            // 보조 인덱스
+            e.HasIndex(x => new { x.CompCd, x.DepartmentId, x.LangCode });
+
+            // 섀도우 RowVersion
             e.Property<byte[]>("RowVersion").IsRowVersion();
         });
     }

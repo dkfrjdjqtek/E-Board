@@ -521,7 +521,7 @@
     <value>[Han Young E-Board] Xác nhận thay đổi email của bạn</value>
   </data>
   <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Xin chào {0},&lt;/p&gt;&lt;p&gt;Bạn đã yêu cầu thay đổi email đăng nhập. Để bảo vệ tài khoản, vui lòng nhấp nút bên dưới để xác nhận thay đổi.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Mở liên kết&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email này được gửi tự động, vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Xin chào {0},&lt;/p&gt;&lt;p&gt;Bạn đã yêu cầu thay đổi email đăng nhập. Để bảo vệ tài khoản, vui lòng nhấp nút bên dưới để xác nhận thay đổi.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Mở liên kết&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Liên kết này có hiệu lực trong {2} phút.&lt;/p&gt;&lt;p&gt;Email này được gửi tự động, vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="_CM_Change" xml:space="preserve">
     <value>Thay đổi</value>

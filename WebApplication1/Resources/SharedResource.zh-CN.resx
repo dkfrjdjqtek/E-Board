@@ -520,9 +520,6 @@
   <data name="CP_EmailChange_Subject" xml:space="preserve">
     <value>[韩荣电子看板] 确认您的邮箱变更</value>
   </data>
-  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;您好，{0}：&lt;/p&gt;&lt;p&gt;您请求更改登录邮箱。为了保护帐户安全，请点击下方按钮确认此次变更。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;打开链接&lt;/a&gt;&lt;/p&gt;&lt;p&gt;此邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
-  </data>
   <data name="_CM_Change" xml:space="preserve">
     <value>更改</value>
   </data>
@@ -663,5 +660,8 @@
   </data>
   <data name="DTL_File_NoFile" xml:space="preserve">
     <value>未选择文件</value>
+  </data>
+  <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;您好，{0}：&lt;/p&gt;&lt;p&gt;您请求更改登录邮箱。为了保护帐户安全，请点击下方按钮确认此次变更。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;打开链接&lt;/a&gt;&lt;/p&gt;&lt;p&gt;此链接在 {2} 分钟内有效。&lt;/p&gt;&lt;p&gt;此邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
 </root>

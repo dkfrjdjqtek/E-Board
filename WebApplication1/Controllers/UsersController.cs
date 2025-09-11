@@ -18,16 +18,34 @@ public class UsersController : Controller
     {
         var list = await _db.UserProfiles
             .Include(p => p.User)
-            .Include(p => p.Department).ThenInclude(d => d.Locs)
-            .Include(p => p.Position).ThenInclude(p => p.Locs)
+            // 2025.09.11 CS8602 대응: ThenInclude 인자 null-forgiving
+            .Include(p => p.Department).ThenInclude(d => d!.Locs)
+            .Include(p => p.Position).ThenInclude(pos => pos!.Locs)
             .Where(p => p.CompCd == comp)
             .Select(p => new UserRowVM
             {
                 UserId = p.UserId,
-                Email = p.User.Email!,
+
+                // 2025.09.11 CS8602 대응: p.User null 가드
+                Email = (p.User == null) ? "" : (p.User.Email ?? ""),
+
                 DisplayName = p.DisplayName,
-                Department = p.Department!.Locs.Where(l => l.LangCode == "ko").Select(l => l.Name).FirstOrDefault() ?? p.Department!.Name,
-                Position = p.Position!.Locs.Where(l => l.LangCode == "ko").Select(l => l.Name).FirstOrDefault() ?? p.Position!.Name
+
+                // 2025.09.11 CS8602 대응: Department/Locs null 가드
+                Department = (p.Department == null)
+                    ? ""
+                    : (p.Department!.Locs
+                         .Where(l => l.LangCode == "ko")
+                         .Select(l => l.Name)
+                         .FirstOrDefault() ?? p.Department!.Name),
+
+                // 2025.09.11 CS8602 대응: Position/Locs null 가드
+                Position = (p.Position == null)
+                    ? ""
+                    : (p.Position!.Locs
+                         .Where(l => l.LangCode == "ko")
+                         .Select(l => l.Name)
+                         .FirstOrDefault() ?? p.Position!.Name)
             })
             .ToListAsync();
 
@@ -42,7 +60,7 @@ public class UsersController : Controller
         var vm = new UserEditVM
         {
             UserId = p.UserId,
-            Email = p.User!.Email!,
+            Email = p.User!.Email!, // 단건 로드 후 UI 표시용
             DisplayName = p.DisplayName,
             CompCd = p.CompCd,
             DepartmentId = p.DepartmentId,

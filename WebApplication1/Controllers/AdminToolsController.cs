@@ -4,9 +4,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
-using WebApplication1.Models;
 using Microsoft.Extensions.Localization;
 using WebApplication1;
+using WebApplication1.Models;
 
 [Authorize(Policy = "AdminOnly")]
 public class AdminToolsController : Controller
@@ -15,9 +15,10 @@ public class AdminToolsController : Controller
     private readonly IEmailSender _emailSender;
     private readonly IStringLocalizer<SharedResource> _S;
 
-    public AdminToolsController(UserManager<ApplicationUser> userManager,
-                                IEmailSender emailSender,
-                                IStringLocalizer<SharedResource> S)
+    public AdminToolsController(
+        UserManager<ApplicationUser> userManager,
+        IEmailSender emailSender,
+        IStringLocalizer<SharedResource> S)
     {
         _userManager = userManager;
         _emailSender = emailSender;
@@ -38,35 +39,48 @@ public class AdminToolsController : Controller
 
         if (user is null || string.IsNullOrEmpty(user.Email))
         {
-            ModelState.AddModelError(string.Empty, _S["Admin_ResetLink_UserNotFound"]);
+            // LocalizedString를 TempData/ModelState에 직접 넣지 말고 .Value 사용
+            ModelState.AddModelError(string.Empty, _S["Admin_ResetLink_UserNotFound"].Value);
             return View(vm);
         }
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-        var url = Url.Page("/Account/ResetPassword", null,
-            new { area = "Identity", userId = user.Id, code = token },
-            Request.Scheme);
+
+        // Url.Page가 null 반환 가능 → 널 가드
+        var resetUrl = Url.Page("/Account/ResetPassword", pageHandler: null,
+            values: new { area = "Identity", userId = user.Id, code = token },
+            protocol: Request.Scheme);
+
+        if (string.IsNullOrEmpty(resetUrl))
+        {
+            ModelState.AddModelError(string.Empty, _S["Admin_ResetLink_GenerateUrl_Failed"].Value);
+            return View(vm);
+        }
 
         if (vm.SendEmail)
         {
-            var subject = _S["Admin_ResetLink_Email_Subject"];
-            var body = string.Format(_S["Admin_ResetLink_Email_BodyHtml"],
-                                     System.Text.Encodings.Web.HtmlEncoder.Default.Encode(url));
+            var subject = _S["Admin_ResetLink_Email_Subject"].Value;
+
+            // 본문 리소스는 {0} 자리표시자 유무와 무관하게 안전 (없으면 그대로 출력됨)
+            var bodyTemplate = _S["Admin_ResetLink_Email_BodyHtml"].Value;
+            var safeUrl = HtmlEncoder.Default.Encode(resetUrl);
+            var body = string.Format(bodyTemplate, safeUrl);
+
             await _emailSender.SendEmailAsync(user.Email, subject, body);
-            TempData["Msg"] = _S["Admin_ResetLink_Email_Sent"];
+            TempData["Msg"] = _S["Admin_ResetLink_Email_Sent"].Value;
         }
 
-        TempData["Link"] = url;
+        TempData["Link"] = resetUrl;
         return RedirectToAction(nameof(SendResetLink));
     }
 
     public class AdminSendResetLinkVM
     {
-        [Required(ErrorMessage = "Admin_ResetLink_User_Req")]                 // ← 키 사용
-        [Display(Name = "Admin_ResetLink_User_Label")]                        // ← 키 사용
+        [Required(ErrorMessage = "Admin_ResetLink_User_Req")]
+        [Display(Name = "Admin_ResetLink_User_Label")]
         public string UserNameOrEmail { get; set; } = "";
 
-        [Display(Name = "Admin_ResetLink_SendEmail_Label")]                   // ← 키 사용
+        [Display(Name = "Admin_ResetLink_SendEmail_Label")]
         public bool SendEmail { get; set; } = true;
     }
 }
