@@ -213,19 +213,19 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.HasIndex(x => new { x.CompCd, x.Code }).IsUnique().HasDatabaseName("UX_TemplateKindMasters_CompCd_Code");
             e.HasIndex(x => new { x.CompCd, x.DepartmentId }).HasDatabaseName("IX_TemplateKindMasters_CompCd_Department");
 
-            // 섀도우 RowVersion(엔터티 클래스에 속성 없어도 됨)
+            // RowVersion: 섀도우 속성
             e.Property<byte[]>("RowVersion").IsRowVersion();
         });
 
         // --- TemplateKindMasterLoc ---
         modelBuilder.Entity<TemplateKindMasterLoc>(e =>
         {
-            e.ToTable("TemplateKindMasterLoc", "dbo");
+            e.ToTable("TemplateKindMasterLoc", "dbo"); // 트리거 제거 시 OUTPUT 설정 필요 없음
 
-            // PK = (Id, LangCode)  ← 규칙 고정
+            // ✅ PK = (Id, LangCode)
             e.HasKey(x => new { x.Id, x.LangCode });
 
-            // FK는 항상 Id
+            // ✅ FK(Id) → Masters(Id)  (TemplateKindMasterId 같은 컬럼/속성 사용 금지)
             e.HasOne<TemplateKindMaster>()
              .WithMany()
              .HasForeignKey(x => x.Id)
@@ -236,10 +236,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.LangCode).HasMaxLength(10).IsRequired().HasConversion(LowerTrim);
             e.Property(x => x.Name).HasMaxLength(64).IsRequired();
 
-            // 보조 인덱스
+            // ✅ 보조 인덱스 (검색/조인용)
             e.HasIndex(x => new { x.CompCd, x.DepartmentId, x.LangCode });
 
-            // 섀도우 RowVersion
+            // RowVersion: 섀도우 속성
             e.Property<byte[]>("RowVersion").IsRowVersion();
         });
     }

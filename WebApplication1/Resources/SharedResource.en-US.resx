@@ -459,13 +459,13 @@
   <data name="CP_CompCd_Placeholder" xml:space="preserve">
     <value>Select a site</value>
   </data>
-  <data name="CP_CompCd_Invalid" xml:space="preserve">
+  <data name="_Alert_Site_Required" xml:space="preserve">
     <value>Please select a valid site.</value>
   </data>
-  <data name="CP_Department_Invalid" xml:space="preserve">
+  <data name="_Alert_Department_Required" xml:space="preserve">
     <value>Please select a valid department.</value>
   </data>
-  <data name="CP_Position_Invalid" xml:space="preserve">
+  <data name="_Alert_Position_Required" xml:space="preserve">
     <value>Please select a valid position.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -562,10 +562,10 @@
     <value>Department</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
-    <value>Type</value>
+    <value>Category</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
-    <value>Document Name</value>
+    <value>Template Name</value>
   </data>
   <data name="DTL_Btn_Load" xml:space="preserve">
     <value>Load</value>
@@ -576,8 +576,8 @@
   <data name="DTL_Common" xml:space="preserve">
     <value>Common</value>
   </data>
-  <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>Please select a document.</value>
+  <data name="_Alert_TemplateCategory_Required" xml:space="preserve">
+    <value>Please select a valid template category.</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
     <value>Only .xlsx/.xlsm (Excel Open XML) files are allowed.</value>
@@ -586,7 +586,7 @@
     <value>New Template</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
-    <value>Enter document name</value>
+    <value>Enter template name</value>
   </data>
   <data name="DTL_Placeholder_ExcelPath" xml:space="preserve">
     <value>Excel file path</value>
@@ -651,11 +651,8 @@
   <data name="DTL_Msg_NoRows" xml:space="preserve">
     <value>No rows. Click [Add] to insert a row.</value>
   </data>
-  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
-    <value>Please select a site.</value>
-  </data>
   <data name="DTL_Alert_EnterDocName" xml:space="preserve">
-    <value>Please enter a document name.</value>
+    <value>Please enter a template name.</value>
   </data>
   <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
     <value>Please attach an Excel file.</value>
@@ -683,5 +680,20 @@
   </data>
   <data name="DTL_File_NoFile" xml:space="preserve">
     <value>No file selected</value>
+  </data>
+  <data name="DTL_Btn_AddCategory" xml:space="preserve">
+    <value>Add Category</value>
+  </data>
+  <data name="DTL_Btn_CreateTemplate" xml:space="preserve">
+    <value>Create Template</value>
+  </data>
+  <data name="DTL_Alert_EnterCurrentLang" xml:space="preserve">
+    <value>You must enter the category name for the currently selected language.</value>
+  </data>
+  <data name="DTL_Alert_Category_Duplicated" xml:space="preserve">
+    <value>A category with the same name already exists.</value>
+  </data>
+  <data name="DTL_Alert_KindNameRequire" xml:space="preserve">
+    <value>At least one language for the category name is required (native language is mandatory).</value>
   </data>
 </root>

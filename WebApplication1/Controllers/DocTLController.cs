@@ -16,7 +16,6 @@ using System.Linq;
 
 namespace WebApplication1.Controllers
 {
-
     [Authorize]
     [Route("DocumentTemplates")]
     public class DocTLController : Controller
@@ -85,7 +84,6 @@ namespace WebApplication1.Controllers
             ViewBag.UserDepartmentId = ctx.deptId;
             ViewBag.DeptName = ctx.deptName ?? _S["_CM_Common"];
 
-            // 2025.09.09
             vm.CompOptions = await _db.CompMasters
                 .OrderBy(c => c.CompCd)
                 .Select(c => new SelectListItem
@@ -96,7 +94,6 @@ namespace WebApplication1.Controllers
                 })
                 .ToListAsync();
 
-            // 2025.09.09
             vm.DepartmentOptions.Add(new SelectListItem
             {
                 Value = "__SELECT__",
@@ -128,10 +125,10 @@ namespace WebApplication1.Controllers
                     });
                 }
 
-                // 2025.09.09
                 if (vm.DepartmentOptions.Any(o => o.Selected))
                 {
-                    foreach (var o in vm.DepartmentOptions) if (o.Value == "__SELECT__") o.Selected = false;
+                    foreach (var o in vm.DepartmentOptions)
+                        if (o.Value == "__SELECT__") o.Selected = false;
                 }
             }
 
@@ -159,10 +156,13 @@ namespace WebApplication1.Controllers
                 list.AddRange(raw.Select(d => new { id = d.Id, text = d.Name ?? "" }));
             }
 
-            if (ctx.deptId.HasValue && list.All(o => (o as dynamic).id != ctx.deptId.Value))
+            // 동일 사업장일 때만 사용자의 부서를 상단에 삽입
+            if (ctx.deptId.HasValue
+                && string.Equals(compCd, ctx.compCd, StringComparison.OrdinalIgnoreCase)
+                && list.All(o => (o as dynamic).id != ctx.deptId.Value))
             {
                 var mine = await _db.DepartmentMasters
-                    .Where(d => d.Id == ctx.deptId.Value)
+                    .Where(d => d.Id == ctx.deptId.Value && (d.CompCd ?? "").Trim() == compCd)
                     .Select(d => new { d.Id, d.Name })
                     .FirstOrDefaultAsync();
 
@@ -187,12 +187,11 @@ namespace WebApplication1.Controllers
 
         [HttpGet("get-documents")]
         public async Task<IActionResult> GetDocuments([FromQuery] string compCd,
-                                             [FromQuery] int? departmentId,
-                                             [FromQuery] string? kind)
+                                                      [FromQuery] int? departmentId,
+                                                      [FromQuery] string? kind)
         {
             var ctx = await GetUserContextAsync();
-            if (ctx.adminLevel == 0)
-                compCd = ctx.compCd;
+            if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
             await Task.CompletedTask;
             return Ok(new { items = Array.Empty<object>() });
@@ -202,53 +201,35 @@ namespace WebApplication1.Controllers
         public async Task<IActionResult> GetKinds([FromQuery] string compCd, [FromQuery] int? departmentId)
         {
             var ctx = await GetUserContextAsync();
-            if (ctx.adminLevel == 0) compCd = ctx.compCd;
+            if (ctx.adminLevel == 0) compCd = ctx.compCd;   // 비관리자는 자신의 사업장으로 고정
 
             compCd = (compCd ?? "").Trim();
-            var deptId = departmentId ?? ctx.deptId ?? 0;
-
+            var deptId = departmentId ?? ctx.deptId ?? 0;   // 공용(0) 허용
             var lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
-            // ▼ 변경: Loc을 CompCd + DepartmentId 기준으로 조인(부서 우선, 없으면 공용 0)
-            var locDept = _db.TemplateKindMasterLoc.AsNoTracking()
-                .Where(x => x.CompCd == compCd && x.DepartmentId == deptId && x.LangCode == lang);
-
-            var locCommon = _db.TemplateKindMasterLoc.AsNoTracking()
-                .Where(x => x.CompCd == compCd && x.DepartmentId == 0 && x.LangCode == lang);
-
-            var raw = await (
+            // 핵심: Kind ↔ Loc 를 (Id, DepartmentId)로 좌측 조인. DepartmentMasters 조인 제거.
+            var items = await (
                 from k in _db.TemplateKindMasters.AsNoTracking()
                 where k.CompCd == compCd
-                      && (k.DepartmentId == 0 || k.DepartmentId == deptId)
                       && k.IsActive
-                join ld in locDept on k.Id equals ld.Id into ldj
-                from ld in ldj.DefaultIfEmpty()
-                join lc in locCommon on k.Id equals lc.Id into lcj
-                from lc in lcj.DefaultIfEmpty()
+                      && (deptId == 0 ? k.DepartmentId == 0 : k.DepartmentId == deptId)
+                join loc in _db.TemplateKindMasterLoc.AsNoTracking()
+                           .Where(l => l.CompCd == compCd && l.LangCode == lang)
+                     on new { k.Id, k.DepartmentId } equals new { loc.Id, loc.DepartmentId } into lj
+                from l in lj.DefaultIfEmpty()
                 select new
                 {
-                    k.Code,
-                    BaseName = k.Name,
-                    LocName = ld != null ? ld.Name : (lc != null ? lc.Name : null),
-                    Priority = k.DepartmentId == deptId ? 1 : 0
+                    id = k.Code,
+                    text = (l != null && !string.IsNullOrWhiteSpace(l.Name)) ? l.Name : (k.Name ?? "")
                 }
-            ).ToListAsync();
-
-            var items = raw
-                .GroupBy(x => x.Code)
-                .Select(g => {
-                    var best = g.OrderByDescending(x => x.Priority).First();
-                    var text = WebUtility.HtmlDecode(best.LocName ?? best.BaseName ?? "");
-                    return new { id = g.Key, text };
-                })
-                .OrderBy(x => x.text)
-                .ToList();
+            )
+            .OrderBy(x => x.text)
+            .ToListAsync();
 
             return Ok(new { items });
         }
 
-        // ▼ 새 종류 추가(모달에서 호출)
-
+        // === 새 종류 추가 ===
         private static string? FirstNonEmpty(params string?[] xs) => xs.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
 
         private async Task<IActionResult?> GuardCompAndDeptAsync(string compCd, int? departmentId)
@@ -282,10 +263,8 @@ namespace WebApplication1.Controllers
             [FromForm] string? nameZh)
         {
             var ctx = await GetUserContextAsync();
-            // 비관리자는 자신의 사업장으로 강제
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
-            // 서버권한/유효성 가드
             var guard = await GuardCompAndDeptAsync(compCd, departmentId);
             if (guard is not null) return guard;
 
@@ -293,11 +272,45 @@ namespace WebApplication1.Controllers
             if (string.IsNullOrWhiteSpace(displayName))
                 return BadRequest(new { ok = false, message = "name required" });
 
+            // ▼ 중복 검사 (회사+부서 범위, 현재 UI 언어 우선)
+            var dep = departmentId ?? 0;
+            var ui = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+            string? uiName = ui switch
+            {
+                "ko" => nameKo,
+                "vi" => nameVi,
+                "id" => nameId,
+                "zh" => nameZh,
+                "en" => nameEn,
+                _ => nameEn ?? nameKo
+            };
+            if (!string.IsNullOrWhiteSpace(uiName))
+            {
+                var dup =
+                    await _db.TemplateKindMasterLoc.AsNoTracking().AnyAsync(x =>
+                        x.CompCd == compCd && x.DepartmentId == dep &&
+                        x.LangCode == ui && x.Name == uiName) ||
+                    await _db.TemplateKindMasters.AsNoTracking().AnyAsync(x =>
+                        x.CompCd == compCd && x.DepartmentId == dep &&
+                        x.Name == uiName);
+
+                if (dup)
+                {
+                    return StatusCode(409, new
+                    {
+                        ok = false,
+                        code = "DUP_NAME",
+                        field = $"ntk-name-{ui}",
+                        message = _S["DTL_Alert_Category_Duplicated"].Value
+                    }); 
+                }
+            }
+
             const int MAX_ATTEMPTS = 5;
             TemplateKindMaster? master = null;
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)
             {
-                var code = await GenerateNextKindCodeAsync(compCd); // T0001++
+                var code = await GenerateNextKindCodeAsync(compCd);
 
                 master = new TemplateKindMaster
                 {
@@ -312,7 +325,7 @@ namespace WebApplication1.Controllers
                 try
                 {
                     await _db.SaveChangesAsync();
-                    break; // 성공
+                    break;
                 }
                 catch (DbUpdateException ex)
                 {
@@ -324,7 +337,6 @@ namespace WebApplication1.Controllers
                 }
             }
 
-            // ▼ 변경: Loc 저장 시 CompCd, DepartmentId 함께 저장
             var locs = new List<TemplateKindMasterLoc>();
             void AddLoc(string? val, string lang)
             {
@@ -403,33 +415,32 @@ namespace WebApplication1.Controllers
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd,
-                                                 [FromForm] int? departmentId,
-                                                 [FromForm] string? kind,
-                                                 [FromForm] string docName,
-                                                 [FromForm] IFormFile? excelFile)
+                                                         [FromForm] int? departmentId,
+                                                         [FromForm] string? kind,
+                                                         [FromForm] string docName,
+                                                         [FromForm] IFormFile? excelFile)
         {
             var ctx = await GetUserContextAsync();
-            if (ctx.adminLevel == 0)
-                compCd = ctx.compCd;
+            if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
             if (string.IsNullOrWhiteSpace(compCd))
             {
-                TempData["Alert"] = _S["DTL_Alert_SiteRequired"].Value;            // ★ FIX
+                TempData["Alert"] = _S["_Alert_Site_Required"].Value;
                 return RedirectToRoute("DocumentTemplates.Index");
             }
             if (string.IsNullOrWhiteSpace(docName))
             {
-                TempData["Alert"] = _S["DTL_Alert_EnterDocName"].Value;            // ★ FIX
+                TempData["Alert"] = _S["DTL_Alert_EnterDocName"].Value;
                 return RedirectToRoute("DocumentTemplates.Index");
             }
             if (excelFile is null || excelFile.Length == 0)
             {
-                TempData["Alert"] = _S["DTL_Alert_ExcelRequired"].Value;           // ★ FIX
+                TempData["Alert"] = _S["DTL_Alert_ExcelRequired"].Value;
                 return RedirectToRoute("DocumentTemplates.Index");
             }
             if (!IsExcelOpenXml(excelFile))
             {
-                TempData["Alert"] = _S["DTL_Alert_ExcelOpenXmlOnly"].Value;        // ★ FIX
+                TempData["Alert"] = _S["DTL_Alert_ExcelOpenXmlOnly"].Value;
                 return RedirectToRoute("DocumentTemplates.Index");
             }
 
@@ -454,7 +465,6 @@ namespace WebApplication1.Controllers
 
             var title = parsed.Title ?? ResolveTitleByNameOrMetaCX(wb, meta);
 
-            // 2025.09.09 GRID PREVIEW JSON 생성
             var ws0 = wb.Worksheets.FirstOrDefault();
             if (ws0 != null)
             {
@@ -536,7 +546,7 @@ namespace WebApplication1.Controllers
         private string? ResolveTitleByNameOrMetaCX(XLWorkbook wb, MetaInfo meta)
         {
             var dn = wb.DefinedNames.FirstOrDefault(n =>
-    string.Equals(n.Name, "F_Title", StringComparison.OrdinalIgnoreCase));
+                string.Equals(n.Name, "F_Title", StringComparison.OrdinalIgnoreCase));
             if (dn != null && dn.Ranges.Any())
                 return dn.Ranges.First().FirstCell().GetString().Trim();
 
@@ -648,7 +658,6 @@ namespace WebApplication1.Controllers
         {
             t = t.Trim().ToLowerInvariant();
             if (t.StartsWith("date")) return "Date";
-            // Contains 대문자 사용 유지
             if (t.StartsWith("num") || t.Contains("number") || t.Contains("decimal") || t.Contains("integer")) return "Num";
             return "Text";
         }

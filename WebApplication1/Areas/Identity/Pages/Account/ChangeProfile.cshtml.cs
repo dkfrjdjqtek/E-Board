@@ -52,11 +52,11 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             public string? UserName { get; set; }
 
             [Display(Name = "CP_Department_Label")]
-            [Required(ErrorMessage = "CP_Department_Invalid")]
+            [Required(ErrorMessage = "_Alert_Department_Required")]
             public int? DepartmentId { get; set; }
 
             [Display(Name = "CP_Position_Label")]
-            [Required(ErrorMessage = "CP_Position_Invalid")]
+            [Required(ErrorMessage = "_Alert_Position_Required")]
             public int? PositionId { get; set; }
 
             [Display(Name = "CP_DisplayName_Label")]
@@ -68,7 +68,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             public string? PhoneNumber { get; set; }
 
             [Display(Name = "CP_CompCd_Label")]
-            [Required(ErrorMessage = "CP_CompCd_Invalid")]
+            [Required(ErrorMessage = "_Alert_Site_Required")]
             public string? CompCd { get; set; }
 
             [DataType(DataType.Password), Display(Name = "CP_CurrentPwd_Label")]

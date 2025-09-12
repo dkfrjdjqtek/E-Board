@@ -459,13 +459,13 @@
   <data name="CP_CompCd_Placeholder" xml:space="preserve">
     <value>사업장 선택</value>
   </data>
-  <data name="CP_CompCd_Invalid" xml:space="preserve">
+  <data name="_Alert_Site_Required" xml:space="preserve">
     <value>유효한 사업장을 선택하세요.</value>
   </data>
-  <data name="CP_Department_Invalid" xml:space="preserve">
+  <data name="_Alert_Department_Required" xml:space="preserve">
     <value>유효한 부서를 선택하세요.</value>
   </data>
-  <data name="CP_Position_Invalid" xml:space="preserve">
+  <data name="_Alert_Position_Required" xml:space="preserve">
     <value>유효한 직급을 선택하세요.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -562,10 +562,10 @@
     <value>부서</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
-    <value>종류</value>
+    <value>범주</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
-    <value>문서명</value>
+    <value>템플릿 이름</value>
   </data>
   <data name="DTL_Btn_Load" xml:space="preserve">
     <value>불러오기</value>
@@ -576,8 +576,8 @@
   <data name="DTL_Common" xml:space="preserve">
     <value>공용</value>
   </data>
-  <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>문서를 선택하세요.</value>
+  <data name="_Alert_TemplateCategory_Required" xml:space="preserve">
+    <value>유효한 템플릿 구분을 선택하세요.</value>
   </data>
   <data name="DTL_Alert_ExcelOpenXmlOnly" xml:space="preserve">
     <value>Excel Open XML 형식의 .xlsx/.xlsm 파일만 허용됩니다.</value>
@@ -586,7 +586,7 @@
     <value>새 템플릿</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
-    <value>문서명 입력</value>
+    <value>템플릿 이름 입력</value>
   </data>
   <data name="DTL_Placeholder_ExcelPath" xml:space="preserve">
     <value>엑셀 파일 경로</value>
@@ -651,11 +651,8 @@
   <data name="DTL_Msg_NoRows" xml:space="preserve">
     <value>행이 없습니다. [추가] 버튼으로 행을 추가하세요.</value>
   </data>
-  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
-    <value>사업장을 선택하세요.</value>
-  </data>
   <data name="DTL_Alert_EnterDocName" xml:space="preserve">
-    <value>문서명을 입력하세요.</value>
+    <value>템플릿 이름을 입력하세요.</value>
   </data>
   <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
     <value>엑셀 파일을 첨부하세요.</value>
@@ -683,5 +680,20 @@
   </data>
   <data name="DTL_File_NoFile" xml:space="preserve">
     <value>선택된 파일 없음</value>
+  </data>
+  <data name="DTL_Btn_AddCategory" xml:space="preserve">
+    <value>범주 추가</value>
+  </data>
+  <data name="DTL_Btn_CreateTemplate" xml:space="preserve">
+    <value>템플릿 생성</value>
+  </data>
+  <data name="DTL_Alert_EnterCurrentLang" xml:space="preserve">
+    <value>현재 선택된 언어에 대한 범주 이름은 입력해야 됩니다.</value>
+  </data>
+  <data name="DTL_Alert_Category_Duplicated" xml:space="preserve">
+    <value>이미 동일한 이름의 범주가 존재합니다.</value>
+  </data>
+  <data name="DTL_Alert_KindNameRequire" xml:space="preserve">
+    <value>최소 1개 언어의 범주 이름이 필요합니다 (모국어 필수).</value>
   </data>
 </root>

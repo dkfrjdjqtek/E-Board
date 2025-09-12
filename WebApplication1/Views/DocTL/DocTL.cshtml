@@ -30,7 +30,6 @@
 
 <div class="container-fluid py-3">
     <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
-        <!-- Site -->
         <div>
             <label class="form-label mb-1">@S["DTL_Label_Site"]</label>
             <select id="compSelect" class="form-select form-select-sm" name="SelectedCompCd" @(isAdmin ? "" : "disabled")>
@@ -41,7 +40,6 @@
             </select>
         </div>
 
-        <!-- Department -->
         <div>
             <label class="form-label mb-1">@S["DTL_Label_Dept"]</label>
             <select id="deptSelect" class="form-select form-select-sm" name="SelectedDepartmentId">
@@ -52,7 +50,6 @@
             </select>
         </div>
 
-        <!-- Kind + Document -->
         <div class="d-flex flex-grow-1 gap-2" style="min-width:360px;">
             <div class="flex-eq">
                 <label class="form-label mb-1">@S["DTL_Label_Kind"]</label>
@@ -69,10 +66,13 @@
             </div>
         </div>
 
-        <!-- Actions -->
         <div class="d-flex align-items-end gap-2 ms-auto" style="width:360px;">
             <a id="btnLoad" class="btn btn-secondary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_Load"]</a>
-            <a id="btnNewTemplate" class="btn btn-primary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_NewTemplate"]</a>
+            <a id="btnNewTemplate"
+               class="btn btn-primary btn-sm flex-eq"
+               href="#"
+               data-bs-toggle="modal"
+               data-bs-target="#newTemplateModal">@S["DTL_Btn_NewTemplate"]</a>
         </div>
     </div>
 
@@ -111,7 +111,7 @@
                             </div>
                         </div>
 
-                        <!-- 새 종류 추가 -->
+                        <!-- 새 범주 추가 -->
                         <div class="col-12 d-none" id="kindAddBox">
                             <div class="border rounded p-3">
                                 <div class="row g-2">
@@ -131,9 +131,9 @@
                                     <div class="col-md-6"><input id="ntk-name-id" class="form-control form-control-sm" placeholder="Bahasa Indonesia" /></div>
                                     <div class="col-md-6"><input id="ntk-name-zh" class="form-control form-control-sm" placeholder="中文" /></div>
                                 </div>
-                                <div class="mt-2 d-flex gap-2">
-                                    <button type="button" id="btnKindSave" class="btn btn-primary btn-sm">@S["_CM_Save"]</button>
-                                    <button type="button" id="btnKindCancel" class="btn btn-outline-secondary btn-sm">@S["_CM_Close"]</button>
+                                <div class="mt-2 d-grid w-100" style="grid-template-columns: 1fr 1fr; gap:.5rem;">
+                                    <button type="button" id="btnKindSave" class="btn btn-primary btn-sm w-100">@S["DTL_Btn_AddCategory"]</button>
+                                    <button type="button" id="btnKindCancel" class="btn btn-outline-secondary btn-sm w-100">@S["_CM_Close"]</button>
                                 </div>
                             </div>
                         </div>
@@ -156,7 +156,7 @@
 
                 <div class="modal-footer">
                     <div class="d-grid w-100" style="grid-template-columns: 1fr 1fr; gap:.5rem;">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">@S["_CM_Save"]</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-100">@S["DTL_Btn_CreateTemplate"]</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm w-100" data-bs-dismiss="modal">@S["_CM_Close"]</button>
                     </div>
                 </div>
@@ -166,22 +166,34 @@
 </div>
 
 @section Scripts {
+    <!-- 전역 i18n -->
     <script>
-        // i18n 상수
-        const L = {
-            ALL: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_All"].Value)),
-            NO_FILE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_File_NoFile"].Value)),
-            ALERT_SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_SelectDoc"].Value)),
-            ALERT_SITE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_SiteRequired"].Value)),
-            ALERT_DOCNAME: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterDocName"].Value)),
-            ALERT_XLS_REQ: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelRequired"].Value)),
-            ALERT_OPENXML: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelOpenXmlOnly"].Value)),
-            SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Select"].Value)),
-            ADD_KIND: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Add"]?.Value ?? "＋ 새 종류 추가…"))
-          };
+        (function () {
+            window.L = {
+                ALL: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_All"].Value)),
+                NO_FILE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_File_NoFile"].Value)),
+                ALERT_SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_TemplateCategory_Required"].Value)),
+                ALERT_SITE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_Site_Required"].Value)),
+                ALERT_DOCNAME: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterDocName"].Value)),
+                ALERT_XLS_REQ: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelRequired"].Value)),
+                ALERT_OPENXML: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelOpenXmlOnly"].Value)),
+                SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Select"].Value)),
+                ADD_KIND: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Add"]?.Value ?? "＋ 새 종류 추가…")),
+                ALERT_DUP: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_Category_Duplicated"].Value)),
+                DTL_Alert_DeptRequired: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_DeptRequired"].Value)),
+                DTL_Alert_KindNameRequire: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_KindNameRequire"].Value)),
+                DTL_Alert_EnterCurrentLang: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterCurrentLang"].Value))
+                    };
+            window.CUR_LANG = '@System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName';
+            window.MSG = {
+                DEPT: window.L.DTL_Alert_DeptRequired,
+                KIND: window.L.DTL_Alert_KindNameRequire,
+                CUR: window.L.DTL_Alert_EnterCurrentLang
+            };
+        })();
     </script>
 
-    <!-- 부모 영역 스크립트 -->
+    <!-- 부모 영역 -->
     <script>
         (function () {
             const BASE = "/DocumentTemplates";
@@ -195,10 +207,11 @@
             async function fetchJson(url) { const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }); if (!r.ok) throw new Error('net'); return r.json(); }
             function clearOptions(sel) { while (sel.options.length) sel.remove(0); }
             function addOptions(sel, items) { for (const it of (items || [])) sel.add(new Option(it.text ?? '', String(it.id ?? ''))); }
+            function setSelectPlaceholder(sel) { clearOptions(sel); sel.add(new Option(L.SELECT, '__SELECT__')); }
 
             async function loadDepartments() {
                 const compCd = compSel.value || '';
-                if (!compCd) { clearOptions(deptSel); clearOptions(docSel); updateBtnLinks(); return; }
+                if (!compCd) { setSelectPlaceholder(deptSel); setSelectPlaceholder(kindSel); clearOptions(docSel); updateBtnLinks(); return; }
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 clearOptions(deptSel);
                 (data.items || []).forEach(it => deptSel.add(new Option(it.text ?? '', String(it.id ?? ''))));
@@ -214,10 +227,8 @@
             async function loadKinds() {
                 const compCd = compSel.value || '';
                 const deptVal = deptSel.value;
-                clearOptions(kindSel);
-                kindSel.add(new Option(L.SELECT, '__SELECT__'));
+                setSelectPlaceholder(kindSel);
                 if (!compCd || deptVal === '__SELECT__') { clearOptions(docSel); updateBtnLinks(); return; }
-                // ▼ 스키마 반영: 공용(빈값)은 0으로 전달
                 const deptParam = (deptVal === '' ? '0' : deptVal);
                 const q = new URLSearchParams({ compCd, departmentId: deptParam });
                 const data = await fetchJson(`${BASE}/get-kinds?${q.toString()}`);
@@ -269,37 +280,103 @@
                 window.location.href = href;
             });
 
-            compSel.addEventListener('change', async () => { await loadDepartments(); await loadKinds(); await loadDocuments(); updateBtnLinks(); });
-            deptSel.addEventListener('change', async () => { await loadKinds(); await loadDocuments(); updateBtnLinks(); });
-            kindSel.addEventListener('change', async () => { await loadDocuments(); updateBtnLinks(); });
-            docSel.addEventListener('change', updateBtnLinks);
+            let __booting = true;
+
+            compSel.addEventListener('change', async () => {
+                if (__booting) return;
+                await loadDepartments();
+                deptSel.value = '__SELECT__';   // 규칙: 상위 변경 시 하위 초기화
+                await loadKinds();
+                kindSel.value = '__SELECT__';
+                clearOptions(docSel);
+                updateBtnLinks();
+            });
+
+            deptSel.addEventListener('change', async () => {
+                if (__booting) return;
+                await loadKinds();
+                kindSel.value = '__SELECT__';
+                clearOptions(docSel);
+                updateBtnLinks();
+            });
+
+            kindSel.addEventListener('change', async () => {
+                await loadDocuments();
+            });
 
             (async function init() {
-                await loadDepartments();
+                await loadDepartments();      // 초기: 사용자 부서/공용 자동선택(서버 selectedValue 사용)
                 await loadKinds();
                 await loadDocuments();
                 updateBtnLinks();
+                __booting = false;
             })();
         })();
     </script>
 
-    <!-- 모달 스크립트 -->
+    <!-- 모달 영역 -->
     <script>
         (function () {
+            const L = window.L || {};
+            const CUR_LANG = window.CUR_LANG || "en";
+            const MSG = window.MSG || {};
+            const BASE = "/DocumentTemplates";
+
             const mEl = document.getElementById('newTemplateModal');
-            const modal = () => new bootstrap.Modal(mEl, { backdrop: 'static', keyboard: false });
-            function ensureModalAtBody() { if (mEl.parentElement !== document.body) document.body.appendChild(mEl); }
+            if (!mEl) return;
+
+            function fieldContainer(el) { return el.closest('.col-md-4, .col-md-6, .col-12') || el.parentElement; }
+            function ensureFeedback(el) {
+                const box = fieldContainer(el); let fb = box.querySelector(`.invalid-feedback[data-for="${el.id}"]`);
+                if (!fb) { fb = document.createElement('div'); fb.className = 'invalid-feedback d-block'; fb.dataset.for = el.id; box.appendChild(fb); }
+                return fb;
+            }
+            function setFieldError(el, msg) { if (!el) return; el.classList.add('is-invalid'); ensureFeedback(el).textContent = (msg || ''); }
+            function clearFieldError(el) {
+                if (!el) return;
+                el.classList.remove('is-invalid');
+                const box = fieldContainer(el); const fb = box.querySelector(`.invalid-feedback[data-for="${el.id}"]`); if (fb) fb.remove();
+            }
+            function showAlert(msg) {
+                const ntAlert = document.getElementById('nt-alert'); if (!ntAlert) return;
+                ntAlert.textContent = (msg || ''); ntAlert.style.whiteSpace = 'pre-wrap'; ntAlert.classList.toggle('d-none', !msg);
+            }
+            async function fetchJson(url) { const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }); if (!r.ok) throw new Error('net'); return r.json(); }
+            function copyOptions(from, to) { to.innerHTML = ''; Array.from(from.options).forEach(o => to.add(new Option(o.text, o.value, false, o.selected))); }
+            function fillOptions(sel, items) { sel.innerHTML = ''; (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? '')))); }
+            async function refreshDeptFor(compCd, targetSel, preferValue) {
+                const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
+                fillOptions(targetSel, data.items || []);
+                let target = "__SELECT__"; const cand = (preferValue ?? data.selectedValue);
+                if (typeof cand !== "undefined") { const want = String(cand ?? ""); const has = Array.from(targetSel.options).some(o => o.value === want); target = has ? want : "__SELECT__"; }
+                targetSel.value = target;
+            }
+            async function loadKindsForModal(compCd, deptRaw, targetSel, preferKindCode) {
+                targetSel.innerHTML = '';
+                targetSel.add(new Option(L.SELECT, '__SELECT__'));
+                if (!compCd) return;
+
+                const deptParam = (deptRaw === '__SELECT__' ? null : (deptRaw === '' ? '0' : deptRaw));
+                if (deptParam === null) return;
+
+                const q = new URLSearchParams({ compCd, departmentId: deptParam });
+                const data = await fetchJson(`${BASE}/get-kinds?${q.toString()}`);
+                (data.items || []).forEach(it => targetSel.add(new Option(it.text ?? '', String(it.id ?? ''))));
+
+                // ▼ preferKindCode가 있고 목록에 있으면 그걸로 선택
+                if (preferKindCode && Array.from(targetSel.options).some(o => o.value === preferKindCode)) {
+                    targetSel.value = preferKindCode;
+                } else {
+                    targetSel.value = '__SELECT__';
+                }
+            }
 
             const compSel = document.getElementById('compSelect');
             const deptSel = document.getElementById('deptSelect');
-            const kindSel = document.getElementById('kindSelect');
-            const btnNew = document.getElementById('btnNewTemplate');
-
             const ntCompSel = document.getElementById('nt-compSel');
             const ntDeptSel = document.getElementById('nt-deptSel');
             const ntKindSel = document.getElementById('nt-kindSel');
             const ntCompCd = document.getElementById('nt-compCd');
-            const ntAlert = document.getElementById('nt-alert');
 
             const btnKindAddToggle = document.getElementById('btnKindAddToggle');
             const kindAddBox = document.getElementById('kindAddBox');
@@ -310,123 +387,185 @@
 
             const realFile = document.getElementById('nt-excel');
             const fakeFile = document.getElementById('nt-excel-fake');
-            if (realFile && fakeFile) {
-                fakeFile.value = L.NO_FILE;
-                realFile.addEventListener('change', () => { fakeFile.value = realFile.files?.[0]?.name || L.NO_FILE; });
+
+            function clearKindAddErrorsOnly() {
+                ['ntk-name-ko', 'ntk-name-en', 'ntk-name-vi', 'ntk-name-id', 'ntk-name-zh'].forEach(id => clearFieldError(document.getElementById(id)));
+                clearFieldError(ntkCompSel); clearFieldError(ntkDeptSel);
+            }
+            function clearKindAddForm() {
+                ['ko', 'en', 'vi', 'id', 'zh'].forEach(c => { const el = document.getElementById(`ntk-name-${c}`); if (el) { el.value = ''; clearFieldError(el); } });
+                clearFieldError(ntkCompSel); clearFieldError(ntkDeptSel); showAlert('');
+            }
+            function clearAllHeaderErrors() {
+                ['nt-compSel', 'nt-deptSel', 'nt-kindSel', 'nt-docName', 'nt-excel-fake', 'nt-excel'].forEach(id => clearFieldError(document.getElementById(id)));
+                showAlert('');
             }
 
-            const BASE = "/DocumentTemplates";
+            // 모달 열릴 때: 부모 선택값 반영 + 전체 초기화
+            mEl.addEventListener('show.bs.modal', async () => {
+                showAlert('');
+                clearAllHeaderErrors(); clearKindAddErrorsOnly();
 
-            function showAlert(msg) {
-                ntAlert.textContent = (msg || '').toString();
-                ntAlert.style.whiteSpace = 'pre-wrap';
-                ntAlert.classList.toggle('d-none', !msg);
-            }
-            async function fetchJson(url) {
-                const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!r.ok) throw new Error('net');
-                return r.json();
-            }
-            function copyOptions(from, to) {
-                to.innerHTML = '';
-                Array.from(from.options).forEach(o => to.add(new Option(o.text, o.value, false, o.selected)));
-            }
-            function fillOptions(sel, items) {
-                sel.innerHTML = '';
-                (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? ''))));
-            }
-            async function refreshDeptFor(compCd, targetSel, preferValue) {
-                const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
-                fillOptions(targetSel, data.items || []);
-                let target = "__SELECT__";
-                const cand = (preferValue ?? data.selectedValue);
-                if (typeof cand !== "undefined") {
-                    const want = String(cand ?? "");
-                    const has = Array.from(targetSel.options).some(o => o.value === want);
-                    target = has ? want : "__SELECT__";
-                }
-                targetSel.value = target;
-            }
-            function toggleKindAdd(show) { kindAddBox.classList.toggle('d-none', !show); }
+                const compCd = compSel?.value || '';
+                if (!compCd) { showAlert(L.ALERT_SITE || '사업장을 선택하세요.'); return; }
 
-            async function openNewTemplateModal() {
-                showAlert(''); ensureModalAtBody();
-                const compCd = compSel.value || '';
-                if (!compCd) { alert(L.ALERT_SITE); return; }
-
-                // 부모 선택 복제
                 copyOptions(compSel, ntCompSel); ntCompSel.value = compCd; ntCompCd.value = compCd;
-                await refreshDeptFor(ntCompSel.value, ntDeptSel, deptSel.value);
+                await refreshDeptFor(ntCompSel.value, ntDeptSel, deptSel?.value);
                 if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
 
-                // Kind 복제 + placeholder
-                copyOptions(kindSel, ntKindSel);
-                if (!Array.from(ntKindSel.options).some(o => o.value === '__SELECT__')) ntKindSel.add(new Option(L.SELECT, '__SELECT__'), 0);
-                ntKindSel.value = '__SELECT__';
-                toggleKindAdd(false);
+                const parentKind = document.getElementById('kindSelect')?.value || '';
+                await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel, parentKind);
 
-                // 새 종류 패널 초기화
-                copyOptions(ntCompSel, ntkCompSel); ntkCompSel.value = ntCompSel.value;
-                await refreshDeptFor(ntkCompSel.value, ntkDeptSel, ntDeptSel.value);
-                if (ntkDeptSel.value === "__SELECT__") ntkDeptSel.value = "";
+                kindAddBox.classList.add('d-none'); // 접기
+                clearKindAddForm();                 // 값/에러 초기화
+                const dn = document.getElementById('nt-docName'); if (dn) dn.value = '';
+                if (fakeFile) fakeFile.value = (L.NO_FILE || ''); if (realFile) realFile.value = '';
+            });
 
-                modal().show();
-            }
-            btnNew.addEventListener('click', (e) => { e.preventDefault(); openNewTemplateModal(); });
+            // 모달 닫힐 때도 잔여 오류/값 정리
+            mEl.addEventListener('hidden.bs.modal', () => {
+                clearAllHeaderErrors();
+                clearKindAddForm();
+            });
 
+            // 토글
             btnKindAddToggle?.addEventListener('click', async () => {
                 const willShow = kindAddBox.classList.contains('d-none');
-                toggleKindAdd(willShow);
+                kindAddBox.classList.toggle('d-none', !willShow);
                 if (willShow) {
                     copyOptions(ntCompSel, ntkCompSel); ntkCompSel.value = ntCompSel.value;
                     await refreshDeptFor(ntkCompSel.value, ntkDeptSel, ntDeptSel.value);
                     if (ntkDeptSel.value === "__SELECT__") ntkDeptSel.value = "";
+                    clearKindAddForm();
+                } else {
+                    clearKindAddForm();
                 }
             });
+            btnKindCancel?.addEventListener('click', () => { kindAddBox.classList.add('d-none'); clearKindAddForm(); });
 
-            async function readAsJsonOrText(res) {
-                const ct = (res.headers.get('content-type') || '').toLowerCase();
-                if (ct.includes('application/json')) return await res.json();
-                const txt = await res.text();
-                return { ok: false, message: (txt || '').replace(/<[^>]+>/g, ' ').trim() };
-            }
+            // 상단 입력 변경 시 에러 해제
+            ntCompSel?.addEventListener('change', () => clearFieldError(ntCompSel));
+            ntDeptSel?.addEventListener('change', () => clearFieldError(ntDeptSel));
+            ntKindSel?.addEventListener('change', () => clearFieldError(ntKindSel));
+            document.getElementById('nt-docName')?.addEventListener('input', e => clearFieldError(e.target));
+
+            ntCompSel?.addEventListener('change', async () => {
+                await refreshDeptFor(ntCompSel.value, ntDeptSel, null);
+                if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
+                await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel);
+
+                copyOptions(ntCompSel, ntkCompSel); ntkCompSel.value = ntCompSel.value;
+                await refreshDeptFor(ntkCompSel.value, ntkDeptSel, ntDeptSel.value);
+                if (ntkDeptSel.value === "__SELECT__") ntkDeptSel.value = "";
+            });
+            ntDeptSel?.addEventListener('change', async () => {
+                await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel);
+            });
+
+            ntkCompSel?.addEventListener('change', () => clearFieldError(ntkCompSel));
+            ntkDeptSel?.addEventListener('change', () => clearFieldError(ntkDeptSel));
+            ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
+                document.getElementById(`ntk-name-${code}`)?.addEventListener('input', e => clearFieldError(e.target));
+            });
+
+            // 상단 폼 제출(템플릿 생성)
+            document.getElementById('frmNewTemplate')?.addEventListener('submit', function (e) {
+                clearAllHeaderErrors();
+                const errs = [];
+                const dn = document.getElementById('nt-docName');
+                const fxReal = document.getElementById('nt-excel');
+                const fxFake = document.getElementById('nt-excel-fake');
+
+                if (!ntCompSel.value) { errs.push(L.ALERT_SITE); setFieldError(ntCompSel, L.ALERT_SITE); }
+                if (ntDeptSel.value === '__SELECT__') { const msg = (L.DTL_Alert_DeptRequired || '부서를 선택하세요.'); errs.push(msg); setFieldError(ntDeptSel, msg); }
+                if (ntKindSel.value === '__SELECT__') { const msg = (L.ALERT_SELECT || '종류를 선택하세요.'); errs.push(msg); setFieldError(ntKindSel, msg); }
+
+                const dnVal = dn?.value?.trim();
+                if (!dnVal) { errs.push(L.ALERT_DOCNAME); setFieldError(dn, L.ALERT_DOCNAME); }
+
+                const f = fxReal?.files?.[0];
+                if (!f) { errs.push(L.ALERT_XLS_REQ); setFieldError(fxFake, L.ALERT_XLS_REQ); }
+                else if (!/\.xlsx$|\.xlsm$/i.test(f.name)) { errs.push(L.ALERT_OPENXML); setFieldError(fxFake, L.ALERT_OPENXML); }
+                else { fxFake.value = f.name; }
+
+                if (errs.length) { e.preventDefault(); showAlert(errs.join('\n')); }
+            });
+
             function getAntiForgeryToken() {
                 const el = document.querySelector('#frmNewTemplate input[name="__RequestVerificationToken"]');
                 return el?.value || '';
             }
 
-            // 새 종류 저장 (스키마 반영: departmentId 빈값/선택안함은 0으로 전송)
-            btnKindSave.addEventListener('click', async () => {
-                const compCd = ntkCompSel.value || '';
-                const deptRaw = ntkDeptSel.value;
-                const dept = (deptRaw === '__SELECT__' || deptRaw === '' ? '0' : deptRaw);
+            // 범주 저장
+            btnKindSave?.addEventListener('click', async () => {
+                showAlert('');
+                clearKindAddErrorsOnly();   // ★ 이전 시도에서 남은 입력창 하단 메시지 제거
 
+                const errs = [];
+                const compCd = (ntkCompSel.value || '').trim();
+                const deptRaw = ntkDeptSel.value;
+
+                if (!compCd) { errs.push(L.ALERT_SITE); setFieldError(ntkCompSel, L.ALERT_SITE); }
+                if (deptRaw === '__SELECT__') { const m = (MSG.DEPT || '부서를 선택하세요.'); errs.push(m); setFieldError(ntkDeptSel, m); }
+
+                const v = {
+                    ko: (document.getElementById('ntk-name-ko')?.value || '').trim(),
+                    en: (document.getElementById('ntk-name-en')?.value || '').trim(),
+                    vi: (document.getElementById('ntk-name-vi')?.value || '').trim(),
+                    id: (document.getElementById('ntk-name-id')?.value || '').trim(),
+                    zh: (document.getElementById('ntk-name-zh')?.value || '').trim()
+                };
+                const anyLang = Object.values(v).some(Boolean);
+                if (!anyLang) {
+                    const m = (MSG.KIND || '종류 이름(최소 1개 언어)이 필요합니다.');
+                    errs.push(m);
+                    ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => { const el = document.getElementById(`ntk-name-${code}`); el && setFieldError(el, m); });
+                }
+                if (!v[CUR_LANG]) {
+                    const m = (MSG.CUR || '현재 언어 필드는 필수입니다.');
+                    errs.push(m);
+                    const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && setFieldError(elCur, m);
+                }
+
+                const display = v[CUR_LANG] || v.en || v.ko;
+                if (display) {
+                    const dup = Array.from(ntKindSel.options).some(o => o.value && o.text.trim() === display.trim());
+                    if (dup) { errs.push(L.ALERT_DUP); const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && setFieldError(elCur, L.ALERT_DUP); }
+                }
+
+                if (errs.length) { showAlert(errs.join('\n')); return; }
+
+                const departmentId = (deptRaw === '' ? '0' : deptRaw);
                 const p = new URLSearchParams({
-                    compCd,
-                    departmentId: dept, // ← Loc(CompCd, DepartmentId) 채움
-                    nameKo: document.getElementById('ntk-name-ko').value.trim(),
-                    nameEn: document.getElementById('ntk-name-en').value.trim(),
-                    nameVi: document.getElementById('ntk-name-vi').value.trim(),
-                    nameId: document.getElementById('ntk-name-id').value.trim(),
-                    nameZh: document.getElementById('ntk-name-zh').value.trim(),
+                    compCd, departmentId,
+                    nameKo: v.ko, nameEn: v.en, nameVi: v.vi, nameId: v.id, nameZh: v.zh,
                     __RequestVerificationToken: getAntiForgeryToken()
                 });
 
                 try {
-                    const res = await fetch(`${BASE}/kind-add`, {
-                        method: 'POST',
-                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                        body: p
-                    });
-                    const data = await readAsJsonOrText(res);
-                    if (!res.ok || !data || data.ok !== true) throw new Error((data && data.message) ? data.message : `HTTP ${res.status}`);
+                    const res = await fetch(`${BASE}/kind-add`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: p });
+                    const ct = (res.headers.get('content-type') || '').toLowerCase();
+                    const data = ct.includes('application/json') ? await res.json() : { ok: false, message: (await res.text()).replace(/<[^>]+>/g, ' ') };
 
+                    if (!res.ok || !data || data.ok !== true) {
+                        if (data && data.code === 'DUP_NAME') {
+                            clearKindAddErrorsOnly(); // ★ 선행 메시지 제거
+                            const fld = document.getElementById(data.field) || document.getElementById(`ntk-name-${CUR_LANG}`);
+                            const msg = data.message || L.ALERT_DUP;
+                            fld && setFieldError(fld, msg); // ★ 현재 언어 칸만 표시
+                            showAlert(msg);
+                            return;
+                        }
+                        throw new Error((data && data.message) ? data.message : `HTTP ${res.status}`);
+                    }
+
+                    // 성공: 목록 동기화 + 입력 초기화
                     const opt = new Option(data.item.text, data.item.id, false, true);
-                    ntKindSel.add(opt);
-                    ntKindSel.value = data.item.id;
-                    toggleKindAdd(false);
-
+                    ntKindSel.add(opt); ntKindSel.value = data.item.id;
                     document.getElementById('kindSelect')?.add(new Option(data.item.text, data.item.id));
+
+                    clearKindAddForm();
+                    kindAddBox.classList.add('d-none');
                     showAlert('');
                 } catch (e) {
                     console.error(e);
@@ -434,19 +573,11 @@
                 }
             });
 
-            btnKindCancel.addEventListener('click', () => { toggleKindAdd(false); });
-
-            document.getElementById('frmNewTemplate').addEventListener('submit', function (e) {
-                showAlert('');
-                const dn = this.elements['docName']?.value?.trim();
-                const fx = this.elements['excelFile']?.files?.[0];
-                if (!dn) { e.preventDefault(); showAlert(L.ALERT_DOCNAME); return; }
-                if (!fx) { e.preventDefault(); showAlert(L.ALERT_XLS_REQ); return; }
-                if (!/\.xlsx$|\.xlsm$/i.test(fx.name)) { e.preventDefault(); showAlert(L.ALERT_OPENXML); }
-            });
-
+            // 쿼리로 요청 시 자동오픈
             const sp = new URLSearchParams(location.search);
-            if (sp.get('openNewTemplate') === '1') setTimeout(() => openNewTemplateModal(), 0);
+            if (sp.get('openNewTemplate') === '1') {
+                document.getElementById('btnNewTemplate')?.click();
+            }
         })();
     </script>
 }

@@ -1,76 +1,96 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
-		Microsoft ResX Schema
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
 
-		Version 1.3
-
-		The primary goals of this format is to allow a simple XML format 
-		that is mostly human readable. The generation and parsing of the 
-		various data types are done through the TypeConverter classes 
-		associated with the data types.
-
-		Example:
-
-		... ado.net/XML headers & schema ...
-		<resheader name="resmimetype">text/microsoft-resx</resheader>
-		<resheader name="version">1.3</resheader>
-		<resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
-		<resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
-		<data name="Name1">this is my long string</data>
-		<data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
-		<data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
-			[base64 mime encoded serialized .NET Framework object]
-		</data>
-		<data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
-			[base64 mime encoded string representing a byte array form of the .NET Framework object]
-		</data>
-
-		There are any number of "resheader" rows that contain simple 
-		name/value pairs.
-
-		Each data row contains a name, and value. The row also contains a 
-		type or mimetype. Type corresponds to a .NET class that support 
-		text/value conversion through the TypeConverter architecture. 
-		Classes that don't support this are serialized and stored with the 
-		mimetype set.
-
-		The mimetype is used for serialized objects, and tells the 
-		ResXResourceReader how to depersist the object. This is currently not 
-		extensible. For a given mimetype the value must be set accordingly:
-
-		Note - application/x-microsoft.net.object.binary.base64 is the format 
-		that the ResXResourceWriter will generate, however the reader can 
-		read any of the formats listed below.
-
-		mimetype: application/x-microsoft.net.object.binary.base64
-		value   : The object must be serialized with 
-			: System.Serialization.Formatters.Binary.BinaryFormatter
-			: and then encoded with base64 encoding.
-
-		mimetype: application/x-microsoft.net.object.soap.base64
-		value   : The object must be serialized with 
-			: System.Runtime.Serialization.Formatters.Soap.SoapFormatter
-			: and then encoded with base64 encoding.
-
-		mimetype: application/x-microsoft.net.object.bytearray.base64
-		value   : The object must be serialized into a byte array 
-			: using a System.ComponentModel.TypeConverter
-			: and then encoded with base64 encoding.
-	-->
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
       <xsd:complexType>
         <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
           <xsd:element name="data">
             <xsd:complexType>
               <xsd:sequence>
                 <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
                 <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
               </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
               <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
               <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
             </xsd:complexType>
           </xsd:element>
           <xsd:element name="resheader">
@@ -89,13 +109,13 @@
     <value>text/microsoft-resx</value>
   </resheader>
   <resheader name="version">
-    <value>1.3</value>
+    <value>2.0</value>
   </resheader>
   <resheader name="reader">
-    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="DTL_Title_DocManage" xml:space="preserve">
     <value>Manajemen Template Dokumen</value>
@@ -107,10 +127,10 @@
     <value>Departemen</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
-    <value>Jenis</value>
+    <value>Kategori</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
-    <value>Nama Dokumen</value>
+    <value>Nama template</value>
   </data>
   <data name="DTL_Btn_Load" xml:space="preserve">
     <value>Muat</value>
@@ -123,9 +143,6 @@
   </data>
   <data name="DTL_Common" xml:space="preserve">
     <value>Umum</value>
-  </data>
-  <data name="DTL_Alert_SelectDoc" xml:space="preserve">
-    <value>Silakan pilih dokumen.</value>
   </data>
   <data name="Header_Lan_CN" xml:space="preserve">
     <value>Bahasa Tionghoa</value>
@@ -469,13 +486,13 @@
   <data name="CP_CompCd_Placeholder" xml:space="preserve">
     <value>Pilih lokasi</value>
   </data>
-  <data name="CP_CompCd_Invalid" xml:space="preserve">
+  <data name="_Alert_Site_Required" xml:space="preserve">
     <value>Silakan pilih lokasi yang valid.</value>
   </data>
-  <data name="CP_Department_Invalid" xml:space="preserve">
+  <data name="_Alert_Department_Required" xml:space="preserve">
     <value>Silakan pilih departemen yang valid.</value>
   </data>
-  <data name="CP_Position_Invalid" xml:space="preserve">
+  <data name="_Alert_Position_Required" xml:space="preserve">
     <value>Silakan pilih jabatan yang valid.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -563,7 +580,7 @@
     <value>Template Baru</value>
   </data>
   <data name="DTL_Placeholder_DocName" xml:space="preserve">
-    <value>Masukkan nama dokumen</value>
+    <value>Masukkan nama template</value>
   </data>
   <data name="DTL_Placeholder_ExcelPath" xml:space="preserve">
     <value>Path file Excel</value>
@@ -628,11 +645,8 @@
   <data name="DTL_Msg_NoRows" xml:space="preserve">
     <value>Tidak ada baris. Klik [Tambah] untuk menambahkan baris.</value>
   </data>
-  <data name="DTL_Alert_SiteRequired" xml:space="preserve">
-    <value>Silakan pilih situs.</value>
-  </data>
   <data name="DTL_Alert_EnterDocName" xml:space="preserve">
-    <value>Silakan masukkan nama dokumen.</value>
+    <value>Silakan masukkan nama template.</value>
   </data>
   <data name="DTL_Alert_ExcelRequired" xml:space="preserve">
     <value>Silakan unggah file Excel.</value>
@@ -663,5 +677,23 @@
   </data>
   <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Anda meminta perubahan email login. Untuk melindungi akun, silakan klik tombol di bawah untuk mengonfirmasi perubahan.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Tautan ini berlaku selama {2} menit.&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="_Alert_TemplateCategory_Required" xml:space="preserve">
+    <value>Silakan pilih kategori templat yang valid.</value>
+  </data>
+  <data name="DTL_Btn_AddCategory" xml:space="preserve">
+    <value>Tambah kategori</value>
+  </data>
+  <data name="DTL_Btn_CreateTemplate" xml:space="preserve">
+    <value>Buat Template</value>
+  </data>
+  <data name="DTL_Alert_EnterCurrentLang" xml:space="preserve">
+    <value>Anda harus memasukkan nama kategori untuk bahasa yang dipilih saat ini.</value>
+  </data>
+  <data name="DTL_Alert_Category_Duplicated" xml:space="preserve">
+    <value>Kategori dengan nama yang sama sudah ada.</value>
+  </data>
+  <data name="DTL_Alert_KindNameRequire" xml:space="preserve">
+    <value>Nama kategori harus diisi setidaknya dalam satu bahasa (bahasa asli wajib).</value>
   </data>
 </root>
