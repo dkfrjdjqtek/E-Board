@@ -1,0 +1,21 @@
+﻿@* Views/Shared/_ValidationAlert.cshtml *@
+@model IEnumerable<string>
+@{
+    var id = (ViewData["AlertId"] as string) ?? "form-alert";
+    var msgs = (Model ?? Enumerable.Empty<string>())
+        .Where(s => !string.IsNullOrWhiteSpace(s))
+        .ToList();
+    var has = msgs.Count > 0;
+}
+<div id="@id"
+     class="alert alert-danger @(has ? "" : "d-none")"
+     role="alert"
+     aria-live="polite"
+     aria-atomic="true">
+    <ul class="mb-0">
+        @foreach (var m in msgs)
+        {
+            <li>@m</li>
+        }
+    </ul>
+</div>
