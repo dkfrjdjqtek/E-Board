@@ -1,4 +1,5 @@
-﻿@* Views/Shared/_Layout.cshtml *@
+﻿@* 2025.09.16 Changed: EBValidate 경로는 eb-validate.js로 유지 실제 배포 파일명이 이 이름임 언더스코어 경로 사용 시 스크립트 미로딩으로 invalid 표시가 사라짐 *@
+@* 2025.09.16 Added: eb-validate.js에 asp-append-version 추가 캐시 문제로 구버전이 남는 현상 방지 *@
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 <!DOCTYPE html>
 <html lang="en">
@@ -12,17 +13,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" />
 
     <!-- Google Fonts: Noto Sans KR -->
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- site -->
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/WebApplication1.styles.css" asp-append-version="true" />
-    <!-- custom overrides (항상 맨 마지막) -->
+    <!-- custom overrides 항상 맨 마지막 -->
     <link rel="stylesheet" href="~/css/_custom.css" asp-append-version="true" />
 </head>
 <body>
 
-    <!-- ★ 헤더를 여기서 렌더링 -->
+    <!-- 헤더 -->
     <partial name="_Header" />
     @* 또는 @await Html.PartialAsync("_Header") *@
 
@@ -53,20 +54,26 @@
                 <nav class="d-flex gap-2 text-nowrap">
                     <a asp-controller="Home" asp-action="Privacy">@(S["_CM_PrivacyPolicy"])</a>
                     <a asp-controller="Home" asp-action="Terms">@(S["_CM_TermsofUse"])</a>
-                    <!--<a href="/help">도움말</a> 
-                    <a href="/status">시스템 상태</a>-->
-                    
                 </nav>
             </div>
         </div>
     </footer>
 
-
     <!-- Scripts -->
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
-    <script src="~/js/eb-validate.js"></script>
+
+    @* 2025.09.16 Changed: 아래 한 줄이 핵심 현재 프로젝트에는 eb-validate.js 파일이 존재함 이 경로로 로드해야 EBValidate 전역이 생성되어 invalid 표시가 동작함 *@
+    <script src="~/js/eb-validate.js" asp-append-version="true"></script>
+
+    @* 2025.09.16 Added: EBValidate가 없으면 개발자 콘솔에 원인 노출 디버깅을 돕기 위한 가드 코드 *@
+    <script>
+        if (!window.EBValidate) {
+            console.error("EBValidate가 로드되지 않았습니다. 레이아웃의 스크립트 경로와 파일 존재를 확인하세요. 예상 경로 wwwroot/js/eb-validate.js");
+        }
+    </script>
+
     @await RenderSectionAsync("Scripts", required: false)
 
     <script>

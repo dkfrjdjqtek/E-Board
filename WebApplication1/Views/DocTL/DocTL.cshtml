@@ -94,8 +94,10 @@
                 <input type="hidden" name="compCd" id="nt-compCd" />
                 <div class="modal-body">
 
-                    @* ▼▼▼ 기존 직접 작성한 경고 DIV는 주석 처리합니다. (공통 부분뷰 사용) *@
-                    @* <div id="nt-alert" class="alert alert-danger d-none mb-3" role="alert"></div> *@
+                    @* ▼▼▼ 기존 직접 작성한 경고 DIV는 주석 처리합니다. (공통 부분뷰 사용)
+                    //2025.09.15 제거: 개별 alert DIV -> 공통 _ValidationAlert 사용
+                    <div id="nt-alert" class="alert alert-danger d-none mb-3" role="alert"></div>
+                    ▲▲▲ *@
 
                     @* ★ 공통 경고 박스: 서버측 ModelState 에러도 같은 컨테이너(#nt-alert)에 표시됩니다. *@
                     @{
@@ -104,7 +106,7 @@
                         : ViewData.ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
                     }
                     @await Html.PartialAsync(
-                             "_ValidationAlert",
+                             "~/Views/Shared/_ValidationAlert.cshtml",
                              serverErrors,
                              new ViewDataDictionary(ViewData) { ["AlertId"] = "nt-alert" }  // ← 컨테이너 id
                              )
@@ -160,10 +162,16 @@
                         <div class="col-md-6">
                             <label class="form-label mb-1">@S["DTL_Label_Excel"]</label>
                             <div class="input-group input-group-sm">
-                                <input id="nt-excel" type="file" name="excelFile" class="d-none" accept=".xlsx,.xlsm" required />
-                                <label for="nt-excel" class="btn btn-outline-secondary">@S["DTL_Btn_ChooseFile"]</label>
-                                <input id="nt-excel-fake" type="text" class="form-control" value="@S["DTL_File_NoFile"]" readonly />
+                                <button type="button" id="nt-excel-btn" class="btn btn-outline-secondary btn-sm">
+                                    @S["DTL_Btn_ChooseFile"]
+                                </button>
+                                <input type="text" id="nt-excel-name" class="form-control form-control-sm"
+                                       value="@S["DTL_File_NoFile"]" readonly />
                             </div>
+
+                            <!-- 실제 업로드 대상: 숨김 file input (name="excelFile" 유지 필수) -->
+                            <input type="file" id="nt-excel" name="excelFile" class="d-none" accept=".xlsx,.xlsm" />
+
                             <div class="form-text">@S["DTL_Alert_ExcelOpenXmlOnly"]</div>
                         </div>
                     </div>
@@ -211,6 +219,7 @@
     <!-- 부모 영역 -->
     <script>
         (function () {
+            const L = window.L || {};  // ← 이 줄 추가 (부모 영역)
             const BASE = "/DocumentTemplates";
             const compSel = document.getElementById('compSelect');
             const deptSel = document.getElementById('deptSelect');
@@ -279,7 +288,7 @@
                 if (compCd) qsNew.append('compCd', compCd);
                 if (deptVal !== '' && deptVal !== '__SELECT__') qsNew.append('departmentId', deptVal);
                 if (kindVal) qsNew.append('kind', kindVal);
-                btnNew.href = `/DocumentTemplates/new-template${qsNew.toString() ? '?' + qsNew.toString() : ''}`;
+                //btnNew.href = `/DocumentTemplates/new-template${qsNew.toString() ? '?' + qsNew.toString() : ''}`;
 
                 if (docCode) {
                     const qsOpen = new URLSearchParams();
@@ -344,22 +353,13 @@
             const mEl = document.getElementById('newTemplateModal');
             if (!mEl) return;
 
-            // ── 필드별 에러 도우미(현 파일에서 계속 사용)
-            function fieldContainer(el) { return el.closest('.col-md-4, .col-md-6, .col-12') || el.parentElement; }
-            function ensureFeedback(el) {
-                const box = fieldContainer(el);
-                let fb = box.querySelector(`.invalid-feedback[data-for="${el.id}"]`);
-                if (!fb) { fb = document.createElement('div'); fb.className = 'invalid-feedback d-block'; fb.dataset.for = el.id; box.appendChild(fb); }
-                return fb;
-            }
-            function setFieldError(el, msg) { if (!el) return; el.classList.add('is-invalid'); ensureFeedback(el).textContent = (msg || ''); }
-            function clearFieldError(el) {
-                if (!el) return;
-                el.classList.remove('is-invalid');
-                const box = fieldContainer(el);
-                const fb = box.querySelector(`.invalid-feedback[data-for="${el.id}"]`);
-                if (fb) fb.remove();
-            }
+            // ──────────────────────────────────────────────────────────────
+            // //2025.09.15 제거: 로컬 setFieldError/clearFieldError 헬퍼
+            // function fieldContainer(el) { ... }
+            // function ensureFeedback(el) { ... }
+            // function setFieldError(el, msg) { ... }
+            // function clearFieldError(el) { ... }
+            // ──────────────────────────────────────────────────────────────
 
             async function fetchJson(url) {
                 const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -368,12 +368,10 @@
             }
             function copyOptions(from, to) { to.innerHTML = ''; Array.from(from.options).forEach(o => to.add(new Option(o.text, o.value, false, o.selected))); }
             function fillOptions(sel, items) { sel.innerHTML = ''; (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? '')))); }
-
             async function refreshDeptFor(compCd, targetSel, preferValue) {
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 fillOptions(targetSel, data.items || []);
-                let target = "__SELECT__";
-                const cand = (preferValue ?? data.selectedValue);
+                let target = "__SELECT__"; const cand = (preferValue ?? data.selectedValue);
                 if (typeof cand !== "undefined") {
                     const want = String(cand ?? "");
                     const has = Array.from(targetSel.options).some(o => o.value === want);
@@ -381,11 +379,11 @@
                 }
                 targetSel.value = target;
             }
-
             async function loadKindsForModal(compCd, deptRaw, targetSel, preferKindCode) {
                 targetSel.innerHTML = '';
                 targetSel.add(new Option(L.SELECT, '__SELECT__'));
                 if (!compCd) return;
+
                 const deptParam = (deptRaw === '__SELECT__' ? null : (deptRaw === '' ? '0' : deptRaw));
                 if (deptParam === null) return;
 
@@ -414,38 +412,50 @@
             const btnKindSave = document.getElementById('btnKindSave');
             const btnKindCancel = document.getElementById('btnKindCancel');
 
+            //const realFile = document.getElementById('nt-excel');
+            //const fakeFile = document.getElementById('nt-excel-fake');
             const realFile = document.getElementById('nt-excel');
-            const fakeFile = document.getElementById('nt-excel-fake');
+            const fakeFile = document.getElementById('nt-excel-name');   // ← 표시용 텍스트 박스
+
+            // 파일 버튼/변경 연동
+            const pickBtn = document.getElementById('nt-excel-btn');
+            pickBtn?.addEventListener('click', () => realFile?.click());
+            realFile?.addEventListener('change', () => {
+                const f = realFile.files?.[0];
+                fakeFile && (fakeFile.value = f ? f.name : (window.L?.NO_FILE || ''));
+            });
 
             function clearKindAddErrorsOnly() {
-                ['ntk-name-ko', 'ntk-name-en', 'ntk-name-vi', 'ntk-name-id', 'ntk-name-zh'].forEach(id => clearFieldError(document.getElementById(id)));
-                clearFieldError(ntkCompSel); clearFieldError(ntkDeptSel);
+                //2025.09.15 변경: clearFieldError → EBValidate.clearInvalid
+                ['ntk-name-ko', 'ntk-name-en', 'ntk-name-vi', 'ntk-name-id', 'ntk-name-zh']
+                    .forEach(id => EBValidate.clearInvalid(document.getElementById(id)));
+                EBValidate.clearInvalid(ntkCompSel);
+                EBValidate.clearInvalid(ntkDeptSel);
             }
             function clearKindAddForm() {
                 ['ko', 'en', 'vi', 'id', 'zh'].forEach(c => {
                     const el = document.getElementById(`ntk-name-${c}`);
-                    if (el) { el.value = ''; clearFieldError(el); }
+                    if (el) { el.value = ''; EBValidate.clearInvalid(el); } //2025.09.15 변경
                 });
-                clearFieldError(ntkCompSel); clearFieldError(ntkDeptSel);
-                EBValidate.clearAlert('nt-alert');   // ★ 공통 경고 박스 초기화
+                EBValidate.clearInvalid(ntkCompSel); //2025.09.15 변경
+                EBValidate.clearInvalid(ntkDeptSel); //2025.09.15 변경
+                EBValidate.clearAlert('nt-alert');   // 요약 초기화(기존 유지)
             }
             function clearAllHeaderErrors() {
-                ['nt-compSel', 'nt-deptSel', 'nt-kindSel', 'nt-docName', 'nt-excel-fake', 'nt-excel']
-                    .forEach(id => clearFieldError(document.getElementById(id)));
-                EBValidate.clearAlert('nt-alert');     // ★ 공통 경고 박스 초기화
+                //2025.09.15 변경: clearFieldError → EBValidate.clearInvalid
+                ['nt-compSel', 'nt-deptSel', 'nt-kindSel', 'nt-docName', 'nt-excel-name', 'nt-excel']
+                    .forEach(id => EBValidate.clearInvalid(document.getElementById(id)));
+                EBValidate.clearAlert('nt-alert');     // 요약 초기화(기존 유지)
             }
 
             // 모달 열릴 때: 부모 선택값 반영 + 전체 초기화
             mEl.addEventListener('show.bs.modal', async () => {
-                EBValidate.clearAlert('nt-alert');      // ★
+                EBValidate.clearAlert('nt-alert');
                 clearAllHeaderErrors();
                 clearKindAddErrorsOnly();
 
                 const compCd = compSel?.value || '';
-                if (!compCd) {
-                    EBValidate.showAlert('nt-alert', L.ALERT_SITE || '사업장을 선택하세요.'); // ★
-                    return;
-                }
+                if (!compCd) { EBValidate.showAlert('nt-alert', L.ALERT_SITE || '사업장을 선택하세요.'); return; }
 
                 copyOptions(compSel, ntCompSel); ntCompSel.value = compCd; ntCompCd.value = compCd;
                 await refreshDeptFor(ntCompSel.value, ntDeptSel, deptSel?.value);
@@ -456,8 +466,11 @@
 
                 kindAddBox.classList.add('d-none'); // 접기
                 clearKindAddForm();                 // 값/에러 초기화
-                const dn = document.getElementById('nt-docName'); if (dn) dn.value = '';
-                if (fakeFile) fakeFile.value = (L.NO_FILE || ''); if (realFile) realFile.value = '';
+                const dn = document.getElementById('nt-docName'); 
+                if (dn) dn.value = '';
+                //if (fakeFile) fakeFile.value = (L.NO_FILE || '');
+                if (fakeFile) fakeFile.value = (L.NO_FILE || '');
+                if (realFile) realFile.value = '';
             });
 
             // 모달 닫힐 때도 잔여 오류/값 정리
@@ -482,6 +495,13 @@
             btnKindCancel?.addEventListener('click', () => { kindAddBox.classList.add('d-none'); clearKindAddForm(); });
 
             // 상단 입력 변경 시 에러 해제
+            document.getElementById('nt-docName')?.addEventListener('input', e => EBValidate.clearInvalid(e.target)); //2025.09.15 변경
+            ntkCompSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkCompSel)); //2025.09.15 변경
+            ntkDeptSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkDeptSel)); //2025.09.15 변경
+            ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
+                document.getElementById(`ntk-name-${code}`)?.addEventListener('input', e => EBValidate.clearInvalid(e.target)); //2025.09.15 변경
+            });
+
             ntCompSel?.addEventListener('change', async () => {
                 await refreshDeptFor(ntCompSel.value, ntDeptSel, null);
                 if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
@@ -495,36 +515,28 @@
                 await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel);
             });
 
-            ntkCompSel?.addEventListener('change', () => clearFieldError(ntkCompSel));
-            ntkDeptSel?.addEventListener('change', () => clearFieldError(ntkDeptSel));
-            ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
-                document.getElementById(`ntk-name-${code}`)?.addEventListener('input', e => clearFieldError(e.target));
-            });
-
             // 상단 폼 제출(템플릿 생성)
             document.getElementById('frmNewTemplate')?.addEventListener('submit', function (e) {
                 clearAllHeaderErrors();
                 const errs = [];
                 const dn = document.getElementById('nt-docName');
                 const fxReal = document.getElementById('nt-excel');
-                const fxFake = document.getElementById('nt-excel-fake');
+                //const fxFake = document.getElementById('nt-excel-fake');
+                const fxFake = document.getElementById('nt-excel-name'); 
 
-                if (!ntCompSel.value) { errs.push(L.ALERT_SITE); setFieldError(ntCompSel, L.ALERT_SITE); }
-                if (ntDeptSel.value === '__SELECT__') { const msg = (L.DTL_Alert_DeptRequired || '부서를 선택하세요.'); errs.push(msg); setFieldError(ntDeptSel, msg); }
-                if (ntKindSel.value === '__SELECT__') { const msg = (L.ALERT_SELECT || '종류를 선택하세요.'); errs.push(msg); setFieldError(ntKindSel, msg); }
+                if (!ntCompSel.value) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(ntCompSel, L.ALERT_SITE); }               //2025.09.15 변경
+                if (ntDeptSel.value === '__SELECT__') { const msg = (L.DTL_Alert_DeptRequired || '부서를 선택하세요.'); errs.push(msg); EBValidate.setInvalid(ntDeptSel, msg); } //2025.09.15 변경
+                if (ntKindSel.value === '__SELECT__') { const msg = (L.ALERT_SELECT || '종류를 선택하세요.'); errs.push(msg); EBValidate.setInvalid(ntKindSel, msg); }           //2025.09.15 변경
 
                 const dnVal = dn?.value?.trim();
-                if (!dnVal) { errs.push(L.ALERT_DOCNAME); setFieldError(dn, L.ALERT_DOCNAME); }
+                if (!dnVal) { errs.push(L.ALERT_DOCNAME); EBValidate.setInvalid(dn, L.ALERT_DOCNAME); }                            //2025.09.15 변경
 
                 const f = fxReal?.files?.[0];
-                if (!f) { errs.push(L.ALERT_XLS_REQ); setFieldError(fxFake, L.ALERT_XLS_REQ); }
-                else if (!/\.xlsx$|\.xlsm$/i.test(f.name)) { errs.push(L.ALERT_OPENXML); setFieldError(fxFake, L.ALERT_OPENXML); }
+                if (!f) { errs.push(L.ALERT_XLS_REQ); EBValidate.setInvalid(fxFake, L.ALERT_XLS_REQ); }                            //2025.09.15 변경
+                else if (!/\.xlsx$|\.xlsm$/i.test(f.name)) { errs.push(L.ALERT_OPENXML); EBValidate.setInvalid(fxFake, L.ALERT_OPENXML); } //2025.09.15 변경
                 else { fxFake.value = f.name; }
 
-                if (errs.length) {
-                    e.preventDefault();
-                    EBValidate.showAlert('nt-alert', errs);   // ★ 공통 경고 박스 출력
-                }
+                if (errs.length) { e.preventDefault(); EBValidate.showAlert('nt-alert', errs); } // 요약 출력(기존 유지)
             });
 
             function getAntiForgeryToken() {
@@ -534,15 +546,15 @@
 
             // 범주 저장
             btnKindSave?.addEventListener('click', async () => {
-                EBValidate.clearAlert('nt-alert');           // ★
+                EBValidate.clearAlert('nt-alert');
                 clearKindAddErrorsOnly();
 
                 const errs = [];
                 const compCd = (ntkCompSel.value || '').trim();
                 const deptRaw = ntkDeptSel.value;
 
-                if (!compCd) { errs.push(L.ALERT_SITE); setFieldError(ntkCompSel, L.ALERT_SITE); }
-                if (deptRaw === '__SELECT__') { const m = (MSG.DEPT || '부서를 선택하세요.'); errs.push(m); setFieldError(ntkDeptSel, m); }
+                if (!compCd) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(ntkCompSel, L.ALERT_SITE); } //2025.09.15 변경
+                if (deptRaw === '__SELECT__') { const m = (MSG.DEPT || '부서를 선택하세요.'); errs.push(m); EBValidate.setInvalid(ntkDeptSel, m); } //2025.09.15 변경
 
                 const v = {
                     ko: (document.getElementById('ntk-name-ko')?.value || '').trim(),
@@ -555,18 +567,22 @@
                 if (!anyLang) {
                     const m = (MSG.KIND || '종류 이름(최소 1개 언어)이 필요합니다.');
                     errs.push(m);
-                    ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => { const el = document.getElementById(`ntk-name-${code}`); el && setFieldError(el, m); });
+                    ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
+                        const el = document.getElementById(`ntk-name-${code}`);
+                        el && EBValidate.setInvalid(el, m); //2025.09.15 변경
+                    });
                 }
                 if (!v[CUR_LANG]) {
                     const m = (MSG.CUR || '현재 언어 필드는 필수입니다.');
                     errs.push(m);
-                    const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && setFieldError(elCur, m);
+                    const elCur = document.getElementById(`ntk-name-${CUR_LANG}`);
+                    elCur && EBValidate.setInvalid(elCur, m); //2025.09.15 변경
                 }
 
                 const display = v[CUR_LANG] || v.en || v.ko;
                 if (display) {
                     const dup = Array.from(ntKindSel.options).some(o => o.value && o.text.trim() === display.trim());
-                    if (dup) { errs.push(L.ALERT_DUP); const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && setFieldError(elCur, L.ALERT_DUP); }
+                    if (dup) { errs.push(L.ALERT_DUP); const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && EBValidate.setInvalid(elCur, L.ALERT_DUP); } //2025.09.15 변경
                 }
 
                 if (errs.length) { EBValidate.showAlert('nt-alert', errs); return; }
@@ -579,39 +595,32 @@
                 });
 
                 try {
-                    const res = await fetch(`${BASE}/kind-add`, {
-                        method: 'POST',
-                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                        body: p
-                    });
+                    const res = await fetch(`${BASE}/kind-add`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: p });
                     const ct = (res.headers.get('content-type') || '').toLowerCase();
-                    const data = ct.includes('application/json')
-                        ? await res.json()
-                        : { ok: false, message: (await res.text()).replace(/<[^>]+>/g, ' ') };
+                    const data = ct.includes('application/json') ? await res.json() : { ok: false, message: (await res.text()).replace(/<[^>]+>/g, ' ') };
 
                     if (!res.ok || !data || data.ok !== true) {
                         if (data && data.code === 'DUP_NAME') {
-                            clearKindAddErrorsOnly(); // ★ 선행 메시지 제거
+                            clearKindAddErrorsOnly();
                             const fld = document.getElementById(data.field) || document.getElementById(`ntk-name-${CUR_LANG}`);
                             const msg = data.message || L.ALERT_DUP;
-                            fld && setFieldError(fld, msg);
-                            EBValidate.showAlert('nt-alert', msg);   // ★
+                            fld && EBValidate.setInvalid(fld, msg); //2025.09.15 변경
+                            EBValidate.showAlert('nt-alert', msg);
                             return;
                         }
                         throw new Error((data && data.message) ? data.message : `HTTP ${res.status}`);
                     }
 
-                    // 성공: 목록 동기화 + 입력 초기화
                     const opt = new Option(data.item.text, data.item.id, false, true);
                     ntKindSel.add(opt); ntKindSel.value = data.item.id;
                     document.getElementById('kindSelect')?.add(new Option(data.item.text, data.item.id));
 
                     clearKindAddForm();
                     kindAddBox.classList.add('d-none');
-                    EBValidate.clearAlert('nt-alert');         // ★
+                    EBValidate.clearAlert('nt-alert');
                 } catch (e) {
                     console.error(e);
-                    EBValidate.showAlert('nt-alert', e?.message || 'Error'); // ★
+                    EBValidate.showAlert('nt-alert', e?.message || 'Error');
                 }
             });
 

@@ -302,7 +302,7 @@ namespace WebApplication1.Controllers
                         code = "DUP_NAME",
                         field = $"ntk-name-{ui}",
                         message = _S["DTL_Alert_Category_Duplicated"].Value
-                    }); 
+                    });
                 }
             }
 
@@ -746,6 +746,80 @@ namespace WebApplication1.Controllers
             public string A1 { get; set; } = "";
         }
 
+        // =====================================================================
+        // 2025.09.15 [추가] A1 범위 파싱/확장 + 키 검증 유틸 (서버-사이드 안전망)
+        // =====================================================================
+        private static readonly Regex _reA1Range = new(@"^([A-Z]+)(\d+):([A-Z]+)(\d+)$",
+                                                       RegexOptions.Compiled | RegexOptions.IgnoreCase); // 2025.09.15 [추가]
+
+        private static bool TryParseA1Range(string? a1, out string col, out int r1, out int r2) // 2025.09.15 [추가]
+        {
+            col = string.Empty; r1 = 0; r2 = 0;
+            var m = _reA1Range.Match((a1 ?? string.Empty).Trim().ToUpperInvariant());
+            if (!m.Success) return false;
+            if (!string.Equals(m.Groups[1].Value, m.Groups[3].Value, StringComparison.OrdinalIgnoreCase)) return false;
+            col = m.Groups[1].Value;
+            r1 = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            r2 = int.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
+            if (r2 < r1) (r1, r2) = (r2, r1);
+            return true;
+        }
+
+        private static List<FieldDef> ExpandFieldsRange(IEnumerable<FieldDef> fields) // 2025.09.15 [추가]
+        {
+            var outList = new List<FieldDef>();
+            foreach (var f in fields ?? Enumerable.Empty<FieldDef>())
+            {
+                var a1 = f?.Cell?.A1 ?? string.Empty;
+                if (!TryParseA1Range(a1, out var col, out var r1, out var r2))
+                {
+                    outList.Add(f);
+                    continue;
+                }
+
+                var tpl = (f.Key ?? string.Empty).Trim();
+                var baseKey = string.IsNullOrEmpty(tpl) ? "Field" : tpl;
+                var idx = 1;
+
+                for (int r = r1; r <= r2; r++, idx++)
+                {
+                    var key = baseKey;
+                    if (key.Contains("{n}", StringComparison.Ordinal)) key = key.Replace("{n}", idx.ToString(CultureInfo.InvariantCulture));
+                    if (key.Contains("{row}", StringComparison.Ordinal)) key = key.Replace("{row}", r.ToString(CultureInfo.InvariantCulture));
+                    if (key == baseKey) key = $"{baseKey}_{r}";
+
+                    outList.Add(new FieldDef
+                    {
+                        Key = key,
+                        Type = string.IsNullOrWhiteSpace(f?.Type) ? "Text" : f!.Type,
+                        Cell = new CellRef
+                        {
+                            Sheet = f!.Cell.Sheet,
+                            Row = f.Cell.Row,
+                            Column = f.Cell.Column,
+                            RowSpan = 1,
+                            ColSpan = 1,
+                            A1 = $"{col}{r}"
+                        }
+                    });
+                }
+            }
+            return outList;
+        }
+
+        private static (bool Ok, string? Reason, string? Key) ValidateFieldKeys(IEnumerable<FieldDef> fields) // 2025.09.15 [추가]
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in fields ?? Enumerable.Empty<FieldDef>())
+            {
+                var k = (f?.Key ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(k)) return (false, "empty", null);
+                if (!seen.Add(k)) return (false, "dup", k);
+            }
+            return (true, null, null);
+        }
+        // =====================================================================
+
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
         public IActionResult MapSave([FromForm] string descriptor, [FromForm] string? excelPath)
@@ -758,6 +832,16 @@ namespace WebApplication1.Controllers
             catch { return BadRequest("Invalid descriptor"); }
             if (model == null) return BadRequest("Empty descriptor");
 
+            // 2025.09.15 [추가] 서버-사이드 확장/검증
+            model.Fields = ExpandFieldsRange(model.Fields ?? new List<FieldDef>()); // 2025.09.15 [추가]
+            var ck = ValidateFieldKeys(model.Fields);                               // 2025.09.15 [추가]
+            if (!ck.Ok)                                                             // 2025.09.15 [추가]
+            {
+                return BadRequest(ck.Reason == "dup"
+                    ? $"Duplicate field key: {ck.Key}"
+                    : "Field key is required.");
+            }
+
             var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
             Directory.CreateDirectory(baseDir);
 
@@ -767,7 +851,34 @@ namespace WebApplication1.Controllers
             var path = Path.Combine(baseDir, name);
 
             System.IO.File.WriteAllText(path, JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true }));
-            return Content($"[MAP-SAVE]\nfile={path}\nexcel={excelPath}\nfields={model.Fields?.Count ?? 0}\napprovals={model.Approvals?.Count ?? 0}");
+            //return Content($"[MAP-SAVE]\nfile={path}\nexcel={excelPath}\nfields={model.Fields?.Count ?? 0}\napprovals={model.Approvals?.Count ?? 0}");
+
+            return RedirectToAction(nameof(MapSaved), new
+            {
+                path,
+                excelPath,
+                fields = model.Fields?.Count ?? 0,
+                approvals = model.Approvals?.Count ?? 0
+            });
+        }
+        [HttpGet("map-saved")]
+        public IActionResult MapSaved(string path, string? excelPath, int fields, int approvals)
+        {
+            ViewBag.Path = path;
+            ViewBag.ExcelPath = excelPath;
+            ViewBag.Fields = fields;
+            ViewBag.Approvals = approvals;
+            return View("DocTLMapSaved");
+        }
+
+        // ✅ 디스크립터 다운로드 (원하면)
+        [HttpGet("download-descriptor")]
+        public IActionResult DownloadDescriptor([FromQuery] string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return NotFound();
+            var bytes = System.IO.File.ReadAllBytes(path);
+            var fileName = Path.GetFileName(path);
+            return File(bytes, "application/json", fileName);
         }
     }
 }

@@ -1,5 +1,7 @@
 ﻿@* Views/Shared/_ValidationAlert.cshtml *@
+@using System.Linq
 @model IEnumerable<string>
+
 @{
     var id = (ViewData["AlertId"] as string) ?? "form-alert";
     var msgs = (Model ?? Enumerable.Empty<string>())
