@@ -462,7 +462,7 @@
   <data name="CP_Save" xml:space="preserve">
     <value>Simpan</value>
   </data>
-  <data name="CP_Cancel" xml:space="preserve">
+  <data name="_CM_Cancel" xml:space="preserve">
     <value>Batal</value>
   </data>
   <data name="CP_Save_Success" xml:space="preserve">
@@ -676,7 +676,7 @@
     <value>Tidak ada file yang dipilih</value>
   </data>
   <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Halo {0},&lt;/p&gt;&lt;p&gt;Anda meminta perubahan email login. Untuk melindungi akun, silakan klik tombol di bawah untuk mengonfirmasi perubahan.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Buka tautan&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Tautan ini berlaku selama {2} menit.&lt;/p&gt;&lt;p&gt;Email ini dikirim otomatis, mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Konfirmasi Perubahan Email&lt;/h2&gt;&lt;p&gt;Halo, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Klik tombol di bawah untuk mengubah email akun Anda menjadi &lt;strong&gt;{1}&lt;/strong&gt;.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Konfirmasi perubahan email&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Tautan ini berlaku selama &lt;strong&gt;{3} menit&lt;/strong&gt; sejak Anda menerima email ini.&lt;/p&gt;&lt;p&gt;Jika tombol tidak berfungsi, salin URL di bawah lalu tempel ke peramban Anda.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Jika Anda tidak meminta ini, abaikan email ini.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email ini dibuat dan dikirim secara otomatis. Mohon jangan membalas email ini.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="_Alert_TemplateCategory_Required" xml:space="preserve">
     <value>Silakan pilih kategori templat yang valid.</value>
@@ -695,5 +695,8 @@
   </data>
   <data name="DTL_Alert_KindNameRequire" xml:space="preserve">
     <value>Nama kategori harus diisi setidaknya dalam satu bahasa (bahasa asli wajib).</value>
+  </data>
+  <data name="CP_EmailChange_InUse" xml:space="preserve">
+    <value>Email ini sudah digunakan.</value>
   </data>
 </root>

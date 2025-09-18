@@ -13,6 +13,8 @@ using System.Globalization;
 using System.Text.Encodings.Web;
 using WebApplication1.Data;
 using WebApplication1.Models;
+using NuGet.Protocol.Plugins;
+using Microsoft.Extensions.Options;
 
 namespace WebApplication1.Areas.Identity.Pages.Account
 {
@@ -24,6 +26,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
         private readonly ApplicationDbContext _db;
         private readonly IEmailSender _emailSender;
         private readonly IStringLocalizer<SharedResource> _S;
+        private readonly IOptionsMonitor<DataProtectionTokenProviderOptions> _tokenOpts;
 
         private static string Ui2() => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
@@ -32,13 +35,15 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             SignInManager<ApplicationUser> signInManager,
             ApplicationDbContext db,
             IEmailSender emailSender,
-            IStringLocalizer<SharedResource> s)
+            IStringLocalizer<SharedResource> s,
+            IOptionsMonitor<DataProtectionTokenProviderOptions> tokenOpts)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _db = db;
             _emailSender = emailSender;
             _S = s;
+            _tokenOpts = tokenOpts;
         }
 
         public class InputModel
@@ -298,12 +303,13 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 ViewData["OpenEmailModal"] = true;
                 return Page();
             }
-
+            // 1) 현재 사용자 로드 (이미 있으므로 재사용)
             var user = await _userManager.GetUserAsync(User);
             if (user is null) return RedirectToPage("/Account/Login");
 
             await LoadOptionsAsync();
 
+            // 2) 비밀번호 확인 (기존 코드 유지)
             var pwOk = await _userManager.CheckPasswordAsync(user, emailChange.CurrentPassword!);
             if (!pwOk)
             {
@@ -314,6 +320,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 return Page();
             }
 
+            // 3) 동일 이메일인지 (기존 코드 유지)
             if (string.Equals(user.Email, emailChange.NewEmail, StringComparison.OrdinalIgnoreCase))
             {
                 await LoadParentFormAsync(user);
@@ -322,6 +329,23 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 ViewData["OpenEmailModal"] = true;
                 return Page();
             }
+            
+            // 4) 새 이메일이 이미 사용 중인지 확인 (추가)
+            var trimmedNew = (emailChange.NewEmail ?? string.Empty).Trim();
+
+            // UserManager는 NormalizedEmail 기준으로 찾으므로 FindByEmailAsync 사용
+            var existing = await _userManager.FindByEmailAsync(trimmedNew);
+            if (existing != null && existing.Id != user.Id)
+            {
+                // 다른 사용자가 이미 사용 중
+                await LoadParentFormAsync(user); // 부모 폼 값 유지
+                AddErrorOnce("EmailChange.NewEmail", _S["CP_EmailChange_InUse"].Value /* 리소스 키 준비 필요 */);
+                EmailChange = emailChange;       // 모달 입력 유지
+                ViewData["OpenEmailModal"] = true;
+                return Page();
+            }
+
+            // 5) 이메일 변경 토큰 생성 및 전송
 
             var token = await _userManager.GenerateChangeEmailTokenAsync(user, emailChange.NewEmail!);
             var code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
@@ -333,12 +357,19 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 .Where(p => p.UserId == user.Id)
                 .Select(p => p.DisplayName)
                 .FirstOrDefaultAsync()) ?? user.UserName ?? "User";
+            
+            var providerName = _userManager.Options.Tokens.ChangeEmailTokenProvider;
+            // 이름별 옵션을 조회하되, 실패 시 CurrentValue로 폴백
+            var lifeSpan = _tokenOpts.Get(providerName).TokenLifespan;
+            var expireMinutes = (int)Math.Round(lifeSpan.TotalMinutes);
 
             string subject = _S["CP_EmailChange_Subject"].Value;
             string body = _S["CP_EmailChange_BodyHtml",
                 HtmlEncoder.Default.Encode(displayName),
                 HtmlEncoder.Default.Encode(emailChange.NewEmail!),
-                HtmlEncoder.Default.Encode(callbackUrl!)].Value;
+                HtmlEncoder.Default.Encode(callbackUrl!),
+                expireMinutes].Value;
+
 
             await _emailSender.SendEmailAsync(emailChange.NewEmail!, subject, body);
 

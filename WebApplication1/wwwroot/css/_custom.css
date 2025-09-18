@@ -1,15 +1,16 @@
 ﻿/* 2025.09.16 Minimal patch: invalid 아이콘/파란 포커스 문제만 수정 (그 외 레이아웃/폰트/사이드바는 그대로) */
-/* ===== 레이아웃 기본 변수 ===== */
+/* 2025.09.17 Changed: 비번 아이콘 기본 정렬을 텍스트와 동일하게 통일, 오프셋은 data ebv suffix pw 에서만 적용 */
+
 :root {
     --header-h: 64px;
     --footer-h: 40px;
     --sidebar-w: 250px;
-    /* 폴백 invalid 아이콘 + Bootstrap 변수 보강 */
     --eb-invalid-icon: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23dc3545' viewBox='0 0 12 12'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
     --bs-form-invalid-bg-image: var(--eb-invalid-icon);
+    /* 2025.09.17 Added: 비번 우측 내장 버튼 영역 폭 변수 */
+    --ebv-suffix-w: 3.6rem;
 }
 
-/* ===== 페이지 3행 그리드 설정 등 원문 유지 ===== */
 html, body {
     height: 100%;
     margin: 0;
@@ -65,7 +66,7 @@ footer.footer {
     background: #fff;
 }
 
-/* ===== 사이드바 ===== */
+/* 사이드바 */
 .sidebar-host {
     position: fixed;
     left: 0;
@@ -94,9 +95,7 @@ footer.footer {
     background-clip: padding-box !important;
 }
 
-#sidebar-accordion hr,
-#sidebar-accordion .dropdown-divider,
-#sidebar-accordion .list-group-item {
+#sidebar-accordion hr, #sidebar-accordion .dropdown-divider, #sidebar-accordion .list-group-item {
     display: none !important;
     border: 0 !important;
     box-shadow: none !important;
@@ -106,9 +105,7 @@ footer.footer {
     padding-left: calc(1rem + 2.25rem) !important;
 }
 
-#sidebar-accordion .nav-link:hover,
-#sidebar-accordion .nav-link:focus,
-#sidebar-accordion .nav-link.active {
+#sidebar-accordion .nav-link:hover, #sidebar-accordion .nav-link:focus, #sidebar-accordion .nav-link.active {
     background: #4f5b66 !important;
     color: #fff !important;
     outline: none !important;
@@ -133,12 +130,11 @@ footer.footer {
     opacity: .85;
 }
 
-#sidebar-accordion a.nav-link[aria-expanded="true"] .toggle-icon,
-#sidebar-accordion a.nav-link:not(.collapsed) .toggle-icon {
+#sidebar-accordion a.nav-link[aria-expanded="true"] .toggle-icon, #sidebar-accordion a.nav-link:not(.collapsed) .toggle-icon {
     transform: rotate(180deg);
 }
 
-/* ===== 푸터 ===== */
+/* 푸터 */
 .app-footer {
     padding-top: .35rem !important;
     padding-bottom: .35rem !important;
@@ -171,7 +167,7 @@ html, body, #main, .sidebar-host {
     overflow-x: hidden !important;
 }
 
-/* ===== 모바일 ===== */
+/* 모바일 */
 @media (max-width: 768px) {
     :root {
         --sidebar-w: 60px;
@@ -192,8 +188,7 @@ html, body, #main, .sidebar-host {
             display: none !important;
         }
 
-        #sidebar-accordion .nav-link .toggle-icon,
-        #sidebar-accordion .nav-link.dropdown-toggle::after {
+        #sidebar-accordion .nav-link .toggle-icon, #sidebar-accordion .nav-link.dropdown-toggle::after {
             display: none !important;
         }
 
@@ -201,13 +196,12 @@ html, body, #main, .sidebar-host {
         padding-left: 0 !important;
     }
 
-    footer.app-footer .container,
-    footer.app-footer .container-fluid {
+    footer.app-footer .container, footer.app-footer .container-fluid {
         text-align: initial !important;
     }
 }
 
-/* ===== MVC 유효성 기본 출력 숨김 ===== */
+/* MVC 유효성 기본 출력 숨김 */
 .alert.validation-summary-valid {
     display: none !important;
 }
@@ -216,48 +210,41 @@ html, body, #main, .sidebar-host {
     display: none !important;
 }
 
-/* ===================================================================== */
-/*            ▼▼ 꼭 필요한 부분만 수정: invalid 아이콘/포커스 정리 ▼▼     */
-/* ===================================================================== */
 
-/* 2025.09.16 Changed: 공통 invalid 아이콘 + 여백(EBValidate, MVC 모두 커버) */
+/* 공통 invalid 아이콘과 여백 */
 .form-control.is-invalid,
 .form-control.input-validation-error {
     background-image: var(--bs-form-invalid-bg-image) !important;
     background-repeat: no-repeat !important;
-    background-position: right .75rem center !important; /* 기본 위치 */
+    background-position: right .75rem center !important; /* 기본 위치 통일 */
     background-size: 1rem 1rem !important;
     padding-right: 2rem !important;
     background-color: var(--bs-body-bg, #fff) !important;
+    border-color: var(--bs-danger, #dc3545) !important;
 }
 
-/* 2025.09.16 Added: 비밀번호 입력은 브라우저 버튼(열쇠/눈)과 겹치지 않도록 더 안쪽 배치 */
-input[type="password"].form-control.is-invalid,
-input[type="password"].form-control.input-validation-error {
-    background-position: calc(100% - 3.6rem) center !important;
-    padding-right: 4rem !important;
-}
+    /* 2025.09.17 Changed: 아래의 기존 password 전용 강제 오프셋은 제거
+   input[type="password"].form-control.is-invalid,
+   input[type="password"].form-control.input-validation-error,
+   .form-control.is-invalid[name="Password"],
+   .form-control.input-validation-error[name="Password"] { ... } */
 
-/* 2025.09.16 Changed: 파란 포커스 제거 + invalid 포커스는 빨강 고정 */
+    /* 2025.09.17 Added: 우측 보조버튼이 있을 때만 아이콘 오프셋 적용(옵트인) */
+    .form-control.is-invalid[data-ebv-suffix="pw"],
+    .form-control.input-validation-error[data-ebv-suffix="pw"] {
+        background-position: calc(100% - var(--ebv-suffix-w, 3.6rem)) center !important;
+        padding-right: calc(var(--ebv-suffix-w, 3.6rem) + .4rem) !important;
+    }
+
+/* 포커스 스타일 */
 .form-control:focus {
     background-color: var(--bs-body-bg, #fff) !important;
-    box-shadow: none !important; /* 기본 파란 링 제거 */
+    box-shadow: none !important;
 }
 
 .form-control.is-invalid:focus,
 .form-control.input-validation-error:focus {
     border-color: var(--bs-danger, #dc3545) !important;
-    box-shadow: 0 0 0 .25rem rgba(220,53,69,.25) !important; /* 빨강 포커스 */
+    box-shadow: 0 0 0 .25rem rgba(220,53,69,.25) !important;
     outline: 0 !important;
 }
-
-/* 2025.09.16 (가독성) 필드 에러 텍스트 */
-.field-validation-error {
-    color: var(--bs-danger, #dc3545) !important;
-    font-size: .875rem;
-    margin-top: .25rem;
-}
-
-/* ===================================================================== */
-/*            ▲▲ 꼭 필요한 부분만 수정: 여기까지만 변경되었습니다 ▲▲     */
-/* ===================================================================== */

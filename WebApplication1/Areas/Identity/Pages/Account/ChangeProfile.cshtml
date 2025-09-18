@@ -1,55 +1,49 @@
-﻿@* File: Areas/Identity/Pages/Account/ChangeProfile.cshtml *@
+﻿@* 2025.09.17 Changed: EBValidate + _ValidationAlert로 에러 표시 통일.
+   - 수동 parentErrors 계산/렌더 제거
+   - 각 필드 하단 span asp-validation-for 제거
+   - 부모 폼/모달 폼 각각 alert 박스(id: cp-alert, email-alert) 도입
+   - 서버 ModelState를 errMap으로 직렬화하여 초기 invalid/요약 동기화
+   - 부모 폼 invalid-form 시 EBValidate로 필드 하단 + 상단 요약 1회 표시 고정 *@
 @page
 @model WebApplication1.Areas.Identity.Pages.Account.ChangeProfileModel
-@using Microsoft.AspNetCore.Mvc.ModelBinding
 @using Microsoft.AspNetCore.Mvc.Rendering
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
-
 @{
-    // 부모 폼(Input.*)만 수집. ""(모델레벨)과 EmailChange.*는 배제
-    // ⚠️ CS8602 방지: LINQ 체인 대신 명시적 null 체크
-    var parentErrors = new List<string>();
-    foreach (var kvp in ViewData.ModelState)
-    {
-        var key = kvp.Key;
-        if (string.IsNullOrEmpty(key) || !key.StartsWith("Input.", StringComparison.OrdinalIgnoreCase))
-            continue;
+    ViewData["Title"] = _S["CP_Title"];
 
-        var entry = kvp.Value;
-        if (entry == null || entry.Errors == null || entry.Errors.Count == 0)
-            continue;
+    // 2025.09.17 Added: 서버 ModelState → {키:[메시지]} 맵 (부모/모달 분리)
+    var parentMap = ViewData.ModelState
+        .Where(kv => !string.IsNullOrEmpty(kv.Key)
+                     && kv.Key.StartsWith("Input.", StringComparison.OrdinalIgnoreCase)
+                     && kv.Value?.Errors?.Count > 0)
+        .ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+        );
+    var parentErrors = parentMap.Values.SelectMany(v => v).ToArray();
 
-        foreach (var e in entry.Errors)
-        {
-            var msg = !string.IsNullOrWhiteSpace(e.ErrorMessage)
-                ? e.ErrorMessage
-                : e.Exception?.Message;
-
-            if (!string.IsNullOrWhiteSpace(msg) && !parentErrors.Contains(msg))
-                parentErrors.Add(msg);
-        }
-    }
+    var emailMap = ViewData.ModelState
+        .Where(kv => !string.IsNullOrEmpty(kv.Key)
+                     && kv.Key.StartsWith("EmailChange.", StringComparison.OrdinalIgnoreCase)
+                     && kv.Value?.Errors?.Count > 0)
+        .ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+        );
+    var emailErrors = emailMap.Values.SelectMany(v => v).ToArray();
 }
 
 <h2 class="mb-3">@_S["CP_Title"]</h2>
 
-@if (parentErrors.Count > 0)
-{
-    <div class="alert alert-danger mb-3" role="alert" id="parent-summary">
-        <ul class="mb-0">
-            @foreach (var msg in parentErrors)
-            {
-                <li>@msg</li>
-            }
-        </ul>
-    </div>
-}
+@* 2025.09.17 Added: 부모 폼 요약 경고 박스(id=cp-alert) *@
+@await Html.PartialAsync(
+            "~/Views/Shared/_ValidationAlert.cshtml",
+            parentErrors,
+            new ViewDataDictionary(ViewData) { ["AlertId"] = "cp-alert" }
+        )
 
 <form id="parentForm" method="post" asp-page-handler="Save" novalidate>
     @Html.AntiForgeryToken()
-
-    @* ⛔ 부모 폼의 asp-validation-summary는 제거 *@
-    @* <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div> *@
 
     <div class="row g-3">
         <div class="col-md-6">
@@ -57,13 +51,13 @@
             <select asp-for="Input!.CompCd" asp-items="Model.CompOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input!.CompCd" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.CompCd" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input!.DisplayName" class="form-label"></label>
             <input asp-for="Input!.DisplayName" class="form-control" />
-            <span asp-validation-for="Input!.DisplayName" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.DisplayName" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
@@ -86,7 +80,7 @@
             <select asp-for="Input!.DepartmentId" asp-items="Model.DepartmentOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input!.DepartmentId" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.DepartmentId" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
@@ -94,31 +88,31 @@
             <select asp-for="Input!.PositionId" asp-items="Model.PositionOptions!" class="form-select">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
-            <span asp-validation-for="Input!.PositionId" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.PositionId" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input!.PhoneNumber" class="form-label"></label>
             <input asp-for="Input!.PhoneNumber" class="form-control" />
-            <span asp-validation-for="Input!.PhoneNumber" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.PhoneNumber" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input!.CurrentPassword" class="form-label"></label>
             <input asp-for="Input!.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
-            <span asp-validation-for="Input!.CurrentPassword" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.CurrentPassword" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input!.NewPassword" class="form-label"></label>
             <input asp-for="Input!.NewPassword" class="form-control" type="password" autocomplete="new-password" />
-            <span asp-validation-for="Input!.NewPassword" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.NewPassword" class="text-danger"></span> *@
         </div>
 
         <div class="col-md-6">
             <label asp-for="Input!.ConfirmNewPassword" class="form-label"></label>
             <input asp-for="Input!.ConfirmNewPassword" class="form-control" type="password" autocomplete="new-password" />
-            <span asp-validation-for="Input!.ConfirmNewPassword" class="text-danger"></span>
+            @* <span asp-validation-for="Input!.ConfirmNewPassword" class="text-danger"></span> *@
         </div>
     </div>
 
@@ -127,11 +121,10 @@
     </div>
 </form>
 
-<!-- 이메일 변경 모달 -->
 <div class="modal fade" id="changeEmailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form id="emailChangeForm" method="post" asp-page-handler="SendEmailChange">
+            <form id="emailChangeForm" method="post" asp-page-handler="SendEmailChange" novalidate>
                 @Html.AntiForgeryToken()
 
                 <div class="modal-header">
@@ -140,19 +133,41 @@
                 </div>
 
                 <div class="modal-body">
-                    <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div>
+                    @await Html.PartialAsync(
+                             "~/Views/Shared/_ValidationAlert.cshtml",
+                             emailErrors,
+                             new ViewDataDictionary(ViewData) { ["AlertId"] = "email-alert" }
+                             )
 
                     <div class="mb-3">
                         <label asp-for="EmailChange!.NewEmail" class="form-label"></label>
-                        <input asp-for="EmailChange!.NewEmail" class="form-control" autocomplete="email" />
-                        <span asp-validation-for="EmailChange!.NewEmail" class="text-danger"></span>
+                        <!-- 2025.09.18 Changed: 자동완성/자동수정/오타수정 방지 -->
+                        <input asp-for="EmailChange!.NewEmail"
+                               class="form-control"
+                               autocomplete="off"
+                               autocapitalize="off"
+                               spellcheck="false" />
                     </div>
 
                     <div class="mb-3">
                         <label asp-for="EmailChange!.CurrentPassword" class="form-label"></label>
-                        <input asp-for="EmailChange!.CurrentPassword" class="form-control" type="password" autocomplete="current-password" />
-                        <span asp-validation-for="EmailChange!.CurrentPassword" class="text-danger"></span>
+                        <!-- 2025.09.18 Changed: 자동완성 방지 -->
+                        <input asp-for="EmailChange!.CurrentPassword"
+                               class="form-control"
+                               type="password"
+                               autocomplete="off"
+                               autocapitalize="off"
+                               spellcheck="false" />
                     </div>
+                </div>
+
+                <div class="modal-footer d-flex w-100 gap-2">
+                    <button type="submit" class="btn btn-primary" style="flex: 1 0 0;">
+                        @_S["CP_MD_SendConfirmationMail"]
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="flex: 1 0 0;">
+                        @_S["_CM_Cancel"]
+                    </button>
                 </div>
             </form>
         </div>
@@ -162,7 +177,51 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
 
-    @* 서버 검증 실패 시 모달 재오픈 *@
+    <script>
+        // 2025.09.18 Changed: 모달을 닫을 때 값/기본값/보더/에러를 완전히 초기화
+        (function () {
+            var modalEl = document.getElementById('changeEmailModal');
+            if (!modalEl) return;
+
+            modalEl.addEventListener('hidden.bs.modal', function () {
+                var form = document.getElementById('emailChangeForm');
+                if (!form) return;
+
+                // 현재 값 초기화 + 'value' 속성 제거(defaultValue도 공백으로)
+                form.querySelectorAll('input, textarea').forEach(function (el) {
+                    try {
+                        el.value = '';
+                        el.removeAttribute('value'); // Razor가 렌더링한 초기값도 지움
+                    } catch (_) { /* no-op */ }
+                });
+
+                // jQuery Validate 상태 초기화
+                var $f = $('#emailChangeForm');
+                var v = $f.data('validator');
+                if (v) v.resetForm();
+
+                // 클래스/ARIA 제거 (보더/아이콘)
+                form.querySelectorAll('.is-invalid, .is-valid, .input-validation-error')
+                    .forEach(function (el) {
+                        el.classList.remove('is-invalid', 'is-valid', 'input-validation-error');
+                        el.removeAttribute('aria-invalid');
+                    });
+
+                // EBValidate 메시지/피드백 제거
+                if (window.EBValidate) EBValidate.clearAll(form);
+
+                // 상단 요약 박스 비우고 숨김
+                var sum = document.getElementById('email-alert');
+                if (sum) {
+                    var ul = sum.querySelector('ul');
+                    if (ul) ul.innerHTML = '';
+                    sum.classList.add('d-none');
+                }
+            });
+        })();
+    </script>
+
+    @* (나머지 스크립트: 자동 재오픈/검증 훅 등 기존 그대로) *@
     @if ((ViewData["OpenEmailModal"] as bool?) == true)
     {
         <script>
@@ -173,62 +232,27 @@
         </script>
     }
 
-    @* 부모(클라이언트 검증) → 상단 커스텀 요약에 반영 *@
     <script>
         (function () {
-            var $form = $('#parentForm');
-            if ($form.length === 0) return;
+            var $f = $('#emailChangeForm');
+            if ($f.length === 0) return;
 
-            function ensureSummary() {
-                var $summary = $('#parent-summary');
-                if ($summary.length === 0) {
-                    $summary = $(
-                        '<div id="parent-summary" class="alert alert-danger mb-3" role="alert" style="display:none;">' +
-                        '<ul class="mb-0"></ul>' +
-                        '</div>'
-                    );
-                    $form.before($summary);
-                }
-                return $summary;
-            }
-
-            function renderSummary(msgs) {
-                var $summary = ensureSummary();
-                var $ul = $summary.find('ul');
-                $ul.empty();
-                msgs.forEach(function (m) { $('<li/>').text(m).appendTo($ul); });
-                $summary.toggle(msgs.length > 0);
-            }
-
-            // 현재 검증 결과만 수집 (Input.*만)
-            function collectMessagesNow() {
-                var v = $form.data('validator');
+            function collectEmailMessages() {
+                var v = $f.data('validator');
                 if (!v) return [];
                 var msgs = [];
-
-                // errorMap: name -> message (현재 invalid만)
                 Object.keys(v.errorMap || {}).forEach(function (name) {
-                    if (name.indexOf('Input.') === 0) {
-                        var msg = v.errorMap[name];
-                        if (msg) msgs.push(msg);
-                    }
+                    if (name.indexOf('EmailChange.') === 0 && v.errorMap[name]) msgs.push(v.errorMap[name]);
                 });
-
-                // 보조: errorList에도 들어오므로 합치되 중복 제거
                 (v.errorList || []).forEach(function (item) {
-                    var el = item.element;
-                    var name = el && el.name;
-                    if (name && name.indexOf('Input.') === 0 && item.message) {
-                        msgs.push(item.message);
-                    }
+                    var name = item.element && item.element.name;
+                    if (name && name.indexOf('EmailChange.') === 0 && item.message) msgs.push(item.message);
                 });
-
                 return Array.from(new Set(msgs));
             }
 
-            // 자동 검증(키입력/포커스아웃) 비활성화 → 저장 시 1회만
             $(function () {
-                var v = $form.data('validator');
+                var v = $f.data('validator');
                 if (v) {
                     v.settings.onkeyup = false;
                     v.settings.onfocusout = false;
@@ -236,12 +260,22 @@
                 }
             });
 
-            // 저장(제출) 시 검증이 실패하면 그 “현재 결과”만 요약에 표시
-            $form.on('invalid-form.validate', function () {
-                renderSummary(collectMessagesNow());
+            $f.on('invalid-form.validate', function (_e, v) {
+                if (!window.EBValidate) return;
+                EBValidate.clearAll($f[0]);
+                (v.errorList || []).forEach(function (item) {
+                    EBValidate.setInvalid(item.element, item.message);
+                });
+                var sum = $f.find('#email-alert').first();
+                var msgs = collectEmailMessages();
+                if (sum.length) {
+                    var ul = sum.find('ul');
+                    if (ul.length === 0) { ul = $('<ul/>').appendTo(sum); }
+                    ul.empty();
+                    msgs.forEach(function (m) { $('<li/>').text(m).appendTo(ul); });
+                    sum.removeClass('d-none');
+                }
             });
-
-            ensureSummary();
         })();
     </script>
 }

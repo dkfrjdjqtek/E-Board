@@ -465,7 +465,7 @@
   <data name="CP_Save" xml:space="preserve">
     <value>Lưu</value>
   </data>
-  <data name="CP_Cancel" xml:space="preserve">
+  <data name="_CM_Cancel" xml:space="preserve">
     <value>Hủy</value>
   </data>
   <data name="CP_Save_Success" xml:space="preserve">
@@ -541,7 +541,7 @@
     <value>[Han Young E-Board] Xác nhận thay đổi email của bạn</value>
   </data>
   <data name="CP_EmailChange_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Xin chào {0},&lt;/p&gt;&lt;p&gt;Bạn đã yêu cầu thay đổi email đăng nhập. Để bảo vệ tài khoản, vui lòng nhấp nút bên dưới để xác nhận thay đổi.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Mở liên kết&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Liên kết này có hiệu lực trong {2} phút.&lt;/p&gt;&lt;p&gt;Email này được gửi tự động, vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Xác nhận thay đổi email&lt;/h2&gt;&lt;p&gt;Xin chào, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Nhấn nút bên dưới để đổi email cho tài khoản của bạn thành &lt;strong&gt;{1}&lt;/strong&gt;.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Xác nhận thay đổi email&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Liên kết này có hiệu lực trong &lt;strong&gt;{3} phút&lt;/strong&gt; kể từ thời điểm bạn nhận email.&lt;/p&gt;&lt;p&gt;Nếu nút không hoạt động, hãy sao chép địa chỉ dưới đây và dán vào trình duyệt.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Nếu không phải bạn yêu cầu, vui lòng bỏ qua email này.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email này được tạo và gửi tự động. Vui lòng không trả lời email này.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="_CM_Change" xml:space="preserve">
     <value>Thay đổi</value>
@@ -695,5 +695,8 @@
   </data>
   <data name="DTL_Alert_KindNameRequire" xml:space="preserve">
     <value>Cần tên danh mục bằng ít nhất một ngôn ngữ (bắt buộc có ngôn ngữ gốc).</value>
+  </data>
+  <data name="CP_EmailChange_InUse" xml:space="preserve">
+    <value>Email này đã được sử dụng.</value>
   </data>
 </root>

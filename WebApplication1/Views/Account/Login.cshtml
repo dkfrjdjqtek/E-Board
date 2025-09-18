@@ -1,4 +1,7 @@
-﻿@* 2025.09.16 Changed: 서버 ModelState를 EBValidate로 렌더링하도록 변경. 요약은 _ValidationAlert 사용. 필드별 invalid는 EBValidate.setInvalid 호출 *@
+﻿@* 2025.09.17 Changed: 필드 하단 문구가 "중복" 출력되는 원인 제거(asp-validation-for + EBValidate 이중 렌더링 해소) *@
+@* 2025.09.17 Changed: 제출(로그인 클릭) 전까지 invalid 보더/아이콘 고정 – 입력·포커스로는 상태 변경 금지 유지 *@
+@* 2025.09.16 Changed: 서버 ModelState를 EBValidate로 렌더링하도록 변경. 요약은 _ValidationAlert 사용. *@
+
 @using System.Linq
 @using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
@@ -6,7 +9,8 @@
 
 @{
     ViewData["Title"] = S["Login_Title"];
-    // 2025.09.16 Added: 서버 ModelState를 { 필드키: [메시지들] } 맵으로 변환
+
+    // 서버 ModelState → { 키: [메시지] }
     var errMap = ViewData.ModelState
         .Where(kv => kv.Value?.Errors?.Count > 0)
         .ToDictionary(
@@ -14,40 +18,37 @@
             kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
         );
 
-    // 2025.09.16 Added: 요약 메시지 리스트
+    // 요약 메시지
     var serverErrors = errMap.Values.SelectMany(v => v).ToArray();
 }
 
 <h1>@S["Login_Login"]</h1>
 
-@* 2025.09.16 Added: 공통 요약 경고 박스 사용. 컨테이너 id는 login-alert *@
+@* 상단 요약 알림 (id=login-alert) *@
 @await Html.PartialAsync(
         "~/Views/Shared/_ValidationAlert.cshtml",
         serverErrors,
         new ViewDataDictionary(ViewData) { ["AlertId"] = "login-alert" }
     )
 
-<form asp-action="Login" method="post" novalidate>
+<form asp-action="Login" method="post" novalidate id="login-form">
     @Html.AntiForgeryToken()
     <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
-
-    @* 2025.09.16 Removed: MVC 기본 요약 출력. EBValidate 요약으로 통일 *@
-    @* <div asp-validation-summary="All" class="alert alert-danger mb-3" role="alert"></div> *@
 
     <div class="mb-3">
         <label asp-for="UserName" class="form-label"></label>
         <input asp-for="UserName" class="form-control" autocomplete="username"
                placeholder="@S["Login_UserName_Placeholder"]" />
-        @* 2025.09.16 Removed: 기본 span 출력. EBValidate invalid-feedback로 통일 *@
-        @* <span asp-validation-for="UserName" class="text-danger"></span> *@
+        @* 2025.09.17 Added: 클라이언트 Required 표적 *@
+        <span asp-validation-for="UserName" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="Password" class="form-label"></label>
         <input asp-for="Password" class="form-control" autocomplete="current-password"
                placeholder="@S["Login_Password_Placeholder"]" />
-        @* 2025.09.16 Removed: 기본 span 출력. EBValidate invalid-feedback로 통일 *@
-        @* <span asp-validation-for="Password" class="text-danger"></span> *@
+        @* 2025.09.17 Added: 클라이언트 Required 표적 *@
+        <span asp-validation-for="Password" class="text-danger"></span>
     </div>
 
     <div class="form-check mb-3">
@@ -60,8 +61,7 @@
             <button type="submit" class="btn btn-primary w-100 py-2">@S["Header_LogIn"]</button>
         </div>
         <div class="col-12 col-md-4">
-            <a asp-area="Identity" asp-page="/Account/ForgotPassword"
-               class="btn btn-warning w-100 py-2" role="button">
+            <a asp-area="Identity" asp-page="/Account/ForgotPassword" class="btn btn-warning w-100 py-2" role="button">
                 @S["Login_ForgotPassword"]
             </a>
         </div>
@@ -72,36 +72,55 @@
     <partial name="_ValidationScriptsPartial" />
 
     <script>
-        // 2025.09.16 Added: 서버 ModelState를 클라이언트로 전달
+        // 2025.09.16 Added: 서버 ModelState JSON
         window.__LOGIN_ERRMAP__ = @Html.Raw(JsonSerializer.Serialize(errMap));
 
-        // 2025.09.16 Added: EBValidate로 요약과 필드 invalid 상태를 동기화
         (function () {
             const map = window.__LOGIN_ERRMAP__ || {};
-            // 요약
+
+            // 2025.09.17 Changed: 서버 에러 요약만 EBValidate로 초기 표출(필드 하단 문구는 asp-validation-for가 담당)
             const all = Object.values(map).flat();
             if (all.length && window.EBValidate) {
                 EBValidate.showAlert('login-alert', all);
             }
-            // 필드별 invalid 표시
-            const idMap = {
-                UserName: 'UserName',
-                Password: 'Password'
-            };
-            Object.keys(map).forEach(k => {
-                const id = idMap[k] || k;
-                const el = document.getElementById(id);
-                if (el && window.EBValidate) {
-                    EBValidate.setInvalid(el, (map[k] && map[k][0]) || '');
-                }
-            });
+        })();
 
-            // 2025.09.16 Added: 사용자가 수정하면 해당 필드의 에러 해제
-            ['UserName', 'Password'].forEach(id => {
-                const el = document.getElementById(id);
-                el && el.addEventListener('input', function () {
-                    if (window.EBValidate) EBValidate.clearInvalid(el);
-                });
+        // 2025.09.17 Changed: 제출 시에만 클라이언트 검증 수행 + 요약 1회 갱신
+        (function () {
+            var form = document.getElementById('login-form');
+            if (!form || !window.jQuery) return;
+
+            // unobtrusive 파싱 보장
+            try {
+                jQuery(form).removeData('validator').removeData('unobtrusiveValidation');
+                if (jQuery.validator?.unobtrusive?.parse) jQuery.validator.unobtrusive.parse(form);
+            } catch (e) { /* 2025.09.17 Added: 무시 */ }
+
+            var v = jQuery(form).data('validator');
+            if (v) {
+                // 포커스/키입력으로 재검증하지 않음 → 붉은 보더/아이콘 고정
+                v.settings.onkeyup = false;
+                v.settings.onfocusout = false;
+                v.settings.onclick = false;
+            }
+
+            function updateSummaryOnce() {
+                var msgs = [];
+                var validator = jQuery(form).data('validator');
+                if (validator?.errorList?.length) {
+                    for (var i = 0; i < validator.errorList.length; i++) {
+                        var m = validator.errorList[i]?.message;
+                        if (m) msgs.push(m);
+                    }
+                }
+                if (window.EBValidate) EBValidate.showAlert('login-alert', msgs);
+            }
+
+            // 2025.09.17 Changed: 제출 실패시에만 요약 갱신
+            jQuery(form).on('invalid-form.validate', function () {
+                updateSummaryOnce();
+                // 2025.09.17 Removed: 여기서 EBValidate.setInvalid(필드별) 호출하지 않음
+                // 이유: asp-validation-for가 이미 문구를 렌더 → 중복 방지
             });
         })();
     </script>

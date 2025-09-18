@@ -1,4 +1,5 @@
-﻿// 2025.09.16 Changed: EBValidate가 소비할 필드별 에러와 요약을 ViewData로 전달하는 로직 추가
+﻿// 2025.09.17 Changed: Login(POST) 초입에 서버측 Required 가드 추가(Username/Password 비었을 때 즉시 에러 스탬핑); 기존 흐름/리소스/헬퍼 유지
+// 2025.09.16 Changed: EBValidate가 소비할 필드별 에러와 요약을 ViewData로 전달하는 로직 추가
 // 2025.09.16 Changed: 로그인 실패 시 View 반환 전에 EBValidate 데이터 Stamp 호출
 // 2025.09.16 Added: StampEbValidateData 헬퍼 추가
 // 2025.09.16 Checked: 기존 AddErrorOnce MapAndAddRegisterError 유지
@@ -56,6 +57,12 @@ namespace WebApplication1.Controllers
             returnUrl ??= Url.Content("~/");
             ViewData["ReturnUrl"] = returnUrl;
 
+            // 2025.09.17 Added: 서버측 Required 가드(클라이언트 검증 누락/비활성 대비)
+            if (string.IsNullOrWhiteSpace(model.UserName))
+                AddErrorOnce(nameof(LoginViewModel.UserName), _S["Req"]);
+            if (string.IsNullOrWhiteSpace(model.Password))
+                AddErrorOnce(nameof(LoginViewModel.Password), _S["Req"]);
+
             if (!ModelState.IsValid)
             {
                 // 2025.09.16 Changed: 클라이언트 EBValidate와 요약에 동일 데이터 전달
@@ -75,6 +82,13 @@ namespace WebApplication1.Controllers
                 // 2025.09.16 Changed: 빈 키 대신 UserName 키로 에러 매핑
                 AddErrorOnce(nameof(LoginViewModel.UserName), _S["Login_UserNotExist"]);
                 StampEbValidateData(); // 2025.09.16 Added: ViewData에 필드별 에러와 요약 Stamp
+                return View(model);
+            }
+            // 2025.09.17 Added: 호출 직전 재가드 비밀번호 공란이면 WrongPassword 대신 Required를 우선 노출
+            if (string.IsNullOrWhiteSpace(model.Password))
+            {
+                AddErrorOnce(nameof(LoginViewModel.Password), _S["Req"]);
+                StampEbValidateData();
                 return View(model);
             }
 
