@@ -55,6 +55,7 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmailChange");
     options.Conventions.AllowAnonymousToPage("/Account/Login");
     options.Conventions.AllowAnonymousToPage("/Account/AccessDenied"); // 커스텀 접근거부 페이지도 쓰면 함께
+    options.Conventions.AddPageRoute("/Identity/Admin/AdminUserProfile", "/AdminUserProfile");
 });
 
 // 쿠키 설정(단일 블록, 변수명 options 유지)

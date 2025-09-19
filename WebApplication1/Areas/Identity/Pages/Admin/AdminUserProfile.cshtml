@@ -1,4 +1,264 @@
-﻿@page
+﻿@* 2025.09.19 Changed: 변경 메일 전송(#changeEmailForm)도 EBValidate 일관 적용
+   - 메일 폼에 jQuery Validate 규칙/메시지(필수+email) 부여
+   - invalid-form 시 admin-alert로 요약, 입력 하단 invalid 표시
+   - 나머지 구조/로직/리소스 키 유지 *@
+@page "{id?}"
 @model WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel
+@using Microsoft.AspNetCore.Mvc.Rendering
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
+
 @{
+    ViewData["Title"] = _S["ACP_Title"];
+
+    var errMap = ViewData.ModelState
+        .Where(kv => kv.Value?.Errors?.Count > 0)
+        .ToDictionary(kv => kv.Key, kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+    var summaryMsgs = errMap.Values.SelectMany(v => v).Distinct().ToArray();
+}
+
+<h2 class="mb-3">@_S["ACP_Title"]</h2>
+
+@await Html.PartialAsync(
+            "~/Views/Shared/_ValidationAlert.cshtml",
+            summaryMsgs,
+            new ViewDataDictionary(ViewData) { ["AlertId"] = "admin-alert" }
+        )
+
+<form id="searchForm" method="get" class="row g-2 align-items-end mb-3">
+    <input type="hidden" name="id" value="@Model.VM.SelectedUserId" />
+    <div class="col-12 col-md-6">
+        <label class="form-label" for="q">@_S["ACP_Search_Label"]</label>
+        <div class="input-group">
+            <input id="q" name="q" class="form-control" value="@Model.VM.Q" placeholder="@_S["ACP_Search_Placeholder"]" />
+            <button class="btn btn-primary" type="submit">@_S["ACP_Search_Load"]</button>
+        </div>
+    </div>
+    <div class="col-12 col-md-6">
+        <label class="form-label" for="accountSel">@_S["ACP_AccountSelect_Label"]</label>
+        <div class="d-flex gap-2">
+            <select id="accountSel" asp-for="VM.SelectedUserId" asp-items="Model.VM.Accounts" class="form-select"
+                    onchange="location.href='@Url.Page(null, new { id = "__ID__", q = Model.VM.Q })'.replace('__ID__', this.value || '')">
+                <option value="">-- @_S["_CM_Select"] --</option>
+            </select>
+            <a class="btn btn-success d-none" href="/Identity/Account/Register">@_S["ACP_AddUser"]</a>
+        </div>
+    </div>
+</form>
+
+<form id="adminForm" method="post" asp-page-handler="Save" novalidate>
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="VM.SelectedUserId" />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label asp-for="VM.CompCd" class="form-label">@_S["_CM_Site_Label"]</label>
+            <select asp-for="VM.CompCd" asp-items="Model.VM.CompList" class="form-select"
+                    required data-val="true" data-val-required="@_S["_Alert_Site_Required"]">
+                <option value="">-- @_S["_CM_Select"] --</option>
+            </select>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="VM.DisplayName" class="form-label">@_S["_CM_Label_Name"]</label>
+            <input asp-for="VM.DisplayName" class="form-control" placeholder="@_S["_CM_Placeholder_Name"]"
+                   required data-val="true" data-val-required="@_S["_Alert_Require_Name"]" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">@_S["_CM_Label_ID"]</label>
+            <input class="form-control" value="@Model.VM.UserName" readonly />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">@_S["ACP_Email_Label"]</label>
+            <div class="input-group">
+                <input class="form-control" value="@Model.VM.Email" readonly />
+                <button type="button" class="btn btn-secondary"
+                        data-bs-toggle="collapse" data-bs-target="#changeEmailPane" aria-expanded="false">
+                    @_S["ACP_ChangeEmail_Button"]
+                </button>
+            </div>
+
+            @* 변경 메일 전송은 별도 폼으로 분리(선행 검증 없이 독립 전송) *@
+            <div id="changeEmailPane" class="collapse pt-2">
+                <div class="input-group">
+                    <input type="email"
+                           class="form-control"
+                           name="newEmail"
+                           form="changeEmailForm"
+                           placeholder="@_S["ACP_NewEmail_Placeholder"]"
+                           required data-val="true" data-val-required="@_S["ACP_NewEmail_Req"]" />
+                    <button type="submit"
+                            class="btn btn-outline-dark"
+                            form="changeEmailForm">
+                        @_S["ACP_ChangeEmail_Send"]
+                    </button>
+                </div>
+                <div class="form-text">@_S["ACP_ChangeEmail_Help"]</div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="VM.DepartmentId" class="form-label">@_S["_CM_Label_Department"]</label>
+            <select asp-for="VM.DepartmentId" asp-items="Model.VM.DeptList" class="form-select"
+                    required data-val="true" data-val-required="@_S["_Alert_Department_Required"]">
+                <option value="">-- @_S["_CM_Select"] --</option>
+            </select>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="VM.PositionId" class="form-label">@_S["_CM_Label_Position"]</label>
+            <select asp-for="VM.PositionId" asp-items="Model.VM.PosList" class="form-select"
+                    required data-val="true" data-val-required="@_S["_Alert_Position_Required"]">
+                <option value="">-- @_S["_CM_Select"] --</option>
+            </select>
+        </div>
+
+        <div class="col-md-6">
+            <label asp-for="VM.PhoneNumber" class="form-label">@_S["_CM_Label_Phone"]</label>
+            <input asp-for="VM.PhoneNumber" class="form-control" autocomplete="tel" placeholder="@_S["ACP_Phone_Placeholder"]" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">@_S["ACP_AdminLevel_Label"]</label>
+            <div class="d-flex align-items-center gap-3 pt-2">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" id="al0" name="VM.AdminLevel" value="0" @(Model.VM.AdminLevel == 0 ? "checked" : "")>
+                    <label class="form-check-label" for="al0">@_S["ACP_AdminLevel_User"]</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" id="al1" name="VM.AdminLevel" value="1" @(Model.VM.AdminLevel == 1 ? "checked" : "")>
+                    <label class="form-check-label" for="al1">@_S["ACP_AdminLevel_Manager"]</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" id="al2" name="VM.AdminLevel" value="2" @(Model.VM.AdminLevel == 2 ? "checked" : "")>
+                    <label class="form-check-label" for="al2">@_S["ACP_AdminLevel_Admin"]</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-2 mt-4">
+            <div class="col-12 col-md-6">
+                <button type="submit" class="btn btn-primary w-100 py-2">@_S["_CM_Save"]</button>
+            </div>
+            <div class="col-12 col-md-6">
+                <button type="submit" formaction="?handler=ResetPassword" formmethod="post"
+                        class="btn btn-warning w-100 py-2">
+                    @_S["ACP_Button_TempPassword"]
+                </button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<form id="changeEmailForm" method="post" asp-page-handler="SendChangeEmail">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="VM.SelectedUserId" value="@Model.VM.SelectedUserId" />
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        window.__ADMIN_ERRMAP__ = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(errMap));
+
+        (function () {
+            var form = document.getElementById('adminForm');
+            if (!form) return;
+
+            // 다국어 Required 메시지(저장 폼)
+            var reqMsgs = {
+                "VM.CompCd": "@_S["_Alert_Site_Required"]",
+                "VM.DisplayName": "@_S["_Alert_Require_Name"]",
+                "VM.DepartmentId": "@_S["_Alert_Department_Required"]",
+                "VM.PositionId": "@_S["_Alert_Position_Required"]"
+            };
+
+            $(function () {
+                // ===== 메인 저장 폼 =====
+                var $f = $(form);
+                var v = $f.data('validator') || $f.validate();
+                if (v) {
+                    v.settings.onkeyup = false;
+                    v.settings.onfocusout = false;
+                    v.settings.onclick = false;
+
+                    v.settings.messages = v.settings.messages || {};
+                    Object.keys(reqMsgs).forEach(function (name) {
+                        v.settings.messages[name] = v.settings.messages[name] || {};
+                        v.settings.messages[name].required = reqMsgs[name];
+                    });
+
+                    ["VM.CompCd", "VM.DisplayName", "VM.DepartmentId", "VM.PositionId"].forEach(function (n) {
+                        var $el = $f.find('[name="' + n + '"]');
+                        if ($el.length && $el.rules) {
+                            $el.rules("add", { required: true, messages: { required: reqMsgs[n] } });
+                        }
+                    });
+                }
+
+                // ===== 변경 메일 전송 폼 =====
+                var $cf = $('#changeEmailForm');
+                if ($cf.length) {
+                    var cv = $cf.data('validator') || $cf.validate({
+                        onkeyup: false,
+                        onfocusout: false,
+                        onclick: false,
+                        rules: { newEmail: { required: true, email: true } },
+                        messages: {
+                            newEmail: {
+                                required: "@_S["ACP_NewEmail_Req"]",
+                                email: "@_S["ACP_NewEmail_Invalid"]"
+                            }
+                        }
+                    });
+
+                    // EBValidate 요약/필드 표시
+                    $cf.on('invalid-form.validate', function (_e, val) {
+                        if (!window.EBValidate || !val) return;
+                        var msgs = (val.errorList || []).map(function (it) { return it.message; });
+                        EBValidate.clearAll($cf[0]);
+                        (val.errorList || []).forEach(function (it) {
+                            if (it && it.element) EBValidate.setInvalid(it.element, it.message);
+                        });
+                        EBValidate.showAlert('admin-alert', Array.from(new Set(msgs)));
+                    });
+
+                    // 입력 시 해당 필드만 해제
+                    $cf.on('input', function (e) {
+                        if (window.EBValidate && e.target) EBValidate.clearInvalid(e.target);
+                    });
+                }
+            });
+
+            // 서버 ModelState → EBValidate 동기화(저장 폼)
+            var map = window.__ADMIN_ERRMAP__ || {};
+            if (window.EBValidate) {
+                var all = Object.values(map).flat();
+                if (all.length) EBValidate.showAlert('admin-alert', all);
+                Object.keys(map).forEach(function (key) {
+                    var el = form.querySelector('[name="' + key + '"]') ||
+                        document.getElementById(key.split('.').slice(-1)[0]);
+                    if (el) EBValidate.setInvalid(el, (map[key] && map[key][0]) || '');
+                });
+            }
+
+            form.addEventListener('input', function (e) {
+                var t = e.target;
+                if (t && window.EBValidate) EBValidate.clearInvalid(t);
+            });
+
+            $('#adminForm').on('invalid-form.validate', function (_e, v) {
+                if (!window.EBValidate || !v) return;
+                EBValidate.clearAll(form);
+                var msgs = [];
+                (v.errorList || []).forEach(function (item) {
+                    var name = (item.element && item.element.name) || "";
+                    var msg = (v.settings.messages[name] && v.settings.messages[name].required) || item.message;
+                    msgs.push(msg);
+                    EBValidate.setInvalid(item.element, msg);
+                });
+                EBValidate.showAlert('admin-alert', Array.from(new Set(msgs)));
+            });
+        })();
+    </script>
 }

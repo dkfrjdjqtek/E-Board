@@ -53,26 +53,26 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             [Required(ErrorMessage = "CP_Email_Req")]
             public string? Email { get; set; }
 
-            [Display(Name = "CP_UserName_Label")]
+            [Display(Name = "_CM_Label_ID")]
             public string? UserName { get; set; }
 
-            [Display(Name = "CP_Department_Label")]
+            [Display(Name = "_CD_Label_Department")]
             [Required(ErrorMessage = "_Alert_Department_Required")]
             public int? DepartmentId { get; set; }
 
-            [Display(Name = "CP_Position_Label")]
+            [Display(Name = "_CM_Label_Position")]
             [Required(ErrorMessage = "_Alert_Position_Required")]
             public int? PositionId { get; set; }
 
-            [Display(Name = "CP_DisplayName_Label")]
-            [Required(ErrorMessage = "CP_DisplayName_Req")]
+            [Display(Name = "_CM_Label_Name")]
+            [Required(ErrorMessage = "_Alert_Require_Name")]
             public string? DisplayName { get; set; }
 
             [Phone(ErrorMessage = "CP_Phone_Invalid")]
-            [Display(Name = "CP_Phone_Label")]
+            [Display(Name = "_CM_Label_Phone")]
             public string? PhoneNumber { get; set; }
 
-            [Display(Name = "CP_CompCd_Label")]
+            [Display(Name = "_CM_Site_Label")]
             [Required(ErrorMessage = "_Alert_Site_Required")]
             public string? CompCd { get; set; }
 
@@ -283,7 +283,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             await _db.SaveChangesAsync();
             await _signInManager.RefreshSignInAsync(user);
 
-            TempData["StatusMessage"] = _S["CP_Save_Success"].Value;
+            TempData["StatusMessage"] = _S["_CM_Save_Success"].Value;
             return RedirectToPage();
         }
 

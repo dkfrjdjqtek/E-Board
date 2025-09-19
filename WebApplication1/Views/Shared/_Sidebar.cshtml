@@ -95,9 +95,19 @@
 
         @* 관리자만 노출 *@
         @if (User.HasClaim("is_admin", "1") || User.HasClaim("is_admin", "2"))
-        {
+@*         {
             <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "AdminUserProfile" ? "active" : "")"
                asp-area="" asp-controller="AdminUserProfile" asp-action="Index">
+                <img src="~/images/sidebar2-usermanage.png"
+                     alt="@(S["Sidebar_Menu3Sub4"])"
+                     width="36" height="36" class="me-2" />
+                <span>@S["Sidebar_Menu3Sub4"]</span>
+            </a>
+        } *@
+
+        {
+            <a class="nav-link @(string.Equals(ViewContext.RouteData.Values["page"] as string, "/Admin/AdminUserProfile", StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+               asp-area="Identity" asp-page="/Admin/AdminUserProfile">
                 <img src="~/images/sidebar2-usermanage.png"
                      alt="@(S["Sidebar_Menu3Sub4"])"
                      width="36" height="36" class="me-2" />

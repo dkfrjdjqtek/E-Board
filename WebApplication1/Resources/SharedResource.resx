@@ -336,9 +336,6 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>입력하신 메일로 비밀번호 재설정 링크를 전송했습니다.</value>
   </data>
-  <data name="FP_UserName_Label" xml:space="preserve">
-    <value>아이디</value>
-  </data>
   <data name="FP_UserName_Placeholder" xml:space="preserve">
     <value>아이디를 입력하세요.</value>
   </data>
@@ -381,7 +378,7 @@
   <data name="CP_Intro" xml:space="preserve">
     <value>계정의 기본 정보를 업데이트하세요.</value>
   </data>
-  <data name="CP_UserName_Label" xml:space="preserve">
+  <data name="_CM_Label_ID" xml:space="preserve">
     <value>아이디</value>
   </data>
   <data name="CP_UserName_Placeholder" xml:space="preserve">
@@ -405,7 +402,7 @@
   <data name="CP_Email_Invalid" xml:space="preserve">
     <value>올바른 이메일 형식이 아닙니다.</value>
   </data>
-  <data name="CP_Phone_Label" xml:space="preserve">
+  <data name="_CM_Label_Phone" xml:space="preserve">
     <value>전화번호</value>
   </data>
   <data name="CP_Phone_Placeholder" xml:space="preserve">
@@ -414,17 +411,11 @@
   <data name="CP_Phone_Invalid" xml:space="preserve">
     <value>올바른 전화번호 형식이 아닙니다.</value>
   </data>
-  <data name="CP_Department_Label" xml:space="preserve">
-    <value>부서</value>
-  </data>
   <data name="CP_Department_Placeholder" xml:space="preserve">
     <value>예: 영업팀</value>
   </data>
   <data name="CP_Department_Len" xml:space="preserve">
     <value>부서명은 최대 {1}자입니다.</value>
-  </data>
-  <data name="CP_Position_Label" xml:space="preserve">
-    <value>직책</value>
   </data>
   <data name="CP_Position_Placeholder" xml:space="preserve">
     <value>예: 과장</value>
@@ -432,31 +423,25 @@
   <data name="CP_Position_Len" xml:space="preserve">
     <value>직책은 최대 {1}자입니다.</value>
   </data>
-  <data name="CP_Save" xml:space="preserve">
-    <value>저장</value>
-  </data>
   <data name="_CM_Cancel" xml:space="preserve">
     <value>취소</value>
   </data>
-  <data name="CP_Save_Success" xml:space="preserve">
+  <data name="_CM_Save_Success" xml:space="preserve">
     <value>프로필이 저장되었습니다.</value>
   </data>
-  <data name="CP_Save_Fail" xml:space="preserve">
+  <data name="_CM_Save_Fail" xml:space="preserve">
     <value>프로필 저장 중 오류가 발생했습니다.</value>
   </data>
   <data name="CP_ValidationSummary" xml:space="preserve">
     <value>입력값을 다시 확인하세요.</value>
   </data>
-  <data name="CP_DisplayName_Label" xml:space="preserve">
+  <data name="_CM_Label_Name" xml:space="preserve">
     <value>이름</value>
   </data>
-  <data name="CP_DisplayName_Req" xml:space="preserve">
+  <data name="_Alert_Require_Name" xml:space="preserve">
     <value>이름을 입력하세요.</value>
   </data>
-  <data name="CP_CompCd_Label" xml:space="preserve">
-    <value>사업장</value>
-  </data>
-  <data name="CP_CompCd_Placeholder" xml:space="preserve">
+  <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>사업장 선택</value>
   </data>
   <data name="_Alert_Site_Required" xml:space="preserve">
@@ -555,11 +540,8 @@
   <data name="DTL_Title_DocManage" xml:space="preserve">
     <value>문서 템플릿 관리</value>
   </data>
-  <data name="DTL_Label_Site" xml:space="preserve">
+  <data name="_CM_Site_Label" xml:space="preserve">
     <value>사업장</value>
-  </data>
-  <data name="DTL_Label_Dept" xml:space="preserve">
-    <value>부서</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
     <value>범주</value>
@@ -698,5 +680,116 @@
   </data>
   <data name="CP_EmailChange_InUse" xml:space="preserve">
     <value>이미 사용 중인 이메일입니다.</value>
+  </data>
+  <data name="ACP_Title" xml:space="preserve">
+    <value>관리자 사용자 프로필</value>
+  </data>
+  <data name="ACP_Search_Label" xml:space="preserve">
+    <value>계정 검색 (ID / 이메일)</value>
+  </data>
+  <data name="ACP_Search_Placeholder" xml:space="preserve">
+    <value>검색어 입력</value>
+  </data>
+  <data name="ACP_Search_Load" xml:space="preserve">
+    <value>가져오기</value>
+  </data>
+  <data name="ACP_AccountSelect_Label" xml:space="preserve">
+    <value>계정 선택</value>
+  </data>
+  <data name="ACP_AddUser" xml:space="preserve">
+    <value>사용자 추가</value>
+  </data>
+  <data name="ACP_DisplayName_Placeholder" xml:space="preserve">
+    <value>예) 홍길동</value>
+  </data>
+  <data name="ACP_Email_Label" xml:space="preserve">
+    <value>이메일</value>
+  </data>
+  <data name="_CM_Label_Department" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="_CM_Label_Position" xml:space="preserve">
+    <value>직급</value>
+  </data>
+  <data name="ACP_Phone_Placeholder" xml:space="preserve">
+    <value>예) 010-1234-5678</value>
+  </data>
+  <data name="ACP_AdminLevel_Label" xml:space="preserve">
+    <value>권한</value>
+  </data>
+  <data name="ACP_AdminLevel_User" xml:space="preserve">
+    <value>일반</value>
+  </data>
+  <data name="ACP_AdminLevel_Manager" xml:space="preserve">
+    <value>관리자</value>
+  </data>
+  <data name="ACP_AdminLevel_Admin" xml:space="preserve">
+    <value>최고관리자</value>
+  </data>
+  <data name="ACP_ChangeEmail_Button" xml:space="preserve">
+    <value>변경</value>
+  </data>
+  <data name="ACP_NewEmail_Placeholder" xml:space="preserve">
+    <value>new@email.com</value>
+  </data>
+  <data name="ACP_ChangeEmail_Send" xml:space="preserve">
+    <value>변경 메일 보내기</value>
+  </data>
+  <data name="ACP_ChangeEmail_Help" xml:space="preserve">
+    <value>새 주소로 확인 메일이 발송됩니다.</value>
+  </data>
+  <data name="ACP_ResetPassword_Button" xml:space="preserve">
+    <value>비밀번호 초기화</value>
+  </data>
+  <data name="ACP_SelectUser_Req" xml:space="preserve">
+    <value>수정할 계정을 선택하세요.</value>
+  </data>
+  <data name="ACP_UserOrProfile_NotFound" xml:space="preserve">
+    <value>사용자/프로필을 찾을 수 없습니다.</value>
+  </data>
+  <data name="ACP_User_NotFound" xml:space="preserve">
+    <value>사용자를 찾을 수 없습니다.</value>
+  </data>
+  <data name="ACP_Invalid_Dept" xml:space="preserve">
+    <value>유효하지 않은 부서입니다.</value>
+  </data>
+  <data name="ACP_Invalid_Pos" xml:space="preserve">
+    <value>유효하지 않은 직급입니다.</value>
+  </data>
+  <data name="ACP_NewEmail_Req" xml:space="preserve">
+    <value>새 이메일을 입력하세요.</value>
+  </data>
+  <data name="ACP_EmailChange_InUse" xml:space="preserve">
+    <value>이미 사용 중인 이메일입니다.</value>
+  </data>
+  <data name="_CM_Saved" xml:space="preserve">
+    <value>저장되었습니다.</value>
+  </data>
+  <data name="ACP_ResetPassword_Failed" xml:space="preserve">
+    <value>비밀번호 초기화 실패: {0}</value>
+  </data>
+  <data name="RP_PwdConfirm_Req" xml:space="preserve">
+    <value>비밀번호 확인은 필수입니다.</value>
+  </data>
+  <data name="_CM_InvalidToken" xml:space="preserve">
+    <value>유효하지 않은 토큰입니다.</value>
+  </data>
+  <data name="_CM_Placeholder_Name" xml:space="preserve">
+    <value>이름 입력</value>
+  </data>
+  <data name="ACP_EmailChange_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 이메일 변경 확인 (관리자 요청)</value>
+  </data>
+  <data name="ACP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;이메일 변경 확인 (관리자 요청)&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하면 계정의 이메일이 &lt;strong&gt;{1}&lt;/strong&gt; 으로 변경됩니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;이메일 변경 확인&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신 시점부터 {3}분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 아래 주소를 복사해 브라우저에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시오.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_Button_TempPassword" xml:space="preserve">
+    <value>임시 비밀번호 발행</value>
+  </data>
+  <data name="ACP_TempPW_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 임시 비밀번호 발행 안내 (관리자 요청)</value>
+  </data>
+  <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;임시 비밀번호 발행 안내&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;관리자가 회원님의 계정 비밀번호를 임시 비밀번호로 초기화했습니다.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;임시 비밀번호:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하여 &lt;strong&gt;새 비밀번호&lt;/strong&gt;로 즉시 변경해 주세요.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;비밀번호 변경하기&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신 시점부터 {3}분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 아래 주소를 복사해 브라우저에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시오.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
 </root>

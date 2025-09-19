@@ -1,7 +1,18 @@
-﻿/* 2025.09.16 Added: EBValidate 기본 유틸 공개 */
+﻿// 2025.09.19 Changed: HTML 엔티티(예: &#xC720;)가 그대로 보이는 문제 방지용 decodeHtmlEntities 추가 및 showAlert/setInvalid에 1회 디코드 적용. 나머지 기존 동작/함수/시그니처는 변경 없음.
+
+/* 2025.09.16 Added: EBValidate 기본 유틸 공개 */
 // window.EBValidate 전역으로 노출
 window.EBValidate = (function () {
     function el(x) { return (typeof x === 'string') ? document.getElementById(x) : x; }
+
+    // 2025.09.19 Added: 서버/리소스에서 HTML 엔티티로 넘어온 메시지를 1회만 텍스트로 복원
+    function decodeHtmlEntities(s) {
+        if (s == null) return '';
+        // 이미 일반 텍스트면 영향 없음. 엔티티일 경우만 복원.
+        var t = document.createElement('textarea');
+        t.innerHTML = String(s);
+        return t.value;
+    }
 
     // --- 상단 경고 박스 ---
     function showAlert(container, messages) {
@@ -17,7 +28,8 @@ window.EBValidate = (function () {
         ul.innerHTML = '';
         list.filter(Boolean).forEach(m => {
             const li = document.createElement('li');
-            li.textContent = m;
+            // 2025.09.19 Changed: 엔티티를 1회 디코드 후 textContent로 출력
+            li.textContent = decodeHtmlEntities(m);
             ul.appendChild(li);
         });
         box.classList.toggle('d-none', list.length === 0);
@@ -52,7 +64,8 @@ window.EBValidate = (function () {
         if (!input) return;
         input.classList.add('is-invalid');
         const fb = ensureFeedback(input, useTooltip);
-        fb.textContent = message || '';
+        // 2025.09.19 Changed: 엔티티 디코드 후 textContent로 출력
+        fb.textContent = decodeHtmlEntities(message || '');
     }
 
     function clearInvalid(input) {

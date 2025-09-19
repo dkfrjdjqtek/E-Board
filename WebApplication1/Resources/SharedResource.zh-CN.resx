@@ -120,11 +120,8 @@
   <data name="DTL_Title_DocManage" xml:space="preserve">
     <value>文档模板管理</value>
   </data>
-  <data name="DTL_Label_Site" xml:space="preserve">
+  <data name="_CM_Site_Label" xml:space="preserve">
     <value>站点</value>
-  </data>
-  <data name="DTL_Label_Dept" xml:space="preserve">
-    <value>部门</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
     <value>类别</value>
@@ -366,9 +363,6 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>密码重置链接已发送到您输入的电子邮箱。</value>
   </data>
-  <data name="FP_UserName_Label" xml:space="preserve">
-    <value>账号</value>
-  </data>
   <data name="FP_UserName_Placeholder" xml:space="preserve">
     <value>请输入账号。</value>
   </data>
@@ -391,7 +385,7 @@
     <value>发送重置链接</value>
   </data>
   <data name="FP_Email_Subject" xml:space="preserve">
-    <value>[Han Young E-Board] 密码重置说明</value>
+    <value>[Han Young E-Board] 密码重置通知</value>
   </data>
   <data name="FP_Email_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;您好，{0}：&lt;/p&gt;&lt;p&gt;收到您的&lt;strong&gt;密码重置&lt;/strong&gt;请求。点击下方按钮继续操作。如果并非您本人操作，请忽略此邮件。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;打开链接&lt;/a&gt;&lt;/p&gt;&lt;p&gt;此邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
@@ -411,7 +405,7 @@
   <data name="CP_Intro" xml:space="preserve">
     <value>更新您的帐户信息。</value>
   </data>
-  <data name="CP_UserName_Label" xml:space="preserve">
+  <data name="_CM_Label_ID" xml:space="preserve">
     <value>账号</value>
   </data>
   <data name="CP_UserName_Placeholder" xml:space="preserve">
@@ -435,7 +429,7 @@
   <data name="CP_Email_Invalid" xml:space="preserve">
     <value>电子邮件格式无效。</value>
   </data>
-  <data name="CP_Phone_Label" xml:space="preserve">
+  <data name="_CM_Label_Phone" xml:space="preserve">
     <value>电话号码</value>
   </data>
   <data name="CP_Phone_Placeholder" xml:space="preserve">
@@ -444,17 +438,11 @@
   <data name="CP_Phone_Invalid" xml:space="preserve">
     <value>电话号码格式无效。</value>
   </data>
-  <data name="CP_Department_Label" xml:space="preserve">
-    <value>部门</value>
-  </data>
   <data name="CP_Department_Placeholder" xml:space="preserve">
     <value>例如：销售</value>
   </data>
   <data name="CP_Department_Len" xml:space="preserve">
     <value>部门名称最长 {1} 个字符。</value>
-  </data>
-  <data name="CP_Position_Label" xml:space="preserve">
-    <value>职位</value>
   </data>
   <data name="CP_Position_Placeholder" xml:space="preserve">
     <value>例如：经理</value>
@@ -462,31 +450,25 @@
   <data name="CP_Position_Len" xml:space="preserve">
     <value>职位最长 {1} 个字符。</value>
   </data>
-  <data name="CP_Save" xml:space="preserve">
-    <value>保存</value>
-  </data>
   <data name="_CM_Cancel" xml:space="preserve">
     <value>取消</value>
   </data>
-  <data name="CP_Save_Success" xml:space="preserve">
+  <data name="_CM_Save_Success" xml:space="preserve">
     <value>您的个人资料已保存。</value>
   </data>
-  <data name="CP_Save_Fail" xml:space="preserve">
+  <data name="_CM_Save_Fail" xml:space="preserve">
     <value>保存个人资料时发生错误。</value>
   </data>
   <data name="CP_ValidationSummary" xml:space="preserve">
     <value>请检查以下错误。</value>
   </data>
-  <data name="CP_DisplayName_Label" xml:space="preserve">
+  <data name="_CM_Label_Name" xml:space="preserve">
     <value>姓名</value>
   </data>
-  <data name="CP_DisplayName_Req" xml:space="preserve">
+  <data name="_Alert_Require_Name" xml:space="preserve">
     <value>请输入姓名。</value>
   </data>
-  <data name="CP_CompCd_Label" xml:space="preserve">
-    <value>事业场所</value>
-  </data>
-  <data name="CP_CompCd_Placeholder" xml:space="preserve">
+  <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>选择事业场所</value>
   </data>
   <data name="_Alert_Site_Required" xml:space="preserve">
@@ -698,5 +680,116 @@
   </data>
   <data name="CP_EmailChange_InUse" xml:space="preserve">
     <value>该邮箱已被使用。</value>
+  </data>
+  <data name="ACP_Title" xml:space="preserve">
+    <value>管理员用户资料</value>
+  </data>
+  <data name="ACP_Search_Label" xml:space="preserve">
+    <value>搜索账号（ID/邮箱）</value>
+  </data>
+  <data name="ACP_Search_Placeholder" xml:space="preserve">
+    <value>输入关键字</value>
+  </data>
+  <data name="ACP_Search_Load" xml:space="preserve">
+    <value>加载</value>
+  </data>
+  <data name="ACP_AccountSelect_Label" xml:space="preserve">
+    <value>选择账号</value>
+  </data>
+  <data name="ACP_AddUser" xml:space="preserve">
+    <value>添加用户</value>
+  </data>
+  <data name="ACP_DisplayName_Placeholder" xml:space="preserve">
+    <value>例如：洪吉童</value>
+  </data>
+  <data name="ACP_Email_Label" xml:space="preserve">
+    <value>邮箱</value>
+  </data>
+  <data name="_CM_Label_Department" xml:space="preserve">
+    <value>部门</value>
+  </data>
+  <data name="_CM_Label_Position" xml:space="preserve">
+    <value>职位</value>
+  </data>
+  <data name="ACP_Phone_Placeholder" xml:space="preserve">
+    <value>例如：010-1234-5678</value>
+  </data>
+  <data name="ACP_AdminLevel_Label" xml:space="preserve">
+    <value>角色</value>
+  </data>
+  <data name="ACP_AdminLevel_User" xml:space="preserve">
+    <value>普通用户</value>
+  </data>
+  <data name="ACP_AdminLevel_Manager" xml:space="preserve">
+    <value>经理</value>
+  </data>
+  <data name="ACP_AdminLevel_Admin" xml:space="preserve">
+    <value>超级管理员</value>
+  </data>
+  <data name="ACP_ChangeEmail_Button" xml:space="preserve">
+    <value>更改</value>
+  </data>
+  <data name="ACP_NewEmail_Placeholder" xml:space="preserve">
+    <value>new@email.com</value>
+  </data>
+  <data name="ACP_ChangeEmail_Send" xml:space="preserve">
+    <value>发送更改邮件</value>
+  </data>
+  <data name="ACP_ChangeEmail_Help" xml:space="preserve">
+    <value>验证邮件将发送到新的地址。</value>
+  </data>
+  <data name="ACP_ResetPassword_Button" xml:space="preserve">
+    <value>重置密码</value>
+  </data>
+  <data name="ACP_SelectUser_Req" xml:space="preserve">
+    <value>请选择要修改的账号。</value>
+  </data>
+  <data name="ACP_UserOrProfile_NotFound" xml:space="preserve">
+    <value>未找到用户/资料。</value>
+  </data>
+  <data name="ACP_User_NotFound" xml:space="preserve">
+    <value>未找到用户。</value>
+  </data>
+  <data name="ACP_Invalid_Dept" xml:space="preserve">
+    <value>无效的部门。</value>
+  </data>
+  <data name="ACP_Invalid_Pos" xml:space="preserve">
+    <value>无效的职位。</value>
+  </data>
+  <data name="ACP_NewEmail_Req" xml:space="preserve">
+    <value>请输入新的邮箱。</value>
+  </data>
+  <data name="ACP_EmailChange_InUse" xml:space="preserve">
+    <value>该邮箱已被使用。</value>
+  </data>
+  <data name="_CM_Saved" xml:space="preserve">
+    <value>已保存。</value>
+  </data>
+  <data name="ACP_ResetPassword_Failed" xml:space="preserve">
+    <value>重置密码失败：{0}</value>
+  </data>
+  <data name="RP_PwdConfirm_Req" xml:space="preserve">
+    <value>确认密码为必填项。</value>
+  </data>
+  <data name="_CM_InvalidToken" xml:space="preserve">
+    <value>无效的令牌。</value>
+  </data>
+  <data name="_CM_Placeholder_Name" xml:space="preserve">
+    <value>输入姓名</value>
+  </data>
+  <data name="ACP_EmailChange_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 确认您的邮箱变更 (管理员请求)</value>
+  </data>
+  <data name="ACP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;确认更改邮箱 (管理员请求)&lt;/h2&gt;&lt;p&gt;您好，&lt;strong&gt;{0}&lt;/strong&gt;。&lt;/p&gt;&lt;p&gt;点击下方按钮即可将您账户的邮箱更改为 &lt;strong&gt;{1}&lt;/strong&gt;。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;确认更改邮箱&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;此链接自您收到邮件起 &lt;strong&gt;{3} 分钟内&lt;/strong&gt; 有效。&lt;/p&gt;&lt;p&gt;如果按钮无效，请复制下面的链接并在浏览器中打开。&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;如果并非您本人操作，请忽略此邮件。&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 此邮件由系统自动生成并发送，请勿回复。&lt;/p&gt;</value>
+  </data>
+  <data name="ACP_Button_TempPassword" xml:space="preserve">
+    <value>临时密码发放</value>
+  </data>
+  <data name="ACP_TempPW_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] 临时密码发放通知（管理员请求）</value>
+  </data>
+  <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;临时密码通知&lt;/h2&gt;&lt;p&gt;您好，&lt;strong&gt;{0}&lt;/strong&gt;。&lt;/p&gt;&lt;p&gt;管理员已将您的账户密码重置为临时密码。&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;临时密码：&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;请点击下方按钮，&lt;strong&gt;立即更改为新密码&lt;/strong&gt;。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;立即更改密码&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;该链接自您收到之时起&lt;strong&gt;{3}分钟内&lt;/strong&gt;有效。&lt;/p&gt;&lt;p&gt;如果按钮无法打开，请复制下面的地址并粘贴到浏览器中。&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;若非您本人请求，请忽略本邮件。&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 本邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
 </root>

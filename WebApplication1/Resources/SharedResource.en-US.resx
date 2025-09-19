@@ -336,9 +336,6 @@
   <data name="FPC_BTN_BackToLogin" xml:space="preserve">
     <value>Back to log in</value>
   </data>
-  <data name="FP_UserName_Label" xml:space="preserve">
-    <value>ID</value>
-  </data>
   <data name="FP_UserName_Placeholder" xml:space="preserve">
     <value>Enter your ID.</value>
   </data>
@@ -361,10 +358,10 @@
     <value>Send reset link</value>
   </data>
   <data name="FP_Email_Subject" xml:space="preserve">
-    <value>[Han Young E-Board] Password reset instructions</value>
+    <value>[Han Young E-Board] Password Reset Notice</value>
   </data>
   <data name="FP_Email_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Reset Password&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Click the button below to reset your account password.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Reset Password&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;This link is &lt;strong&gt;valid for 30 minutes&lt;/strong&gt; from the time it was received.&lt;/p&gt;&lt;p&gt;If the button does not work, copy and paste the following URL into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you did not request this, please ignore this email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply to this email.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Password Reset&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Click the button below to reset your account password.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Reset Password&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;This link is &lt;strong&gt;valid for 30 minutes&lt;/strong&gt; from the time it was received.&lt;/p&gt;&lt;p&gt;If the button does not work, copy and paste the following URL into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you did not request this, please ignore this email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply to this email.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="FPC_LogInButton" xml:space="preserve">
     <value>Forgot password</value>
@@ -381,7 +378,7 @@
   <data name="CP_Intro" xml:space="preserve">
     <value>Update your account information.</value>
   </data>
-  <data name="CP_UserName_Label" xml:space="preserve">
+  <data name="_CM_Label_ID" xml:space="preserve">
     <value>ID</value>
   </data>
   <data name="CP_UserName_Placeholder" xml:space="preserve">
@@ -405,7 +402,7 @@
   <data name="CP_Email_Invalid" xml:space="preserve">
     <value>Invalid email format.</value>
   </data>
-  <data name="CP_Phone_Label" xml:space="preserve">
+  <data name="_CM_Label_Phone" xml:space="preserve">
     <value>Phone number</value>
   </data>
   <data name="CP_Phone_Placeholder" xml:space="preserve">
@@ -414,17 +411,11 @@
   <data name="CP_Phone_Invalid" xml:space="preserve">
     <value>Invalid phone number format.</value>
   </data>
-  <data name="CP_Department_Label" xml:space="preserve">
-    <value>Department</value>
-  </data>
   <data name="CP_Department_Placeholder" xml:space="preserve">
     <value>e.g., Sales</value>
   </data>
   <data name="CP_Department_Len" xml:space="preserve">
     <value>Department can be up to {1} characters.</value>
-  </data>
-  <data name="CP_Position_Label" xml:space="preserve">
-    <value>Position</value>
   </data>
   <data name="CP_Position_Placeholder" xml:space="preserve">
     <value>e.g., Manager</value>
@@ -432,31 +423,25 @@
   <data name="CP_Position_Len" xml:space="preserve">
     <value>Position can be up to {1} characters.</value>
   </data>
-  <data name="CP_Save" xml:space="preserve">
-    <value>Save</value>
-  </data>
   <data name="_CM_Cancel" xml:space="preserve">
     <value>Cancel</value>
   </data>
-  <data name="CP_Save_Success" xml:space="preserve">
+  <data name="_CM_Save_Success" xml:space="preserve">
     <value>Your profile has been saved.</value>
   </data>
-  <data name="CP_Save_Fail" xml:space="preserve">
+  <data name="_CM_Save_Fail" xml:space="preserve">
     <value>An error occurred while saving your profile.</value>
   </data>
   <data name="CP_ValidationSummary" xml:space="preserve">
     <value>Please review the errors below.</value>
   </data>
-  <data name="CP_DisplayName_Label" xml:space="preserve">
+  <data name="_CM_Label_Name" xml:space="preserve">
     <value>Name</value>
   </data>
-  <data name="CP_DisplayName_Req" xml:space="preserve">
+  <data name="_Alert_Require_Name" xml:space="preserve">
     <value>Please enter your name.</value>
   </data>
-  <data name="CP_CompCd_Label" xml:space="preserve">
-    <value>Site</value>
-  </data>
-  <data name="CP_CompCd_Placeholder" xml:space="preserve">
+  <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>Select a site</value>
   </data>
   <data name="_Alert_Site_Required" xml:space="preserve">
@@ -555,11 +540,8 @@
   <data name="DTL_Title_DocManage" xml:space="preserve">
     <value>Document Template Management</value>
   </data>
-  <data name="DTL_Label_Site" xml:space="preserve">
+  <data name="_CM_Site_Label" xml:space="preserve">
     <value>Site</value>
-  </data>
-  <data name="DTL_Label_Dept" xml:space="preserve">
-    <value>Department</value>
   </data>
   <data name="DTL_Label_Kind" xml:space="preserve">
     <value>Category</value>
@@ -698,5 +680,116 @@
   </data>
   <data name="CP_EmailChange_InUse" xml:space="preserve">
     <value>This email is already in use.</value>
+  </data>
+  <data name="ACP_Title" xml:space="preserve">
+    <value>Admin User Profile</value>
+  </data>
+  <data name="ACP_Search_Label" xml:space="preserve">
+    <value>Search account (ID / email)</value>
+  </data>
+  <data name="ACP_Search_Placeholder" xml:space="preserve">
+    <value>Enter keyword</value>
+  </data>
+  <data name="ACP_Search_Load" xml:space="preserve">
+    <value>Load</value>
+  </data>
+  <data name="ACP_AccountSelect_Label" xml:space="preserve">
+    <value>Select account</value>
+  </data>
+  <data name="ACP_AddUser" xml:space="preserve">
+    <value>Add user</value>
+  </data>
+  <data name="ACP_DisplayName_Placeholder" xml:space="preserve">
+    <value>e.g., Hong Gil-dong</value>
+  </data>
+  <data name="ACP_Email_Label" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="_CM_Label_Department" xml:space="preserve">
+    <value>Department</value>
+  </data>
+  <data name="_CM_Label_Position" xml:space="preserve">
+    <value>Position</value>
+  </data>
+  <data name="ACP_Phone_Placeholder" xml:space="preserve">
+    <value>e.g., 010-1234-5678</value>
+  </data>
+  <data name="ACP_AdminLevel_Label" xml:space="preserve">
+    <value>Role</value>
+  </data>
+  <data name="ACP_AdminLevel_User" xml:space="preserve">
+    <value>User</value>
+  </data>
+  <data name="ACP_AdminLevel_Manager" xml:space="preserve">
+    <value>Manager</value>
+  </data>
+  <data name="ACP_AdminLevel_Admin" xml:space="preserve">
+    <value>Super admin</value>
+  </data>
+  <data name="ACP_ChangeEmail_Button" xml:space="preserve">
+    <value>Change</value>
+  </data>
+  <data name="ACP_NewEmail_Placeholder" xml:space="preserve">
+    <value>new@email.com</value>
+  </data>
+  <data name="ACP_ChangeEmail_Send" xml:space="preserve">
+    <value>Send change email</value>
+  </data>
+  <data name="ACP_ChangeEmail_Help" xml:space="preserve">
+    <value>A verification email will be sent to the new address.</value>
+  </data>
+  <data name="ACP_ResetPassword_Button" xml:space="preserve">
+    <value>Reset password</value>
+  </data>
+  <data name="ACP_SelectUser_Req" xml:space="preserve">
+    <value>Please select an account to edit.</value>
+  </data>
+  <data name="ACP_UserOrProfile_NotFound" xml:space="preserve">
+    <value>User/profile not found.</value>
+  </data>
+  <data name="ACP_User_NotFound" xml:space="preserve">
+    <value>User not found.</value>
+  </data>
+  <data name="ACP_Invalid_Dept" xml:space="preserve">
+    <value>Invalid department.</value>
+  </data>
+  <data name="ACP_Invalid_Pos" xml:space="preserve">
+    <value>Invalid position.</value>
+  </data>
+  <data name="ACP_NewEmail_Req" xml:space="preserve">
+    <value>Please enter a new email.</value>
+  </data>
+  <data name="ACP_EmailChange_InUse" xml:space="preserve">
+    <value>This email is already in use.</value>
+  </data>
+  <data name="_CM_Saved" xml:space="preserve">
+    <value>Saved.</value>
+  </data>
+  <data name="ACP_ResetPassword_Failed" xml:space="preserve">
+    <value>Password reset failed: {0}</value>
+  </data>
+  <data name="RP_PwdConfirm_Req" xml:space="preserve">
+    <value>Password confirmation is required.</value>
+  </data>
+  <data name="_CM_InvalidToken" xml:space="preserve">
+    <value>Invalid token.</value>
+  </data>
+  <data name="_CM_Placeholder_Name" xml:space="preserve">
+    <value>Enter name</value>
+  </data>
+  <data name="ACP_EmailChange_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Confirm your email change (Admin request)</value>
+  </data>
+  <data name="ACP_EmailChange_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Confirm Email Change (Admin request)&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Click the button below to change the email for your account to &lt;strong&gt;{1}&lt;/strong&gt;.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Confirm email change&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;This link is valid for &lt;strong&gt;{3} minutes&lt;/strong&gt; from the time you received this email.&lt;/p&gt;&lt;p&gt;If the button doesn't work, copy the URL below and paste it into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you didn't request this, you can safely ignore this email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply to this email.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_Button_TempPassword" xml:space="preserve">
+    <value>Temporary password issuance</value>
+  </data>
+  <data name="ACP_TempPW_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Temporary password issuance notice (admin request)</value>
+  </data>
+  <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Temporary Password Notice&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;An administrator has reset your account password to a temporary password.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;Temporary password:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;Click the button below to &lt;strong&gt;change it to a new password&lt;/strong&gt; immediately.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Change password now&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;This link is &lt;strong&gt;valid for {3} minutes&lt;/strong&gt; from the time it was received.&lt;/p&gt;&lt;p&gt;If the button does not work, copy and paste the URL below into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you did not request this, you can safely ignore this email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
 </root>

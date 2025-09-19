@@ -770,14 +770,19 @@ namespace WebApplication1.Controllers
             var outList = new List<FieldDef>();
             foreach (var f in fields ?? Enumerable.Empty<FieldDef>())
             {
-                var a1 = f?.Cell?.A1 ?? string.Empty;
+                if (f is null)
+                    continue;
+
+                // 이후부터 f는 non-null로 보장
+                var a1 = f.Cell?.A1 ?? string.Empty;
+
                 if (!TryParseA1Range(a1, out var col, out var r1, out var r2))
                 {
-                    outList.Add(f);
+                    outList.Add(f);    // f는 non-null이므로 CS8604 경고 없음
                     continue;
                 }
 
-                var tpl = (f.Key ?? string.Empty).Trim();
+                var tpl = (f.Key ?? string.Empty).Trim(); // f non-null 보장으로 CS8602 경고 없음
                 var baseKey = string.IsNullOrEmpty(tpl) ? "Field" : tpl;
                 var idx = 1;
 
@@ -791,12 +796,18 @@ namespace WebApplication1.Controllers
                     outList.Add(new FieldDef
                     {
                         Key = key,
-                        Type = string.IsNullOrWhiteSpace(f?.Type) ? "Text" : f!.Type,
+                        Type = string.IsNullOrWhiteSpace(f?.Type) ? "Text" : f!.Type, // 기존 유지
                         Cell = new CellRef
                         {
-                            Sheet = f!.Cell.Sheet,
-                            Row = f.Cell.Row,
-                            Column = f.Cell.Column,
+                            //Sheet = f?.Cell?.Sheet ?? string.Empty, // f.Cell null 대비
+                            //Row = f?.Cell?.Row ?? r,            // 파싱된 r로 폴백
+                            //Column = f?.Cell?.Column ?? col,          // 파싱된 col로 폴백
+                            //RowSpan = 1,
+                            //ColSpan = 1,
+                            //A1 = $"{col}{r}"
+                            Sheet = f?.Cell?.Sheet ?? string.Empty,
+                            Row = (f?.Cell?.Row) ?? r,
+                            Column = (f?.Cell?.Column) ?? ColLettersToIndex(col),
                             RowSpan = 1,
                             ColSpan = 1,
                             A1 = $"{col}{r}"
@@ -805,6 +816,18 @@ namespace WebApplication1.Controllers
                 }
             }
             return outList;
+        }
+        private static int ColLettersToIndex(string letters)
+        {
+            if (string.IsNullOrWhiteSpace(letters))
+                return 0;
+            int n = 0;
+            foreach (var ch in letters.Trim().ToUpperInvariant())
+            {
+                if (ch < 'A' || ch > 'Z') break;
+                n = n * 26 + (ch - 'A' + 1);
+            }
+            return n;
         }
 
         private static (bool Ok, string? Reason, string? Key) ValidateFieldKeys(IEnumerable<FieldDef> fields) // 2025.09.15 [추가]
