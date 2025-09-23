@@ -425,7 +425,7 @@ namespace WebApplication1.Controllers
 
             if (string.IsNullOrWhiteSpace(compCd))
             {
-                TempData["Alert"] = _S["_Alert_Site_Required"].Value;
+                TempData["Alert"] = _S["_Alert_Require_ValidSite"].Value;
                 return RedirectToRoute("DocumentTemplates.Index");
             }
             if (string.IsNullOrWhiteSpace(docName))

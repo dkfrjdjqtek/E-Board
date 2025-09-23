@@ -363,7 +363,7 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>Liên kết đặt lại mật khẩu đã được gửi tới email bạn nhập.</value>
   </data>
-  <data name="FP_UserName_Placeholder" xml:space="preserve">
+  <data name="_Alert_Require_ID" xml:space="preserve">
     <value>Nhập ID của bạn.</value>
   </data>
   <data name="FP_UserName_Required" xml:space="preserve">
@@ -471,13 +471,13 @@
   <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>Chọn cơ sở</value>
   </data>
-  <data name="_Alert_Site_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidSite" xml:space="preserve">
     <value>Vui lòng chọn cơ sở hợp lệ.</value>
   </data>
-  <data name="_Alert_Department_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidDepartment" xml:space="preserve">
     <value>Vui lòng chọn phòng ban hợp lệ.</value>
   </data>
-  <data name="_Alert_Position_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidPosition" xml:space="preserve">
     <value>Vui lòng chọn chức vụ hợp lệ.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -504,7 +504,7 @@
   <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
     <value>Mật khẩu hiện tại</value>
   </data>
-  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+  <data name="_Alert_Require_NewMail" xml:space="preserve">
     <value>Vui lòng nhập email mới.</value>
   </data>
   <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
@@ -756,7 +756,7 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>Chức vụ không hợp lệ.</value>
   </data>
-  <data name="ACP_NewEmail_Req" xml:space="preserve">
+  <data name="zzzxxxxx" xml:space="preserve">
     <value>Vui lòng nhập email mới.</value>
   </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
@@ -791,5 +791,17 @@
   </data>
   <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Thông báo mật khẩu tạm thời&lt;/h2&gt;&lt;p&gt;Xin chào, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Quản trị viên đã đặt lại mật khẩu tài khoản của bạn thành một mật khẩu tạm thời.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;Mật khẩu tạm thời:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;Nhấp vào nút bên dưới để &lt;strong&gt;đổi ngay sang mật khẩu mới&lt;/strong&gt;.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Đổi mật khẩu ngay&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Liên kết này &lt;strong&gt;có hiệu lực trong {3} phút&lt;/strong&gt; kể từ khi bạn nhận được.&lt;/p&gt;&lt;p&gt;Nếu nút không hoạt động, hãy sao chép và dán địa chỉ dưới đây vào trình duyệt.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Nếu không phải bạn yêu cầu, vui lòng bỏ qua email này.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email này được tạo và gửi tự động. Vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_User_IsActive" xml:space="preserve">
+    <value>Người dùng hoạt động</value>
+  </data>
+  <data name="_CM_Yes" xml:space="preserve">
+    <value>Đúng</value>
+  </data>
+  <data name="_CM_No" xml:space="preserve">
+    <value>Không</value>
+  </data>
+  <data name="ACP_User_IsApprover" xml:space="preserve">
+    <value>Người phê duyệt</value>
   </data>
 </root>

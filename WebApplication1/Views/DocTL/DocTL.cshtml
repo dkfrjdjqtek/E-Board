@@ -42,7 +42,7 @@
         </div>
 
         <div>
-            <label class="form-label mb-1">@S["_CD_Label_Department"]</label>
+            <label class="form-label mb-1">@S["_CM_Label_Department"]</label>
             <select id="deptSelect" class="form-select form-select-sm" name="SelectedDepartmentId">
                 @foreach (var it in Model.DepartmentOptions)
                 {
@@ -117,7 +117,7 @@
                             <select id="nt-compSel" class="form-select form-select-sm" @(isAdmin ? "" : "disabled")></select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label mb-1">@S["_CD_Label_Department"]</label>
+                            <label class="form-label mb-1">@S["_CM_Label_Department"]</label>
                             <select id="nt-deptSel" name="departmentId" class="form-select form-select-sm"></select>
                         </div>
                         <div class="col-md-4">
@@ -137,7 +137,7 @@
                                         <select id="ntk-compSel" class="form-select form-select-sm" @(isAdmin ? "" : "disabled")></select>
                                     </div>
                                     <div class="col-md-4">
-                                        <label class="form-label mb-1">@S["_CD_Label_Department"]</label>
+                                        <label class="form-label mb-1">@S["_CM_Label_Department"]</label>
                                         <select id="ntk-deptSel" class="form-select form-select-sm"></select>
                                     </div>
                                 </div>
@@ -196,7 +196,7 @@
                 ALL: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_All"].Value)),
                 NO_FILE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_File_NoFile"].Value)),
                 ALERT_SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_TemplateCategory_Required"].Value)),
-                ALERT_SITE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_Site_Required"].Value)),
+                ALERT_SITE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_Require_ValidSite"].Value)),
                 ALERT_DOCNAME: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterDocName"].Value)),
                 ALERT_XLS_REQ: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelRequired"].Value)),
                 ALERT_OPENXML: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelOpenXmlOnly"].Value)),

@@ -56,12 +56,12 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             [Display(Name = "_CM_Label_ID")]
             public string? UserName { get; set; }
 
-            [Display(Name = "_CD_Label_Department")]
-            [Required(ErrorMessage = "_Alert_Department_Required")]
+            [Display(Name = "_CM_Label_Department")]
+            [Required(ErrorMessage = "_Alert_Require_ValidDepartment")]
             public int? DepartmentId { get; set; }
 
             [Display(Name = "_CM_Label_Position")]
-            [Required(ErrorMessage = "_Alert_Position_Required")]
+            [Required(ErrorMessage = "_Alert_Require_ValidPosition")]
             public int? PositionId { get; set; }
 
             [Display(Name = "_CM_Label_Name")]
@@ -73,7 +73,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             public string? PhoneNumber { get; set; }
 
             [Display(Name = "_CM_Site_Label")]
-            [Required(ErrorMessage = "_Alert_Site_Required")]
+            [Required(ErrorMessage = "_Alert_Require_ValidSite")]
             public string? CompCd { get; set; }
 
             [DataType(DataType.Password), Display(Name = "CP_CurrentPwd_Label")]
@@ -89,7 +89,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
 
         public class EmailChangeInput
         {
-            [Required(ErrorMessage = "CP_EmailChange_NewEmail_Req")]
+            [Required(ErrorMessage = "_Alert_Require_NewMail")]
             [EmailAddress(ErrorMessage = "CP_Email_Invalid")]
             [Display(Name = "CP_EmailChange_NewEmail_Label")]
             public string? NewEmail { get; set; }

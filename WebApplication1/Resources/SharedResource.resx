@@ -336,7 +336,7 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>입력하신 메일로 비밀번호 재설정 링크를 전송했습니다.</value>
   </data>
-  <data name="FP_UserName_Placeholder" xml:space="preserve">
+  <data name="_Alert_Require_ID" xml:space="preserve">
     <value>아이디를 입력하세요.</value>
   </data>
   <data name="FP_UserName_Required" xml:space="preserve">
@@ -444,13 +444,13 @@
   <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>사업장 선택</value>
   </data>
-  <data name="_Alert_Site_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidSite" xml:space="preserve">
     <value>유효한 사업장을 선택하세요.</value>
   </data>
-  <data name="_Alert_Department_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidDepartment" xml:space="preserve">
     <value>유효한 부서를 선택하세요.</value>
   </data>
-  <data name="_Alert_Position_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidPosition" xml:space="preserve">
     <value>유효한 직급을 선택하세요.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -477,7 +477,7 @@
   <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
     <value>현재 비밀번호</value>
   </data>
-  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+  <data name="_Alert_Require_NewMail" xml:space="preserve">
     <value>새 이메일을 입력하세요.</value>
   </data>
   <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
@@ -756,7 +756,7 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>유효하지 않은 직급입니다.</value>
   </data>
-  <data name="ACP_NewEmail_Req" xml:space="preserve">
+  <data name="zzzxxxxx" xml:space="preserve">
     <value>새 이메일을 입력하세요.</value>
   </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
@@ -791,5 +791,17 @@
   </data>
   <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;임시 비밀번호 발행 안내&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;관리자가 회원님의 계정 비밀번호를 임시 비밀번호로 초기화했습니다.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;임시 비밀번호:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하여 &lt;strong&gt;새 비밀번호&lt;/strong&gt;로 즉시 변경해 주세요.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;비밀번호 변경하기&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신 시점부터 {3}분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 아래 주소를 복사해 브라우저에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시오.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_User_IsActive" xml:space="preserve">
+    <value>활성 사용자</value>
+  </data>
+  <data name="_CM_Yes" xml:space="preserve">
+    <value>네</value>
+  </data>
+  <data name="_CM_No" xml:space="preserve">
+    <value>아니오</value>
+  </data>
+  <data name="ACP_User_IsApprover" xml:space="preserve">
+    <value>승인권자</value>
   </data>
 </root>

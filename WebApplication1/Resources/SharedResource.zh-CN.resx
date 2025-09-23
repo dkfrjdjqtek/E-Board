@@ -363,7 +363,7 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>密码重置链接已发送到您输入的电子邮箱。</value>
   </data>
-  <data name="FP_UserName_Placeholder" xml:space="preserve">
+  <data name="_Alert_Require_ID" xml:space="preserve">
     <value>请输入账号。</value>
   </data>
   <data name="FP_UserName_Required" xml:space="preserve">
@@ -471,13 +471,13 @@
   <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>选择事业场所</value>
   </data>
-  <data name="_Alert_Site_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidSite" xml:space="preserve">
     <value>请选择有效的事业场所。</value>
   </data>
-  <data name="_Alert_Department_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidDepartment" xml:space="preserve">
     <value>请选择有效的部门。</value>
   </data>
-  <data name="_Alert_Position_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidPosition" xml:space="preserve">
     <value>请选择有效的职位。</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -504,7 +504,7 @@
   <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
     <value>当前密码</value>
   </data>
-  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+  <data name="_Alert_Require_NewMail" xml:space="preserve">
     <value>请输入新邮箱。</value>
   </data>
   <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
@@ -756,7 +756,7 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>无效的职位。</value>
   </data>
-  <data name="ACP_NewEmail_Req" xml:space="preserve">
+  <data name="zzzxxxxx" xml:space="preserve">
     <value>请输入新的邮箱。</value>
   </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
@@ -791,5 +791,17 @@
   </data>
   <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;临时密码通知&lt;/h2&gt;&lt;p&gt;您好，&lt;strong&gt;{0}&lt;/strong&gt;。&lt;/p&gt;&lt;p&gt;管理员已将您的账户密码重置为临时密码。&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;临时密码：&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;请点击下方按钮，&lt;strong&gt;立即更改为新密码&lt;/strong&gt;。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;立即更改密码&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;该链接自您收到之时起&lt;strong&gt;{3}分钟内&lt;/strong&gt;有效。&lt;/p&gt;&lt;p&gt;如果按钮无法打开，请复制下面的地址并粘贴到浏览器中。&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;若非您本人请求，请忽略本邮件。&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 本邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_User_IsActive" xml:space="preserve">
+    <value>活跃用户</value>
+  </data>
+  <data name="_CM_Yes" xml:space="preserve">
+    <value>是</value>
+  </data>
+  <data name="_CM_No" xml:space="preserve">
+    <value>否</value>
+  </data>
+  <data name="ACP_User_IsApprover" xml:space="preserve">
+    <value>审批人</value>
   </data>
 </root>

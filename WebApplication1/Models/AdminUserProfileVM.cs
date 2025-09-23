@@ -31,6 +31,8 @@ namespace WebApplication1.Models.ViewModels
         //public bool IsAdminChecked { get; set; }
         public int AdminLevel { get; set; }  // ⬅️ 추가
 
+        public bool IsActive { get; set; } = true;
+
         // 드롭다운
         public List<SelectListItem> CompList { get; set; } = new();
         public List<SelectListItem> DeptList { get; set; } = new();

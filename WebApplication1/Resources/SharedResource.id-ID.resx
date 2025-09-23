@@ -360,7 +360,7 @@
   <data name="FPC_Message" xml:space="preserve">
     <value>Tautan penyetelan ulang kata sandi telah dikirim ke email yang Anda masukkan.</value>
   </data>
-  <data name="FP_UserName_Placeholder" xml:space="preserve">
+  <data name="_Alert_Require_ID" xml:space="preserve">
     <value>Masukkan ID Anda.</value>
   </data>
   <data name="FP_UserName_Required" xml:space="preserve">
@@ -468,13 +468,13 @@
   <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>Pilih Situs</value>
   </data>
-  <data name="_Alert_Site_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidSite" xml:space="preserve">
     <value>Silakan pilih lokasi yang valid.</value>
   </data>
-  <data name="_Alert_Department_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidDepartment" xml:space="preserve">
     <value>Silakan pilih departemen yang valid.</value>
   </data>
-  <data name="_Alert_Position_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidPosition" xml:space="preserve">
     <value>Silakan pilih jabatan yang valid.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -501,7 +501,7 @@
   <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
     <value>Kata sandi saat ini</value>
   </data>
-  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+  <data name="_Alert_Require_NewMail" xml:space="preserve">
     <value>Harap masukkan email baru.</value>
   </data>
   <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
@@ -756,7 +756,7 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>Jabatan tidak valid.</value>
   </data>
-  <data name="ACP_NewEmail_Req" xml:space="preserve">
+  <data name="zzzxxxxx" xml:space="preserve">
     <value>Masukkan email baru.</value>
   </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
@@ -791,5 +791,17 @@
   </data>
   <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="id"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Pemberitahuan Kata Sandi Sementara&lt;/h2&gt;&lt;p&gt;Halo, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Administrator telah mengatur ulang kata sandi akun Anda menjadi kata sandi sementara.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;Kata sandi sementara:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;Klik tombol di bawah untuk &lt;strong&gt;mengganti ke kata sandi baru&lt;/strong&gt; sekarang.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Ubah kata sandi sekarang&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Tautan ini &lt;strong&gt;berlaku selama {3} menit&lt;/strong&gt; sejak diterima.&lt;/p&gt;&lt;p&gt;Jika tombol tidak berfungsi, salin dan tempel alamat di bawah ini ke peramban Anda.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Jika Anda tidak meminta ini, abaikan email ini.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email ini dibuat dan dikirim secara otomatis. Mohon jangan membalas.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_User_IsActive" xml:space="preserve">
+    <value>Pengguna aktif</value>
+  </data>
+  <data name="_CM_Yes" xml:space="preserve">
+    <value>Ya</value>
+  </data>
+  <data name="_CM_No" xml:space="preserve">
+    <value>Tidak</value>
+  </data>
+  <data name="ACP_User_IsApprover" xml:space="preserve">
+    <value>Penyetuju</value>
   </data>
 </root>

@@ -336,7 +336,7 @@
   <data name="FPC_BTN_BackToLogin" xml:space="preserve">
     <value>Back to log in</value>
   </data>
-  <data name="FP_UserName_Placeholder" xml:space="preserve">
+  <data name="_Alert_Require_ID" xml:space="preserve">
     <value>Enter your ID.</value>
   </data>
   <data name="FP_UserName_Required" xml:space="preserve">
@@ -444,13 +444,13 @@
   <data name="_CM_Site_Placeholder" xml:space="preserve">
     <value>Select a site</value>
   </data>
-  <data name="_Alert_Site_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidSite" xml:space="preserve">
     <value>Please select a valid site.</value>
   </data>
-  <data name="_Alert_Department_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidDepartment" xml:space="preserve">
     <value>Please select a valid department.</value>
   </data>
-  <data name="_Alert_Position_Required" xml:space="preserve">
+  <data name="_Alert_Require_ValidPosition" xml:space="preserve">
     <value>Please select a valid position.</value>
   </data>
   <data name="CP_CurrentPwd_Label" xml:space="preserve">
@@ -477,7 +477,7 @@
   <data name="CP_EmailChange_CurrentPwd_Label" xml:space="preserve">
     <value>Current password</value>
   </data>
-  <data name="CP_EmailChange_NewEmail_Req" xml:space="preserve">
+  <data name="_Alert_Require_NewMail" xml:space="preserve">
     <value>Please enter a new email.</value>
   </data>
   <data name="CP_EmailChange_CurrentPwd_Req" xml:space="preserve">
@@ -756,7 +756,7 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>Invalid position.</value>
   </data>
-  <data name="ACP_NewEmail_Req" xml:space="preserve">
+  <data name="zzzxxxxx" xml:space="preserve">
     <value>Please enter a new email.</value>
   </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
@@ -791,5 +791,17 @@
   </data>
   <data name="ACP_TempPW_BodyHtml" xml:space="preserve">
     <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Temporary Password Notice&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;An administrator has reset your account password to a temporary password.&lt;/p&gt;&lt;p style="margin:12px 0;padding:10px;background:#f8f9fa;border:1px solid #eee;border-radius:6px;"&gt;&lt;strong&gt;Temporary password:&lt;/strong&gt; {1}&lt;/p&gt;&lt;p&gt;Click the button below to &lt;strong&gt;change it to a new password&lt;/strong&gt; immediately.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{2}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Change password now&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;This link is &lt;strong&gt;valid for {3} minutes&lt;/strong&gt; from the time it was received.&lt;/p&gt;&lt;p&gt;If the button does not work, copy and paste the URL below into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{2}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you did not request this, you can safely ignore this email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="ACP_User_IsActive" xml:space="preserve">
+    <value>Active user</value>
+  </data>
+  <data name="_CM_Yes" xml:space="preserve">
+    <value>Yes</value>
+  </data>
+  <data name="_CM_No" xml:space="preserve">
+    <value>No</value>
+  </data>
+  <data name="ACP_User_IsApprover" xml:space="preserve">
+    <value>Approver</value>
   </data>
 </root>
