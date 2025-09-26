@@ -685,13 +685,13 @@
     <value>관리자 사용자 프로필</value>
   </data>
   <data name="ACP_Search_Label" xml:space="preserve">
-    <value>계정 검색 (ID / 이메일)</value>
+    <value>계정 검색 (아이디 / 이메일)</value>
   </data>
   <data name="ACP_Search_Placeholder" xml:space="preserve">
     <value>검색어 입력</value>
   </data>
-  <data name="ACP_Search_Load" xml:space="preserve">
-    <value>가져오기</value>
+  <data name="_CM_Search" xml:space="preserve">
+    <value>검색</value>
   </data>
   <data name="ACP_AccountSelect_Label" xml:space="preserve">
     <value>계정 선택</value>
@@ -756,9 +756,6 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>유효하지 않은 직급입니다.</value>
   </data>
-  <data name="zzzxxxxx" xml:space="preserve">
-    <value>새 이메일을 입력하세요.</value>
-  </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
     <value>이미 사용 중인 이메일입니다.</value>
   </data>
@@ -803,5 +800,92 @@
   </data>
   <data name="ACP_User_IsApprover" xml:space="preserve">
     <value>승인권자</value>
+  </data>
+  <data name="_Alert_Duplicate_EMail" xml:space="preserve">
+    <value>이미 등록된 이메일입니다.</value>
+  </data>
+  <data name="_Alert_Duplicate_ID" xml:space="preserve">
+    <value>이미 등록된 아이디입니다.</value>
+  </data>
+  <data name="IL_Title" xml:space="preserve">
+    <value>계정 초대</value>
+  </data>
+  <data name="IL_Redirecting" xml:space="preserve">
+    <value>비밀번호 설정 화면으로 이동 중입니다.</value>
+  </data>
+  <data name="IL_BackToLogin" xml:space="preserve">
+    <value>로그인으로 돌아가기</value>
+  </data>
+  <data name="IL_NoScript_Help" xml:space="preserve">
+    <value>페이지가 이동하지 않으면 위 버튼을 클릭하세요.</value>
+  </data>
+  <data name="IL_Invalid" xml:space="preserve">
+    <value>유효하지 않은 초대 링크입니다.</value>
+  </data>
+  <data name="IL_User_NotFound" xml:space="preserve">
+    <value>사용자를 찾을 수 없습니다.</value>
+  </data>
+  <data name="IL_Email_Mismatch" xml:space="preserve">
+    <value>초대된 계정의 이메일과 일치하지 않습니다.</value>
+  </data>
+  <data name="IL_EmailConfirm_Failed" xml:space="preserve">
+    <value>이메일 확인에 실패했습니다.</value>
+  </data>
+  <data name="IL_Token_Invalid" xml:space="preserve">
+    <value>토큰이 유효하지 않거나 만료되었습니다.</value>
+  </data>
+  <data name="IL_Redirect_Failed" xml:space="preserve">
+    <value>비밀번호 설정 화면으로 이동할 수 없습니다.</value>
+  </data>
+  <data name="IL_Email_Subject" xml:space="preserve">
+    <value>[E-Board] 계정 초대</value>
+  </data>
+  <data name="IL_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;계정 초대&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하시면 등록된 메일이 승인되며 비밀번호를 설정하실 수 있습니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;계정 초대&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;이 링크는 &lt;strong&gt;수신된 시간으로부터 {2}분간&lt;/strong&gt; 유효합니다.&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시요.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="IL_Header" xml:space="preserve">
+    <value>계정 설정을 완료해 주세요</value>
+  </data>
+  <data name="IL_Instruction" xml:space="preserve">
+    <value>계정을 활성화하려면 새 비밀번호를 설정해 주세요.</value>
+  </data>
+  <data name="IL_Label_NewPassword" xml:space="preserve">
+    <value>새 비밀번호</value>
+  </data>
+  <data name="IL_Label_ConfirmPassword" xml:space="preserve">
+    <value>새 비밀번호 확인</value>
+  </data>
+  <data name="IL_Button_Complete" xml:space="preserve">
+    <value>설정 완료</value>
+  </data>
+  <data name="IL_Error_InvalidLink" xml:space="preserve">
+    <value>링크가 올바르지 않거나 만료되었습니다.</value>
+  </data>
+  <data name="IL_Error_UserNotFound" xml:space="preserve">
+    <value>사용자를 찾을 수 없습니다.</value>
+  </data>
+  <data name="IL_Error_Token" xml:space="preserve">
+    <value>토큰이 올바르지 않거나 만료되었습니다.</value>
+  </data>
+  <data name="IL_Error_ConfirmEmail" xml:space="preserve">
+    <value>이메일 확인에 실패했습니다 {0}</value>
+  </data>
+  <data name="IL_Confirm_Mismatch" xml:space="preserve">
+    <value>비밀번호가 일치하지 않습니다.</value>
+  </data>
+  <data name="IL_Completed" xml:space="preserve">
+    <value>비밀번호가 설정되었습니다 로그인해 주세요.</value>
+  </data>
+  <data name="_Alert_Require_NewPassword" xml:space="preserve">
+    <value>새 비밀번호를 입력해 주세요.</value>
+  </data>
+  <data name="_Alert_Require_ConfirmPassword" xml:space="preserve">
+    <value>새 비밀번호 확인을 입력해 주세요.</value>
+  </data>
+  <data name="ACP_Button_Invitation" xml:space="preserve">
+    <value>초대장 발행</value>
+  </data>
+  <data name="_Alert_Unconfirm_Mail" xml:space="preserve">
+    <value>이 계정은 메일 확인이 되지 않았습니다.</value>
   </data>
 </root>

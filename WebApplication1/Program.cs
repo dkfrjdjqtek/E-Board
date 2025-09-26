@@ -88,6 +88,12 @@ builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
     o.TokenLifespan = TimeSpan.FromMinutes(30);
 });
 
+// 2025.09.26 Added: 신규 사용자 초대 플로우 안전성 강화를 위한 이메일 확인 요구 설정
+builder.Services.Configure<IdentityOptions>(o =>
+{
+    // 기존 설정 존재 시 유지 필수 다른 옵션 변경 금지
+    o.SignIn.RequireConfirmedEmail = true; // 2025.09.26 Added: 초대 완료 전 로그인 방지
+});
 // 커스텀 클레임 팩토리(있을 때만)
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 

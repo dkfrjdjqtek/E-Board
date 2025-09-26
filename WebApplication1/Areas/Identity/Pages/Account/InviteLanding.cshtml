@@ -1,0 +1,68 @@
+﻿@* 2025.09.26 Changed: 요약 알럿을 카드 바깥 상단으로 이동 + asp-validation-summary를 div에 적용하여 실제 목록(li) 출력; 붉은색 alert-danger 고정 *@
+@page
+@model WebApplication1.Areas.Identity.Pages.Account.InviteLandingModel
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["IL_Title"];
+    // 2025.09.26 Added: 서버 렌더 시 에러 유무 판단(초기 표시)
+    var hasErrors = ViewData.ModelState.Values.Any(v => v.Errors?.Count > 0);
+}
+
+<h2 class="mb-3">@S["IL_Title"]</h2> 
+
+<form method="post" class="mt-3">
+    @Html.AntiForgeryToken()
+
+    @* 2025.09.26 Changed: Admin 스타일과 동일하게 본문 상단에 붉은 요약 알럿 표시(서버 즉시 렌더 + EB-VALIDATE 연동) *@
+    <div id="il-alert" class="alert alert-danger @(hasErrors ? "" : "d-none")" role="alert"
+         asp-validation-summary="All" data-eb-validate="summary"></div>
+
+    <input type="hidden" asp-for="VM.UserId" />
+    <input type="hidden" asp-for="VM.Email" />
+    <input type="hidden" asp-for="VM.Ec" />
+    <input type="hidden" asp-for="VM.Rp" />
+
+    <div class="card">
+        <div class="card-header">
+            @S["IL_Header"]
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-4">@S["IL_Instruction"]</p>
+
+            <div class="mb-3">
+                <label class="form-label" asp-for="VM.Password">@S["IL_Label_NewPassword"]</label>
+                <input class="form-control" asp-for="VM.Password" type="password" autocomplete="new-password" />
+                <span class="text-danger" asp-validation-for="VM.Password" data-eb-validate="field"></span>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" asp-for="VM.ConfirmPassword">@S["IL_Label_ConfirmPassword"]</label>
+                <input class="form-control" asp-for="VM.ConfirmPassword" type="password" autocomplete="new-password" />
+                <span class="text-danger" asp-validation-for="VM.ConfirmPassword" data-eb-validate="field"></span>
+            </div>
+
+            <button type="submit" class="btn btn-primary">@S["IL_Button_Complete"]</button>
+        </div>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        // 2025.09.26 Changed: EB-VALIDATE 활성화(요약/필드 동시 관리). 요약에 항목이 생기면 붉은 알럿 표시
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.EB && typeof window.EB.validate === 'function') {
+                window.EB.validate({
+                    summarySelector: '#il-alert',                 // div 자체에 연결(asp-validation-summary가 div에 적용됨)
+                    fieldSelector: '[data-eb-validate="field"]',
+                    onSummaryChange: function (hasErrors) {
+                        var box = document.getElementById('il-alert');
+                        if (!box) return;
+                        if (hasErrors) box.classList.remove('d-none');
+                        else box.classList.add('d-none');
+                    }
+                });
+            }
+        });
+    </script>
+}

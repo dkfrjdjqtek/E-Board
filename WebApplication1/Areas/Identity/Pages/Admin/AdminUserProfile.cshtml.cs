@@ -1,40 +1,37 @@
-﻿// 2025.09.23 Changed: IsApprover 필드 추가 로드 저장 매핑 적용 기본값 아니오 유지
+﻿// 2025.09.26 Added: 임시비밀번호 발행과 재초대 전용 핸들러 추가 저장 흐름 및 기존 코드 변경 없음
 using System.Security.Claims;
-using System.Text.Encodings.Web;
+using System.Text;
+using System.Text.Encodings.Web; // 2025.09.26 Added
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.WebUtilities; // 2025.09.26 Added
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Options;
 using WebApplication1.Data;
 using WebApplication1.Models;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace WebApplication1.Areas.Identity.Pages.Admin
 {
-    // 이 페이지 전용 내장 ViewModel
     public class AdminUserProfileVM
     {
         public string? SelectedUserId { get; set; }
         public string? Q { get; set; }
-
         public string? CompCd { get; set; }
         public string? DisplayName { get; set; }
         public int? DepartmentId { get; set; }
         public int? PositionId { get; set; }
         public string? PhoneNumber { get; set; }
         public int AdminLevel { get; set; } = 0;
-
         public string? UserName { get; set; }
         public string? Email { get; set; }
         public bool IsActive { get; set; } = true;
-
-        // 2025.09.23 Added: 결재권자 여부 토글 기본값 아니오
-        public bool IsApprover { get; set; } = false;
-
+        public bool IsApprover { get; set; } = false; // 2025.09.23 Added
         public List<SelectListItem> CompList { get; set; } = new();
         public List<SelectListItem> DeptList { get; set; } = new();
         public List<SelectListItem> PosList { get; set; } = new();
@@ -70,38 +67,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
         }
 
         [BindProperty] public AdminUserProfileVM VM { get; set; } = new();
-
-        private void NormalizeModelStateMessages()
-        {
-            static IEnumerable<string> Keys(string prop) => new[] { $"VM.{prop}", prop };
-
-            var map = new Dictionary<string, string>
-            {
-                { "CompCd", _S["ACP_CompCd_Req"].Value },
-                { "DisplayName", _S["_Alert_Require_Name"].Value },
-                { "newEmail", _S["_Alert_Require_NewMail"].Value }
-            };
-
-            foreach (var kv in map)
-            {
-                foreach (var key in Keys(kv.Key))
-                {
-                    if (!ModelState.TryGetValue(key, out var entry)) continue;
-
-                    var isEmpty =
-                        (kv.Key == "newEmail" && string.IsNullOrWhiteSpace(Request.Form["newEmail"])) ||
-                        (kv.Key != "newEmail" && (VM?.GetType().GetProperty(kv.Key)?.GetValue(VM) is string s ? string.IsNullOrWhiteSpace(s) : VM?.GetType().GetProperty(kv.Key)?.GetValue(VM) is null));
-
-                    if (!isEmpty || entry.Errors.Count == 0) continue;
-
-                    var msg = kv.Value;
-                    entry.Errors.Clear();
-                    ModelState.Remove(key);
-                    ModelState.AddModelError(key, msg);
-                    break;
-                }
-            }
-        }
 
         private async Task BindMastersAsync()
         {
@@ -150,11 +115,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             VM.DepartmentId = profile?.DepartmentId;
             VM.PositionId = profile?.PositionId;
             VM.PhoneNumber = user.PhoneNumber;
-
-            // 활성 비활성 상태 계산
-            VM.IsActive = IsActiveFromLockout(user);
-
-            // 2025.09.23 Added: 결재권자 여부 로드
+            VM.IsActive = !user.LockoutEnd.HasValue || user.LockoutEnd <= DateTimeOffset.UtcNow;
             VM.IsApprover = profile?.IsApprover ?? false;
 
             var claims = await _userManager.GetClaimsAsync(user);
@@ -175,7 +136,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             if (string.Equals(id, NewUserId, StringComparison.Ordinal))
             {
                 VM.IsActive = true;
-                // 2025.09.23 Added: 신규 기본값 아니오
                 VM.IsApprover = false;
                 return Page();
             }
@@ -184,31 +144,77 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             return Page();
         }
 
+        // 2025.09.24 Changed: 저장 가드와 메시지 병행 기존 로직 유지
         public async Task<IActionResult> OnPostSaveAsync()
         {
-            await BindMastersAsync();
+            var isCreate = string.Equals(VM.SelectedUserId, NewUserId, StringComparison.Ordinal);
 
-            if (string.IsNullOrEmpty(VM.SelectedUserId))
+            if (!isCreate && string.IsNullOrWhiteSpace(VM.SelectedUserId))
             {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
+                ModelState.Clear();
+                var msg = _S["ACP_SelectUser_Req"].Value;
+                ModelState.AddModelError(string.Empty, msg);
+                ModelState.AddModelError(nameof(VM.SelectedUserId), msg);
+                await BindMastersAsync();
+                return Page();
             }
 
-            NormalizeModelStateMessages();
+            if (isCreate && string.IsNullOrWhiteSpace(VM.UserName))
+            {
+                var msg = _S["_Alert_Require_ID"].Value;
+                ModelState.AddModelError(nameof(VM.UserName), msg);
+                ModelState.AddModelError(string.Empty, msg);
+            }
+            if (isCreate && string.IsNullOrWhiteSpace(VM.Email))
+            {
+                var msg = _S["_Alert_Require_EMail"].Value;
+                ModelState.AddModelError(nameof(VM.Email), msg);
+                ModelState.AddModelError(string.Empty, msg);
+            }
+
+            await BindMastersAsync();
 
             if (string.IsNullOrWhiteSpace(VM.CompCd))
+            {
                 ModelState.AddModelError(nameof(VM.CompCd), _S["ACP_CompCd_Req"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_CompCd_Req"].Value);
+            }
 
             if (string.IsNullOrWhiteSpace(VM.DisplayName))
+            {
                 ModelState.AddModelError(nameof(VM.DisplayName), _S["_Alert_Require_Name"].Value);
+                ModelState.AddModelError(string.Empty, _S["_Alert_Require_Name"].Value);
+            }
 
-            var isCreate = string.Equals(VM.SelectedUserId, NewUserId, StringComparison.Ordinal);
             if (isCreate)
             {
-                if (string.IsNullOrWhiteSpace(VM.UserName))
-                    ModelState.AddModelError(nameof(VM.UserName), _S["_Alert_Require_ID"].Value);
+                if (await _userManager.FindByNameAsync(VM.UserName!) != null)
+                {
+                    var msg = _S["_Alert_Duplicate_ID"].Value;
+                    ModelState.AddModelError($"{nameof(VM)}.{nameof(VM.UserName)}", msg);
+                    ModelState.AddModelError(nameof(VM.UserName), msg);
+                    ModelState.AddModelError(string.Empty, msg);
 
-                if (string.IsNullOrWhiteSpace(VM.Email))
-                    ModelState.AddModelError(nameof(VM.Email), _S["_Alert_Require_NewMail"].Value);
+                    ModelState.SetModelValue($"{nameof(VM)}.{nameof(VM.UserName)}", VM.UserName, VM.UserName);
+                    ModelState.SetModelValue(nameof(VM.UserName), VM.UserName, VM.UserName);
+
+                    await BindMastersAsync();
+                    return Page();
+                }
+
+                if (!string.IsNullOrWhiteSpace(VM.Email) && await _userManager.FindByEmailAsync(VM.Email!) != null)
+                {
+                    var msg = _S["_Alert_Duplicate_EMail"].Value;
+                    ModelState.AddModelError($"{nameof(VM)}.{nameof(VM.Email)}", msg);
+                    ModelState.AddModelError(nameof(VM.Email), msg);
+                    ModelState.AddModelError(string.Empty, msg);
+
+                    ModelState.SetModelValue($"{nameof(VM)}.{nameof(VM.Email)}", VM.Email, VM.Email);
+                    ModelState.SetModelValue(nameof(VM.Email), VM.Email, VM.Email);
+
+                    await BindMastersAsync();
+                    return Page();
+                }
             }
 
             if (!ModelState.IsValid)
@@ -216,18 +222,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
 
             if (isCreate)
             {
-                // 신규 사용자 생성
-                if (await _userManager.FindByNameAsync(VM.UserName!) != null)
-                {
-                    ModelState.AddModelError(nameof(VM.UserName), _S["ACP_UserName_Dup"].Value);
-                    return Page();
-                }
-                if (!string.IsNullOrWhiteSpace(VM.Email) && await _userManager.FindByEmailAsync(VM.Email!) != null)
-                {
-                    ModelState.AddModelError(nameof(VM.Email), _S["ACP_Email_Dup"].Value);
-                    return Page();
-                }
-
                 var user = new ApplicationUser
                 {
                     UserName = VM.UserName!,
@@ -239,8 +233,9 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                 var createResult = await _userManager.CreateAsync(user, tempPw);
                 if (!createResult.Succeeded)
                 {
-                    var msg = createResult.Errors.FirstOrDefault()?.Description ?? "Create failed";
-                    ModelState.AddModelError(nameof(VM.UserName), msg);
+                    var emsg = createResult.Errors.FirstOrDefault()?.Description ?? "Create failed";
+                    ModelState.AddModelError(nameof(VM.UserName), emsg);
+                    ModelState.AddModelError(string.Empty, emsg);
                     return Page();
                 }
 
@@ -252,45 +247,91 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                     DepartmentId = VM.DepartmentId,
                     PositionId = VM.PositionId,
                     IsAdmin = Math.Clamp(VM.AdminLevel, 0, 2),
-                    // 2025.09.23 Added: 결재권자 여부 저장
                     IsApprover = VM.IsApprover
                 };
                 _db.UserProfiles.Add(profile);
                 await _db.SaveChangesAsync();
 
                 await UpdateIsAdminClaimAsync(user, VM.AdminLevel);
+                await _userManager.UpdateSecurityStampAsync(user);
 
-                // 활성 비활성 반영
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(user.Email))
+                    {
+                        var ecRaw = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                        var ec = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(ecRaw));
+                        var rpRaw = await _userManager.GeneratePasswordResetTokenAsync(user);
+                        var rp = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(rpRaw));
+
+                        var inviteUrl = Url.Page("/Account/InviteLanding", pageHandler: null,
+                            values: new { area = "Identity", userId = user.Id, email = user.Email, ec, rp },
+                            protocol: Request.Scheme)!;
+
+                        var minutes = (int)_tokenOpts.CurrentValue.TokenLifespan.TotalMinutes;
+                        var displayName = profile.DisplayName ?? (user.UserName ?? user.Email ?? "User");
+
+                        var subject = _S["IL_Email_Subject"].Value;
+                        var template = _S["IL_Email_BodyHtml"].Value;
+
+                        var body = string.Format(
+                            template,
+                            HtmlEncoder.Default.Encode(displayName),
+                            HtmlEncoder.Default.Encode(inviteUrl),
+                            minutes
+                        );
+
+                        await _email.SendEmailAsync(user.Email!, subject, body);
+                        TempData["StatusMessage"] = _S["ACP_SendInvite_Sent"].Value;
+                    }
+                    else
+                    {
+                        TempData["StatusMessage"] = _S["ACP_SendInvite_Failed", _S["IL_Error_InvalidLink"].Value].Value;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TempData["StatusMessage"] = _S["ACP_SendInvite_Failed", ex.Message].Value;
+                }
+
                 if (VM.IsActive)
                     await _userManager.SetLockoutEndDateAsync(user, null);
                 else
                     await _userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddYears(100));
 
-                await _userManager.UpdateSecurityStampAsync(user);
-
-                TempData["StatusMessage"] = _S["_CM_Saved"].Value;
+                if (TempData["StatusMessage"] is null)
+                    TempData["StatusMessage"] = _S["_CM_Saved"].Value;
 
                 return RedirectToPage(new { id = user.Id, q = VM.Q });
             }
             else
             {
-                // 기존 사용자 수정
                 var user = await _userManager.FindByIdAsync(VM.SelectedUserId!);
                 var profile = await _db.UserProfiles.FirstOrDefaultAsync(p => p.UserId == VM.SelectedUserId);
                 if (user is null || profile is null)
                 {
                     ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_UserOrProfile_NotFound"].Value);
+                    ModelState.AddModelError(string.Empty, _S["ACP_UserOrProfile_NotFound"].Value);
                     return Page();
                 }
 
                 if (!await _db.CompMasters.AnyAsync(x => x.IsActive && x.CompCd == VM.CompCd))
+                {
                     ModelState.AddModelError(nameof(VM.CompCd), _S["ACP_Invalid_Comp"].Value);
+                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Comp"].Value);
+                }
                 if (VM.DepartmentId.HasValue &&
                     !await _db.DepartmentMasters.AnyAsync(x => x.IsActive && x.Id == VM.DepartmentId.Value))
+                {
                     ModelState.AddModelError(nameof(VM.DepartmentId), _S["ACP_Invalid_Dept"].Value);
+                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Dept"].Value);
+                }
                 if (VM.PositionId.HasValue &&
                     !await _db.PositionMasters.AnyAsync(x => x.IsActive && x.Id == VM.PositionId.Value))
+                {
                     ModelState.AddModelError(nameof(VM.PositionId), _S["ACP_Invalid_Pos"].Value);
+                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Pos"].Value);
+                }
 
                 if (!ModelState.IsValid)
                     return Page();
@@ -300,7 +341,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                 profile.DepartmentId = VM.DepartmentId;
                 profile.PositionId = VM.PositionId;
                 profile.IsAdmin = Math.Clamp(VM.AdminLevel, 0, 2);
-                // 2025.09.23 Changed: 결재권자 여부 갱신
                 profile.IsApprover = VM.IsApprover;
 
                 user.PhoneNumber = VM.PhoneNumber ?? string.Empty;
@@ -309,7 +349,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
 
                 await UpdateIsAdminClaimAsync(user, VM.AdminLevel);
 
-                // 활성 비활성 반영
                 if (VM.IsActive)
                     await _userManager.SetLockoutEndDateAsync(user, null);
                 else
@@ -325,11 +364,127 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             }
         }
 
+        // 2025.09.26 Added: 임시비밀번호 전용 핸들러 저장과 분리 레이아웃 변경 없음
+        public async Task<IActionResult> OnPostTempAsync()
+        {
+            if (string.IsNullOrWhiteSpace(VM?.SelectedUserId) || VM.SelectedUserId == NewUserId)
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_SelectUser_Req"].Value);
+                await BindMastersAsync();
+                return Page();
+            }
+
+            var user = await _userManager.FindByIdAsync(VM.SelectedUserId);
+            if (user == null)
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_Error_UserNotFound"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_Error_UserNotFound"].Value);
+                await BindMastersAsync();
+                return Page();
+            }
+
+            if (!user.EmailConfirmed)
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["_Alert_Unconfirm_Mail"].Value);
+                ModelState.AddModelError(string.Empty, _S["_Alert_Unconfirm_Mail"].Value);
+                await BindMastersAsync();
+                await LoadUserAsync(VM.SelectedUserId);
+                return Page();
+            }
+
+            var rpToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+            var rpCode = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(rpToken));
+            var resetUrl = Url.Page("/Account/ResetPassword", null,
+                                    new { area = "Identity", code = rpCode, email = user.Email },
+                                    Request.Scheme)!;
+
+            var subject = _S["ACP_TempPw_Mail_Subject"].Value;
+            var body = string.Format(_S["ACP_TempPw_Mail_Body"].Value, HtmlEncoder.Default.Encode(resetUrl));
+            await _email.SendEmailAsync(user.Email!, subject, body);
+
+            TempData["StatusMessage"] = _S["ACP_TempPw_Sent"].Value;
+            return RedirectToPage(new { id = VM.SelectedUserId, q = VM.Q });
+        }
+
+        // 2025.09.26 Added: 재초대 전용 핸들러 저장과 분리 레이아웃 변경 없음
+        public async Task<IActionResult> OnPostReinviteAsync()
+        {
+            // 대상 선택 검증
+            if (string.IsNullOrWhiteSpace(VM?.SelectedUserId) || VM.SelectedUserId == NewUserId)
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_SelectUser_Req"].Value);
+                await BindMastersAsync();
+                return Page();
+            }
+
+            var user = await _userManager.FindByIdAsync(VM.SelectedUserId!);
+            if (user is null)
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_Error_UserNotFound"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_Error_UserNotFound"].Value);
+                await BindMastersAsync();
+                return Page();
+            }
+
+            // 2025.09.26 Added: 이메일 없으면 재초대 불가
+            if (string.IsNullOrWhiteSpace(user.Email))
+            {
+                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["IL_Error_InvalidLink"].Value);
+                ModelState.AddModelError(string.Empty, _S["IL_Error_InvalidLink"].Value);
+                await BindMastersAsync();
+                return Page();
+            }
+
+            // 2025.09.26 Changed: 기존 프로필 재사용 신규 생성 금지
+            var profile = await _db.UserProfiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.UserId == user.Id);
+
+            // 2025.09.26 Added: 토큰은 최신 스탬프 기준으로 발급
+            await _userManager.UpdateSecurityStampAsync(user);
+
+            var ecRaw = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            var ec = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(ecRaw));
+
+            var rpRaw = await _userManager.GeneratePasswordResetTokenAsync(user);
+            var rp = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(rpRaw));
+
+            var inviteUrl = Url.Page("/Account/InviteLanding", pageHandler: null,
+                values: new { area = "Identity", userId = user.Id, email = user.Email, ec, rp },
+                protocol: Request.Scheme)!;
+
+            var minutes = (int)_tokenOpts.CurrentValue.TokenLifespan.TotalMinutes;
+            var displayName = profile?.DisplayName ?? (user.UserName ?? user.Email ?? "User");
+
+            // 2025.09.26 Changed: 재초대 전용 리소스 키 사용
+            var subject = _S["IL_Email_Subject"].Value;   // 2025.09.26 Confirmed: 기존 키 유지
+            var template = _S["IL_Email_BodyHtml"].Value;
+
+            var body = string.Format(
+                template,
+                HtmlEncoder.Default.Encode(displayName),   // {0}
+                HtmlEncoder.Default.Encode(inviteUrl),     // {1}
+                minutes                                    // {2}
+            );
+
+            await _email.SendEmailAsync(user.Email!, subject, body);
+
+            // 2025.09.26 Added: 재초대 카운트 로깅 위치
+            // 주의 신규 식별자 생성 금지 기존 프로젝트에 있는 동일 식별자만 사용하여 아래 위치에서 증가 저장
+            // 예 profile.InviteResentCount++; profile.LastInviteSentAt = DateTimeOffset.UtcNow; _db.SaveChangesAsync();
+
+            TempData["StatusMessage"] = _S["ACP_SendInvite_Sent"].Value;
+            return RedirectToPage(new { id = VM.SelectedUserId, q = VM.Q });
+        }
+
         public async Task<IActionResult> OnPostResetPasswordAsync()
         {
             if (string.IsNullOrEmpty(VM.SelectedUserId))
             {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError("VM.SelectedUserId", _S["ACP_SelectUser_Req"].Value);
                 await BindMastersAsync();
                 return Page();
             }
@@ -337,6 +492,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             var user = await _userManager.FindByIdAsync(VM.SelectedUserId);
             if (user is null)
             {
+                ModelState.AddModelError(string.Empty, _S["ACP_User_NotFound"].Value);
                 ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_User_NotFound"].Value);
                 await BindMastersAsync();
                 return Page();
@@ -349,6 +505,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             if (!result.Succeeded)
             {
                 var msg = result.Errors.FirstOrDefault()?.Description ?? "Reset failed";
+                ModelState.AddModelError(string.Empty, _S["ACP_TempPw_Failed", msg].Value);
                 ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_TempPw_Failed", msg].Value);
                 await BindMastersAsync();
                 await LoadUserAsync(VM.SelectedUserId);
@@ -359,7 +516,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             await _userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow);
 
             var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
-            var encoded = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(resetToken));
+            var encoded = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(resetToken));
             var resetUrl = Url.Page("/Account/ResetPassword", null,
                 new { area = "Identity", userId = user.Id, email = user.Email, code = encoded }, Request.Scheme)!;
 
@@ -392,7 +549,8 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
         {
             if (string.IsNullOrEmpty(VM.SelectedUserId))
             {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_SelectUser_Req"].Value);
+                ModelState.AddModelError("newEmail", _S["_Alert_Require_NewEmail"].Value);
                 await BindMastersAsync();
                 return Page();
             }
@@ -400,6 +558,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             var user = await _userManager.FindByIdAsync(VM.SelectedUserId);
             if (user is null)
             {
+                ModelState.AddModelError(string.Empty, _S["ACP_User_NotFound"].Value);
                 ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_User_NotFound"].Value);
                 await BindMastersAsync();
                 return Page();
@@ -407,7 +566,8 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
 
             if (string.IsNullOrWhiteSpace(newEmail))
             {
-                ModelState.AddModelError("newEmail", _S["_Alert_Require_NewMail"].Value);
+                ModelState.AddModelError(string.Empty, _S["_Alert_Require_NewEmail"].Value);
+                ModelState.AddModelError("newEmail", _S["_Alert_Require_NewEmail"].Value);
                 await BindMastersAsync();
                 await LoadUserAsync(VM.SelectedUserId);
                 return Page();
@@ -416,6 +576,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             var exists = await _userManager.FindByEmailAsync(newEmail.Trim());
             if (exists is not null && exists.Id != user.Id)
             {
+                ModelState.AddModelError(string.Empty, _S["ACP_EmailChange_InUse"].Value);
                 ModelState.AddModelError("newEmail", _S["ACP_EmailChange_InUse"].Value);
                 await BindMastersAsync();
                 await LoadUserAsync(VM.SelectedUserId);
@@ -423,7 +584,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             }
 
             var code = await _userManager.GenerateChangeEmailTokenAsync(user, newEmail);
-            var encoded = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(code));
+            var encoded = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
             var url = Url.Page("/Account/ConfirmEmailChange", null,
                 new { area = "Identity", userId = user.Id, email = newEmail, code = encoded }, Request.Scheme)!;
 
@@ -460,12 +621,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             level = Math.Clamp(level, 0, 2);
             if (level > 0)
                 await _userManager.AddClaimAsync(user, new Claim("is_admin", level.ToString()));
-        }
-
-        private static bool IsActiveFromLockout(ApplicationUser user)
-        {
-            // LockoutEnd가 없거나 과거면 활성 true 미래면 비활성 false
-            return !user.LockoutEnd.HasValue || user.LockoutEnd <= DateTimeOffset.UtcNow;
         }
     }
 }

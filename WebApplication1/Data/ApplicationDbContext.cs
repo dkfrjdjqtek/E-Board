@@ -22,6 +22,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     // ▼ 새 테이블 DbSet
     public DbSet<TemplateKindMaster> TemplateKindMasters { get; set; } = null!;
     public DbSet<TemplateKindMasterLoc> TemplateKindMasterLoc { get; set; } = null!;
+    // 2025.09.25 Added: 초대 메일 발송 이력 테이블 DbSet 등록 PK만 사용 FK 미생성
+    public DbSet<InviteAudit> InviteAudits { get; set; } = default!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

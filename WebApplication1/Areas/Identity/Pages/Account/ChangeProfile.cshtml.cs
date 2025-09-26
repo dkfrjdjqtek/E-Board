@@ -360,7 +360,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             
             var providerName = _userManager.Options.Tokens.ChangeEmailTokenProvider;
             // 이름별 옵션을 조회하되, 실패 시 CurrentValue로 폴백
-            var lifeSpan = _tokenOpts.Get(providerName).TokenLifespan;
+            var lifeSpan = _tokenOpts.CurrentValue.TokenLifespan;   // ← 이 한 줄만 사용
             var expireMinutes = (int)Math.Round(lifeSpan.TotalMinutes);
 
             string subject = _S["CP_EmailChange_Subject"].Value;

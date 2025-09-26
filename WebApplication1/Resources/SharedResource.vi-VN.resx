@@ -690,8 +690,8 @@
   <data name="ACP_Search_Placeholder" xml:space="preserve">
     <value>Nhập từ khóa</value>
   </data>
-  <data name="ACP_Search_Load" xml:space="preserve">
-    <value>Tải</value>
+  <data name="_CM_Search" xml:space="preserve">
+    <value>Tìm kiếm</value>
   </data>
   <data name="ACP_AccountSelect_Label" xml:space="preserve">
     <value>Chọn tài khoản</value>
@@ -756,9 +756,6 @@
   <data name="ACP_Invalid_Pos" xml:space="preserve">
     <value>Chức vụ không hợp lệ.</value>
   </data>
-  <data name="zzzxxxxx" xml:space="preserve">
-    <value>Vui lòng nhập email mới.</value>
-  </data>
   <data name="ACP_EmailChange_InUse" xml:space="preserve">
     <value>Email này đã được sử dụng.</value>
   </data>
@@ -803,5 +800,92 @@
   </data>
   <data name="ACP_User_IsApprover" xml:space="preserve">
     <value>Người phê duyệt</value>
+  </data>
+  <data name="_Alert_Duplicate_EMail" xml:space="preserve">
+    <value>Email đã được đăng ký.</value>
+  </data>
+  <data name="_Alert_Duplicate_ID" xml:space="preserve">
+    <value>ID đã được đăng ký.</value>
+  </data>
+  <data name="IL_Title" xml:space="preserve">
+    <value>Lời mời tài khoản</value>
+  </data>
+  <data name="IL_Redirecting" xml:space="preserve">
+    <value>Đang chuyển đến trang đặt mật khẩu.</value>
+  </data>
+  <data name="IL_BackToLogin" xml:space="preserve">
+    <value>Quay lại đăng nhập</value>
+  </data>
+  <data name="IL_NoScript_Help" xml:space="preserve">
+    <value>Nếu trang không chuyển, hãy bấm nút ở trên.</value>
+  </data>
+  <data name="IL_Invalid" xml:space="preserve">
+    <value>Liên kết lời mời không hợp lệ.</value>
+  </data>
+  <data name="IL_User_NotFound" xml:space="preserve">
+    <value>Không tìm thấy người dùng.</value>
+  </data>
+  <data name="IL_Email_Mismatch" xml:space="preserve">
+    <value>Email không khớp với tài khoản được mời.</value>
+  </data>
+  <data name="IL_EmailConfirm_Failed" xml:space="preserve">
+    <value>Xác nhận email thất bại.</value>
+  </data>
+  <data name="IL_Token_Invalid" xml:space="preserve">
+    <value>Mã không hợp lệ hoặc đã hết hạn.</value>
+  </data>
+  <data name="IL_Redirect_Failed" xml:space="preserve">
+    <value>Không thể chuyển đến trang đặt mật khẩu.</value>
+  </data>
+  <data name="IL_Email_Subject" xml:space="preserve">
+    <value>[E-Board] Lời mời tài khoản</value>
+  </data>
+  <data name="IL_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Lời mời tài khoản&lt;/h2&gt;&lt;p&gt;Xin chào, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Nhấp nút bên dưới để phê duyệt email đã đăng ký và đặt mật khẩu của bạn.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Lời mời tài khoản&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Liên kết này &lt;strong&gt;có hiệu lực trong {2} phút&lt;/strong&gt; kể từ khi bạn nhận được.&lt;/p&gt;&lt;p&gt;Nếu nút không hoạt động, hãy sao chép và dán URL sau vào trình duyệt của bạn.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Nếu không phải bạn yêu cầu, vui lòng bỏ qua email này.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email này được tạo và gửi tự động. Vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="IL_Header" xml:space="preserve">
+    <value>Hoàn tất thiết lập tài khoản</value>
+  </data>
+  <data name="IL_Instruction" xml:space="preserve">
+    <value>Hãy đặt mật khẩu mới để kích hoạt tài khoản.</value>
+  </data>
+  <data name="IL_Label_NewPassword" xml:space="preserve">
+    <value>Mật khẩu mới</value>
+  </data>
+  <data name="IL_Label_ConfirmPassword" xml:space="preserve">
+    <value>Xác nhận mật khẩu mới</value>
+  </data>
+  <data name="IL_Button_Complete" xml:space="preserve">
+    <value>Hoàn tất</value>
+  </data>
+  <data name="IL_Error_InvalidLink" xml:space="preserve">
+    <value>Liên kết không hợp lệ hoặc đã hết hạn.</value>
+  </data>
+  <data name="IL_Error_UserNotFound" xml:space="preserve">
+    <value>Không tìm thấy người dùng.</value>
+  </data>
+  <data name="IL_Error_Token" xml:space="preserve">
+    <value>Mã không hợp lệ hoặc đã hết hạn.</value>
+  </data>
+  <data name="IL_Error_ConfirmEmail" xml:space="preserve">
+    <value>Xác nhận email thất bại {0}</value>
+  </data>
+  <data name="IL_Confirm_Mismatch" xml:space="preserve">
+    <value>Mật khẩu không khớp.</value>
+  </data>
+  <data name="IL_Completed" xml:space="preserve">
+    <value>Mật khẩu đã được đặt. Vui lòng đăng nhập.</value>
+  </data>
+  <data name="_Alert_Require_NewPassword" xml:space="preserve">
+    <value>Vui lòng nhập mật khẩu mới.</value>
+  </data>
+  <data name="_Alert_Require_ConfirmPassword" xml:space="preserve">
+    <value>Vui lòng xác nhận mật khẩu mới.</value>
+  </data>
+  <data name="ACP_Button_Invitation" xml:space="preserve">
+    <value>Phát hành lời mời</value>
+  </data>
+  <data name="_Alert_Unconfirm_Mail" xml:space="preserve">
+    <value>Email của tài khoản này chưa được xác nhận.</value>
   </data>
 </root>

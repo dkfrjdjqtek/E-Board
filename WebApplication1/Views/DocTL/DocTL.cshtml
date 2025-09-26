@@ -124,7 +124,7 @@
                             <label class="form-label mb-1">@S["DTL_Label_Kind"]</label>
                             <div class="input-group input-group-sm align-items-stretch">
                                 <select id="nt-kindSel" name="kind" class="form-select form-select-sm"></select>
-                                <button type="button" id="btnKindAddToggle" class="btn btn-outline-secondary">@S["_CM_Add"]</button>
+                                <button type="button" id="btnKindAddToggle" class="btn btn-secondary">@S["_CM_Add"]</button>
                             </div>
                         </div>
 
@@ -162,11 +162,11 @@
                         <div class="col-md-6">
                             <label class="form-label mb-1">@S["DTL_Label_Excel"]</label>
                             <div class="input-group input-group-sm">
-                                <button type="button" id="nt-excel-btn" class="btn btn-outline-secondary btn-sm">
-                                    @S["DTL_Btn_ChooseFile"]
-                                </button>
                                 <input type="text" id="nt-excel-name" class="form-control form-control-sm"
                                        value="@S["DTL_File_NoFile"]" readonly />
+                                <button type="button" id="nt-excel-btn" class="btn btn-secondary btn-sm">
+                                    @S["DTL_Btn_ChooseFile"]
+                                </button>
                             </div>
 
                             <!-- 실제 업로드 대상: 숨김 file input (name="excelFile" 유지 필수) -->

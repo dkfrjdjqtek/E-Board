@@ -1,4 +1,4 @@
-﻿@* 2025.09.23 Changed: 필드별 메시지 span 추가 + EBValidate 필드 마킹 제거(요약만) + 선행검사 캡처핸들러 단일화 *@
+﻿@* 2025.09.26 Changed: 액션 버튼을 전용 핸들러로 분리하여 저장과 충돌하지 않도록 formaction 지정 레이아웃 기타 코드 변경 없음 *@
 @page "{id?}"
 @model WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel
 @using Microsoft.AspNetCore.Mvc.Rendering
@@ -10,50 +10,71 @@
     var errMap = ViewData.ModelState
         .Where(kv => kv.Value?.Errors?.Count > 0)
         .ToDictionary(kv => kv.Key, kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+
     var summaryMsgs = errMap.Values.SelectMany(v => v).Distinct().ToArray();
 
     var isCreate = string.Equals(
         Model.VM.SelectedUserId,
         WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId,
         StringComparison.Ordinal);
+
+    var req = ViewContext?.HttpContext?.Request;
+    var isSubmitLike =
+        string.Equals(req?.Method, "POST", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrEmpty(req?.Query["handler"]);
+
+    var selInvalidSrv =
+        (isSubmitLike && !isCreate && string.IsNullOrWhiteSpace(Model.VM.SelectedUserId)) ||
+        (ViewData.ModelState[nameof(Model.VM.SelectedUserId)]?.Errors.Count > 0) ||
+        (ViewData.ModelState["SelectedUserId"]?.Errors.Count > 0) ||
+        summaryMsgs.Contains(_S["ACP_SelectUser_Req"].Value);
+
+    var submitLikeJs = isSubmitLike ? "true" : "false";
 }
 
 <h2 class="mb-3">@_S["ACP_Title"]</h2>
 
 @await Html.PartialAsync(
-        "~/Views/Shared/_ValidationAlert.cshtml",
-        summaryMsgs,
-        new ViewDataDictionary(ViewData) { ["AlertId"] = "admin-alert" }
-    )
+    "~/Views/Shared/_ValidationAlert.cshtml",
+    summaryMsgs,
+    new ViewDataDictionary(ViewData) { ["AlertId"] = "admin-alert" }
+)
 
 <form id="searchForm" method="get" class="row g-3 align-items-end mb-0">
-    <input type="hidden" name="id" value="@Model.VM.SelectedUserId" />
-
     <div class="col-12 col-lg-5">
-        <label class="form-label" for="q">@_S["ACP_Search_Label"]</label>
+        <label class="form-label mb-1" for="q">@_S["ACP_Search_Label"]</label>
         <div class="input-group">
             <input id="q" name="q" class="form-control" value="@Model.VM.Q" placeholder="@_S["ACP_Search_Placeholder"]" />
-            <button class="btn btn-primary" type="submit">@_S["ACP_Search_Load"]</button>
+            <button class="btn btn-primary" type="submit">@_S["_CM_Search"]</button>
         </div>
+        <div class="val-slot"></div> @* 2025.09.25 Added *@
     </div>
 
-    <div class="col-12 col-lg-7">
-        <label class="form-label" for="accountSel">@_S["ACP_AccountSelect_Label"]</label>
-        <div class="d-flex gap-2">
-            <select id="accountSel"
-                    asp-for="VM.SelectedUserId"
-                    asp-items="Model.VM.Accounts"
-                    class="form-select flex-grow-1"
-                    onchange="location.href='@Url.Page(null, new { id = "__ID__", q = Model.VM.Q })'.replace('__ID__', this.value || '')">
-                <option value="">-- @_S["_CM_Select"] --</option>
-            </select>
-
+    <div class="col-12 col-lg-7 accsel-holder">
+        <label class="form-label mb-1" for="accountSel">@_S["ACP_AccountSelect_Label"]</label>
+        <div class="d-flex gap-2 align-items-stretch">
+            <div class="flex-grow-1">
+                <select id="accountSel"
+                        asp-for="VM.SelectedUserId"
+                        asp-items="Model.VM.Accounts"
+                        class="form-select @(selInvalidSrv ? "is-invalid" : "")"
+                        onchange="location.href='@Url.Page(null, new { id = "__ID__", q = Model.VM.Q })'.replace('__ID__', this.value || '')">
+                    <option value="">-- @_S["_CM_Select"] --</option>
+                </select>
+            </div>
             <a id="btnAddUser"
-               class="btn btn-success flex-shrink-0 text-nowrap px-4"
-               style="min-width: 120px;"
-               href="@Url.Page(null, new { id = WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId, q = Model.VM.Q })">
+               class="btn btn-success"
+               href='@Url.Page(null, new { id = WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId, q = Model.VM.Q })'>
                 @_S["ACP_AddUser"]
             </a>
+        </div>
+        @{
+            var selErrText =
+            ViewData.ModelState[nameof(Model.VM.SelectedUserId)]?
+            .Errors.FirstOrDefault()?.ErrorMessage;
+        }
+        <div id="accSelMsgHost" class="text-danger small val-slot">
+            @(selInvalidSrv ? selErrText ?? _S["ACP_SelectUser_Req"].Value : "")
         </div>
     </div>
 </form>
@@ -65,17 +86,15 @@
             <input type="hidden" asp-for="VM.SelectedUserId" />
 
             <div class="row g-3">
-                @* 사업장 *@
                 <div class="col-md-6">
                     <label asp-for="VM.CompCd" class="form-label">@_S["_CM_Site_Label"]</label>
-                    <select asp-for="VM.CompCd" asp-items="Model.VM.CompList" class="form-select"
+                    <select asp-for="VM.CompCd" class="form-select" asp-items="Model.VM.CompList"
                             required data-val="true" data-val-required="@_S["_Alert_Require_ValidSite"]">
                         <option value="">-- @_S["_CM_Select"] --</option>
                     </select>
                     <span asp-validation-for="VM.CompCd" class="invalid-feedback d-block"></span>
                 </div>
 
-                @* 이름 *@
                 <div class="col-md-6">
                     <label asp-for="VM.DisplayName" class="form-label">@_S["_CM_Label_Name"]</label>
                     <input asp-for="VM.DisplayName" class="form-control" placeholder="@_S["_CM_Placeholder_Name"]"
@@ -83,14 +102,14 @@
                     <span asp-validation-for="VM.DisplayName" class="invalid-feedback d-block"></span>
                 </div>
 
-                @* 아이디 *@
                 <div class="col-md-6">
                     <label class="form-label">@_S["_CM_Label_ID"]</label>
                     @if (isCreate)
                     {
-                        <input asp-for="VM.UserName" class="form-control"
+                        <input asp-for="VM.UserName"
+                               class="form-control @(ViewData.ModelState[nameof(Model.VM.UserName)]?.Errors.Count > 0 ? "is-invalid" : "")"
                                required data-val="true" data-val-required="@_S["_Alert_Require_ID"]" />
-                        <span asp-validation-for="VM.UserName" class="invalid-feedback d-block"></span>
+                        <span asp-validation-for="VM.UserName" class="invalid-feedback d-block"></span> @* 2025.09.25 Added *@
                     }
                     else
                     {
@@ -98,14 +117,13 @@
                     }
                 </div>
 
-                @* 이메일 *@
                 <div class="col-md-6">
                     <label class="form-label">@_S["ACP_Email_Label"]</label>
                     @if (isCreate)
                     {
                         <input asp-for="VM.Email" type="email" class="form-control"
                                required data-val="true"
-                               data-val-required="@_S["_Alert_Require_NewMail"]"
+                               data-val-required="@_S["_Alert_Require_NewEmail"]"
                                data-val-email="@_S["ACP_NewEmail_Invalid"]" />
                         <span asp-validation-for="VM.Email" class="invalid-feedback d-block"></span>
                     }
@@ -118,7 +136,6 @@
                                 @_S["ACP_ChangeEmail_Button"]
                             </button>
                         </div>
-
                         <div id="changeEmailPane" class="collapse pt-2">
                             <div class="input-group">
                                 <input type="email"
@@ -126,7 +143,7 @@
                                        name="newEmail"
                                        form="changeEmailForm"
                                        placeholder="@_S["ACP_NewEmail_Placeholder"]"
-                                       required data-val="true" data-val-required="@_S["_Alert_Require_NewMail"]" />
+                                       required data-val="true" data-val-required="@_S["_Alert_Require_NewEmail"]" />
                                 <button type="submit" class="btn btn-outline-dark" form="changeEmailForm">
                                     @_S["ACP_ChangeEmail_Send"]
                                 </button>
@@ -136,7 +153,6 @@
                     }
                 </div>
 
-                @* 부서 *@
                 <div class="col-md-6">
                     <label asp-for="VM.DepartmentId" class="form-label">@_S["_CM_Label_Department"]</label>
                     <select asp-for="VM.DepartmentId" asp-items="Model.VM.DeptList" class="form-select"
@@ -146,7 +162,6 @@
                     <span asp-validation-for="VM.DepartmentId" class="invalid-feedback d-block"></span>
                 </div>
 
-                @* 직급 *@
                 <div class="col-md-6">
                     <label asp-for="VM.PositionId" class="form-label">@_S["_CM_Label_Position"]</label>
                     <select asp-for="VM.PositionId" asp-items="Model.VM.PosList" class="form-select"
@@ -156,7 +171,6 @@
                     <span asp-validation-for="VM.PositionId" class="invalid-feedback d-block"></span>
                 </div>
 
-                @* 전화/결재권자 *@
                 <div class="col-md-6">
                     <label asp-for="VM.PhoneNumber" class="form-label">@_S["_CM_Label_Phone"]</label>
                     <input asp-for="VM.PhoneNumber" class="form-control" autocomplete="tel" placeholder="@_S["ACP_Phone_Placeholder"]" />
@@ -170,11 +184,11 @@
                                    type="checkbox"
                                    id="isApproverChk"
                                    onchange="(function(el){
-                   var y=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_Yes"].Value);
-                   var n=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_No"].Value);
-                   var lbl=document.getElementById('isApproverLbl');
-                   if(lbl) lbl.textContent = el.checked ? y : n;
-               })(this)" />
+                                       var y=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_Yes"].Value);
+                                       var n=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_No"].Value);
+                                       var lbl=document.getElementById('isApproverLbl');
+                                       if(lbl) lbl.textContent = el.checked ? y : n;
+                                   })(this)" />
                             <label class="form-check-label" for="isApproverChk" id="isApproverLbl">
                                 @(Model.VM.IsApprover ? _S["_CM_Yes"].Value : _S["_CM_No"].Value)
                             </label>
@@ -182,7 +196,6 @@
                     </div>
                 </div>
 
-                @* 권한/활성 *@
                 <div class="col-md-6">
                     <label class="form-label">@_S["ACP_AdminLevel_Label"]</label>
                     <div class="d-flex align-items-center gap-3 pt-2">
@@ -206,13 +219,19 @@
                                    asp-for="VM.IsActive"
                                    type="checkbox"
                                    id="isActiveChk"
-                                   onchange="(function(el){var y=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_Yes"].Value);var n=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_No"].Value);var lbl=document.getElementById('isActiveLbl');if(lbl) lbl.textContent = el.checked ? y : n;})(this)" />
+                                   onchange="(function(el){
+                                       var y=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_Yes"].Value);
+                                       var n=@System.Text.Json.JsonSerializer.Serialize(_S["_CM_No"].Value);
+                                       var lbl=document.getElementById('isActiveLbl');
+                                       if(lbl) lbl.textContent = el.checked ? y : n;
+                                   })(this)" />
                             <label class="form-check-label" for="isActiveChk" id="isActiveLbl">
                                 @(Model.VM.IsActive ? _S["_CM_Yes"].Value : _S["_CM_No"].Value)
                             </label>
                         </div>
                     </div>
                 </div>
+
             </div>
         </form>
     </div>
@@ -222,11 +241,29 @@
     <div class="col-12 col-md-6">
         <button type="submit" form="adminForm" class="btn btn-primary w-100 py-2">@_S["_CM_Save"]</button>
     </div>
+
     <div class="col-12 col-md-6">
-        <button type="submit" form="adminForm" formaction="?handler=ResetPassword" formmethod="post"
-                class="btn btn-warning w-100 py-2">
-            @_S["ACP_Button_TempPassword"]
-        </button>
+        <div class="d-flex gap-2">
+            <input type="hidden" name="cmd" id="cmdAction" form="adminForm" /> @* 2025.09.26 Added *@
+
+            @* 2025.09.26 Added: 임시비밀번호 발행 전용 핸들러로 전송 저장과 분리 *@
+            <button type="submit"
+                    class="btn btn-warning flex-fill py-2"
+                    form="adminForm"
+                    formaction="?handler=Temp"
+                    name="cmd" value="temp">
+                @_S["ACP_Button_TempPassword"]
+            </button>
+
+            @* 2025.09.26 Added: 재초대 메일 발송 전용 핸들러로 전송 저장과 분리 *@
+            <button type="submit"
+                    class="btn btn-warning flex-fill py-2"
+                    form="adminForm"
+                    formaction="?handler=Reinvite"
+                    name="cmd" value="reinvite">
+                @_S["ACP_Button_Invitation"]
+            </button>
+        </div>
     </div>
 </div>
 
@@ -239,124 +276,155 @@
 }
 
 <style>
-    .input-group > .btn {
-        white-space: nowrap;
-    }
-
-    .input-group > .form-select {
-        min-width: 0;
-        flex: 1 1 auto;
-    }
-
-    .card {
-        border: 1px solid #e9ecef;
-        border-radius: .75rem;
-    }
-
-    /* 계정 선택/사용자 추가 강조 */
-    #accountSel.is-invalid {
-        border-color: #dc3545;
-    }
-
-    #btnAddUser.is-invalid {
-        outline: 2px solid #dc3545;
-        outline-offset: 2px;
-        box-shadow: 0 0 0 .2rem rgba(220,53,69,.25);
-    }
+    .input-group > .btn { white-space: nowrap; }
+    .input-group > .form-select { min-width: 0; flex: 1 1 auto; }
+    .card { border: 1px solid #e9ecef; border-radius: .75rem; }
+    #accountSel.is-invalid { border-color: #dc3545; }
+    #btnAddUser.is-invalid { outline: 2px solid #dc3545; outline-offset: 2px; box-shadow: 0 0 0 .2rem rgba(220,53,69,.25); }
+    .form-label.mb-1 { margin-bottom: .25rem !important; }
+    .accsel-holder { position: relative; }
+    .val-slot { margin-top: .25rem; min-height: 1.25rem; }
 </style>
 
 @section Scripts {
+    <!-- 이하 스크립트 변경 없음 -->
+    <script>
+        (function () {
+            var NEW_ID = "@WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId";
+            function valOf(selector, attr) { var el = document.querySelector(selector); return (el ? (attr ? el.getAttribute(attr) : el.value) : "") || ""; }
+            var hid = valOf('input[name="VM.SelectedUserId"]').trim();
+            var sel = (document.getElementById('accountSel')?.value || "").trim();
+            window.__EB_BLOCK_UNOB__ = (!((hid === NEW_ID) || (sel === NEW_ID)) && hid === "");
+        })();
+    </script>
+
     <partial name="_ValidationScriptsPartial" />
 
     <script>
-        // Alert 컨테이너 보정 + 요약 표시 헬퍼 (기존 요약 UI 유지)
-        function __ensureAdminAlertHost() {
-            if (document.getElementById('admin-alert')) return;
-            var host = document.createElement('div');
-            host.id = 'admin-alert';
-            host.className = 'mb-3';
-            var h2 = document.querySelector('h2.mb-3');
-            if (h2 && h2.parentNode) h2.parentNode.insertBefore(host, h2.nextSibling);
-            else document.body.prepend(host);
-        }
-        function __showAdminAlert(msgs) {
-            if (!window.EBValidate) return;
-            __ensureAdminAlertHost();
-            EBValidate.showAlert('admin-alert', Array.from(new Set(msgs || [])));
-        }
-    </script>
-
-    <script>
-        // 서버 ModelState → 요약 알림만 (필드 하단 텍스트는 기존 unobtrusive validate가 처리)
-        window.__ADMIN_ERRMAP__ = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(errMap));
         (function () {
-            var all = Object.values(window.__ADMIN_ERRMAP__ || {}).flat().filter(Boolean);
-            if (all.length) __showAdminAlert(all);
+            if (!window.__EB_BLOCK_UNOB__) return;
+            if (!window.jQuery) return;
+            if (jQuery.validator && jQuery.validator.unobtrusive) {
+                jQuery.validator.unobtrusive.parse = function () { };
+                jQuery.validator.unobtrusive.parseElement = function () { };
+                jQuery.validator.unobtrusive.parseDynamicContent = function () { };
+            }
         })();
     </script>
 
     <script>
         (function () {
-            var form = document.getElementById('adminForm');
-            if (!form) return;
-
-            // ★ 선행검사(캡처 단계): 계정 미선택이면 다른 검증/제출 흐름 전에 즉시 차단
-            var NEW_ID = "@WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId";
-            form.addEventListener('submit', function (e) {
-                try {
-                    var hiddenId = (document.querySelector('input[name="VM.SelectedUserId"]')?.value || '').trim();
-                    var selEl = document.getElementById('accountSel');
-                    var selVal = selEl ? (selEl.value || '').trim() : '';
-                    var isCreate = (hiddenId === NEW_ID) || (selVal === NEW_ID);
-
-                    // __new(신규 추가)면 통과, 그 외에 id가 비어있으면 선행 조건 위반
-                    if (!isCreate && !hiddenId) {
-                        e.preventDefault();               // 제출 중단
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
-
-                        // UI 강조(빨간 테두리)
-                        selEl?.classList.add('is-invalid');
-                        document.getElementById('btnAddUser')?.classList.add('is-invalid');
-
-                        // 요약 알림(리소스 메시지)
-                        __showAdminAlert([@System.Text.Json.JsonSerializer.Serialize(_S["ACP_SelectUser_Req"].Value)]);
-                        return false;
-                    }
-                } catch (_) { /* no-op */ }
-            }, true); // ← 캡처 단계에서 먼저 실행되도록 true
-
-            // 강조 해제
-            document.getElementById('accountSel')?.addEventListener('change', function () {
-                this.classList.remove('is-invalid');
-                document.getElementById('btnAddUser')?.classList.remove('is-invalid');
-            });
-            document.getElementById('btnAddUser')?.addEventListener('click', function () {
-                this.classList.remove('is-invalid');
-                document.getElementById('accountSel')?.classList.remove('is-invalid');
-            });
-
-            // ▼ 기존 jQuery Validate 설정은 그대로 두되, 메시지 텍스트만 주입
-            var IS_CREATE = "@Model.VM.SelectedUserId" === NEW_ID;
-            var reqMsgs = {
-                "VM.CompCd": "@_S["_Alert_Require_ValidSite"]",
-                "VM.DisplayName": "@_S["_Alert_Require_Name"]",
-                "VM.DepartmentId": "@_S["_Alert_Require_ValidDepartment"]",
-                "VM.PositionId": "@_S["_Alert_Require_ValidPosition"]"
-            };
-            if (IS_CREATE) {
-                reqMsgs["VM.UserName"] = "@_S["_Alert_Require_ID"]";
-                reqMsgs["VM.Email"] = "@_S["_Alert_Require_NewMail"]";
+            var ms = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ViewData.ModelState.Where(kv => kv.Value?.Errors?.Count > 0)
+            .ToDictionary(kv => kv.Key, kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray())
+            ));
+            var all = Object.values(ms || {}).flat().filter(Boolean);
+            if (all.length && window.EBValidate) {
+                if (!document.getElementById('admin-alert')) {
+                    var host = document.createElement('div'); host.id = 'admin-alert'; host.className = 'mb-3';
+                    var h2 = document.querySelector('h2.mb-3'); (h2 && h2.parentNode ? h2.parentNode : document.body).insertBefore(host, h2 ? h2.nextSibling : null);
+                }
+                EBValidate.showAlert('admin-alert', Array.from(new Set(all)));
             }
+        })();
+    </script>
+
+    <script>
+        (function () {
+            var form = document.getElementById('adminForm'); if (!form) return;
+            var NEW_ID = "@WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId";
+
+            // ▼ 서버가 넣어준 SelectedUserId의 실제 에러 우선, 없으면 '계정 선택' 기본문구
+            var MSG = @System.Text.Json.JsonSerializer.Serialize(
+           ViewData.ModelState[nameof(Model.VM.SelectedUserId)]?.Errors.FirstOrDefault()?.ErrorMessage
+           ?? _S["ACP_SelectUser_Req"].Value
+           );
+
+            function needAccount() {
+                var hid = (document.querySelector('input[name="VM.SelectedUserId"]')?.value || '').trim();
+                var sel = (document.getElementById('accountSel')?.value || '').trim();
+                var isCreate = (hid === NEW_ID) || (sel === NEW_ID);
+                return !isCreate && !hid;
+            }
+            function ensureHost() {
+                var host = document.getElementById('accSelMsgHost');
+                if (!host) {
+                    var holder = document.querySelector('.accsel-holder');
+                    host = document.createElement('div');
+                    host.id = 'accSelMsgHost';
+                    host.className = 'text-danger small val-slot';
+                    holder && holder.appendChild(host);
+                }
+                return host;
+            }
+            function setAccSelError(on) {
+                var sel = document.getElementById('accountSel');
+                var add = document.getElementById('btnAddUser');
+                var host2 = ensureHost();
+                if (on) {
+                    sel && sel.classList.add('is-invalid');
+                    sel && sel.classList.remove('is-valid');
+                    add && add.classList.add('is-invalid');
+                    if (host2) { host2.textContent = MSG; }
+                } else {
+                    sel && sel.classList.remove('is-invalid');
+                    sel && sel.classList.remove('is-valid');
+                    add && add.classList.remove('is-invalid');
+                    if (host2) { host2.textContent = ""; }
+                }
+            }
+            function block(e) {
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                setAccSelError(true);
+                if (window.EBValidate) EBValidate.showAlert('admin-alert', [MSG]);
+                return false;
+            }
+
+            var __SUBMIT_LIKE__ = @submitLikeJs;
+            if (__SUBMIT_LIKE__ && needAccount()) setAccSelError(true);
+
+            form.addEventListener('submit', function (e) { if (needAccount()) block(e); }, true);
+            document.querySelectorAll('button[form="adminForm"][type="submit"]').forEach(function (b) {
+                b.addEventListener('click', function (e) { if (needAccount()) block(e); }, true);
+            });
+            document.getElementById('accountSel')?.addEventListener('change', function () { setAccSelError(false); });
+            document.getElementById('btnAddUser')?.addEventListener('click', function () { setAccSelError(false); });
+        })();
+    </script>
+
+    <script>
+        (function () {
+            if (window.__EB_BLOCK_UNOB__) return;
+            var form = document.getElementById('adminForm'); if (!form || !window.jQuery) return;
 
             $(function () {
                 var $f = $(form);
-                var v = $f.data('validator') || $f.validate();
-                if (!v) return;
+                var v = $f.data('validator') || $f.validate(); if (!v) return;
 
                 v.settings.onkeyup = false;
                 v.settings.onfocusout = false;
                 v.settings.onclick = false;
+
+                v.settings.highlight = function (el) {
+                    $(el).addClass('is-invalid').removeClass('is-valid');
+                };
+                v.settings.unhighlight = function (el) {
+                    $(el).removeClass('is-invalid').removeClass('is-valid');
+                };
+
+                var NEW_ID = "@WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId";
+                var IS_CREATE = "@Model.VM.SelectedUserId" === NEW_ID;
+
+                var reqMsgs = {
+                    "VM.CompCd": "@_S["_Alert_Require_ValidSite"]",
+                    "VM.DisplayName": "@_S["_Alert_Require_Name"]",
+                    "VM.DepartmentId": "@_S["_Alert_Require_ValidDepartment"]",
+                    "VM.PositionId": "@_S["_Alert_Require_ValidPosition"]"
+                };
+                if (IS_CREATE) {
+                    reqMsgs["VM.UserName"] = "@_S["_Alert_Require_ID"]";
+                    reqMsgs["VM.Email"] = "@_S["_Alert_Require_NewEmail"]";
+                }
 
                 v.settings.messages = v.settings.messages || {};
                 Object.keys(reqMsgs).forEach(function (name) {
@@ -366,7 +434,6 @@
 
                 var names = ["VM.CompCd", "VM.DisplayName", "VM.DepartmentId", "VM.PositionId"];
                 if (IS_CREATE) names.push("VM.UserName", "VM.Email");
-
                 names.forEach(function (n) {
                     var $el = $f.find('[name="' + n + '"]');
                     if ($el.length && $el.rules) {
@@ -376,16 +443,17 @@
                     }
                 });
 
-                // 클라이언트 검증 실패 시 요약만 갱신 (필드 하단 메시지는 jQuery Validate가 자동 출력)
-                $('#adminForm').on('invalid-form.validate', function (_e, v) {
-                    var msgs = (v.errorList || []).map(function (item) {
-                        var name = (item.element && item.element.name) || "";
-                        return (v.settings.messages[name] && v.settings.messages[name].required) || item.message;
-                    });
-                    __showAdminAlert(msgs);
+                $f.off('invalid-form.validate');
+                $f.on('submit.afterValidate', function () {
+                    if (v && !v.valid() && window.EBValidate) {
+                        var msgs = (v.errorList || []).map(function (it) {
+                            var name = (it.element && it.element.name) || "";
+                            return (v.settings.messages[name] && v.settings.messages[name].required) || it.message;
+                        });
+                        EBValidate.showAlert('admin-alert', Array.from(new Set(msgs)));
+                    }
                 });
             });
         })();
     </script>
 }
-

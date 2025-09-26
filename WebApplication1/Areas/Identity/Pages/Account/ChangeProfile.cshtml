@@ -278,4 +278,89 @@
             });
         })();
     </script>
+    <script>
+        (function () {
+            var $p = $('#parentForm');
+            if ($p.length === 0) return;
+
+            // jQuery Validate 인스턴스 확보
+            var v = $p.data('validator') || $p.validate();
+            if (!v) return;
+
+            // 기본 동작 끄기 + 테두리 클래스 제어
+            v.settings.onkeyup = false;
+            v.settings.onfocusout = false;
+            v.settings.onclick = false;
+            v.settings.highlight = function (el) {
+                $(el).addClass('is-invalid').removeClass('is-valid');
+            };
+            v.settings.unhighlight = function (el) {
+                $(el).removeClass('is-invalid is-valid');
+            };
+
+            // invalid-form 시, 필드 하단/요약 동기화
+            $p.on('invalid-form.validate', function (_e, v2) {
+                var form = $p[0];
+
+                // EBValidate 없을 때도 최소한 요약/테두리는 보장
+                if (window.EBValidate) EBValidate.clearAll(form);
+
+                // 각 필드 표시
+                (v2.errorList || []).forEach(function (item) {
+                    if (window.EBValidate) {
+                        EBValidate.setInvalid(item.element, item.message);
+                    } else {
+                        // EBValidate가 없다면 is-invalid만
+                        $(item.element).addClass('is-invalid');
+                    }
+                });
+
+                // 상단 요약(cp-alert)
+                var sum = document.getElementById('cp-alert');
+                if (sum) {
+                    var ul = sum.querySelector('ul') || sum.appendChild(document.createElement('ul'));
+                    ul.innerHTML = '';
+                    var msgs = Array.from(new Set((v2.errorList || []).map(function (it) { return it.message; })));
+                    msgs.forEach(function (m) {
+                        var li = document.createElement('li'); li.textContent = m; ul.appendChild(li);
+                    });
+                    sum.classList.remove('d-none');
+                }
+            });
+        })();
+    </script>
+    <script>
+        (function () {
+            var $p = $('#parentForm');
+            if ($p.length === 0) return;
+
+            // 서버에서 넘긴 ModelState 에러 맵 그대로 사용
+            var server = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(parentMap));
+            var allMsgs = [];
+
+            Object.keys(server || {}).forEach(function (name) {
+                var el = $p.find('[name="' + name + '"]')[0];
+                (server[name] || []).forEach(function (msg) {
+                    allMsgs.push(msg);
+                    if (el) {
+                        $(el).addClass('is-invalid');
+                        if (window.EBValidate) EBValidate.setInvalid(el, msg);
+                    }
+                });
+            });
+
+            if (allMsgs.length) {
+                var sum = document.getElementById('cp-alert');
+                if (sum) {
+                    var ul = sum.querySelector('ul') || sum.appendChild(document.createElement('ul'));
+                    ul.innerHTML = '';
+                    Array.from(new Set(allMsgs)).forEach(function (m) {
+                        var li = document.createElement('li'); li.textContent = m; ul.appendChild(li);
+                    });
+                    sum.classList.remove('d-none');
+                }
+            }
+        })();
+    </script>
+
 }
