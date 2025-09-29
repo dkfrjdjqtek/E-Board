@@ -19,11 +19,16 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<PositionMasterLoc> PositionMasterLoc => Set<PositionMasterLoc>();
     public DbSet<CompMaster> CompMasters => Set<CompMaster>();
 
-    // ▼ 새 테이블 DbSet
+    //  새 테이블 DbSet
     public DbSet<TemplateKindMaster> TemplateKindMasters { get; set; } = null!;
     public DbSet<TemplateKindMasterLoc> TemplateKindMasterLoc { get; set; } = null!;
     // 2025.09.25 Added: 초대 메일 발송 이력 테이블 DbSet 등록 PK만 사용 FK 미생성
     public DbSet<InviteAudit> InviteAudits { get; set; } = default!;
+
+    public DbSet<DocTemplateMaster> DocTemplateMasters { get; set; } = default!;
+    public DbSet<DocTemplateVersion> DocTemplateVersions { get; set; } = default!;
+    public DbSet<DocTemplateFile> DocTemplateFiles { get; set; } = default!;
+    public DbSet<DocTemplateApproval> DocTemplateApprovals { get; set; } = default!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -224,10 +229,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         {
             e.ToTable("TemplateKindMasterLoc", "dbo"); // 트리거 제거 시 OUTPUT 설정 필요 없음
 
-            // ✅ PK = (Id, LangCode)
+            // PK = (Id, LangCode)
             e.HasKey(x => new { x.Id, x.LangCode });
 
-            // ✅ FK(Id) → Masters(Id)  (TemplateKindMasterId 같은 컬럼/속성 사용 금지)
+            // FK(Id) → Masters(Id)  (TemplateKindMasterId 같은 컬럼/속성 사용 금지)
             e.HasOne<TemplateKindMaster>()
              .WithMany()
              .HasForeignKey(x => x.Id)
@@ -238,11 +243,80 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.LangCode).HasMaxLength(10).IsRequired().HasConversion(LowerTrim);
             e.Property(x => x.Name).HasMaxLength(64).IsRequired();
 
-            // ✅ 보조 인덱스 (검색/조인용)
+            // 보조 인덱스 (검색/조인용)
             e.HasIndex(x => new { x.CompCd, x.DepartmentId, x.LangCode });
 
             // RowVersion: 섀도우 속성
             e.Property<byte[]>("RowVersion").IsRowVersion();
+        });
+
+        modelBuilder.Entity<DocTemplateMaster>(e =>
+        {
+            e.ToTable("DocTemplateMaster", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CompCd).HasMaxLength(10).IsRequired();
+            e.Property(x => x.DepartmentId);
+            e.Property(x => x.KindCode).HasMaxLength(20);
+            e.Property(x => x.DocCode).HasMaxLength(40).IsRequired();
+            e.Property(x => x.DocName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.ApprovalCount);
+            e.Property(x => x.IsActive);
+            e.Property(x => x.CreatedAt);
+            e.Property(x => x.CreatedBy).HasMaxLength(100);
+            e.Property(x => x.UpdatedAt);
+            e.Property(x => x.UpdatedBy).HasMaxLength(100);
+            e.HasIndex(x => new { x.CompCd, x.DepartmentId, x.DocCode }).HasDatabaseName("IX_DocTemplateMaster_CompDeptCode");
+        });
+
+        // dbo.DocTemplateVersion
+        modelBuilder.Entity<DocTemplateVersion>(e =>
+        {
+            e.ToTable("DocTemplateVersion", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TemplateId).IsRequired();
+            e.Property(x => x.VersionNo).IsRequired();
+            e.Property(x => x.DescriptorJson);
+            e.Property(x => x.PreviewJson);
+            e.Property(x => x.Templated);
+            e.Property(x => x.CreatedAt);
+            e.Property(x => x.CreatedBy).HasMaxLength(100);
+            e.HasIndex(x => new { x.TemplateId, x.VersionNo }).HasDatabaseName("IX_DocTemplateVersion_TmplVer");
+        });
+
+        // dbo.DocTemplateFile
+        modelBuilder.Entity<DocTemplateFile>(e =>
+        {
+            e.ToTable("DocTemplateFile", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.VersionId).IsRequired();
+            e.Property(x => x.FileRole).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Storage).HasMaxLength(20).IsRequired();
+            e.Property(x => x.FileName).HasMaxLength(255);
+            e.Property(x => x.FilePath).HasMaxLength(500);
+            e.Property(x => x.FileSize);
+            e.Property(x => x.FileSizeBytes);
+            e.Property(x => x.ContentType).HasMaxLength(200);
+            e.Property(x => x.Contents);             // NVARCHAR(MAX) 가정
+            e.Property(x => x.CreatedAt);
+            e.Property(x => x.CreatedBy).HasMaxLength(100);
+            e.HasIndex(x => new { x.VersionId, x.FileRole }).HasDatabaseName("IX_DocTemplateFile_Version_Role");
+        });
+
+        // dbo.DocTemplateApproval (옵션)
+        modelBuilder.Entity<DocTemplateApproval>(e =>
+        {
+            e.ToTable("DocTemplateApproval", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.VersionId).IsRequired();
+            e.Property(x => x.Slot);
+            e.Property(x => x.Part).HasMaxLength(50).IsRequired();
+            e.Property(x => x.A1).HasMaxLength(50);
+            e.Property(x => x.Row);
+            e.Property(x => x.Column);
+            e.Property(x => x.CellA1).HasMaxLength(50);
+            e.Property(x => x.CellRow);
+            e.Property(x => x.CellColumn);
         });
     }
 }

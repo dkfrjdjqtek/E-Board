@@ -1,4 +1,4 @@
-﻿// File: Views/DocTL/DocTLMap.cshtml
+﻿@* 2025.09.29 Changed: 레이아웃 비율 조정(col-lg-8/4), 결재란 셀 매핑 삭제 버튼 추가, Select Cell 버튼은 d-none 처리로 숨김. 나머지 로직 유지 *@
 @using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -93,7 +93,8 @@
 
         <div class="row g-3">
             <!-- 입력 필드 매핑 -->
-            <div class="col-12 col-lg-7">
+            @* 2025.09.29 Changed: col-lg-7 -> col-lg-8 *@
+            <div class="col-12 col-lg-8">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
                         <span>@S["DTL_Section_Fields"]</span>
@@ -117,7 +118,8 @@
             </div>
 
             <!-- 결재란 매핑 -->
-            <div class="col-12 col-lg-5">
+            @* 2025.09.29 Changed: col-lg-5 -> col-lg-4 (약 10% 축소) *@
+            <div class="col-12 col-lg-4">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
                         <span>@S["DTL_Section_Approvals"]</span>
@@ -163,11 +165,14 @@
 
 @section Scripts {
     <script>
-        // 스크립트에서 쓰는 다국어 텍스트 (★ JS 안전 주입)
+        // 2025.09.29 Changed: L.Delete, L.MsgKeyEmpty, L.MsgKeyDup 추가
         const L = {
             PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
             NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
-            NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value))
+            NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
+            Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
+            MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
+            MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value))
                 };
         const T = {
             TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
@@ -177,8 +182,8 @@
     </script>
 
     <script>
-        // (1) Excel preview (merge/width 반영) + 셀 클릭 훅
         (function () {
+            // 미리보기 렌더러
             const raw = (document.getElementById('preview-json')?.textContent || '{}').trim();
             let preview = {};
             try { preview = JSON.parse(raw); } catch { preview = {}; }
@@ -212,10 +217,8 @@
                     const key = `${r},${c}`;
                     const span = topLeft.get(key);
                     const rs = span?.rs || 1, cs = span?.cs || 1;
-                    //const txt = (preview.cells[r - 1]?.[c - 1] || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
                     const txt = (preview.cells[r - 1]?.[c - 1] || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-a1="${toA1(r, c)}">${txt}</td>`;
-                    
                 }
                 html += `</tr>`;
             }
@@ -235,86 +238,105 @@
     </script>
 
     <script>
-        // (2) 매핑 테이블 + 저장  — 기존 블록 전체를 이 블록으로 교체
         (function () {
+            // desc-json 파싱 및 기본 컬렉션 보정
             const raw = (document.getElementById('desc-json')?.textContent || '{}').trim();
             let desc = {}; try { desc = JSON.parse(raw); } catch { desc = {}; }
             if (!Array.isArray(desc.Fields)) desc.Fields = [];
             if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
 
+            // DOM 참조
             const fieldsBody = document.getElementById('tblFieldsBody');
             const apprBody = document.getElementById('tblApprBody');
 
-            function opt(val, text, sel) {
-                const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o;
-            }
+            function opt(val, text, sel) { const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
             window.__a1 = window.__a1 || {};
 
             function render() {
                 /* ===== Fields ===== */
-                if (desc.Fields.length === 0) desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
+                //if (desc.Fields.length === 0) desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
                 fieldsBody.innerHTML = '';
-                desc.Fields.forEach((f, i) => {
+                if (desc.Fields.length === 0) {
+                    // 2025.09.29 Added: Fields도 Approvals와 동일한 안내 문구 표시
                     const tr = document.createElement('tr');
-
-                    // Key
-                    const tdKey = document.createElement('td');
-                    const inpKey = document.createElement('input');
-                    inpKey.className = 'form-control form-control-sm key-input';
-                    inpKey.placeholder = '예: Item_{n} 또는 Item_{row}';
-                    inpKey.value = f.Key || '';
-                    inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
-                    tdKey.appendChild(inpKey);
-
-                    // Type
-                    const tdType = document.createElement('td');
-                    const sel = document.createElement('select');
-                    sel.className = 'form-select form-select-sm';
-                    sel.append(opt('Text', T.TypeText, (f.Type || 'Text') === 'Text'));
-                    sel.append(opt('Date', T.TypeDate, (f.Type || 'Text') === 'Date'));
-                    sel.append(opt('Num', T.TypeNum, (f.Type || 'Text') === 'Num'));
-                    sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
-                    tdType.appendChild(sel);
-
-                    // Cell (A1) + 버튼
-                    const tdA1 = document.createElement('td');
-                    tdA1.className = 'cell-a1';
-                    const grp = document.createElement('div');
-                    grp.className = 'input-group input-group-sm';
-
-                    const inputA1 = document.createElement('input');
-                    inputA1.className = 'form-control';
-                    inputA1.placeholder = '예: C9 또는 C9:C35';
-                    inputA1.value = (f.Cell && f.Cell.A1) || '';
-                    inputA1.addEventListener('input', e => {
-                        desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                        desc.Fields[i].Cell.A1 = e.target.value;
-                    });
-                    inputA1.addEventListener('focus', () => {
-                        window.__a1.set = (a1) => {
-                            desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                            desc.Fields[i].Cell.A1 = a1;
-                            inputA1.value = a1;
-                            inputA1.classList.add('a1-active');
-                            setTimeout(() => inputA1.classList.remove('a1-active'), 800);
-                        };
-                    });
-
-                    const pickBtn = document.createElement('button');
-                    pickBtn.type = 'button';
-                    pickBtn.className = 'btn btn-outline-secondary';
-                    pickBtn.textContent = L.PickCell;
-                    pickBtn.addEventListener('click', () => {
-                        inputA1.focus();
-                        document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    });
-
-                    grp.append(inputA1, pickBtn);
-                    tdA1.appendChild(grp);
-
-                    tr.append(tdKey, tdType, tdA1);
+                    const td = document.createElement('td');
+                    td.colSpan = 3;
+                    td.className = 'text-muted';
+                    td.textContent = L.NoRows; // 리소스에 있는 "행이 없습니다. [추가]를 클릭하세요." 형태 문구 사용
+                    tr.appendChild(td);
                     fieldsBody.appendChild(tr);
-                });
+                } else {
+                    desc.Fields.forEach((f, i) => {
+                        const tr = document.createElement('tr');
+
+                        // Key
+                        const tdKey = document.createElement('td');
+                        const inpKey = document.createElement('input');
+                        inpKey.className = 'form-control form-control-sm key-input';
+                        inpKey.placeholder = '예: Item_{n} 또는 Item_{row}';
+                        inpKey.value = f.Key || '';
+                        inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
+                        tdKey.appendChild(inpKey);
+
+                        // Type
+                        const tdType = document.createElement('td');
+                        const sel = document.createElement('select');
+                        sel.className = 'form-select form-select-sm';
+                        sel.append(opt('Text', T.TypeText, (f.Type || 'Text') === 'Text'));
+                        sel.append(opt('Date', T.TypeDate, (f.Type || 'Text') === 'Date'));
+                        sel.append(opt('Num', T.TypeNum, (f.Type || 'Text') === 'Num'));
+                        sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
+                        tdType.appendChild(sel);
+
+                        // Cell (A1) + 삭제 버튼 (Select Cell은 숨김)
+                        const tdA1 = document.createElement('td');
+                        tdA1.className = 'cell-a1';
+                        const grp = document.createElement('div');
+                        grp.className = 'input-group input-group-sm';
+
+                        const inputA1 = document.createElement('input');
+                        inputA1.className = 'form-control';
+                        inputA1.placeholder = '예: C9 또는 C9:C35';
+                        inputA1.value = (f.Cell && f.Cell.A1) || '';
+                        inputA1.addEventListener('input', e => {
+                            desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                            desc.Fields[i].Cell.A1 = e.target.value;
+                        });
+                        inputA1.addEventListener('focus', () => {
+                            window.__a1.set = (a1) => {
+                                desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                                desc.Fields[i].Cell.A1 = a1;
+                                inputA1.value = a1;
+                                inputA1.classList.add('a1-active');
+                                setTimeout(() => inputA1.classList.remove('a1-active'), 800);
+                            };
+                        });
+
+                        const pickBtn = document.createElement('button');
+                        pickBtn.type = 'button';
+                        pickBtn.className = 'btn btn-outline-secondary d-none'; /* 2025.09.29 Changed: 숨김 */
+                        pickBtn.textContent = L.PickCell;
+                        pickBtn.addEventListener('click', () => {
+                            inputA1.focus();
+                            document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        });
+
+                        const delBtn = document.createElement('button');
+                        delBtn.type = 'button';
+                        delBtn.className = 'btn btn-outline-danger';
+                        delBtn.textContent = L.Delete;
+                        delBtn.addEventListener('click', () => {
+                            desc.Fields.splice(i, 1);
+                            render();
+                        });
+
+                        grp.append(inputA1, pickBtn, delBtn);
+                        tdA1.appendChild(grp);
+
+                        tr.append(tdKey, tdType, tdA1);
+                        fieldsBody.appendChild(tr);
+                    }); 
+                }       
 
                 /* ===== Approvals ===== */
                 apprBody.innerHTML = '';
@@ -327,7 +349,6 @@
                     desc.Approvals.forEach((a, i) => {
                         const tr = document.createElement('tr');
 
-                        // Slot
                         const tdS = document.createElement('td');
                         const inpS = document.createElement('input');
                         inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
@@ -335,7 +356,6 @@
                         inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1'); });
                         tdS.appendChild(inpS);
 
-                        // Part
                         const tdP = document.createElement('td');
                         const inpP = document.createElement('input');
                         inpP.className = 'form-control form-control-sm';
@@ -343,7 +363,6 @@
                         inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
                         tdP.appendChild(inpP);
 
-                        // Cell + 버튼
                         const tdA1 = document.createElement('td');
                         tdA1.className = 'cell-a1';
                         const grp = document.createElement('div');
@@ -369,14 +388,24 @@
 
                         const pickBtn = document.createElement('button');
                         pickBtn.type = 'button';
-                        pickBtn.className = 'btn btn-outline-secondary';
+                        pickBtn.className = 'btn btn-outline-secondary d-none'; /* 2025.09.29 Changed: 숨김 */
                         pickBtn.textContent = L.PickCell;
                         pickBtn.addEventListener('click', () => {
                             inputA1.focus();
                             document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
                         });
 
-                        grp.append(inputA1, pickBtn);
+                        /* 2025.09.29 Added: 결재란 삭제 버튼 */
+                        const delBtn = document.createElement('button');
+                        delBtn.type = 'button';
+                        delBtn.className = 'btn btn-outline-danger';
+                        delBtn.textContent = L.Delete;
+                        delBtn.addEventListener('click', () => {
+                            desc.Approvals.splice(i, 1);
+                            render();
+                        });
+
+                        grp.append(inputA1, pickBtn, delBtn);
                         tdA1.appendChild(grp);
 
                         tr.append(tdS, tdP, tdA1);
@@ -387,15 +416,15 @@
 
             // 행 추가 버튼
             document.getElementById('btnAddField').addEventListener('click', () => {
-                desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render();
+                desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
+                render();
             });
             document.getElementById('btnAddAppr').addEventListener('click', () => {
-                desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } }); render();
+                desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } });
+                render();
             });
 
-            // ---------------------------
-            // 2025.09.15 저장 시 "범위 한 줄 정의" 확장 로직
-            // ---------------------------
+            // 저장 확장/검증
             function tryParseRange(a1) {
                 const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
                 if (!m || m[1] !== m[3]) return null;
@@ -403,35 +432,25 @@
                 if (r2 < r1) [r1, r2] = [r2, r1];
                 return { col: m[1], r1, r2 };
             }
-
             function expandFieldsForSave(fields) {
                 const out = [];
                 for (const f of fields) {
                     const a1 = f?.Cell?.A1 || '';
                     const rg = tryParseRange(a1);
                     if (!rg) { out.push(f); continue; }
-
                     const tpl = (f.Key || '').trim();
                     let idx = 1;
                     for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                        // ★ 키 템플릿 치환 + 기본값
                         let keyBase = (tpl || 'Field');
                         let key = keyBase;
                         if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx));
                         if (key.includes('{row}')) key = key.replaceAll('{row}', String(r));
                         if (key === keyBase) key = `${keyBase}_${r}`;
-
-                        out.push({
-                            Key: key,
-                            Type: f.Type || 'Text',
-                            Cell: { A1: `${rg.col}${r}` }
-                        });
+                        out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } });
                     }
                 }
                 return out;
             }
-
-            // ★ 중복 키 검증
             function hasDuplicateKeys(items) {
                 const seen = new Set();
                 for (const it of items) {
@@ -442,22 +461,15 @@
                 }
                 return { ok: true };
             }
-
             document.getElementById('btnSave').addEventListener('click', () => {
                 const payload = JSON.parse(JSON.stringify(desc));
                 payload.Fields = expandFieldsForSave(desc.Fields);
-
-                // ★ 저장 직전 키 검증
                 const ck = hasDuplicateKeys(payload.Fields);
                 if (!ck.ok) {
-                    if (ck.reason === 'empty') {
-                        alert('입력 필드의 키가 비어 있습니다. 키를 입력하거나 템플릿(예: Item_{row})을 사용하세요.');
-                    } else if (ck.reason === 'dup') {
-                        alert(`중복된 키가 있습니다: ${ck.key}`);
-                    }
-                    return; // 저장 중단
+                    if (ck.reason === 'empty') alert(L.MsgKeyEmpty);
+                    else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || ''));
+                    return;
                 }
-
                 document.getElementById('descriptor').value = JSON.stringify(payload);
                 document.getElementById('mapForm').submit();
             });
@@ -465,5 +477,4 @@
             render();
         })();
     </script>
-
 }

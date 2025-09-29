@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// 2025.09.29 Changed: MapSave()에서 생성한 docCode를 @DocCode 파라미터에 그대로 사용하도록 통일
+// 2025.09.29 Changed: ExpandFieldsRange()의 Row/Column을 0-기반으로 일치화(기존 ToCellRef와 기준 통일). A1 표기는 기존대로 1-기반 유지
+
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +16,8 @@ using System.Globalization;
 using Microsoft.AspNetCore.Routing;
 using System.Net;
 using System.Linq;
+using System.Data;
+using Microsoft.Data.SqlClient;
 
 namespace WebApplication1.Controllers
 {
@@ -156,7 +161,6 @@ namespace WebApplication1.Controllers
                 list.AddRange(raw.Select(d => new { id = d.Id, text = d.Name ?? "" }));
             }
 
-            // 동일 사업장일 때만 사용자의 부서를 상단에 삽입
             if (ctx.deptId.HasValue
                 && string.Equals(compCd, ctx.compCd, StringComparison.OrdinalIgnoreCase)
                 && list.All(o => (o as dynamic).id != ctx.deptId.Value))
@@ -186,28 +190,122 @@ namespace WebApplication1.Controllers
         }
 
         [HttpGet("get-documents")]
-        public async Task<IActionResult> GetDocuments([FromQuery] string compCd,
-                                                      [FromQuery] int? departmentId,
-                                                      [FromQuery] string? kind)
+        public async Task<IActionResult> GetDocuments(
+                    [FromQuery] string compCd,
+                    [FromQuery] int? departmentId,
+                    [FromQuery] string? kind)
         {
             var ctx = await GetUserContextAsync();
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
-            await Task.CompletedTask;
-            return Ok(new { items = Array.Empty<object>() });
+            compCd = (compCd ?? "").Trim();
+            var dep = departmentId ?? ctx.deptId ?? 0;
+
+            if (string.IsNullOrEmpty(compCd))
+                return Ok(new { items = Array.Empty<object>() });
+
+            var query = _db.DocTemplateMasters
+                .AsNoTracking()
+                .Where(m => m.CompCd == compCd &&
+                            (dep == 0 ? m.DepartmentId == 0 : m.DepartmentId == dep));
+
+            if (!string.IsNullOrWhiteSpace(kind))
+                query = query.Where(m => m.KindCode == kind);
+
+            var items = await query
+                .OrderBy(m => m.DocName)
+                .Select(m => new { id = m.DocCode, text = m.DocName })
+                .ToListAsync();
+
+            return Ok(new { items });
+        }
+
+        [HttpGet("load-template")]
+        public async Task<IActionResult> LoadTemplate(
+           [FromQuery] string compCd,
+           [FromQuery] int? departmentId,
+           [FromQuery] string docCode)
+        {
+            var ctx = await GetUserContextAsync();
+            if (ctx.adminLevel == 0) compCd = ctx.compCd;
+
+            compCd = (compCd ?? "").Trim();
+            if (string.IsNullOrEmpty(compCd) || string.IsNullOrWhiteSpace(docCode))
+            {
+                TempData["Alert"] = "Invalid request.";
+                return RedirectToRoute("DocumentTemplates.Index");
+            }
+
+            // 1) Master 찾기 (회사/부서/DocCode 일치)
+            var dep = departmentId ?? ctx.deptId ?? 0;
+            var master = await _db.DocTemplateMasters
+                .AsNoTracking()
+                .Where(m => m.CompCd == compCd &&
+                            (dep == 0 ? m.DepartmentId == 0 : m.DepartmentId == dep) &&
+                            m.DocCode == docCode)
+                .FirstOrDefaultAsync();
+
+            if (master == null)
+            {
+                TempData["Alert"] = "Template not found.";
+                return RedirectToRoute("DocumentTemplates.Index");
+            }
+
+            // 2) 최신 버전 찾기 (VersionNo 최대)
+            var latest = await _db.DocTemplateVersions
+                .AsNoTracking()
+                .Where(v => v.TemplateId == master.Id)
+                .OrderByDescending(v => v.VersionNo)
+                .FirstOrDefaultAsync();
+
+            if (latest == null)
+            {
+                TempData["Alert"] = "No version found.";
+                return RedirectToRoute("DocumentTemplates.Index");
+            }
+
+            // 3) 파일(Descriptor/Preview) 로드
+            var files = await _db.DocTemplateFiles
+                .AsNoTracking()
+                .Where(f => f.VersionId == latest.Id)
+                .Select(f => new { f.FileRole, f.Contents })
+                .ToListAsync();
+
+            string? descriptorJson = files
+                .Where(f => f.FileRole == "DescriptorJson")
+                .Select(f => f.Contents)
+                .FirstOrDefault();
+
+            string? previewJson = files
+                .Where(f => f.FileRole == "PreviewJson")
+                .Select(f => f.Contents)
+                .FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(descriptorJson))
+            {
+                TempData["Alert"] = "Descriptor not found.";
+                return RedirectToRoute("DocumentTemplates.Index");
+            }
+
+            // 4) ViewBag 바인딩 (DocTLMap 화면 재사용)
+            //     - 기존 NewTemplatePost와 동일 포맷 유지
+            ViewBag.DescriptorJson = descriptorJson;
+            ViewBag.PreviewJson = previewJson; // null 가능
+            ViewBag.ExcelPath = null;        // 로컬 임시 경로는 없음
+
+            return View("DocTLMap");
         }
 
         [HttpGet("get-kinds")]
         public async Task<IActionResult> GetKinds([FromQuery] string compCd, [FromQuery] int? departmentId)
         {
             var ctx = await GetUserContextAsync();
-            if (ctx.adminLevel == 0) compCd = ctx.compCd;   // 비관리자는 자신의 사업장으로 고정
+            if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
             compCd = (compCd ?? "").Trim();
-            var deptId = departmentId ?? ctx.deptId ?? 0;   // 공용(0) 허용
+            var deptId = departmentId ?? ctx.deptId ?? 0;
             var lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
-            // 핵심: Kind ↔ Loc 를 (Id, DepartmentId)로 좌측 조인. DepartmentMasters 조인 제거.
             var items = await (
                 from k in _db.TemplateKindMasters.AsNoTracking()
                 where k.CompCd == compCd
@@ -229,7 +327,6 @@ namespace WebApplication1.Controllers
             return Ok(new { items });
         }
 
-        // === 새 종류 추가 ===
         private static string? FirstNonEmpty(params string?[] xs) => xs.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
 
         private async Task<IActionResult?> GuardCompAndDeptAsync(string compCd, int? departmentId)
@@ -271,40 +368,6 @@ namespace WebApplication1.Controllers
             var displayName = FirstNonEmpty(nameKo, nameEn, nameVi, nameId, nameZh);
             if (string.IsNullOrWhiteSpace(displayName))
                 return BadRequest(new { ok = false, message = "name required" });
-
-            // ▼ 중복 검사 (회사+부서 범위, 현재 UI 언어 우선)
-            var dep = departmentId ?? 0;
-            var ui = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-            string? uiName = ui switch
-            {
-                "ko" => nameKo,
-                "vi" => nameVi,
-                "id" => nameId,
-                "zh" => nameZh,
-                "en" => nameEn,
-                _ => nameEn ?? nameKo
-            };
-            if (!string.IsNullOrWhiteSpace(uiName))
-            {
-                var dup =
-                    await _db.TemplateKindMasterLoc.AsNoTracking().AnyAsync(x =>
-                        x.CompCd == compCd && x.DepartmentId == dep &&
-                        x.LangCode == ui && x.Name == uiName) ||
-                    await _db.TemplateKindMasters.AsNoTracking().AnyAsync(x =>
-                        x.CompCd == compCd && x.DepartmentId == dep &&
-                        x.Name == uiName);
-
-                if (dup)
-                {
-                    return StatusCode(409, new
-                    {
-                        ok = false,
-                        code = "DUP_NAME",
-                        field = $"ntk-name-{ui}",
-                        message = _S["DTL_Alert_Category_Duplicated"].Value
-                    });
-                }
-            }
 
             const int MAX_ATTEMPTS = 5;
             TemplateKindMaster? master = null;
@@ -750,9 +813,9 @@ namespace WebApplication1.Controllers
         // 2025.09.15 [추가] A1 범위 파싱/확장 + 키 검증 유틸 (서버-사이드 안전망)
         // =====================================================================
         private static readonly Regex _reA1Range = new(@"^([A-Z]+)(\d+):([A-Z]+)(\d+)$",
-                                                       RegexOptions.Compiled | RegexOptions.IgnoreCase); // 2025.09.15 [추가]
+                                                       RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        private static bool TryParseA1Range(string? a1, out string col, out int r1, out int r2) // 2025.09.15 [추가]
+        private static bool TryParseA1Range(string? a1, out string col, out int r1, out int r2)
         {
             col = string.Empty; r1 = 0; r2 = 0;
             var m = _reA1Range.Match((a1 ?? string.Empty).Trim().ToUpperInvariant());
@@ -765,26 +828,26 @@ namespace WebApplication1.Controllers
             return true;
         }
 
-        private static List<FieldDef> ExpandFieldsRange(IEnumerable<FieldDef> fields) // 2025.09.15 [추가]
+        private static List<FieldDef> ExpandFieldsRange(IEnumerable<FieldDef> fields)
         {
             var outList = new List<FieldDef>();
             foreach (var f in fields ?? Enumerable.Empty<FieldDef>())
             {
-                if (f is null)
-                    continue;
+                if (f is null) continue;
 
-                // 이후부터 f는 non-null로 보장
                 var a1 = f.Cell?.A1 ?? string.Empty;
 
-                if (!TryParseA1Range(a1, out var col, out var r1, out var r2))
+                if (!TryParseA1Range(a1, out var colLetters, out var r1, out var r2))
                 {
-                    outList.Add(f);    // f는 non-null이므로 CS8604 경고 없음
+                    outList.Add(f);
                     continue;
                 }
 
-                var tpl = (f.Key ?? string.Empty).Trim(); // f non-null 보장으로 CS8602 경고 없음
+                var tpl = (f.Key ?? string.Empty).Trim();
                 var baseKey = string.IsNullOrEmpty(tpl) ? "Field" : tpl;
                 var idx = 1;
+
+                int col0 = ColLettersToIndex(colLetters) - 1; // 0-기반
 
                 for (int r = r1; r <= r2; r++, idx++)
                 {
@@ -796,27 +859,22 @@ namespace WebApplication1.Controllers
                     outList.Add(new FieldDef
                     {
                         Key = key,
-                        Type = string.IsNullOrWhiteSpace(f?.Type) ? "Text" : f!.Type, // 기존 유지
+                        Type = string.IsNullOrWhiteSpace(f?.Type) ? "Text" : f!.Type,
                         Cell = new CellRef
                         {
-                            //Sheet = f?.Cell?.Sheet ?? string.Empty, // f.Cell null 대비
-                            //Row = f?.Cell?.Row ?? r,            // 파싱된 r로 폴백
-                            //Column = f?.Cell?.Column ?? col,          // 파싱된 col로 폴백
-                            //RowSpan = 1,
-                            //ColSpan = 1,
-                            //A1 = $"{col}{r}"
                             Sheet = f?.Cell?.Sheet ?? string.Empty,
-                            Row = (f?.Cell?.Row) ?? r,
-                            Column = (f?.Cell?.Column) ?? ColLettersToIndex(col),
+                            Row = (f?.Cell?.Row) ?? (r - 1), // 0-기반
+                            Column = (f?.Cell?.Column) ?? col0,    // 0-기반
                             RowSpan = 1,
                             ColSpan = 1,
-                            A1 = $"{col}{r}"
+                            A1 = $"{colLetters}{r}"            // A1 표기는 1-기반
                         }
                     });
                 }
             }
             return outList;
         }
+
         private static int ColLettersToIndex(string letters)
         {
             if (string.IsNullOrWhiteSpace(letters))
@@ -830,7 +888,7 @@ namespace WebApplication1.Controllers
             return n;
         }
 
-        private static (bool Ok, string? Reason, string? Key) ValidateFieldKeys(IEnumerable<FieldDef> fields) // 2025.09.15 [추가]
+        private static (bool Ok, string? Reason, string? Key) ValidateFieldKeys(IEnumerable<FieldDef> fields)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in fields ?? Enumerable.Empty<FieldDef>())
@@ -855,26 +913,83 @@ namespace WebApplication1.Controllers
             catch { return BadRequest("Invalid descriptor"); }
             if (model == null) return BadRequest("Empty descriptor");
 
-            // 2025.09.15 [추가] 서버-사이드 확장/검증
-            model.Fields = ExpandFieldsRange(model.Fields ?? new List<FieldDef>()); // 2025.09.15 [추가]
-            var ck = ValidateFieldKeys(model.Fields);                               // 2025.09.15 [추가]
-            if (!ck.Ok)                                                             // 2025.09.15 [추가]
+            model.Fields = ExpandFieldsRange(model.Fields ?? new List<FieldDef>());
+            var ck = ValidateFieldKeys(model.Fields);
+            if (!ck.Ok)
             {
                 return BadRequest(ck.Reason == "dup"
                     ? $"Duplicate field key: {ck.Key}"
                     : "Field key is required.");
             }
 
+            var descriptorJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = false });
+            string? previewJson = null;
+
+            var excelFileName = string.IsNullOrWhiteSpace(excelPath) ? "unknown.xlsx" : Path.GetFileName(excelPath);
+            var excelSize = (!string.IsNullOrWhiteSpace(excelPath) && System.IO.File.Exists(excelPath))
+                ? new FileInfo(excelPath).Length
+                : 0L;
+
+            var docCode = $"DOC_{Guid.NewGuid():N}".ToUpperInvariant();
+
+            try
+            {
+                var p = new[]
+                {
+                    new SqlParameter("@CompCd", SqlDbType.NVarChar, 10){ Value = model.CompCd },
+                    new SqlParameter("@DepartmentId", SqlDbType.Int){ Value = (object?)model.DepartmentId ?? DBNull.Value },
+                    new SqlParameter("@KindCode", SqlDbType.NVarChar, 20){ Value = (object?)model.Kind ?? DBNull.Value },
+
+                    // 여기 통일 사용
+                    new SqlParameter("@DocCode", SqlDbType.NVarChar, 40){ Value = docCode },
+
+                    new SqlParameter("@DocName", SqlDbType.NVarChar, 200){ Value = model.DocName },
+                    new SqlParameter("@Title", SqlDbType.NVarChar, 200){ Value = (object?)model.Title ?? DBNull.Value },
+                    new SqlParameter("@ApprovalCount", SqlDbType.Int){ Value = model.ApprovalCount },
+
+                    new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1){ Value = descriptorJson },
+                    new SqlParameter("@PreviewJson",    SqlDbType.NVarChar, -1){ Value = (object?)previewJson ?? DBNull.Value },
+
+                    new SqlParameter("@ExcelFileName",   SqlDbType.NVarChar, 255){ Value = excelFileName },
+                    new SqlParameter("@ExcelStorage",    SqlDbType.NVarChar, 20 ){ Value = "Disk" },
+                    new SqlParameter("@ExcelFilePath",   SqlDbType.NVarChar, 500){ Value = (object?)excelPath ?? DBNull.Value },
+                    new SqlParameter("@ExcelFileSize",   SqlDbType.BigInt){ Value = excelSize },
+                    new SqlParameter("@ExcelContentType",SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+
+                    new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
+
+                    new SqlParameter("@OutTemplateId", SqlDbType.Int){ Direction = ParameterDirection.Output },
+                    new SqlParameter("@OutVersionId", SqlDbType.BigInt){ Direction = ParameterDirection.Output },
+                    new SqlParameter("@OutVersionNo", SqlDbType.Int){ Direction = ParameterDirection.Output },
+                };
+
+                const string sql =
+                    "EXEC dbo.sp_DocTemplate_SaveFromDescriptor " +
+                    "@CompCd,@DepartmentId,@KindCode,@DocCode,@DocName,@Title,@ApprovalCount," +
+                    "@DescriptorJson,@PreviewJson,@ExcelFileName,@ExcelStorage,@ExcelFilePath,@ExcelFileSize,@ExcelContentType," +
+                    "@CreatedBy,@OutTemplateId OUTPUT,@OutVersionId OUTPUT,@OutVersionNo OUTPUT";
+
+                _db.Database.ExecuteSqlRaw(sql, p);
+
+                var outTemplateId = (int)(p[^3].Value ?? 0);
+                var outVersionId = (long)(p[^2].Value ?? 0L);
+                var outVersionNo = (int)(p[^1].Value ?? 0);
+
+                TempData["Alert"] = $"Saved: TmplId={outTemplateId}, VerId={outVersionId}, VerNo={outVersionNo}";
+            }
+            catch (Exception ex)
+            {
+                TempData["Alert"] = ex.Message;
+            }
+
             var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
             Directory.CreateDirectory(baseDir);
-
             static string Safe(string s) => string.Concat(s.Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_'));
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var name = $"{Safe(model.CompCd)}_{Safe(model.DocName)}_{stamp}_{Guid.NewGuid():N}.json";
             var path = Path.Combine(baseDir, name);
 
             System.IO.File.WriteAllText(path, JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true }));
-            //return Content($"[MAP-SAVE]\nfile={path}\nexcel={excelPath}\nfields={model.Fields?.Count ?? 0}\napprovals={model.Approvals?.Count ?? 0}");
 
             return RedirectToAction(nameof(MapSaved), new
             {
@@ -884,6 +999,7 @@ namespace WebApplication1.Controllers
                 approvals = model.Approvals?.Count ?? 0
             });
         }
+
         [HttpGet("map-saved")]
         public IActionResult MapSaved(string path, string? excelPath, int fields, int approvals)
         {
@@ -894,7 +1010,6 @@ namespace WebApplication1.Controllers
             return View("DocTLMapSaved");
         }
 
-        // ✅ 디스크립터 다운로드 (원하면)
         [HttpGet("download-descriptor")]
         public IActionResult DownloadDescriptor([FromQuery] string path)
         {

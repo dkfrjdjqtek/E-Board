@@ -388,7 +388,7 @@
     <value>[Han Young E-Board] 密码重置通知</value>
   </data>
   <data name="FP_Email_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;您好，{0}：&lt;/p&gt;&lt;p&gt;收到您的&lt;strong&gt;密码重置&lt;/strong&gt;请求。点击下方按钮继续操作。如果并非您本人操作，请忽略此邮件。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;打开链接&lt;/a&gt;&lt;/p&gt;&lt;p&gt;此邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="zh-CN"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;重置密码&lt;/h2&gt;&lt;p&gt;您好，&lt;strong&gt;{0}&lt;/strong&gt;。&lt;/p&gt;&lt;p&gt;点击下方按钮即可重置您的账户密码。&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;重置密码&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;该链接自收到之时起&lt;strong&gt;{2}分钟内&lt;/strong&gt;有效。&lt;/p&gt;&lt;p&gt;如果按钮无法打开，请复制下面的链接并粘贴到浏览器地址栏。&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;若非您本人请求，请忽略本邮件。&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 本邮件由系统自动发送，请勿回复。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="FPC_LogInButton" xml:space="preserve">
     <value>忘记密码</value>
@@ -887,5 +887,8 @@
   </data>
   <data name="_Alert_Unconfirm_Mail" xml:space="preserve">
     <value>此账户的电子邮箱尚未验证。</value>
+  </data>
+  <data name="_CM_Delete" xml:space="preserve">
+    <value>删除</value>
   </data>
 </root>

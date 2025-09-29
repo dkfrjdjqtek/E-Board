@@ -296,10 +296,16 @@
                     if (deptVal !== '' && deptVal !== '__SELECT__') qsOpen.append('departmentId', deptVal);
                     if (kindVal) qsOpen.append('kind', kindVal);
                     qsOpen.append('docCode', docCode);
-                    btnLoad.dataset.href = `/DocumentTemplates/open?${qsOpen.toString()}`;
+                    //btnLoad.dataset.href = `/DocumentTemplates/open?${qsOpen.toString()}`;
+                    btnLoad.dataset.href = `/DocumentTemplates/load-template?${qsOpen.toString()}`;
                 } else {
                     btnLoad.dataset.href = '';
                 }
+                
+                const hasHref = !!btnLoad.dataset.href;
+                btnLoad.classList.toggle('disabled', !hasHref);
+                btnLoad.setAttribute('aria-disabled', String(!hasHref));
+                btnLoad.tabIndex = hasHref ? 0 : -1;
             }
 
             btnLoad.addEventListener('click', () => {

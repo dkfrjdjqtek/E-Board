@@ -388,7 +388,7 @@
     <value>[Han Young E-Board] Thông báo đặt lại mật khẩu</value>
   </data>
   <data name="FP_Email_BodyHtml" xml:space="preserve">
-    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;line-height:1.6"&gt;&lt;p&gt;Xin chào {0},&lt;/p&gt;&lt;p&gt;Chúng tôi đã nhận yêu cầu &lt;strong&gt;đặt lại mật khẩu&lt;/strong&gt; của bạn. Nhấp nút bên dưới để tiếp tục. Nếu không phải bạn yêu cầu, hãy bỏ qua email này.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Mở liên kết&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Email này được gửi tự động, vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Đặt lại mật khẩu&lt;/h2&gt;&lt;p&gt;Xin chào, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Nhấp nút bên dưới để đặt lại mật khẩu tài khoản của bạn.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{1}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Đặt lại mật khẩu&lt;/a&gt;&lt;/p&gt;&lt;p style="color:#6c757d;margin:8px 0 0"&gt;Liên kết này &lt;strong&gt;có hiệu lực trong {2} phút&lt;/strong&gt; kể từ khi bạn nhận được.&lt;/p&gt;&lt;p&gt;Nếu nút không hoạt động, hãy sao chép và dán URL sau vào trình duyệt của bạn.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{1}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Nếu bạn không yêu cầu thao tác này, vui lòng bỏ qua email.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email này được tạo và gửi tự động. Vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
   </data>
   <data name="FPC_LogInButton" xml:space="preserve">
     <value>Quên mật khẩu</value>
@@ -887,5 +887,8 @@
   </data>
   <data name="_Alert_Unconfirm_Mail" xml:space="preserve">
     <value>Email của tài khoản này chưa được xác nhận.</value>
+  </data>
+  <data name="_CM_Delete" xml:space="preserve">
+    <value>Xóa</value>
   </data>
 </root>
