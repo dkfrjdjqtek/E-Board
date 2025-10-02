@@ -1,4 +1,5 @@
-﻿@* Views/DocTL/DocTL.cshtml *@
+﻿File: Views/DocTL/DocTL.cshtml
+@* 2025.10.01 Changed: 미리보기 컴포넌트 자산 동적 로더 추가, mount 순서 보장, 실패 시 폴백 유지 *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -69,37 +70,27 @@
 
         <div class="d-flex align-items-end gap-2 ms-auto" style="width:360px;">
             <a id="btnLoad" class="btn btn-secondary btn-sm flex-eq" href="javascript:void(0)">@S["DTL_Btn_Load"]</a>
-            <a id="btnNewTemplate"
-               class="btn btn-primary btn-sm flex-eq"
-               href="#"
-               data-bs-toggle="modal"
-               data-bs-target="#newTemplateModal">@S["DTL_Btn_NewTemplate"]</a>
+            <a id="btnNewTemplate" class="btn btn-primary btn-sm flex-eq" href="#" data-bs-toggle="modal" data-bs-target="#newTemplateModal">@S["DTL_Btn_NewTemplate"]</a>
         </div>
     </div>
 
+    <!-- DocTL 화면 내 마운트 영역 -->
     <div id="docArea"></div>
 </div>
 
-<!-- New Template Modal -->
+<!-- New Template Modal (원본 유지) -->
 <div class="modal fade" id="newTemplateModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">@S["DTL_Title_NewTemplate"]</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="@S["_CM_Close"]"></button>
             </div>
 
             <form id="frmNewTemplate" method="post" enctype="multipart/form-data" action="/DocumentTemplates/new-template" novalidate>
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="compCd" id="nt-compCd" />
                 <div class="modal-body">
-
-                    @* ▼▼▼ 기존 직접 작성한 경고 DIV는 주석 처리합니다. (공통 부분뷰 사용)
-                    //2025.09.15 제거: 개별 alert DIV -> 공통 _ValidationAlert 사용
-                    <div id="nt-alert" class="alert alert-danger d-none mb-3" role="alert"></div>
-                    ▲▲▲ *@
-
-                    @* ★ 공통 경고 박스: 서버측 ModelState 에러도 같은 컨테이너(#nt-alert)에 표시됩니다. *@
                     @{
                         var serverErrors = ViewData.ModelState.IsValid
                         ? Enumerable.Empty<string>()
@@ -108,7 +99,7 @@
                     @await Html.PartialAsync(
                              "~/Views/Shared/_ValidationAlert.cshtml",
                              serverErrors,
-                             new ViewDataDictionary(ViewData) { ["AlertId"] = "nt-alert" }  // ← 컨테이너 id
+                             new ViewDataDictionary(ViewData) { ["AlertId"] = "nt-alert" }
                              )
 
                     <div class="row g-3">
@@ -128,7 +119,7 @@
                             </div>
                         </div>
 
-                        <!-- 새 범주 추가 -->
+                        <!-- 새 범주 추가 (원본 유지) -->
                         <div class="col-12 d-none" id="kindAddBox">
                             <div class="border rounded p-3">
                                 <div class="row g-2">
@@ -142,11 +133,11 @@
                                     </div>
                                 </div>
                                 <div class="row g-2 mt-2">
-                                    <div class="col-md-6"><input id="ntk-name-ko" class="form-control form-control-sm" placeholder="한글" /></div>
-                                    <div class="col-md-6"><input id="ntk-name-en" class="form-control form-control-sm" placeholder="English" /></div>
-                                    <div class="col-md-6"><input id="ntk-name-vi" class="form-control form-control-sm" placeholder="Tiếng Việt" /></div>
-                                    <div class="col-md-6"><input id="ntk-name-id" class="form-control form-control-sm" placeholder="Bahasa Indonesia" /></div>
-                                    <div class="col-md-6"><input id="ntk-name-zh" class="form-control form-control-sm" placeholder="中文" /></div>
+                                    <div class="col-md-6"><input id="ntk-name-ko" class="form-control form-control-sm" placeholder="@S["DTL_Placeholder_Lang_Ko"]" /></div>
+                                    <div class="col-md-6"><input id="ntk-name-en" class="form-control form-control-sm" placeholder="@S["DTL_Placeholder_Lang_En"]" /></div>
+                                    <div class="col-md-6"><input id="ntk-name-vi" class="form-control form-control-sm" placeholder="@S["DTL_Placeholder_Lang_Vi"]" /></div>
+                                    <div class="col-md-6"><input id="ntk-name-id" class="form-control form-control-sm" placeholder="@S["DTL_Placeholder_Lang_Id"]" /></div>
+                                    <div class="col-md-6"><input id="ntk-name-zh" class="form-control form-control-sm" placeholder="@S["DTL_Placeholder_Lang_Zh"]" /></div>
                                 </div>
                                 <div class="mt-2 d-grid w-100" style="grid-template-columns: 1fr 1fr; gap:.5rem;">
                                     <button type="button" id="btnKindSave" class="btn btn-primary btn-sm w-100">@S["DTL_Btn_AddCategory"]</button>
@@ -162,16 +153,10 @@
                         <div class="col-md-6">
                             <label class="form-label mb-1">@S["DTL_Label_Excel"]</label>
                             <div class="input-group input-group-sm">
-                                <input type="text" id="nt-excel-name" class="form-control form-control-sm"
-                                       value="@S["DTL_File_NoFile"]" readonly />
-                                <button type="button" id="nt-excel-btn" class="btn btn-secondary btn-sm">
-                                    @S["DTL_Btn_ChooseFile"]
-                                </button>
+                                <input type="text" id="nt-excel-name" class="form-control form-control-sm" value="@S["DTL_File_NoFile"]" readonly />
+                                <button type="button" id="nt-excel-btn" class="btn btn-secondary btn-sm">@S["DTL_Btn_ChooseFile"]</button>
                             </div>
-
-                            <!-- 실제 업로드 대상: 숨김 file input (name="excelFile" 유지 필수) -->
                             <input type="file" id="nt-excel" name="excelFile" class="d-none" accept=".xlsx,.xlsm" />
-
                             <div class="form-text">@S["DTL_Alert_ExcelOpenXmlOnly"]</div>
                         </div>
                     </div>
@@ -186,26 +171,28 @@
             </form>
         </div>
     </div>
+    <div id="tplHost" class="mt-4"></div>
 </div>
 
 @section Scripts {
-    <!-- 전역 i18n -->
+    <!-- 전역 i18n (원본 유지) -->
     <script>
         (function () {
             window.L = {
                 ALL: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_All"].Value)),
                 NO_FILE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_File_NoFile"].Value)),
-                ALERT_SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_TemplateCategory_Required"].Value)),
+                ALERT_SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Select"].Value)),
                 ALERT_SITE: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_Alert_Require_ValidSite"].Value)),
                 ALERT_DOCNAME: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterDocName"].Value)),
                 ALERT_XLS_REQ: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelRequired"].Value)),
                 ALERT_OPENXML: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_ExcelOpenXmlOnly"].Value)),
                 SELECT: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Select"].Value)),
-                ADD_KIND: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Add"]?.Value ?? "＋ 새 종류 추가…")),
+                ADD_KIND: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Add"]?.Value ?? "")),
                 ALERT_DUP: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_Category_Duplicated"].Value)),
                 DTL_Alert_DeptRequired: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_DeptRequired"].Value)),
                 DTL_Alert_KindNameRequire: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_KindNameRequire"].Value)),
-                DTL_Alert_EnterCurrentLang: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterCurrentLang"].Value))
+                DTL_Alert_EnterCurrentLang: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterCurrentLang"].Value)),
+                ERROR: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Error"].Value))
                     };
             window.CUR_LANG = '@System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName';
             window.MSG = {
@@ -216,17 +203,68 @@
         })();
     </script>
 
-    <!-- 부모 영역 -->
+    <!-- 부모 영역: DocTL 폼 내 직접 마운트(A) + 자산 로더 추가 -->
     <script>
         (function () {
-            const L = window.L || {};  // ← 이 줄 추가 (부모 영역)
+            const L = window.L || {};
             const BASE = "/DocumentTemplates";
             const compSel = document.getElementById('compSelect');
             const deptSel = document.getElementById('deptSelect');
             const kindSel = document.getElementById('kindSelect');
             const docSel = document.getElementById('docSelect');
-            const btnNew = document.getElementById('btnNewTemplate');
             const btnLoad = document.getElementById('btnLoad');
+            const docArea = document.getElementById('docArea');
+
+            // === 추가: 컴포넌트 자산 로더 ===
+            const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js"; // ⬅ 실제 경로 넣어주세요
+            const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";       // ⬅ 실제 경로 넣어주세요
+
+            function ensureCss(href) {
+                return new Promise((resolve, reject) => {
+                    if ([...document.styleSheets].some(s => s.href && s.href.endsWith(href))) return resolve();
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = href;
+                    link.onload = () => resolve();
+                    link.onerror = reject;
+                    document.head.appendChild(link);
+                });
+            }
+            function ensureScript(src, checkReady) {
+                return new Promise((resolve, reject) => {
+                    if (checkReady()) return resolve();
+                    if ([...document.scripts].some(s => s.src && s.src.endsWith(src))) {
+                        // 이미 넣었으면 폴링해서 준비될 때까지 대기
+                        const t = setInterval(() => { if (checkReady()) { clearInterval(t); resolve(); } }, 50);
+                        setTimeout(() => { clearInterval(t); checkReady() ? resolve() : reject(new Error("timeout")); }, 8000);
+                        return;
+                    }
+                    const s = document.createElement('script');
+                    s.src = src; s.async = false; // 순차 보장
+                    s.onload = () => resolve();
+                    s.onerror = reject;
+                    document.head.appendChild(s);
+                }).then(() => {
+                    if (checkReady()) return;
+                    return new Promise((resolve, reject) => {
+                        const t = setInterval(() => { if (checkReady()) { clearInterval(t); resolve(); } }, 50);
+                        setTimeout(() => { clearInterval(t); checkReady() ? resolve() : reject(new Error("ready-timeout")); }, 8000);
+                    });
+                });
+            }
+            function hasMapGlobal() {
+                return !!(window.DOCTLMAP?.mount || window.DocTLPreview?.mount || window.DocTL?.mount);
+            }
+            async function ensureAssets() {
+                // CSS는 없어도 동작하지만 Grid 스타일이 깨지므로 로드 시도
+                if (ASSET_CSS && !ASSET_CSS.startsWith("/REPLACE")) {
+                    try { await ensureCss(ASSET_CSS); } catch { /* ignore */ }
+                }
+                if (!hasMapGlobal()) {
+                    if (!ASSET_JS || ASSET_JS.startsWith("/REPLACE")) throw new Error("ASSET_JS not set");
+                    await ensureScript(ASSET_JS, hasMapGlobal);
+                }
+            }
 
             async function fetchJson(url) {
                 const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -235,11 +273,11 @@
             }
             function clearOptions(sel) { while (sel.options.length) sel.remove(0); }
             function addOptions(sel, items) { for (const it of (items || [])) sel.add(new Option(it.text ?? '', String(it.id ?? ''))); }
-            function setSelectPlaceholder(sel) { clearOptions(sel); sel.add(new Option(L.SELECT, '__SELECT__')); }
+            function setSelectPlaceholder(sel) { clearOptions(sel); sel.add(new Option(L.SELECT || 'Select', '__SELECT__')); }
 
             async function loadDepartments() {
                 const compCd = compSel.value || '';
-                if (!compCd) { setSelectPlaceholder(deptSel); setSelectPlaceholder(kindSel); clearOptions(docSel); updateBtnLinks(); return; }
+                if (!compCd) { setSelectPlaceholder(deptSel); setSelectPlaceholder(kindSel); clearOptions(docSel); updateBtnState(); return; }
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 clearOptions(deptSel);
                 (data.items || []).forEach(it => deptSel.add(new Option(it.text ?? '', String(it.id ?? ''))));
@@ -251,121 +289,129 @@
                 }
                 deptSel.value = target;
             }
-
             async function loadKinds() {
                 const compCd = compSel.value || '';
                 const deptVal = deptSel.value;
                 setSelectPlaceholder(kindSel);
-                if (!compCd || deptVal === '__SELECT__') { clearOptions(docSel); updateBtnLinks(); return; }
+                if (!compCd || deptVal === '__SELECT__') { clearOptions(docSel); updateBtnState(); return; }
                 const deptParam = (deptVal === '' ? '0' : deptVal);
                 const q = new URLSearchParams({ compCd, departmentId: deptParam });
                 const data = await fetchJson(`${BASE}/get-kinds?${q.toString()}`);
                 addOptions(kindSel, data.items || []);
                 kindSel.value = '__SELECT__';
             }
-
             async function loadDocuments() {
                 const compCd = compSel.value || '';
                 const deptVal = deptSel.value;
                 const rawKind = kindSel.value;
                 clearOptions(docSel);
-                if (!compCd || deptVal === '__SELECT__' || rawKind === '__SELECT__') { updateBtnLinks(); return; }
+                if (!compCd || deptVal === '__SELECT__' || rawKind === '__SELECT__') { updateBtnState(); return; }
                 const q = new URLSearchParams({ compCd });
                 if (rawKind) q.append('kind', rawKind);
                 if (deptVal !== '') q.append('departmentId', deptVal);
                 const data = await fetchJson(`${BASE}/get-documents?${q.toString()}`);
                 addOptions(docSel, data.items || []);
-                updateBtnLinks();
+                updateBtnState();
             }
 
-            function updateBtnLinks() {
+            function getParams() {
                 const compCd = compSel.value || '';
                 const deptVal = deptSel.value || '';
                 const rawKind = kindSel.value || '';
                 const kindVal = (rawKind === '__SELECT__') ? '' : rawKind;
                 const docCode = docSel.value || '';
-                const qsNew = new URLSearchParams();
-                if (compCd) qsNew.append('compCd', compCd);
-                if (deptVal !== '' && deptVal !== '__SELECT__') qsNew.append('departmentId', deptVal);
-                if (kindVal) qsNew.append('kind', kindVal);
-                //btnNew.href = `/DocumentTemplates/new-template${qsNew.toString() ? '?' + qsNew.toString() : ''}`;
-
-                if (docCode) {
-                    const qsOpen = new URLSearchParams();
-                    if (compCd) qsOpen.append('compCd', compCd);
-                    if (deptVal !== '' && deptVal !== '__SELECT__') qsOpen.append('departmentId', deptVal);
-                    if (kindVal) qsOpen.append('kind', kindVal);
-                    qsOpen.append('docCode', docCode);
-                    //btnLoad.dataset.href = `/DocumentTemplates/open?${qsOpen.toString()}`;
-                    btnLoad.dataset.href = `/DocumentTemplates/load-template?${qsOpen.toString()}`;
-                } else {
-                    btnLoad.dataset.href = '';
-                }
-                
-                const hasHref = !!btnLoad.dataset.href;
-                btnLoad.classList.toggle('disabled', !hasHref);
-                btnLoad.setAttribute('aria-disabled', String(!hasHref));
-                btnLoad.tabIndex = hasHref ? 0 : -1;
+                return {
+                    compCd,
+                    departmentId: (deptVal !== '__SELECT__') ? deptVal : '',
+                    kind: kindVal,
+                    docCode
+                };
+            }
+            function updateBtnState() {
+                const enabled = !!(docSel.value || '');
+                btnLoad.classList.toggle('disabled', !enabled);
+                btnLoad.setAttribute('aria-disabled', String(!enabled));
+                btnLoad.tabIndex = enabled ? 0 : -1;
+            }
+            function getAntiForgeryToken() {
+                const el = document.querySelector('input[name="__RequestVerificationToken"]');
+                return el?.value || '';
             }
 
-            btnLoad.addEventListener('click', () => {
-                const href = btnLoad.dataset.href || '';
-                if (!href) { alert(L.ALERT_SELECT); return; }
-                window.location.href = href;
-            });
+            // 풀페이지 폴백
+            function fallbackNavigate(p) {
+                const qs = new URLSearchParams();
+                if (p.compCd) qs.append('compCd', p.compCd);
+                if (p.departmentId) qs.append('departmentId', p.departmentId);
+                if (p.kind) qs.append('kind', p.kind);
+                qs.append('docCode', p.docCode);
+                location.href = `${BASE}/load-template?${qs.toString()}`;
+            }
 
+            // ✅ 직접 마운트
+            async function mountInPlace() {
+                const p = getParams();
+                if (!p.docCode) { alert(L.ALERT_SELECT || 'Select'); return; }
+
+                try {
+                    await ensureAssets(); // 🎯 자산 로드 끝난 뒤에 mount
+
+                    // 프로젝트 전역 엔트리 대응
+                    const opts = { apiBase: BASE, antiforgery: getAntiForgeryToken() };
+                    docArea.innerHTML = '';
+
+                    if (window.DOCTLMAP?.mount) { window.DOCTLMAP.mount(docArea, p, opts); return; }
+                    if (window.DocTLPreview?.mount) { window.DocTLPreview.mount(docArea, p, opts); return; }
+                    if (window.DocTL?.mount) { window.DocTL.mount(docArea, p, opts); return; }
+
+                    // 전역이 아직 없다면 폴백
+                    fallbackNavigate(p);
+                } catch (e) {
+                    console.error(e);
+                    fallbackNavigate(p);
+                }
+            }
+
+            // 이벤트 바인딩 (원본 유지)
             let __booting = true;
-
             compSel.addEventListener('change', async () => {
                 if (__booting) return;
                 await loadDepartments();
-                deptSel.value = '__SELECT__';   // 규칙: 상위 변경 시 하위 초기화
+                deptSel.value = '__SELECT__';
                 await loadKinds();
                 kindSel.value = '__SELECT__';
                 clearOptions(docSel);
-                updateBtnLinks();
+                updateBtnState();
             });
-
             deptSel.addEventListener('change', async () => {
                 if (__booting) return;
                 await loadKinds();
                 kindSel.value = '__SELECT__';
                 clearOptions(docSel);
-                updateBtnLinks();
+                updateBtnState();
             });
-
-            kindSel.addEventListener('change', async () => {
-                await loadDocuments();
-            });
+            kindSel.addEventListener('change', async () => { await loadDocuments(); });
+            btnLoad?.addEventListener('click', mountInPlace);
 
             (async function init() {
-                await loadDepartments();      // 초기: 사용자 부서/공용 자동선택(서버 selectedValue 사용)
+                await loadDepartments();
                 await loadKinds();
                 await loadDocuments();
-                updateBtnLinks();
+                updateBtnState();
                 __booting = false;
             })();
         })();
     </script>
 
-    <!-- 모달 영역 -->
+    <!-- 모달 영역 (원본 유지) -->
     <script>
         (function () {
             const L = window.L || {};
             const CUR_LANG = window.CUR_LANG || "en";
             const MSG = window.MSG || {};
             const BASE = "/DocumentTemplates";
-
             const mEl = document.getElementById('newTemplateModal');
             if (!mEl) return;
-
-            // ──────────────────────────────────────────────────────────────
-            // //2025.09.15 제거: 로컬 setFieldError/clearFieldError 헬퍼
-            // function fieldContainer(el) { ... }
-            // function ensureFeedback(el) { ... }
-            // function setFieldError(el, msg) { ... }
-            // function clearFieldError(el) { ... }
-            // ──────────────────────────────────────────────────────────────
 
             async function fetchJson(url) {
                 const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -374,6 +420,7 @@
             }
             function copyOptions(from, to) { to.innerHTML = ''; Array.from(from.options).forEach(o => to.add(new Option(o.text, o.value, false, o.selected))); }
             function fillOptions(sel, items) { sel.innerHTML = ''; (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? '')))); }
+
             async function refreshDeptFor(compCd, targetSel, preferValue) {
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 fillOptions(targetSel, data.items || []);
@@ -389,14 +436,11 @@
                 targetSel.innerHTML = '';
                 targetSel.add(new Option(L.SELECT, '__SELECT__'));
                 if (!compCd) return;
-
                 const deptParam = (deptRaw === '__SELECT__' ? null : (deptRaw === '' ? '0' : deptRaw));
                 if (deptParam === null) return;
-
                 const q = new URLSearchParams({ compCd, departmentId: deptParam });
                 const data = await fetchJson(`${BASE}/get-kinds?${q.toString()}`);
                 (data.items || []).forEach(it => targetSel.add(new Option(it.text ?? '', String(it.id ?? ''))));
-
                 if (preferKindCode && Array.from(targetSel.options).some(o => o.value === preferKindCode)) {
                     targetSel.value = preferKindCode;
                 } else {
@@ -418,12 +462,9 @@
             const btnKindSave = document.getElementById('btnKindSave');
             const btnKindCancel = document.getElementById('btnKindCancel');
 
-            //const realFile = document.getElementById('nt-excel');
-            //const fakeFile = document.getElementById('nt-excel-fake');
             const realFile = document.getElementById('nt-excel');
-            const fakeFile = document.getElementById('nt-excel-name');   // ← 표시용 텍스트 박스
+            const fakeFile = document.getElementById('nt-excel-name');
 
-            // 파일 버튼/변경 연동
             const pickBtn = document.getElementById('nt-excel-btn');
             pickBtn?.addEventListener('click', () => realFile?.click());
             realFile?.addEventListener('change', () => {
@@ -432,7 +473,6 @@
             });
 
             function clearKindAddErrorsOnly() {
-                //2025.09.15 변경: clearFieldError → EBValidate.clearInvalid
                 ['ntk-name-ko', 'ntk-name-en', 'ntk-name-vi', 'ntk-name-id', 'ntk-name-zh']
                     .forEach(id => EBValidate.clearInvalid(document.getElementById(id)));
                 EBValidate.clearInvalid(ntkCompSel);
@@ -441,27 +481,26 @@
             function clearKindAddForm() {
                 ['ko', 'en', 'vi', 'id', 'zh'].forEach(c => {
                     const el = document.getElementById(`ntk-name-${c}`);
-                    if (el) { el.value = ''; EBValidate.clearInvalid(el); } //2025.09.15 변경
+                    if (el) { el.value = ''; EBValidate.clearInvalid(el); }
                 });
-                EBValidate.clearInvalid(ntkCompSel); //2025.09.15 변경
-                EBValidate.clearInvalid(ntkDeptSel); //2025.09.15 변경
-                EBValidate.clearAlert('nt-alert');   // 요약 초기화(기존 유지)
+                EBValidate.clearInvalid(ntkCompSel);
+                EBValidate.clearInvalid(ntkDeptSel);
+                EBValidate.clearAlert('nt-alert');
             }
             function clearAllHeaderErrors() {
-                //2025.09.15 변경: clearFieldError → EBValidate.clearInvalid
                 ['nt-compSel', 'nt-deptSel', 'nt-kindSel', 'nt-docName', 'nt-excel-name', 'nt-excel']
                     .forEach(id => EBValidate.clearInvalid(document.getElementById(id)));
-                EBValidate.clearAlert('nt-alert');     // 요약 초기화(기존 유지)
+                EBValidate.clearAlert('nt-alert');
             }
 
-            // 모달 열릴 때: 부모 선택값 반영 + 전체 초기화
+            // 모달 오픈
             mEl.addEventListener('show.bs.modal', async () => {
                 EBValidate.clearAlert('nt-alert');
                 clearAllHeaderErrors();
                 clearKindAddErrorsOnly();
 
                 const compCd = compSel?.value || '';
-                if (!compCd) { EBValidate.showAlert('nt-alert', L.ALERT_SITE || '사업장을 선택하세요.'); return; }
+                if (!compCd) { EBValidate.showAlert('nt-alert', L.ALERT_SITE); return; }
 
                 copyOptions(compSel, ntCompSel); ntCompSel.value = compCd; ntCompCd.value = compCd;
                 await refreshDeptFor(ntCompSel.value, ntDeptSel, deptSel?.value);
@@ -470,16 +509,15 @@
                 const parentKind = document.getElementById('kindSelect')?.value || '';
                 await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel, parentKind);
 
-                kindAddBox.classList.add('d-none'); // 접기
-                clearKindAddForm();                 // 값/에러 초기화
-                const dn = document.getElementById('nt-docName'); 
+                kindAddBox.classList.add('d-none');
+                clearKindAddForm();
+                const dn = document.getElementById('nt-docName');
                 if (dn) dn.value = '';
-                //if (fakeFile) fakeFile.value = (L.NO_FILE || '');
                 if (fakeFile) fakeFile.value = (L.NO_FILE || '');
                 if (realFile) realFile.value = '';
             });
 
-            // 모달 닫힐 때도 잔여 오류/값 정리
+            // 모달 닫힘
             mEl.addEventListener('hidden.bs.modal', () => {
                 clearAllHeaderErrors();
                 clearKindAddForm();
@@ -500,12 +538,12 @@
             });
             btnKindCancel?.addEventListener('click', () => { kindAddBox.classList.add('d-none'); clearKindAddForm(); });
 
-            // 상단 입력 변경 시 에러 해제
-            document.getElementById('nt-docName')?.addEventListener('input', e => EBValidate.clearInvalid(e.target)); //2025.09.15 변경
-            ntkCompSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkCompSel)); //2025.09.15 변경
-            ntkDeptSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkDeptSel)); //2025.09.15 변경
+            // 입력 시 에러 해제
+            document.getElementById('nt-docName')?.addEventListener('input', e => EBValidate.clearInvalid(e.target));
+            ntkCompSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkCompSel));
+            ntkDeptSel?.addEventListener('change', () => EBValidate.clearInvalid(ntkDeptSel));
             ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
-                document.getElementById(`ntk-name-${code}`)?.addEventListener('input', e => EBValidate.clearInvalid(e.target)); //2025.09.15 변경
+                document.getElementById(`ntk-name-${code}`)?.addEventListener('input', e => EBValidate.clearInvalid(e.target));
             });
 
             ntCompSel?.addEventListener('change', async () => {
@@ -527,22 +565,21 @@
                 const errs = [];
                 const dn = document.getElementById('nt-docName');
                 const fxReal = document.getElementById('nt-excel');
-                //const fxFake = document.getElementById('nt-excel-fake');
-                const fxFake = document.getElementById('nt-excel-name'); 
+                const fxFake = document.getElementById('nt-excel-name');
 
-                if (!ntCompSel.value) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(ntCompSel, L.ALERT_SITE); }               //2025.09.15 변경
-                if (ntDeptSel.value === '__SELECT__') { const msg = (L.DTL_Alert_DeptRequired || '부서를 선택하세요.'); errs.push(msg); EBValidate.setInvalid(ntDeptSel, msg); } //2025.09.15 변경
-                if (ntKindSel.value === '__SELECT__') { const msg = (L.ALERT_SELECT || '종류를 선택하세요.'); errs.push(msg); EBValidate.setInvalid(ntKindSel, msg); }           //2025.09.15 변경
+                if (!ntCompSel.value) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(ntCompSel, L.ALERT_SITE); }
+                if (ntDeptSel.value === '__SELECT__') { const msg = (L.DTL_Alert_DeptRequired); errs.push(msg); EBValidate.setInvalid(ntDeptSel, msg); }
+                if (ntKindSel.value === '__SELECT__') { const msg = (L.ALERT_SELECT); errs.push(msg); EBValidate.setInvalid(ntKindSel, msg); }
 
                 const dnVal = dn?.value?.trim();
-                if (!dnVal) { errs.push(L.ALERT_DOCNAME); EBValidate.setInvalid(dn, L.ALERT_DOCNAME); }                            //2025.09.15 변경
+                if (!dnVal) { errs.push(L.ALERT_DOCNAME); EBValidate.setInvalid(dn, L.ALERT_DOCNAME); }
 
                 const f = fxReal?.files?.[0];
-                if (!f) { errs.push(L.ALERT_XLS_REQ); EBValidate.setInvalid(fxFake, L.ALERT_XLS_REQ); }                            //2025.09.15 변경
-                else if (!/\.xlsx$|\.xlsm$/i.test(f.name)) { errs.push(L.ALERT_OPENXML); EBValidate.setInvalid(fxFake, L.ALERT_OPENXML); } //2025.09.15 변경
+                if (!f) { errs.push(L.ALERT_XLS_REQ); EBValidate.setInvalid(fxFake, L.ALERT_XLS_REQ); }
+                else if (!/\.xlsx$|\.xlsm$/i.test(f.name)) { errs.push(L.ALERT_OPENXML); EBValidate.setInvalid(fxFake, L.ALERT_OPENXML); }
                 else { fxFake.value = f.name; }
 
-                if (errs.length) { e.preventDefault(); EBValidate.showAlert('nt-alert', errs); } // 요약 출력(기존 유지)
+                if (errs.length) { e.preventDefault(); EBValidate.showAlert('nt-alert', errs); }
             });
 
             function getAntiForgeryToken() {
@@ -556,11 +593,11 @@
                 clearKindAddErrorsOnly();
 
                 const errs = [];
-                const compCd = (ntkCompSel.value || '').trim();
-                const deptRaw = ntkDeptSel.value;
+                const compCd = (document.getElementById('ntk-compSel')?.value || '').trim();
+                const deptRaw = document.getElementById('ntk-deptSel')?.value;
 
-                if (!compCd) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(ntkCompSel, L.ALERT_SITE); } //2025.09.15 변경
-                if (deptRaw === '__SELECT__') { const m = (MSG.DEPT || '부서를 선택하세요.'); errs.push(m); EBValidate.setInvalid(ntkDeptSel, m); } //2025.09.15 변경
+                if (!compCd) { errs.push(L.ALERT_SITE); EBValidate.setInvalid(document.getElementById('ntk-compSel'), L.ALERT_SITE); }
+                if (deptRaw === '__SELECT__') { const m = (MSG.DEPT); errs.push(m); EBValidate.setInvalid(document.getElementById('ntk-deptSel'), m); }
 
                 const v = {
                     ko: (document.getElementById('ntk-name-ko')?.value || '').trim(),
@@ -571,24 +608,24 @@
                 };
                 const anyLang = Object.values(v).some(Boolean);
                 if (!anyLang) {
-                    const m = (MSG.KIND || '종류 이름(최소 1개 언어)이 필요합니다.');
+                    const m = (MSG.KIND);
                     errs.push(m);
                     ['ko', 'en', 'vi', 'id', 'zh'].forEach(code => {
                         const el = document.getElementById(`ntk-name-${code}`);
-                        el && EBValidate.setInvalid(el, m); //2025.09.15 변경
+                        el && EBValidate.setInvalid(el, m);
                     });
                 }
                 if (!v[CUR_LANG]) {
-                    const m = (MSG.CUR || '현재 언어 필드는 필수입니다.');
+                    const m = (MSG.CUR);
                     errs.push(m);
                     const elCur = document.getElementById(`ntk-name-${CUR_LANG}`);
-                    elCur && EBValidate.setInvalid(elCur, m); //2025.09.15 변경
+                    elCur && EBValidate.setInvalid(elCur, m);
                 }
 
                 const display = v[CUR_LANG] || v.en || v.ko;
                 if (display) {
-                    const dup = Array.from(ntKindSel.options).some(o => o.value && o.text.trim() === display.trim());
-                    if (dup) { errs.push(L.ALERT_DUP); const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && EBValidate.setInvalid(elCur, L.ALERT_DUP); } //2025.09.15 변경
+                    const dup = Array.from(document.getElementById('nt-kindSel').options).some(o => o.value && o.text.trim() === display.trim());
+                    if (dup) { errs.push(L.ALERT_DUP); const elCur = document.getElementById(`ntk-name-${CUR_LANG}`); elCur && EBValidate.setInvalid(elCur, L.ALERT_DUP); }
                 }
 
                 if (errs.length) { EBValidate.showAlert('nt-alert', errs); return; }
@@ -601,16 +638,21 @@
                 });
 
                 try {
-                    const res = await fetch(`${BASE}/kind-add`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: p });
+                    const res = await fetch(`${BASE}/kind-add`, {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                        body: p
+                    });
                     const ct = (res.headers.get('content-type') || '').toLowerCase();
-                    const data = ct.includes('application/json') ? await res.json() : { ok: false, message: (await res.text()).replace(/<[^>]+>/g, ' ') };
+                    const data = ct.includes('application/json') ? await res.json()
+                        : { ok: false, message: (await res.text()).replace(/<[^>]+>/g, ' ') };
 
                     if (!res.ok || !data || data.ok !== true) {
                         if (data && data.code === 'DUP_NAME') {
                             clearKindAddErrorsOnly();
                             const fld = document.getElementById(data.field) || document.getElementById(`ntk-name-${CUR_LANG}`);
                             const msg = data.message || L.ALERT_DUP;
-                            fld && EBValidate.setInvalid(fld, msg); //2025.09.15 변경
+                            fld && EBValidate.setInvalid(fld, msg);
                             EBValidate.showAlert('nt-alert', msg);
                             return;
                         }
@@ -618,7 +660,8 @@
                     }
 
                     const opt = new Option(data.item.text, data.item.id, false, true);
-                    ntKindSel.add(opt); ntKindSel.value = data.item.id;
+                    document.getElementById('nt-kindSel').add(opt);
+                    document.getElementById('nt-kindSel').value = data.item.id;
                     document.getElementById('kindSelect')?.add(new Option(data.item.text, data.item.id));
 
                     clearKindAddForm();
@@ -626,11 +669,11 @@
                     EBValidate.clearAlert('nt-alert');
                 } catch (e) {
                     console.error(e);
-                    EBValidate.showAlert('nt-alert', e?.message || 'Error');
+                    EBValidate.showAlert('nt-alert', L.ERROR);
                 }
             });
 
-            // 쿼리로 요청 시 자동오픈
+            // 쿼리로 요청 시 자동 오픈
             const sp = new URLSearchParams(location.search);
             if (sp.get('openNewTemplate') === '1') {
                 document.getElementById('btnNewTemplate')?.click();

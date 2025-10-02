@@ -1,9 +1,14 @@
-﻿@* 2025.09.29 Changed: 레이아웃 비율 조정(col-lg-8/4), 결재란 셀 매핑 삭제 버튼 추가, Select Cell 버튼은 d-none 처리로 숨김. 나머지 로직 유지 *@
+﻿@* 2025.09.29 Changed: 레이아웃 비율 조정 col-lg-8/4, 결재란 셀 매핑 삭제 버튼 추가, Select Cell 버튼은 d-none 처리 *@
 @using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+
 @{
-    ViewData["Title"] = S["DTL_Title_NewTemplate"];
+    // 2025.09.30 Changed: AJAX 로 진입한 경우 레이아웃 미사용으로 헤더 사라짐 방지
+    var isAjax = string.Equals(Context.Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
+    Layout = isAjax ? null : "~/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = ViewBag.TemplateTitle ?? "템플릿";
 }
+
 <style>
     .flex-eq {
         flex: 1 0 0;
@@ -38,6 +43,20 @@
         white-space: nowrap;
     }
 
+    /* 드래그 중 텍스트 선택 비활성화 */
+    #xlPreview.dragging, #xlPreview.dragging * {
+        user-select: none;
+    }
+    /* 프리뷰 전체 텍스트 선택 방지 */
+    #xlPreview table, #xlPreview th, #xlPreview td {
+        user-select: none;
+    }
+        /* 선택 하이라이트 */
+        #xlPreview td.sel {
+            background: rgba(13,110,253,.18);
+            outline: 1px solid rgba(13,110,253,.35);
+        }
+
     #xlPreview {
         overflow: auto;
         max-height: 520px;
@@ -67,7 +86,7 @@
 </style>
 
 <div class="container-fluid py-3">
-    <h5 class="mb-3">@S["DTL_Title_NewTemplate"]</h5>
+    <h5 class="mb-3">@((ViewBag.TemplateTitle as string) ?? S["DTL_Title_NewTemplate"].Value)</h5>
 
     @{
         var alertMsg = (TempData["Alert"] as string) ?? (ViewBag.Alert as string);
@@ -79,21 +98,21 @@
 
     <!-- 디스크립터 JSON -->
     <script id="desc-json" type="application/json">
-        @Html.Raw(ViewBag.DescriptorJson ?? "{}")
+        @Html.Raw((ViewData["DescriptorJson"] as string) ?? (ViewBag.DescriptorJson ?? "{}"))
     </script>
     <!-- 엑셀 미리보기 JSON -->
     <script id="preview-json" type="application/json">
-        @Html.Raw(ViewBag.PreviewJson ?? "{}")
+        @Html.Raw((ViewData["PreviewJson"] as string) ?? (ViewBag.PreviewJson ?? "{}"))
     </script>
 
     <form id="mapForm" method="post" action="/DocumentTemplates/map-save">
         @Html.AntiForgeryToken()
         <input type="hidden" name="descriptor" id="descriptor">
         <input type="hidden" name="excelPath" value="@ViewBag.ExcelPath">
+        <input type="hidden" name="previewJson" id="previewJson">
 
         <div class="row g-3">
             <!-- 입력 필드 매핑 -->
-            @* 2025.09.29 Changed: col-lg-7 -> col-lg-8 *@
             <div class="col-12 col-lg-8">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
@@ -118,7 +137,6 @@
             </div>
 
             <!-- 결재란 매핑 -->
-            @* 2025.09.29 Changed: col-lg-5 -> col-lg-4 (약 10% 축소) *@
             <div class="col-12 col-lg-4">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
@@ -163,9 +181,10 @@
     </form>
 </div>
 
-@section Scripts {
+@* ===== 스크립트: AJAX 분기 ===== *@
+@if (isAjax)
+{
     <script>
-        // 2025.09.29 Changed: L.Delete, L.MsgKeyEmpty, L.MsgKeyDup 추가
         const L = {
             PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
             NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
@@ -173,20 +192,333 @@
             Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
             MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
             MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value))
-                };
+        };
         const T = {
             TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
             TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
             TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
-                };
-    </script>
+        };
 
+        document.addEventListener('DOMContentLoaded', function () {
+            /* ===== 프리뷰 렌더러 ===== */
+            (function () {
+                const wrap = document.getElementById('xlPreview');
+                const raw = (document.getElementById('preview-json')?.textContent || '{}').trim();
+                let preview = {};
+                try { preview = JSON.parse(raw); } catch { preview = {}; }
+
+                if (!preview.cells) {
+                    if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>';
+                    return;
+                }
+
+                const merges = preview.merges || [];
+                const skip = Array.from({ length: (preview.rows || 0) + 1 }, () => Array((preview.cols || 0) + 1).fill(false));
+                const topLeft = new Map();
+                for (const m of merges) {
+                    const [r1, c1, r2, c2] = m;
+                    const rs = r2 - r1 + 1, cs = c2 - c1 + 1;
+                    topLeft.set(`${r1},${c1}`, { rs, cs });
+                    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (!(r === r1 && c === c1)) skip[r][c] = true;
+                }
+
+                const scale = 6;
+                const colW = (preview.colW || []).map(w => Math.max(32, Math.round(w * scale)));
+
+                function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+                function toA1(r, c) { return `${toCol(c)}${r}`; }
+
+                let html = `<table><colgroup>`;
+                for (let c = 1; c <= preview.cols; c++) html += `<col style="width:${colW[c - 1] || 80}px">`;
+                html += `</colgroup><thead><tr><th class="rc"></th>`;
+                for (let c = 1; c <= preview.cols; c++) html += `<th class="rc">${toCol(c)}</th>`;
+                html += `</tr></thead><tbody>`;
+                for (let r = 1; r <= preview.rows; r++) {
+                    html += `<tr><th class="rc">${r}</th>`;
+                    for (let c = 1; c <= preview.cols; c++) {
+                        if (skip[r][c]) continue;
+                        const span = topLeft.get(`${r},${c}`);
+                        const rs = span?.rs || 1, cs = span?.cs || 1;
+                        const txt = (preview.cells[r - 1]?.[c - 1] || '')
+                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''}
+                                   data-a1="${toA1(r, c)}" data-r="${r}" data-c="${c}">${txt}</td>`;
+                    }
+                    html += `</tr>`;
+                }
+                html += `</tbody></table>`;
+                wrap.innerHTML = html;
+
+                // 클릭 → A1 채우기
+                wrap.addEventListener('click', e => {
+                    const td = e.target.closest('td');
+                    const set = window.__a1 && window.__a1.set;
+                    if (td && typeof set === 'function') set(td.getAttribute('data-a1') || '');
+                });
+
+                // 드래그 선택(단일 열)
+                (function enableDragSelection() {
+                    const wrap = document.getElementById('xlPreview');
+                    if (!wrap) return;
+
+                    let dragging = false;
+                    let start = null; // { r, c }
+
+                    function cellFromPoint(e) {
+                        const el = document.elementFromPoint(e.clientX, e.clientY);
+                        return el && el.closest ? el.closest('#xlPreview td') : null;
+                    }
+                    function clearSel() {
+                        wrap.querySelectorAll('td.sel').forEach(td => td.classList.remove('sel'));
+                    }
+                    function markRect(r1, c1, r2, c2) {
+                        clearSel();
+                        const ra = Math.min(r1, r2), rb = Math.max(r1, r2);
+                        const ca = Math.min(c1, c2), cb = Math.max(c1, c2);
+                        for (let r = ra; r <= rb; r++) {
+                            for (let c = ca; c <= cb; c++) {
+                                const td = wrap.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+                                if (td) td.classList.add('sel');
+                            }
+                        }
+                    }
+
+                    wrap.addEventListener('mousedown', e => {
+                        const td = e.target.closest('td');
+                        if (!td || !wrap.contains(td)) return;
+                        dragging = true;
+                        start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
+                        wrap.classList.add('dragging');
+                        markRect(start.r, start.c, start.r, start.c);
+                        e.preventDefault(); // 네이티브 텍스트 선택 방지
+                    });
+
+                    wrap.addEventListener('mousemove', e => {
+                        if (!dragging || !start) return;
+                        const td = cellFromPoint(e);
+                        if (!td) return;
+                        const r = parseInt(td.dataset.r || '0', 10);
+                        const c = parseInt(td.dataset.c || '0', 10);
+                        markRect(start.r, start.c, r, c);
+                    });
+
+                    document.addEventListener('mouseup', () => {
+                        if (!dragging || !start) return;
+                        dragging = false;
+                        wrap.classList.remove('dragging');
+
+                        const selected = wrap.querySelectorAll('td.sel');
+                        if (!selected.length) { clearSel(); start = null; return; }
+
+                        const rows = Array.from(selected).map(td => parseInt(td.dataset.r || '0', 10));
+                        const cols = Array.from(selected).map(td => parseInt(td.dataset.c || '0', 10));
+                        const r1 = Math.min(...rows), r2 = Math.max(...rows);
+                        const c1 = Math.min(...cols), c2 = Math.max(...cols);
+
+                        const set = window.__a1 && window.__a1.set;
+                        if (typeof set === 'function') {
+                            const colA = (function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; })(c1);
+                            const colB = (function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; })(c2);
+                            const a1 = (r1 === r2 && c1 === c2) ? `${colA}${r1}` : `${colA}${r1}:${colB}${r2}`;
+                            set(a1);
+                        }
+                        clearSel();
+                        start = null;
+                    });
+                })();
+
+            /* ===== desc json 파싱 & 매핑 UI ===== */
+            (function () {
+                const raw = (document.getElementById('desc-json')?.textContent || '{}').trim();
+                let desc = {}; try { desc = JSON.parse(raw); } catch { desc = {}; }
+                if (!Array.isArray(desc.Fields)) desc.Fields = [];
+                if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
+
+                const fieldsBody = document.getElementById('tblFieldsBody');
+                const apprBody = document.getElementById('tblApprBody');
+
+                function opt(val, text, sel) { const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
+                window.__a1 = window.__a1 || {};
+
+                function render() {
+                    // Fields
+                    fieldsBody.innerHTML = '';
+                    if (desc.Fields.length === 0) {
+                        const tr = document.createElement('tr'); const td = document.createElement('td');
+                        td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
+                        tr.appendChild(td); fieldsBody.appendChild(tr);
+                    } else {
+                        desc.Fields.forEach((f, i) => {
+                            const tr = document.createElement('tr');
+
+                            const tdKey = document.createElement('td');
+                            const inpKey = document.createElement('input');
+                            inpKey.className = 'form-control form-control-sm key-input';
+                            inpKey.placeholder = '예: Item_{n} 또는 Item_{row}';
+                            inpKey.value = f.Key || '';
+                            inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
+                            tdKey.appendChild(inpKey);
+
+                            const tdType = document.createElement('td');
+                            const sel = document.createElement('select');
+                            sel.className = 'form-select form-select-sm';
+                            sel.append(opt('Text', T.TypeText, (f.Type || 'Text') === 'Text'));
+                            sel.append(opt('Date', T.TypeDate, (f.Type || 'Text') === 'Date'));
+                            sel.append(opt('Num', T.TypeNum, (f.Type || 'Text') === 'Num'));
+                            sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
+                            tdType.appendChild(sel);
+
+                            const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
+                            const grp = document.createElement('div'); grp.className = 'input-group input-group-sm';
+
+                            const inputA1 = document.createElement('input');
+                            inputA1.className = 'form-control'; inputA1.placeholder = '예: C9 또는 C9:C35';
+                            inputA1.value = (f.Cell && f.Cell.A1) || '';
+                            inputA1.addEventListener('input', e => {
+                                desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                                desc.Fields[i].Cell.A1 = e.target.value;
+                            });
+                            inputA1.addEventListener('focus', () => {
+                                window.__a1.set = (a1) => {
+                                    desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                                    desc.Fields[i].Cell.A1 = a1;
+                                    inputA1.value = a1;
+                                    inputA1.classList.add('a1-active');
+                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
+                                };
+                            });
+
+                            const pickBtn = document.createElement('button');
+                            pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
+                            pickBtn.textContent = L.PickCell;
+                            pickBtn.addEventListener('click', () => {
+                                inputA1.focus();
+                                document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            });
+
+                            const delBtn = document.createElement('button');
+                            delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
+                            delBtn.textContent = L.Delete;
+                            delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
+
+                            grp.append(inputA1, pickBtn, delBtn);
+                            tdA1.appendChild(grp);
+
+                            tr.append(tdKey, tdType, tdA1);
+                            fieldsBody.appendChild(tr);
+                        });
+                    }
+
+                    // Approvals
+                    apprBody.innerHTML = '';
+                    if (desc.Approvals.length === 0) {
+                        const tr = document.createElement('tr'); const td = document.createElement('td');
+                        td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
+                        tr.appendChild(td); apprBody.appendChild(tr);
+                    } else {
+                        desc.Approvals.forEach((a, i) => {
+                            const tr = document.createElement('tr');
+
+                            const tdS = document.createElement('td');
+                            const inpS = document.createElement('input');
+                            inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
+                            inpS.value = a.Slot ?? 1;
+                            inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
+                            tdS.appendChild(inpS);
+
+                            const tdP = document.createElement('td');
+                            const inpP = document.createElement('input');
+                            inpP.className = 'form-control form-control-sm';
+                            inpP.value = a.Part || '';
+                            inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
+                            tdP.appendChild(inpP);
+
+                            const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
+                            const grp = document.createElement('div'); grp.className = 'input-group input-group-sm';
+
+                            const inputA1 = document.createElement('input');
+                            inputA1.className = 'form-control'; inputA1.placeholder = '예: H4';
+                            inputA1.value = (a.Cell && a.Cell.A1) || '';
+                            inputA1.addEventListener('input', e => {
+                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                                desc.Approvals[i].Cell.A1 = e.target.value;
+                            });
+                            inputA1.addEventListener('focus', () => {
+                                window.__a1.set = (a1) => {
+                                    desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                                    desc.Approvals[i].Cell.A1 = a1;
+                                    inputA1.value = a1;
+                                    inputA1.classList.add('a1-active');
+                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
+                                };
+                            });
+
+                            const pickBtn = document.createElement('button');
+                            pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
+                            pickBtn.textContent = L.PickCell;
+                            pickBtn.addEventListener('click', () => {
+                                inputA1.focus();
+                                document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            });
+
+                            const delBtn = document.createElement('button');
+                            delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
+                            delBtn.textContent = L.Delete;
+                            delBtn.addEventListener('click', () => { desc.Approvals.splice(i, 1); render(); });
+
+                            grp.append(inputA1, pickBtn, delBtn);
+                            tdA1.appendChild(grp);
+
+                            tr.append(tdS, tdP, tdA1);
+                            apprBody.appendChild(tr);
+                        });
+                    }
+                }
+
+                document.getElementById('btnAddField').addEventListener('click', () => { desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render(); });
+                document.getElementById('btnAddAppr').addEventListener('click', () => { desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } }); render(); });
+
+                function tryParseRange(a1) { const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/); if (!m || m[1] !== m[3]) return null; let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10); if (r2 < r1) [r1, r2] = [r2, r1]; return { col: m[1], r1, r2 }; }
+                function expandFieldsForSave(fields) { const out = []; for (const f of fields) { const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1); if (!rg) { out.push(f); continue; } const tpl = (f.Key || '').trim(); let idx = 1; for (let r = rg.r1; r <= rg.r2; r++, idx++) { let keyBase = (tpl || 'Field'); let key = keyBase; if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx)); if (key.includes('{row}')) key = key.replaceAll('{row}', String(r)); if (key === keyBase) key = `${keyBase}_${r}`; out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } }); } } return out; }
+                function hasDuplicateKeys(items) { const seen = new Set(); for (const it of items) { const k = (it.Key || '').trim(); if (!k) return { ok: false, reason: 'empty' }; if (seen.has(k)) return { ok: false, reason: 'dup', key: k }; seen.add(k); } return { ok: true }; }
+
+                document.getElementById('btnSave').addEventListener('click', () => {
+                    const payload = JSON.parse(JSON.stringify(desc));
+                    payload.Fields = expandFieldsForSave(desc.Fields);
+                    const ck = hasDuplicateKeys(payload.Fields);
+                    if (!ck.ok) { if (ck.reason === 'empty') alert(L.MsgKeyEmpty); else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || '')); return; }
+                    document.getElementById('descriptor').value = JSON.stringify(payload);
+                    document.getElementById('mapForm').submit();
+                });
+
+                render();
+            })();
+        });
+    </script>
+}
+@* ===== 스크립트: 비-AJAX 분기 ===== *@
+else
+{
+    @section Scripts {
     <script>
+        const L = {
+            PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
+            NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
+            NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
+            Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
+            MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
+            MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value))
+        };
+        const T = {
+            TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
+            TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
+            TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
+        };
+
+        /* ===== 프리뷰 렌더러(비-AJAX도 드래그 지원) ===== */
         (function () {
-            // 미리보기 렌더러
             const raw = (document.getElementById('preview-json')?.textContent || '{}').trim();
-            let preview = {};
-            try { preview = JSON.parse(raw); } catch { preview = {}; }
+            let preview = {}; try { preview = JSON.parse(raw); } catch { preview = {}; }
             const wrap = document.getElementById('xlPreview');
             if (!preview.cells) {
                 if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>';
@@ -194,7 +526,7 @@
             }
 
             const merges = preview.merges || [];
-            const skip = Array.from({ length: preview.rows + 1 }, () => Array(preview.cols + 1).fill(false));
+            const skip = Array.from({ length: (preview.rows || 0) + 1 }, () => Array((preview.cols || 0) + 1).fill(false));
             const topLeft = new Map();
             for (const [r1, c1, r2, c2] of merges) {
                 const rs = r2 - r1 + 1, cs = c2 - c1 + 1;
@@ -205,6 +537,9 @@
             const scale = 6;
             const colW = (preview.colW || []).map(w => Math.max(32, Math.round(w * scale)));
 
+            function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+            function toA1(r, c) { return `${toCol(c)}${r}`; }
+
             let html = `<table><colgroup>`;
             for (let c = 1; c <= preview.cols; c++) html += `<col style="width:${colW[c - 1] || 80}px">`;
             html += `</colgroup><thead><tr><th class="rc"></th>`;
@@ -214,38 +549,106 @@
                 html += `<tr><th class="rc">${r}</th>`;
                 for (let c = 1; c <= preview.cols; c++) {
                     if (skip[r][c]) continue;
-                    const key = `${r},${c}`;
-                    const span = topLeft.get(key);
+                    const span = topLeft.get(`${r},${c}`);
                     const rs = span?.rs || 1, cs = span?.cs || 1;
-                    const txt = (preview.cells[r - 1]?.[c - 1] || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-a1="${toA1(r, c)}">${txt}</td>`;
+                    const txt = (preview.cells[r - 1]?.[c - 1] || '')
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''}
+                             data-a1="${toA1(r, c)}" data-r="${r}" data-c="${c}">${txt}</td>`;
                 }
                 html += `</tr>`;
             }
             html += `</tbody></table>`;
+            wrap.innerHTML = html;
 
-            if (wrap) wrap.innerHTML = html;
-
-            function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
-            function toA1(r, c) { return `${toCol(c)}${r}`; }
-
-            wrap?.addEventListener('click', (e) => {
-                const td = e.target.closest('td');
+            // 클릭 → A1 채우기 + 잠깐 하이라이트
+            wrap.addEventListener('click', e => {
+                const td = e.target.closest('td'); if (!td) return;
                 const set = window.__a1 && window.__a1.set;
-                if (td && typeof set === 'function') set(td.getAttribute('data-a1') || '');
+                if (typeof set === 'function') set(td.getAttribute('data-a1') || '');
+                wrap.querySelectorAll('td.sel').forEach(x => x.classList.remove('sel'));
+                td.classList.add('sel'); setTimeout(() => td.classList.remove('sel'), 250);
             });
-        })();
-    </script>
 
-    <script>
+            // 드래그 선택(단일 열)
+            (function enableDragSelection() {
+                const wrap = document.getElementById('xlPreview');
+                if (!wrap) return;
+
+                let dragging = false;
+                let start = null; // { r, c }
+
+                function cellFromPoint(e) {
+                    const el = document.elementFromPoint(e.clientX, e.clientY);
+                    return el && el.closest ? el.closest('#xlPreview td') : null;
+                }
+                function clearSel() {
+                    wrap.querySelectorAll('td.sel').forEach(td => td.classList.remove('sel'));
+                }
+                function markRect(r1, c1, r2, c2) {
+                    clearSel();
+                    const ra = Math.min(r1, r2), rb = Math.max(r1, r2);
+                    const ca = Math.min(c1, c2), cb = Math.max(c1, c2);
+                    for (let r = ra; r <= rb; r++) {
+                        for (let c = ca; c <= cb; c++) {
+                            const td = wrap.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+                            if (td) td.classList.add('sel');
+                        }
+                    }
+                }
+
+                wrap.addEventListener('mousedown', e => {
+                    const td = e.target.closest('td');
+                    if (!td || !wrap.contains(td)) return;
+                    dragging = true;
+                    start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
+                    wrap.classList.add('dragging');
+                    markRect(start.r, start.c, start.r, start.c);
+                    e.preventDefault(); // 네이티브 텍스트 선택 방지
+                });
+
+                wrap.addEventListener('mousemove', e => {
+                    if (!dragging || !start) return;
+                    const td = cellFromPoint(e);
+                    if (!td) return;
+                    const r = parseInt(td.dataset.r || '0', 10);
+                    const c = parseInt(td.dataset.c || '0', 10);
+                    markRect(start.r, start.c, r, c);
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if (!dragging || !start) return;
+                    dragging = false;
+                    wrap.classList.remove('dragging');
+
+                    const selected = wrap.querySelectorAll('td.sel');
+                    if (!selected.length) { clearSel(); start = null; return; }
+
+                    const rows = Array.from(selected).map(td => parseInt(td.dataset.r || '0', 10));
+                    const cols = Array.from(selected).map(td => parseInt(td.dataset.c || '0', 10));
+                    const r1 = Math.min(...rows), r2 = Math.max(...rows);
+                    const c1 = Math.min(...cols), c2 = Math.max(...cols);
+
+                    const set = window.__a1 && window.__a1.set;
+                    if (typeof set === 'function') {
+                        const colA = (function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; })(c1);
+                        const colB = (function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; })(c2);
+                        const a1 = (r1 === r2 && c1 === c2) ? `${colA}${r1}` : `${colA}${r1}:${colB}${r2}`;
+                        set(a1);
+                    }
+                    clearSel();
+                    start = null;
+                });
+            })();
+        })();
+
+        /* ===== desc json 파싱 & 매핑 UI ===== */
         (function () {
-            // desc-json 파싱 및 기본 컬렉션 보정
             const raw = (document.getElementById('desc-json')?.textContent || '{}').trim();
             let desc = {}; try { desc = JSON.parse(raw); } catch { desc = {}; }
             if (!Array.isArray(desc.Fields)) desc.Fields = [];
             if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
 
-            // DOM 참조
             const fieldsBody = document.getElementById('tblFieldsBody');
             const apprBody = document.getElementById('tblApprBody');
 
@@ -253,23 +656,16 @@
             window.__a1 = window.__a1 || {};
 
             function render() {
-                /* ===== Fields ===== */
-                //if (desc.Fields.length === 0) desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
+                // Fields
                 fieldsBody.innerHTML = '';
                 if (desc.Fields.length === 0) {
-                    // 2025.09.29 Added: Fields도 Approvals와 동일한 안내 문구 표시
-                    const tr = document.createElement('tr');
-                    const td = document.createElement('td');
-                    td.colSpan = 3;
-                    td.className = 'text-muted';
-                    td.textContent = L.NoRows; // 리소스에 있는 "행이 없습니다. [추가]를 클릭하세요." 형태 문구 사용
-                    tr.appendChild(td);
-                    fieldsBody.appendChild(tr);
+                    const tr = document.createElement('tr'); const td = document.createElement('td');
+                    td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
+                    tr.appendChild(td); fieldsBody.appendChild(tr);
                 } else {
                     desc.Fields.forEach((f, i) => {
                         const tr = document.createElement('tr');
 
-                        // Key
                         const tdKey = document.createElement('td');
                         const inpKey = document.createElement('input');
                         inpKey.className = 'form-control form-control-sm key-input';
@@ -278,7 +674,6 @@
                         inpKey.addEventListener('input', e => { desc.Fields[i].Key = e.target.value; });
                         tdKey.appendChild(inpKey);
 
-                        // Type
                         const tdType = document.createElement('td');
                         const sel = document.createElement('select');
                         sel.className = 'form-select form-select-sm';
@@ -288,15 +683,11 @@
                         sel.addEventListener('change', e => { desc.Fields[i].Type = e.target.value; });
                         tdType.appendChild(sel);
 
-                        // Cell (A1) + 삭제 버튼 (Select Cell은 숨김)
-                        const tdA1 = document.createElement('td');
-                        tdA1.className = 'cell-a1';
-                        const grp = document.createElement('div');
-                        grp.className = 'input-group input-group-sm';
+                        const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
+                        const grp = document.createElement('div'); grp.className = 'input-group input-group-sm';
 
                         const inputA1 = document.createElement('input');
-                        inputA1.className = 'form-control';
-                        inputA1.placeholder = '예: C9 또는 C9:C35';
+                        inputA1.className = 'form-control'; inputA1.placeholder = '예: C9 또는 C9:C35';
                         inputA1.value = (f.Cell && f.Cell.A1) || '';
                         inputA1.addEventListener('input', e => {
                             desc.Fields[i].Cell = desc.Fields[i].Cell || {};
@@ -313,8 +704,7 @@
                         });
 
                         const pickBtn = document.createElement('button');
-                        pickBtn.type = 'button';
-                        pickBtn.className = 'btn btn-outline-secondary d-none'; /* 2025.09.29 Changed: 숨김 */
+                        pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
                         pickBtn.textContent = L.PickCell;
                         pickBtn.addEventListener('click', () => {
                             inputA1.focus();
@@ -322,27 +712,22 @@
                         });
 
                         const delBtn = document.createElement('button');
-                        delBtn.type = 'button';
-                        delBtn.className = 'btn btn-outline-danger';
+                        delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
                         delBtn.textContent = L.Delete;
-                        delBtn.addEventListener('click', () => {
-                            desc.Fields.splice(i, 1);
-                            render();
-                        });
+                        delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
 
                         grp.append(inputA1, pickBtn, delBtn);
                         tdA1.appendChild(grp);
 
                         tr.append(tdKey, tdType, tdA1);
                         fieldsBody.appendChild(tr);
-                    }); 
-                }       
+                    });
+                }
 
-                /* ===== Approvals ===== */
+                // Approvals
                 apprBody.innerHTML = '';
                 if (desc.Approvals.length === 0) {
-                    const tr = document.createElement('tr');
-                    const td = document.createElement('td');
+                    const tr = document.createElement('tr'); const td = document.createElement('td');
                     td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
                     tr.appendChild(td); apprBody.appendChild(tr);
                 } else {
@@ -353,7 +738,7 @@
                         const inpS = document.createElement('input');
                         inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
                         inpS.value = a.Slot ?? 1;
-                        inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1'); });
+                        inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
                         tdS.appendChild(inpS);
 
                         const tdP = document.createElement('td');
@@ -363,14 +748,11 @@
                         inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
                         tdP.appendChild(inpP);
 
-                        const tdA1 = document.createElement('td');
-                        tdA1.className = 'cell-a1';
-                        const grp = document.createElement('div');
-                        grp.className = 'input-group input-group-sm';
+                        const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
+                        const grp = document.createElement('div'); grp.className = 'input-group input-group-sm';
 
                         const inputA1 = document.createElement('input');
-                        inputA1.className = 'form-control';
-                        inputA1.placeholder = '예: H4';
+                        inputA1.className = 'form-control'; inputA1.placeholder = '예: H4';
                         inputA1.value = (a.Cell && a.Cell.A1) || '';
                         inputA1.addEventListener('input', e => {
                             desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
@@ -387,23 +769,17 @@
                         });
 
                         const pickBtn = document.createElement('button');
-                        pickBtn.type = 'button';
-                        pickBtn.className = 'btn btn-outline-secondary d-none'; /* 2025.09.29 Changed: 숨김 */
+                        pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
                         pickBtn.textContent = L.PickCell;
                         pickBtn.addEventListener('click', () => {
                             inputA1.focus();
                             document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
                         });
 
-                        /* 2025.09.29 Added: 결재란 삭제 버튼 */
                         const delBtn = document.createElement('button');
-                        delBtn.type = 'button';
-                        delBtn.className = 'btn btn-outline-danger';
+                        delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
                         delBtn.textContent = L.Delete;
-                        delBtn.addEventListener('click', () => {
-                            desc.Approvals.splice(i, 1);
-                            render();
-                        });
+                        delBtn.addEventListener('click', () => { desc.Approvals.splice(i, 1); render(); });
 
                         grp.append(inputA1, pickBtn, delBtn);
                         tdA1.appendChild(grp);
@@ -414,62 +790,18 @@
                 }
             }
 
-            // 행 추가 버튼
-            document.getElementById('btnAddField').addEventListener('click', () => {
-                desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
-                render();
-            });
-            document.getElementById('btnAddAppr').addEventListener('click', () => {
-                desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } });
-                render();
-            });
+            document.getElementById('btnAddField').addEventListener('click', () => { desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render(); });
+            document.getElementById('btnAddAppr').addEventListener('click', () => { desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" } }); render(); });
 
-            // 저장 확장/검증
-            function tryParseRange(a1) {
-                const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-                if (!m || m[1] !== m[3]) return null;
-                let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10);
-                if (r2 < r1) [r1, r2] = [r2, r1];
-                return { col: m[1], r1, r2 };
-            }
-            function expandFieldsForSave(fields) {
-                const out = [];
-                for (const f of fields) {
-                    const a1 = f?.Cell?.A1 || '';
-                    const rg = tryParseRange(a1);
-                    if (!rg) { out.push(f); continue; }
-                    const tpl = (f.Key || '').trim();
-                    let idx = 1;
-                    for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                        let keyBase = (tpl || 'Field');
-                        let key = keyBase;
-                        if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx));
-                        if (key.includes('{row}')) key = key.replaceAll('{row}', String(r));
-                        if (key === keyBase) key = `${keyBase}_${r}`;
-                        out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } });
-                    }
-                }
-                return out;
-            }
-            function hasDuplicateKeys(items) {
-                const seen = new Set();
-                for (const it of items) {
-                    const k = (it.Key || '').trim();
-                    if (!k) return { ok: false, reason: 'empty' };
-                    if (seen.has(k)) return { ok: false, reason: 'dup', key: k };
-                    seen.add(k);
-                }
-                return { ok: true };
-            }
+            function tryParseRange(a1) { const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/); if (!m || m[1] !== m[3]) return null; let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10); if (r2 < r1) [r1, r2] = [r2, r1]; return { col: m[1], r1, r2 }; }
+            function expandFieldsForSave(fields) { const out = []; for (const f of fields) { const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1); if (!rg) { out.push(f); continue; } const tpl = (f.Key || '').trim(); let idx = 1; for (let r = rg.r1; r <= rg.r2; r++, idx++) { let keyBase = (tpl || 'Field'); let key = keyBase; if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx)); if (key.includes('{row}')) key = key.replaceAll('{row}', String(r)); if (key === keyBase) key = `${keyBase}_${r}`; out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } }); } } return out; }
+            function hasDuplicateKeys(items) { const seen = new Set(); for (const it of items) { const k = (it.Key || '').trim(); if (!k) return { ok: false, reason: 'empty' }; if (seen.has(k)) return { ok: false, reason: 'dup', key: k }; seen.add(k); } return { ok: true }; }
+
             document.getElementById('btnSave').addEventListener('click', () => {
                 const payload = JSON.parse(JSON.stringify(desc));
                 payload.Fields = expandFieldsForSave(desc.Fields);
                 const ck = hasDuplicateKeys(payload.Fields);
-                if (!ck.ok) {
-                    if (ck.reason === 'empty') alert(L.MsgKeyEmpty);
-                    else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || ''));
-                    return;
-                }
+                if (!ck.ok) { if (ck.reason === 'empty') alert(L.MsgKeyEmpty); else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || '')); return; }
                 document.getElementById('descriptor').value = JSON.stringify(payload);
                 document.getElementById('mapForm').submit();
             });
@@ -477,4 +809,5 @@
             render();
         })();
     </script>
+    }
 }
