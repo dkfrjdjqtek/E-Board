@@ -42,7 +42,7 @@ namespace WebApplication1.Models
         public string Storage { get; set; } = default!;      // Db / Disk
         public string? FileName { get; set; }
         public string? FilePath { get; set; }
-        public int? FileSize { get; set; }                  // (있으면) KB 등
+        public int?  FileSize { get; set; }                  // (있으면) KB 등
         public long? FileSizeBytes { get; set; }             // (있으면) 바이트
         public string? ContentType { get; set; }
         public string? Contents { get; set; }                // Storage = Db 일 때
