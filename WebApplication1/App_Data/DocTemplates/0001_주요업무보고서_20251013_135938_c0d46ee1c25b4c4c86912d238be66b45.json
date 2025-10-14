@@ -1,0 +1,38 @@
+{
+  "CompCd": "0001",
+  "DepartmentId": 7,
+  "Kind": "T0010",
+  "DocName": "\uC8FC\uC694\uC5C5\uBB34\uBCF4\uACE0\uC11C",
+  "Title": null,
+  "ApprovalCount": 1,
+  "Fields": [
+    {
+      "Key": "\uC5C5\uBB34\uB0B4\uC6A9_{n}",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 8,
+        "Column": 2,
+        "RowSpan": 27,
+        "ColSpan": 1,
+        "A1": "C9:K35"
+      }
+    }
+  ],
+  "Approvals": [
+    {
+      "Slot": 1,
+      "Part": "\uACB0\uC7AC1",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "H4"
+      },
+      "ApproverType": "Person",
+      "ApproverValue": "8bf4629e-ea28-4ce5-b8e0-cbb74e65d579"
+    }
+  ]
+}

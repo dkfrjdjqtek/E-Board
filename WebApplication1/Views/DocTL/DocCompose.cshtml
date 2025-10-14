@@ -1,0 +1,325 @@
+﻿@* 2025.10.14 Changed: 모델에 없는 속성 직접 참조 제거 ViewBag 및 Query 기반으로 폴백 적용하여 CS1061 오류 해결 *@
+@using System.Text.Json
+@model WebApplication1.Models.DocTLViewModel
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["DOC_Title_Compose"];
+
+    // ---------- 수정 전 ----------
+    // var descJson = Model?.DescriptorJson ?? "{}";
+    // var previewJson = Model?.PreviewJson ?? "{}";
+    // <span class="text-muted">@Model?.TemplateTitle</span>
+    // <input type="hidden" name="TemplateCode" value="@Model?.TemplateCode" />
+
+    // ---------- 수정 후 ----------
+    // 모델에 해당 속성이 없어서 컴파일 에러가 발생하므로, 컨트롤러에서 넣어주는 ViewBag 값과
+    // 쿼리스트링 값을 폴백으로 사용합니다. (기존 키/구조 변경 없음)
+    var templateCode = (string?)ViewBag.TemplateCode
+                       ?? (Request?.Query["templateCode"].ToString() ?? string.Empty);
+    var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
+    var descJson = (string?)ViewBag.DescriptorJson ?? "{}";
+    var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
+}
+<style>
+    #xlPreview {
+        overflow: auto;
+        max-height: 520px;
+        border: 1px solid #e5e7eb;
+        border-radius: .25rem
+    }
+
+    .cell-a1 .input-group {
+        max-width: 14rem
+    }
+
+    .cell-a1 .form-control {
+        max-width: 8rem
+    }
+
+    .a1-active {
+        box-shadow: 0 0 0 .2rem rgba(13,110,253,.25)
+    }
+
+    .action-col {
+        width: 1%;
+        white-space: nowrap
+    }
+
+    .w-16rem {
+        width: 16rem
+    }
+</style>
+
+<div class="container-xxl py-3">
+    <div class="d-flex align-items-center mb-3">
+        <h3 class="mb-0 me-3">@S["DOC_Title_Compose"]</h3>
+        @* 2025.10.14 Changed: Model.TemplateTitle 대신 ViewBag 텍스트 사용 *@
+        <span class="text-muted">@templateTitle</span>
+    </div>
+
+    <div id="doc-alert" class="mb-3" aria-live="polite"></div>
+
+    <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate>
+        @* 2025.10.14 Changed: Model.TemplateCode 사용 제거 → templateCode 폴백 사용 *@
+        <input type="hidden" name="TemplateCode" value="@templateCode" />
+        @* 2025.10.14 Changed: Model.* JSON 참조 제거 → ViewBag 기반 *@
+        <input type="hidden" id="DescriptorJson" value='@Html.Raw(JsonEncodedText.Encode(descJson).ToString())' />
+        <input type="hidden" id="PreviewJson" value='@Html.Raw(JsonEncodedText.Encode(previewJson).ToString())' />
+
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <strong>@S["DOC_Label_Preview"]</strong>
+                    </div>
+                    <div class="card-body">
+                        <div id="xlPreview"></div>
+                        <div class="small text-muted mt-2">@S["DOC_Help_PreviewA1"]</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-7 d-flex flex-column gap-3">
+                <div class="card">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <strong>@S["DOC_Label_InputFields"]</strong>
+                        <div class="text-muted small">@S["DOC_Help_InputFill"]</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="w-16rem">@S["DOC_Col_FieldKey"]</th>
+                                        <th>@S["DOC_Col_Value"]</th>
+                                        <th class="action-col">@S["DOC_Col_Action"]</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-inputs"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <strong>@S["DOC_Label_Approvals"]</strong>
+                        <div class="text-muted small">@S["DOC_Help_Approvals"]</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="w-16rem">@S["DOC_Col_ApproverRole"]</th>
+                                        <th>@S["DOC_Col_ApproverValue"]</th>
+                                        <th class="action-col">@S["DOC_Col_Action"]</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-approvals"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" id="btn-cancel" class="btn btn-outline-secondary">@S["DOC_Btn_Cancel"]</button>
+                    <button type="submit" id="btn-save" class="btn btn-primary">@S["DOC_Btn_SaveDocument"]</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        const EBV = window.EBValidate || {};
+        const S = (key) => key;
+
+        const descriptor = safeJson(document.getElementById('DescriptorJson')?.value) || {};
+        const preview = safeJson(document.getElementById('PreviewJson')?.value) || {};
+
+        function safeJson(s) { try { return JSON.parse(s || "{}"); } catch { return {}; } }
+        function ce(tag, attrs = {}, ...children) {
+            const el = document.createElement(tag);
+            Object.entries(attrs).forEach(([k, v]) => {
+                if (k === 'class') el.className = v;
+                else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v, false);
+                else if (v !== undefined && v !== null) el.setAttribute(k, v);
+            });
+            for (const c of children) el.append(c?.nodeType ? c : document.createTextNode(c ?? ''));
+            return el;
+        }
+
+        (function mountPreview() {
+            if (window.DocTLPreview?.mount) window.DocTLPreview.mount('#xlPreview', preview);
+            else if (window.DOCTLMAP?.mountPreview) window.DOCTLMAP.mountPreview('#xlPreview', preview);
+            else document.getElementById('xlPreview').textContent = S('DOC_Msg_PreviewFallback');
+
+            if (typeof window.enableDragSelection === 'function') {
+                window.enableDragSelection('#xlPreview', function (a1) {
+                    const target = document.querySelector('.cell-a1 input');
+                    if (target) {
+                        target.value = a1;
+                        target.classList.add('a1-active');
+                        setTimeout(() => target.classList.remove('a1-active'), 600);
+                    }
+                });
+            }
+        })();
+
+        (function renderInputs() {
+            const tbody = document.getElementById('tbody-inputs');
+            const fields = descriptor?.inputs || [];
+            tbody.innerHTML = '';
+            fields.forEach((f, idx) => {
+                const tr = ce('tr', { 'data-key': f.key || '' });
+                const tdKey = ce('td', {}, ce('code', {}, f.key || ''));
+                const tdVal = ce('td', {},
+                    ce('div', { class: 'input-group input-group-sm cell-a1' },
+                        inputByType(f),
+                        ce('button', { type: 'button', class: 'btn btn-outline-secondary', onclick: () => openCellPicker(idx, f) }, S('DOC_Btn_SelectCell'))
+                    )
+                );
+                const tdAct = ce('td', { class: 'action-col text-end pe-2' },
+                    ce('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: () => clearInputRow(tr, f) }, S('DOC_Btn_Clear'))
+                );
+                tr.append(tdKey, tdVal, tdAct);
+                tbody.append(tr);
+            });
+
+            function inputByType(f) {
+                const inp = ce('input', { class: 'form-control', name: `Inputs[${f.key}]`, value: f.value ?? '', 'data-required': f.required ? '1' : '0' });
+                if (f.type === 'number') inp.type = 'number';
+                else if (f.type === 'date') inp.type = 'date';
+                else inp.type = 'text';
+                return inp;
+            }
+            function openCellPicker(idx, f) {
+                if (window.__a1?.set) window.__a1.set(f.a1 || '');
+            }
+            function clearInputRow(tr, f) {
+                const inp = tr.querySelector('input.form-control');
+                if (inp) { inp.value = ''; inp.dispatchEvent(new Event('input')); }
+            }
+        })();
+
+        (function renderApprovals() {
+            const tbody = document.getElementById('tbody-approvals');
+            const approvals = descriptor?.approvals || [];
+            tbody.innerHTML = '';
+            approvals.forEach((ap, i) => {
+                const tr = ce('tr', { 'data-role': ap.roleKey || '' });
+                const tdRole = ce('td', {}, ce('span', {}, S(ap.roleKey || 'DOC_Approver_Unknown')));
+                const tdVal = ce('td', {});
+                const tdAct = ce('td', { class: 'action-col text-end pe-2' },
+                    ce('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: () => clearApprover(tr) }, S('DOC_Btn_Clear'))
+                );
+
+                if ((ap.approverType || '').toLowerCase() === 'person') {
+                    const sel = buildUserSelect(ap.value);
+                    sel.name = `Approvals[${ap.roleKey}]`;
+                    tdVal.append(sel);
+                } else {
+                    const inp = ce('input', { class: 'form-control', name: `Approvals[${ap.roleKey}]`, value: ap.value || '' });
+                    tdVal.append(inp);
+                }
+                tr.append(tdRole, tdVal, tdAct);
+                tbody.append(tr);
+            });
+
+            function buildUserSelect(initial) {
+                const sel = ce('select', { class: 'form-select form-select-sm' });
+                fetch('/DocTL/SearchUser?take=50').then(r => r.ok ? r.json() : []).then(list => {
+                    sel.append(ce('option', { value: '' }, S('DOC_Opt_Select')));
+                    (list || []).forEach(u => sel.append(ce('option', { value: u.id }, u.name)));
+                    if (initial) sel.value = String(initial);
+                }).catch(() => {
+                    sel.append(ce('option', { value: '' }, S('DOC_Opt_LoadFail')));
+                });
+                return sel;
+            }
+            function clearApprover(tr) {
+                const el = tr.querySelector('select, input');
+                if (el) { el.value = ''; el.dispatchEvent(new Event('change')); }
+            }
+        })();
+
+        (function wireSubmit() {
+            const form = document.getElementById('doc-form');
+            form.addEventListener('submit', async (ev) => {
+                ev.preventDefault();
+                const errors = [];
+                document.querySelectorAll('#tbody-inputs input.form-control').forEach(inp => {
+                    const req = inp.getAttribute('data-required') === '1';
+                    inp.classList.remove('is-invalid');
+                    if (req && !inp.value.trim()) {
+                        errors.push(S('DOC_Val_Required') + ' : ' + (inp.name || ''));
+                        inp.classList.add('is-invalid');
+                    }
+                });
+                (descriptor?.approvals || []).forEach(ap => {
+                    if (ap.required) {
+                        const el = document.querySelector(`[name="Approvals[${ap.roleKey}]"]`);
+                        if (el && !String(el.value || '').trim()) {
+                            errors.push(S('DOC_Val_ApproverRequired') + ' : ' + ap.roleKey);
+                            el.classList.add('is-invalid');
+                        }
+                    }
+                });
+                if (errors.length) { showErrors(errors); return; }
+
+                const payload = {
+                    templateCode: document.querySelector('input[name="TemplateCode"]')?.value || '',
+                    inputs: collectKV('#tbody-inputs', 'Inputs'),
+                    approvals: collectKV('#tbody-approvals', 'Approvals'),
+                    descriptorVersion: descriptor?.version || null
+                };
+
+                try {
+                    const res = await fetch(form.getAttribute('action') || '/Doc/Create', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        showErrors(err?.messages || [S('DOC_Err_SaveFailed')]);
+                        applyFieldErrors(err?.fieldErrors || {});
+                        return;
+                    }
+                    const ok = await res.json().catch(() => ({}));
+                    if (ok?.redirectUrl) location.href = ok.redirectUrl;
+                    else showSuccess([S('DOC_Msg_SaveSuccess')]);
+                } catch {
+                    showErrors([S('DOC_Err_Network')]);
+                }
+            });
+
+            function collectKV(tbodySel, prefix) {
+                const map = {};
+                document.querySelectorAll(`${tbodySel} [name^="${prefix}["]`).forEach(el => {
+                    const m = el.name.match(/^\w+\[(.+)\]$/);
+                    if (m && m[1] != null) map[m[1]] = el.value ?? '';
+                });
+                return map;
+            }
+            function showErrors(msgs) {
+                if (EBV.showAlert) EBV.showAlert('doc-alert', msgs, { variant: 'danger' });
+                else document.getElementById('doc-alert').innerHTML = '<div class="alert alert-danger">' + msgs.join('<br>') + '</div>';
+            }
+            function showSuccess(msgs) {
+                if (EBV.showAlert) EBV.showAlert('doc-alert', msgs, { variant: 'success' });
+                else document.getElementById('doc-alert').innerHTML = '<div class="alert alert-success">' + msgs.join('<br>') + '</div>';
+            }
+            function applyFieldErrors(errMap) {
+                Object.entries(errMap || {}).forEach(([name, msgs]) => {
+                    const el = document.querySelector(`[name="${name}"]`);
+                    if (el) el.classList.add('is-invalid');
+                });
+            }
+        })();
+
+        document.getElementById('btn-cancel')?.addEventListener('click', () => {
+            history.length > 1 ? history.back() : location.href = '/DocumentTemplates';
+        });
+    </script>
+}

@@ -1,5 +1,8 @@
-﻿// 2025.09.29 Changed: MapSave()에서 생성한 docCode를 @DocCode 파라미터에 그대로 사용하도록 통일
-// 2025.09.29 Changed: ExpandFieldsRange()의 Row/Column을 0-기반으로 일치화(기존 ToCellRef와 기준 통일). A1 표기는 기존대로 1-기반 유지
+﻿// 2025.10.13 Changed: LoadTemplate() 미리보기 생성 시 latest.ExcelFilePath 직접 참조 제거, ADO로 Version.ExcelFilePath 조회하여 사용
+// 2025.10.13 Added: LoadTemplate()에서 기존 Excel 경로를 excelPathForPost 변수로 유지하여 ViewBag.ExcelPath에 전달(업데이트 저장 시 경로 유지)
+// 2025.10.13 Changed: 경고(CS8619) 억제를 위해 null 안전 연산자 일부 보완
+// 2025.10.13 Fixed: MapSave()가 기존 DocCode를 받아 같은 마스터에 새 버전으로 저장되도록 수정
+// 2025.10.13 Fixed: docCodeToSave 계산 후 실제 파라미터에 일관되게 사용
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +21,8 @@ using System.Net;
 using System.Linq;
 using System.Data;
 using Microsoft.Data.SqlClient;
+// 2025.10.13 Added: ADO 직접조회용 using
+using System.Data.Common;
 
 namespace WebApplication1.Controllers
 {
@@ -28,6 +33,87 @@ namespace WebApplication1.Controllers
         private readonly ApplicationDbContext _db;
         private readonly IStringLocalizer<SharedResource> _S;
         private readonly IWebHostEnvironment _env;
+
+        [HttpGet("SearchUser")]
+        public async Task<IActionResult> SearchUser(string? q, int take = 20, string? id = null, string? compCd = null)
+        {
+            take = Math.Clamp(take, 1, 100);
+
+            var myUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var myInfo = await _db.UserProfiles
+                .AsNoTracking()
+                .Where(x => x.UserId == myUserId)
+                .Select(x => new { x.CompCd, x.DepartmentId })
+                .FirstOrDefaultAsync();
+
+            var curCompCd = !string.IsNullOrWhiteSpace(compCd) ? compCd : myInfo?.CompCd;
+            var myDeptId = myInfo?.DepartmentId;
+
+            var baseQuery =
+                from u in _db.Users
+                join p0 in _db.UserProfiles on u.Id equals p0.UserId into gp
+                from p in gp.DefaultIfEmpty()
+                join d0 in _db.DepartmentMasters on p.DepartmentId equals d0.Id into gd
+                from d in gd.DefaultIfEmpty()
+                select new
+                {
+                    u.Id,
+                    UserName = u.UserName,
+                    DisplayName = p != null ? p.DisplayName : null,
+                    DeptName = d != null ? d.Name : null,
+                    CompCd = p != null ? p.CompCd : null,
+                    DepartmentId = p != null ? p.DepartmentId : (int?)null,
+                    // 2025.10.13 Changed: bool과 int 혼용 제거
+                    IsApprover = p != null && p.IsApprover
+                };
+
+            if (!string.IsNullOrWhiteSpace(curCompCd))
+                baseQuery = baseQuery.Where(x => x.CompCd == curCompCd);
+
+            baseQuery = baseQuery.Where(x => x.IsApprover);
+
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                var one = await baseQuery
+                    .Where(x => x.Id == id)
+                    .Select(x => new
+                    {
+                        id = x.Id,
+                        text = (x.DisplayName ?? x.UserName) +
+                               ((x.DeptName ?? "") != "" ? " (" + x.DeptName + ")" : "")
+                    })
+                    .Take(1)
+                    .ToListAsync();
+
+                return Json(one);
+            }
+
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var qq = q.Trim();
+                baseQuery = baseQuery.Where(x =>
+                    (x.DisplayName ?? "").Contains(qq) ||
+                    (x.UserName ?? "").Contains(qq) ||
+                    (x.DeptName ?? "").Contains(qq));
+            }
+
+            var list = await baseQuery
+                .OrderByDescending(x =>
+                    myDeptId.HasValue
+                        ? (x.DepartmentId.HasValue && x.DepartmentId.Value == myDeptId.Value)
+                        : false)
+                .ThenBy(x => x.DisplayName ?? x.UserName)
+                .Take(take)
+                .Select(x => new
+                {
+                    id = x.Id,
+                    text = (x.DisplayName ?? x.UserName) +
+                           ((x.DeptName ?? "") != "" ? " (" + x.DeptName + ")" : "")
+                })
+                .ToListAsync();
+
+            return Json(list);
+        }
 
         public DocTLController(ApplicationDbContext db, IStringLocalizer<SharedResource> S, IWebHostEnvironment env)
         {
@@ -52,7 +138,6 @@ namespace WebApplication1.Controllers
                 return (false, "", "", null, null, 0, "");
 
             var profile = await _db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == uid);
-
             var userName = User?.Identity?.Name ?? profile?.DisplayName ?? "";
 
             string compCd = profile?.CompCd ?? "";
@@ -78,7 +163,6 @@ namespace WebApplication1.Controllers
         public async Task<IActionResult> Index()
         {
             var vm = new DocTLViewModel();
-
             var ctx = await GetUserContextAsync();
 
             ViewBag.IsAdmin = ctx.adminLevel > 0;
@@ -163,7 +247,7 @@ namespace WebApplication1.Controllers
 
             if (ctx.deptId.HasValue
                 && string.Equals(compCd, ctx.compCd, StringComparison.OrdinalIgnoreCase)
-                && list.All(o => (o as dynamic).id != ctx.deptId.Value))
+                && list.All(o => ((o as dynamic)?.id ?? -1) != ctx.deptId.Value)) // 2025.10.13 Changed: null 안전
             {
                 var mine = await _db.DepartmentMasters
                     .Where(d => d.Id == ctx.deptId.Value && (d.CompCd ?? "").Trim() == compCd)
@@ -190,10 +274,7 @@ namespace WebApplication1.Controllers
         }
 
         [HttpGet("get-documents")]
-        public async Task<IActionResult> GetDocuments(
-                    [FromQuery] string compCd,
-                    [FromQuery] int? departmentId,
-                    [FromQuery] string? kind)
+        public async Task<IActionResult> GetDocuments([FromQuery] string compCd, [FromQuery] int? departmentId, [FromQuery] string? kind)
         {
             var ctx = await GetUserContextAsync();
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
@@ -205,26 +286,25 @@ namespace WebApplication1.Controllers
                 return Ok(new { items = Array.Empty<object>() });
 
             var query = _db.DocTemplateMasters
-                .AsNoTracking()
-                 .Where(m => m.CompCd == compCd &&
-        (dep == 0
-            ? (m.DepartmentId == 0)   // 2025.10.01 Removed: || m.DepartmentId == null
-            : m.DepartmentId == dep));
+               .AsNoTracking()
+               .Where(m => m.CompCd == compCd &&
+                   (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep));
 
             if (!string.IsNullOrWhiteSpace(kind))
                 query = query.Where(m => m.KindCode == kind);
 
             var items = await query
                 .OrderBy(m => m.DocName)
-                .Select(m => new { id = m.DocCode, text = m.DocName })
+                .Select(m => new
+                {
+                    id = m.DocCode,
+                    text = m.DocName + " v" + _db.DocTemplateVersions.Where(v => v.TemplateId == m.Id).Max(v => (int?)v.VersionNo)!.GetValueOrDefault(1)
+                })
                 .ToListAsync();
 
             return Ok(new { items });
         }
 
-        // =====================================================================
-        // 2025.09.30 Added: UI 범위 표기를 위한 Collapse 유틸(저장 데이터는 그대로, 화면에만 적용)
-        // =====================================================================
         private static string ColIndexToLetters(int col0)
         {
             int n = col0 + 1;
@@ -290,9 +370,7 @@ namespace WebApplication1.Controllers
                 bool isSingle0 = (f0.Cell.ColSpan <= 1) && (f0.Cell.RowSpan <= 1);
                 if (!isSingle0)
                 {
-                    result.Add(f0);
-                    i++;
-                    continue;
+                    result.Add(f0); i++; continue;
                 }
 
                 string baseKey = f0.Key;
@@ -347,20 +425,14 @@ namespace WebApplication1.Controllers
                 }
                 else
                 {
-                    result.Add(f0);
-                    i++;
+                    result.Add(f0); i++;
                 }
             }
             return result;
         }
 
-        // =====================================================================
         [HttpGet("load-template")]
-        public async Task<IActionResult> LoadTemplate(
-   [FromQuery] string compCd,
-   [FromQuery] int? departmentId,
-   [FromQuery] string docCode,
-   [FromQuery] bool embed = false)
+        public async Task<IActionResult> LoadTemplate([FromQuery] string compCd, [FromQuery] int? departmentId, [FromQuery] string docCode, [FromQuery] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
@@ -375,9 +447,8 @@ namespace WebApplication1.Controllers
             var dep = departmentId ?? ctx.deptId ?? 0;
             var master = await _db.DocTemplateMasters
                 .AsNoTracking()
-                .Where(m => m.CompCd == compCd &&
-                            (dep == 0 ? m.DepartmentId == 0 : m.DepartmentId == dep) &&
-                            m.DocCode == docCode)
+                .Where(m => m.CompCd == compCd && (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep))
+                .Where(m => m.DocCode == docCode)
                 .FirstOrDefaultAsync();
 
             if (master == null)
@@ -439,7 +510,6 @@ namespace WebApplication1.Controllers
                 return RedirectToRoute("DocumentTemplates.Index");
             }
 
-            // ★★ 안전할 때만 UI용 접기
             if (desc != null && desc.Fields != null && desc.Fields.Count > 0)
             {
                 bool safeToCollapse = desc.Fields.All(f =>
@@ -454,82 +524,115 @@ namespace WebApplication1.Controllers
             }
             var descriptorJsonForUi = JsonSerializer.Serialize(desc, new JsonSerializerOptions { WriteIndented = true });
 
-            // PreviewJson 누락 시 Excel 원본에서 생성
-            if (string.IsNullOrWhiteSpace(previewJson))
+            // ★ 기존 엑셀 경로 찾기: Files → 없으면 Version.ExcelFilePath(ADO)
+            string? excelPathForPost = null;
+            try
+            {
+                // Files 우선
+                var excelMeta2 = files.FirstOrDefault(f =>
+                    string.Equals(f.FileRole ?? "", "ExcelFile", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(f.FileRole ?? "", "Excel", StringComparison.OrdinalIgnoreCase));
+
+                if (excelMeta2 != null &&
+                    string.Equals(excelMeta2.Storage, "Disk", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(excelMeta2.FilePath) &&
+                    System.IO.File.Exists(excelMeta2.FilePath))
+                {
+                    excelPathForPost = excelMeta2.FilePath;
+                }
+
+                // 없으면 Version.ExcelFilePath
+                if (string.IsNullOrWhiteSpace(excelPathForPost))
+                {
+                    using var conn = _db.Database.GetDbConnection();
+                    if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "SELECT TOP 1 ExcelFilePath FROM DocTemplateVersion WHERE Id = @vid";
+                    var pVid = cmd.CreateParameter();
+                    pVid.ParameterName = "@vid";
+                    pVid.Value = latest.Id;
+                    cmd.Parameters.Add(pVid);
+                    var scalar = await cmd.ExecuteScalarAsync();
+                    if (scalar != null && scalar != DBNull.Value)
+                        excelPathForPost = Convert.ToString(scalar);
+                }
+            }
+            catch
+            {
+                // 경로 조회 실패 시 무시
+            }
+
+            // ★ PreviewJson이 비었을 때만 엑셀 열어 미리보기 생성
+            if (string.IsNullOrWhiteSpace(previewJson) &&
+                !string.IsNullOrWhiteSpace(excelPathForPost) &&
+                System.IO.File.Exists(excelPathForPost))
             {
                 try
                 {
-                    var excelMeta = files.FirstOrDefault(f => f.FileRole == "ExcelFile");
-                    if (excelMeta != null && string.Equals(excelMeta.Storage, "Disk", StringComparison.OrdinalIgnoreCase))
+                    using var wb = new XLWorkbook(excelPathForPost);
+                    var ws0 = wb.Worksheets.FirstOrDefault();
+                    if (ws0 != null)
                     {
-                        var path = excelMeta.FilePath;
-                        if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+                        const int PREV_MAX_ROWS = 50;
+                        const int PREV_MAX_COLS = 26;
+
+                        var cells = new List<List<string>>(PREV_MAX_ROWS);
+                        for (int r = 1; r <= PREV_MAX_ROWS; r++)
                         {
-                            using var wb = new XLWorkbook(path);
-                            var ws0 = wb.Worksheets.FirstOrDefault();
-                            if (ws0 != null)
-                            {
-                                const int PREV_MAX_ROWS = 50;
-                                const int PREV_MAX_COLS = 26;
-
-                                var cells = new List<List<string>>(PREV_MAX_ROWS);
-                                for (int r = 1; r <= PREV_MAX_ROWS; r++)
-                                {
-                                    var row = new List<string>(PREV_MAX_COLS);
-                                    for (int c = 1; c <= PREV_MAX_COLS; c++)
-                                        row.Add(ws0.Cell(r, c).GetString());
-                                    cells.Add(row);
-                                }
-
-                                var merges = new List<int[]>();
-                                foreach (var mr in ws0.MergedRanges)
-                                {
-                                    var a = mr.RangeAddress;
-                                    int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
-                                    int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
-                                    if (r1 > PREV_MAX_ROWS || c1 > PREV_MAX_COLS) continue;
-                                    r2 = Math.Min(r2, PREV_MAX_ROWS);
-                                    c2 = Math.Min(c2, PREV_MAX_COLS);
-                                    if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
-                                }
-
-                                var colW = new List<double>(PREV_MAX_COLS);
-                                for (int c = 1; c <= PREV_MAX_COLS; c++)
-                                    colW.Add(ws0.Column(c).Width);
-
-                                previewJson = JsonSerializer.Serialize(new
-                                {
-                                    sheet = ws0.Name,
-                                    rows = PREV_MAX_ROWS,
-                                    cols = PREV_MAX_COLS,
-                                    cells,
-                                    merges,
-                                    colW
-                                });
-                            }
+                            var row = new List<string>(PREV_MAX_COLS);
+                            for (int c = 1; c <= PREV_MAX_COLS; c++)
+                                row.Add(ws0.Cell(r, c).GetString());
+                            cells.Add(row);
                         }
+
+                        var merges = new List<int[]>();
+                        foreach (var mr in ws0.MergedRanges)
+                        {
+                            var a = mr.RangeAddress;
+                            int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
+                            int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
+                            if (r1 > PREV_MAX_ROWS || c1 > PREV_MAX_COLS) continue;
+                            r2 = Math.Min(r2, PREV_MAX_ROWS);
+                            c2 = Math.Min(c2, PREV_MAX_COLS);
+                            if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
+                        }
+
+                        var colW = new List<double>(PREV_MAX_COLS);
+                        for (int c = 1; c <= PREV_MAX_COLS; c++)
+                            colW.Add(ws0.Column(c).Width);
+
+                        previewJson = JsonSerializer.Serialize(new
+                        {
+                            sheet = ws0.Name,
+                            rows = PREV_MAX_ROWS,
+                            cols = PREV_MAX_COLS,
+                            cells,
+                            merges,
+                            colW
+                        });
                     }
                 }
                 catch
                 {
-                    // 폴백은 아래 EnsurePreviewJson
+                    // 폴백은 아래 EnsurePreviewJson에서 처리
                 }
             }
 
             previewJson = EnsurePreviewJson(previewJson);
 
-            // ★★ 뷰가 어떤 키를 보더라도 동작하도록 모두 주입
+            // ★ 기존 Excel 파일 경로 hidden 전달(업데이트 시 유지)
+            ViewBag.ExcelPath = excelPathForPost;
+
+            // 프런트 바인딩 키 전부 주입
             ViewBag.DescriptorJson = descriptorJsonForUi;
             ViewBag.PreviewJson = previewJson;
             ViewData["DescriptorJson"] = descriptorJsonForUi;
             ViewData["PreviewJson"] = previewJson;
-            ViewBag.Descriptor = descriptorJsonForUi;   // 추가
-            ViewBag.Preview = previewJson;              // 추가
-            ViewData["Descriptor"] = descriptorJsonForUi; // 추가
-            ViewData["Preview"] = previewJson;            // 추가
+            ViewBag.Descriptor = descriptorJsonForUi;
+            ViewBag.Preview = previewJson;
 
-            // 타이틀
             ViewBag.TemplateTitle = master.DocName;
+            ViewBag.DocCode = master.DocCode; // ★ 기존 DocCode 내려보냄
 
             if (embed || string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
                 return PartialView("DocTLMap");
@@ -718,12 +821,7 @@ namespace WebApplication1.Controllers
 
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd,
-                                                         [FromForm] int? departmentId,
-                                                         [FromForm] string? kind,
-                                                         [FromForm] string docName,
-                                                         [FromForm] IFormFile? excelFile,
-                                                         [FromForm] bool embed = false)
+        public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd, [FromForm] int? departmentId, [FromForm] string? kind, [FromForm] string docName, [FromForm] IFormFile? excelFile, [FromForm] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
@@ -804,11 +902,9 @@ namespace WebApplication1.Controllers
                 var preview = new { sheet = ws0.Name, rows = PREV_MAX_ROWS, cols = PREV_MAX_COLS, cells, merges, colW };
                 var previewJson = JsonSerializer.Serialize(preview);
 
-                // ★★ 뷰 주입 키 넉넉히
                 ViewBag.PreviewJson = previewJson;
                 ViewData["PreviewJson"] = previewJson;
                 ViewBag.Preview = previewJson;
-                ViewData["Preview"] = previewJson;
             }
 
             var descriptor = new TemplateDescriptor
@@ -825,7 +921,6 @@ namespace WebApplication1.Controllers
 
             var descriptorJsonPretty = JsonSerializer.Serialize(descriptor, new JsonSerializerOptions { WriteIndented = true });
 
-            // ★★ 뷰 주입 키 넉넉히
             ViewBag.DescriptorJson = descriptorJsonPretty;
             ViewData["DescriptorJson"] = descriptorJsonPretty;
             ViewBag.Descriptor = descriptorJsonPretty;
@@ -1071,9 +1166,6 @@ namespace WebApplication1.Controllers
             public string A1 { get; set; } = "";
         }
 
-        // =====================================================================
-        // 2025.09.15 [추가] A1 범위 파싱/확장 + 키 검증 유틸 (서버-사이드 안전망)
-        // =====================================================================
         private static readonly Regex _reA1Range = new(@"^([A-Z]+)(\d+):([A-Z]+)(\d+)$",
                                                        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -1161,6 +1253,7 @@ namespace WebApplication1.Controllers
             }
             return (true, null, null);
         }
+
         private static string BuildBlankPreviewJson(int rows = 50, int cols = 26)
         {
             var cells = new List<List<string>>(rows);
@@ -1183,6 +1276,7 @@ namespace WebApplication1.Controllers
                 colW
             });
         }
+
         private static string EnsurePreviewJson(string? previewJson)
         {
             if (string.IsNullOrWhiteSpace(previewJson))
@@ -1282,13 +1376,15 @@ namespace WebApplication1.Controllers
                 return BuildBlankPreviewJson();
             }
         }
-        // =====================================================================
 
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
-        public IActionResult MapSave([FromForm] string descriptor,
-                              [FromForm] string? excelPath,
-                              [FromForm] string? previewJson)
+        public IActionResult MapSave(
+            [FromForm] string descriptor,
+            [FromForm] string? excelPath,
+            [FromForm] string? previewJson,
+            [FromForm] string? docCode // ★ 기존 DocCode를 폼으로 받음 (없으면 신규 생성)
+        )
         {
             if (string.IsNullOrWhiteSpace(descriptor))
                 return BadRequest("No descriptor");
@@ -1340,36 +1436,42 @@ namespace WebApplication1.Controllers
 
             var descriptorJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = false });
 
+            // ★ Excel 파일명/사이즈는 넘어온 경로 기준으로 유지
             var excelFileName = string.IsNullOrWhiteSpace(excelPath) ? "unknown.xlsx" : Path.GetFileName(excelPath);
             var excelSize = (!string.IsNullOrWhiteSpace(excelPath) && System.IO.File.Exists(excelPath))
                 ? new FileInfo(excelPath).Length
                 : 0L;
 
-            var docCode = $"DOC_{Guid.NewGuid():N}".ToUpperInvariant();
+            // ★ 기존 DocCode가 오면 그대로 사용, 없으면 새로 생성
+            var docCodeToSave = string.IsNullOrWhiteSpace(docCode)
+                ? $"DOC_{Guid.NewGuid():N}".ToUpperInvariant()
+                : docCode;
+
             var deptIdToSave = model.DepartmentId ?? 0;
+
             try
             {
                 var p = new[]
                 {
-        new SqlParameter("@CompCd", SqlDbType.NVarChar, 10){ Value = model.CompCd },
-        new SqlParameter("@DepartmentId", SqlDbType.Int) { Value = deptIdToSave },
-        new SqlParameter("@KindCode", SqlDbType.NVarChar, 20){ Value = (object?)model.Kind ?? DBNull.Value },
-        new SqlParameter("@DocCode", SqlDbType.NVarChar, 40){ Value = docCode },
-        new SqlParameter("@DocName", SqlDbType.NVarChar, 200){ Value = model.DocName },
-        new SqlParameter("@Title", SqlDbType.NVarChar, 200){ Value = (object?)model.Title ?? DBNull.Value },
-        new SqlParameter("@ApprovalCount", SqlDbType.Int){ Value = model.ApprovalCount },
-        new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1){ Value = descriptorJson },
-        new SqlParameter("@PreviewJson",    SqlDbType.NVarChar, -1){ Value = (object?)previewJson ?? DBNull.Value },
-        new SqlParameter("@ExcelFileName",   SqlDbType.NVarChar, 255){ Value = excelFileName },
-        new SqlParameter("@ExcelStorage",    SqlDbType.NVarChar, 20 ){ Value = "Disk" },
-        new SqlParameter("@ExcelFilePath",   SqlDbType.NVarChar, 500){ Value = (object?)excelPath ?? DBNull.Value },
-        new SqlParameter("@ExcelFileSize",   SqlDbType.BigInt){ Value = excelSize },
-        new SqlParameter("@ExcelContentType",SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-        new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
-        new SqlParameter("@OutTemplateId", SqlDbType.Int){ Direction = ParameterDirection.Output },
-        new SqlParameter("@OutVersionId", SqlDbType.BigInt){ Direction = ParameterDirection.Output },
-        new SqlParameter("@OutVersionNo", SqlDbType.Int){ Direction = ParameterDirection.Output },
-    };
+                    new SqlParameter("@CompCd", SqlDbType.NVarChar, 10){ Value = model.CompCd },
+                    new SqlParameter("@DepartmentId", SqlDbType.Int) { Value = deptIdToSave },
+                    new SqlParameter("@KindCode", SqlDbType.NVarChar, 20){ Value = (object?)model.Kind ?? DBNull.Value },
+                    new SqlParameter("@DocCode", SqlDbType.NVarChar, 40){ Value = docCodeToSave }, // ★ 여기 일관 사용
+                    new SqlParameter("@DocName", SqlDbType.NVarChar, 200){ Value = model.DocName },
+                    new SqlParameter("@Title", SqlDbType.NVarChar, 200){ Value = (object?)model.Title ?? DBNull.Value },
+                    new SqlParameter("@ApprovalCount", SqlDbType.Int){ Value = model.ApprovalCount },
+                    new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1){ Value = descriptorJson },
+                    new SqlParameter("@PreviewJson",    SqlDbType.NVarChar, -1){ Value = (object?)previewJson ?? DBNull.Value },
+                    new SqlParameter("@ExcelFileName",   SqlDbType.NVarChar, 255){ Value = excelFileName },
+                    new SqlParameter("@ExcelStorage",    SqlDbType.NVarChar, 20 ){ Value = "Disk" },
+                    new SqlParameter("@ExcelFilePath",   SqlDbType.NVarChar, 500){ Value = (object?)excelPath ?? DBNull.Value },
+                    new SqlParameter("@ExcelFileSize",   SqlDbType.BigInt){ Value = excelSize },
+                    new SqlParameter("@ExcelContentType",SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+                    new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
+                    new SqlParameter("@OutTemplateId", SqlDbType.Int){ Direction = ParameterDirection.Output },
+                    new SqlParameter("@OutVersionId", SqlDbType.BigInt){ Direction = ParameterDirection.Output },
+                    new SqlParameter("@OutVersionNo", SqlDbType.Int){ Direction = ParameterDirection.Output },
+                };
 
                 const string sql =
                     "EXEC dbo.sp_DocTemplate_SaveFromDescriptor " +
@@ -1383,7 +1485,7 @@ namespace WebApplication1.Controllers
                 var outVersionId = (long)(p[^2].Value ?? 0L);
                 var outVersionNo = (int)(p[^1].Value ?? 0);
 
-                TempData["Alert"] = $"Saved: TmplId={outTemplateId}, VerId={outVersionId}, VerNo={outVersionNo}";
+                //TempData["Alert"] = $"Saved: TmplId={outTemplateId}, VerId={outVersionId}, VerNo={outVersionNo}";
             }
             catch (Exception ex)
             {

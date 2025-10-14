@@ -1,4 +1,4 @@
-﻿@* 2025.09.29 Changed: 레이아웃 비율 조정 col-lg-8/4, 결재란 셀 매핑 삭제 버튼 추가, Select Cell 버튼은 d-none 처리 *@
+﻿@* 2025.10.13 Changed: 결재란 Person 유형에 사용자 콤보박스 일반 select로 변경 (자동완성 제거) *@
 @using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 
@@ -51,7 +51,7 @@
     #xlPreview table, #xlPreview th, #xlPreview td {
         user-select: none;
     }
-        /* 선택 하이라이트 */
+
         #xlPreview td.sel {
             background: rgba(13,110,253,.18);
             outline: 1px solid rgba(13,110,253,.35);
@@ -108,31 +108,18 @@
     <!-- 페이지 상단 JSON 진단 로거 (선택) -->
     <script>
         (function () {
-            function pick(idCandidates) {
-                for (const id of idCandidates) {
-                    const el = document.getElementById(id);
-                    if (el) return el;
-                }
-                return null;
-            }
+            function pick(ids) { for (const id of ids) { const el = document.getElementById(id); if (el) return el; } return null; }
             function readJsonFrom(el) {
                 if (!el) return null;
                 const raw = (el.textContent || el.innerText || "").trim();
                 if (!raw) return null;
-                try { return JSON.parse(raw); }
-                catch (e) {
-                    console.error("[DocTL] JSON parse error for", el.id, e, raw);
-                    return null;
-                }
+                try { return JSON.parse(raw); } catch (e) { console.error("[DocTL] JSON parse error for", el.id, e, raw); return null; }
             }
             const descEl = pick(["desc-json", "descJson"]);
             const prevEl = pick(["preview-json", "previewJson"]);
-
             window.DOC_DESC = readJsonFrom(descEl) || {};
             window.DOC_PREV = readJsonFrom(prevEl) || null;
-
-            console.log("[DocTL] desc bytes:", (descEl?.textContent || "").length,
-                "preview bytes:", (prevEl?.textContent || "").length);
+            console.log("[DocTL] desc bytes:", (descEl?.textContent || "").length, "preview bytes:", (prevEl?.textContent || "").length);
         })();
     </script>
 
@@ -141,10 +128,14 @@
         <input type="hidden" name="descriptor" id="descriptor">
         <input type="hidden" name="excelPath" value="@ViewBag.ExcelPath">
         <input type="hidden" name="previewJson" id="previewJson">
+        <input type="hidden" name="docCode" value="@ViewBag.DocCode" />
 
         <div class="row g-3">
-            <!-- 입력 필드 매핑 -->
-            <div class="col-12 col-lg-7">
+            @* 2025.10.13 Changed: 상단 2열을 전체 12그리드 기준 4:6 비율로 환산 적용 col-lg-5 col-lg-7 로 변경 다른 로직 불변 *@
+
+            <!-- 입력 필드 매핑 (기존 col-lg-4 → col-lg-5, 전체폭 기준 40%) -->
+            <div class="col-12 col-lg-5">
+                @* 2025.10.13 Changed: col-lg-4 -> col-lg-5 *@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
                         <span>@S["DTL_Section_Fields"]</span>
@@ -158,6 +149,7 @@
                                         <th>@S["DTL_Col_FieldKey"]</th>
                                         <th style="width:8rem">@S["DTL_Col_Type"]</th>
                                         <th class="cell-a1">@S["DTL_Col_CellA1"]</th>
+                                        <th style="width:4.5rem"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="tblFieldsBody"></tbody>
@@ -167,8 +159,9 @@
                 </div>
             </div>
 
-            <!-- 결재란 매핑 -->
-            <div class="col-12 col-lg-5">
+            <!-- 결재란 매핑 (기존 col-lg-6 → col-lg-7, 전체폭 기준 60%) -->
+            <div class="col-12 col-lg-7">
+                @* 2025.10.13 Changed: col-lg-6 -> col-lg-7 *@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center py-2">
                         <span>@S["DTL_Section_Approvals"]</span>
@@ -182,8 +175,8 @@
                                         <th style="width:4rem">@S["DTL_Col_Slot"]</th>
                                         <th style="width:6rem">@S["DTL_Col_Part"]</th>
                                         <th class="cell-a1">@S["DTL_Col_CellA1"]</th>
-                                        <th style="width:7.5rem">결재권자 유형</th>
-                                        <th>지정 값</th>
+                                        <th style="width:8rem">@S["DTL_Col_ApproverType"]</th>
+                                        <th>@S["DTL_Col_AssignValue"]</th>
                                         <th style="width:4.5rem"></th>
                                     </tr>
                                 </thead>
@@ -220,11 +213,8 @@
 {
     <script>
         (function (run) {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', run);
-            } else {
-                run();
-            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+            else run();
         })(function () {
             const L = {
                 PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
@@ -232,13 +222,37 @@
                 NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
                 Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
                 MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
-                MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value))
-          };
+                MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
+                UserSearchPH: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_SearchPH"].Value)),
+                UserNoResult: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_NoResult"].Value)),
+                UserLoading: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Loading"].Value)),
+                UserClear: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Clear"].Value))
+                            };
             const T = {
                 TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
                 TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
                 TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
-          };
+                            };
+            const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTL")));
+
+            function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+            async function fetchUsers(q, take = 20) {
+                const url = new URL(USER_API, location.origin);
+                if (q && q.trim()) url.searchParams.set('q', q.trim());
+                url.searchParams.set('take', take);
+                const r = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!r.ok) return [];
+                return await r.json(); // [{id,text}]
+            }
+            async function fetchUserById(id) {
+                if (!id) return null;
+                const url = new URL(USER_API, location.origin);
+                url.searchParams.set('id', id);
+                const r = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!r.ok) return null;
+                const arr = await r.json();
+                return Array.isArray(arr) && arr.length ? arr[0] : null;
+            }
 
             /* ===== 프리뷰 렌더러 ===== */
             (function () {
@@ -247,10 +261,7 @@
                 let preview = {};
                 try { preview = JSON.parse(raw); } catch { preview = {}; }
 
-                if (!preview.cells) {
-                    if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>';
-                    return;
-                }
+                if (!preview.cells) { if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>'; return; }
 
                 const merges = preview.merges || [];
                 const skip = Array.from({ length: (preview.rows || 0) + 1 }, () => Array((preview.cols || 0) + 1).fill(false));
@@ -265,7 +276,6 @@
                 const scale = 6;
                 const colW = (preview.colW || []).map(w => Math.max(32, Math.round(w * scale)));
                 function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
-                function toA1(r, c) { return `${toCol(c)}${r}`; }
 
                 let html = `<table><colgroup>`;
                 for (let c = 1; c <= preview.cols; c++) html += `<col style="width:${colW[c - 1] || 80}px">`;
@@ -279,7 +289,7 @@
                         const span = topLeft.get(`${r},${c}`);
                         const rs = span?.rs || 1, cs = span?.cs || 1;
                         const txt = (preview.cells[r - 1]?.[c - 1] || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                        html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-a1="${toA1(r, c)}" data-r="${r}" data-c="${c}">${txt}</td>`;
+                        html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-r="${r}" data-c="${c}">${txt}</td>`;
                     }
                     html += `</tr>`;
                 }
@@ -290,66 +300,45 @@
                 wrap.addEventListener('click', e => {
                     const td = e.target.closest('td');
                     const set = window.__a1 && window.__a1.set;
-                    if (td && typeof set === 'function') set(td.getAttribute('data-a1') || '');
+                    if (td && typeof set === 'function') {
+                        function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+                        const r = td.getAttribute('data-r'); const c = td.getAttribute('data-c');
+                        set(`${toCol(parseInt(c, 10))}${r}`);
+                    }
                 });
 
-                // 드래그 선택(단일 열)
+                // 드래그 선택
                 (function enableDragSelection() {
-                    const area = document.getElementById('xlPreview');
-                    if (!area) return;
-                    let dragging = false;
-                    let start = null;
-
-                    function cellFromPoint(e) {
-                        const el = document.elementFromPoint(e.clientX, e.clientY);
-                        return el && el.closest ? el.closest('#xlPreview td') : null;
-                    }
+                    const area = document.getElementById('xlPreview'); if (!area) return;
+                    let dragging = false, start = null;
+                    function cellFromPoint(e) { const el = document.elementFromPoint(e.clientX, e.clientY); return el && el.closest ? el.closest('#xlPreview td') : null; }
                     function clearSel() { area.querySelectorAll('td.sel').forEach(td => td.classList.remove('sel')); }
                     function markRect(r1, c1, r2, c2) {
-                        clearSel();
-                        const ra = Math.min(r1, r2), rb = Math.max(r1, r2);
-                        const ca = Math.min(c1, c2), cb = Math.max(c1, c2);
+                        clearSel(); const ra = Math.min(r1, r2), rb = Math.max(r1, r2), ca = Math.min(c1, c2), cb = Math.max(c1, c2);
                         for (let r = ra; r <= rb; r++) { for (let c = ca; c <= cb; c++) { const td = area.querySelector(`td[data-r="${r}"][data-c="${c}"]`); if (td) td.classList.add('sel'); } }
                     }
-
                     area.addEventListener('mousedown', e => {
-                        const td = e.target.closest('td');
-                        if (!td || !area.contains(td)) return;
-                        dragging = true;
-                        start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
-                        area.classList.add('dragging');
-                        markRect(start.r, start.c, start.r, start.c);
-                        e.preventDefault();
+                        const td = e.target.closest('td'); if (!td || !area.contains(td)) return;
+                        dragging = true; start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
+                        area.classList.add('dragging'); markRect(start.r, start.c, start.r, start.c); e.preventDefault();
                     });
-
                     area.addEventListener('mousemove', e => {
-                        if (!dragging || !start) return;
-                        const td = cellFromPoint(e); if (!td) return;
-                        const r = parseInt(td.dataset.r || '0', 10);
-                        const c = parseInt(td.dataset.c || '0', 10);
-                        markRect(start.r, start.c, r, c);
+                        if (!dragging || !start) return; const td = cellFromPoint(e); if (!td) return;
+                        const r = parseInt(td.dataset.r || '0', 10), c = parseInt(td.dataset.c || '0', 10); markRect(start.r, start.c, r, c);
                     });
-
                     document.addEventListener('mouseup', () => {
-                        if (!dragging || !start) return;
-                        dragging = false;
-                        area.classList.remove('dragging');
-
-                        const selected = area.querySelectorAll('td.sel');
-                        if (!selected.length) { clearSel(); start = null; return; }
+                        if (!dragging || !start) return; dragging = false; area.classList.remove('dragging');
+                        const selected = area.querySelectorAll('td.sel'); if (!selected.length) { clearSel(); start = null; return; }
                         const rows = Array.from(selected).map(td => parseInt(td.getAttribute('data-r') || '0', 10));
                         const cols = Array.from(selected).map(td => parseInt(td.getAttribute('data-c') || '0', 10));
-                        const r1 = Math.min(...rows), r2 = Math.max(...rows);
-                        const c1 = Math.min(...cols), c2 = Math.max(...cols);
-
+                        const r1 = Math.min(...rows), r2 = Math.max(...rows), c1 = Math.min(...cols), c2 = Math.max(...cols);
                         const set = window.__a1 && window.__a1.set;
                         if (typeof set === 'function') {
                             const toCol = (n) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
                             const a1 = (r1 === r2 && c1 === c2) ? `${toCol(c1)}${r1}` : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
                             set(a1);
                         }
-                        clearSel();
-                        start = null;
+                        clearSel(); start = null;
                     });
                 })();
             })();
@@ -367,13 +356,24 @@
                 function opt(val, text, sel) { const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
                 window.__a1 = window.__a1 || {};
 
+                async function buildUserSelect(selectedId) {
+                    const sel = document.createElement('select');
+                    sel.className = 'form-select form-select-sm';
+                    // 첫 옵션(선택하세요)
+                    sel.append(opt('', '—', false));
+                    // 서버에서 기본 목록 불러오기(빈 검색)
+                    let list = [];
+                    try { list = await fetchUsers('', 50); } catch { list = []; }
+                    list.forEach(x => sel.append(opt(x.id, x.text, x.id == selectedId)));
+                    return sel;
+                }
+
                 function render() {
                     // Fields
                     fieldsBody.innerHTML = '';
                     if (desc.Fields.length === 0) {
                         const tr = document.createElement('tr'); const td = document.createElement('td');
-                        td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
-                        tr.appendChild(td); fieldsBody.appendChild(tr);
+                        td.colSpan = 4; td.className = 'text-muted'; td.textContent = L.NoRows; tr.appendChild(td); fieldsBody.appendChild(tr);
                     } else {
                         desc.Fields.forEach((f, i) => {
                             const tr = document.createElement('tr');
@@ -401,67 +401,52 @@
                             const inputA1 = document.createElement('input');
                             inputA1.className = 'form-control'; inputA1.placeholder = '예: C9 또는 C9:C35';
                             inputA1.value = (f.Cell && f.Cell.A1) || '';
-                            inputA1.addEventListener('input', e => {
-                                desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                desc.Fields[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener('focus', () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                    desc.Fields[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add('a1-active');
-                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
-                                };
-                            });
+                            inputA1.addEventListener('input', e => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = e.target.value; });
+                            inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
 
                             const pickBtn = document.createElement('button');
                             pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
                             pickBtn.textContent = L.PickCell;
-                            pickBtn.addEventListener('click', () => {
-                                inputA1.focus();
-                                document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            });
+                            pickBtn.addEventListener('click', () => { inputA1.focus(); document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 
-                            const delBtn = document.createElement('button');
-                            delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
-
-                            grp.append(inputA1, pickBtn, delBtn);
+                            grp.append(inputA1, pickBtn);
                             tdA1.appendChild(grp);
 
-                            tr.append(tdKey, tdType, tdA1);
+                            /* 액션 열(오른쪽) : 삭제 버튼 */
+                            const tdAct = document.createElement('td');
+                            const delBtn = document.createElement('button');
+                            delBtn.type = 'button';
+                            delBtn.className = 'btn btn-outline-danger btn-sm';
+                            delBtn.textContent = L.Delete;
+                            delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
+                            tdAct.appendChild(delBtn);
+
+                            tr.append(tdKey, tdType, tdA1, tdAct);
                             fieldsBody.appendChild(tr);
                         });
                     }
 
-                    // Approvals
+                    // Approvals (그대로)
                     apprBody.innerHTML = '';
                     if (desc.Approvals.length === 0) {
                         const tr = document.createElement('tr'); const td = document.createElement('td');
-                        td.colSpan = 6; td.className = 'text-muted'; td.textContent = L.NoRows;
-                        tr.appendChild(td); apprBody.appendChild(tr);
+                        td.colSpan = 6; td.className = 'text-muted'; td.textContent = L.NoRows; tr.appendChild(td); apprBody.appendChild(tr);
                     } else {
                         desc.Approvals.forEach((a, i) => {
-                            a = a || {}; if (!a.Cell) a.Cell = {};
-                            if (!a.ApproverType) a.ApproverType = 'Person';
-                            if (a.ApproverValue == null) a.ApproverValue = '';
+                            a = a || {}; if (!a.Cell) a.Cell = {}; if (!a.ApproverType) a.ApproverType = 'Person'; if (a.ApproverValue == null) a.ApproverValue = '';
 
                             const tr = document.createElement('tr');
 
                             const tdS = document.createElement('td');
                             const inpS = document.createElement('input');
                             inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
-                            inpS.value = a.Slot ?? 1;
-                            inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
+                            inpS.value = a.Slot ?? 1; inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
                             tdS.appendChild(inpS);
 
                             const tdP = document.createElement('td');
                             const inpP = document.createElement('input');
                             inpP.className = 'form-control form-control-sm';
-                            inpP.value = a.Part || '';
-                            inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
+                            inpP.value = a.Part || ''; inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
                             tdP.appendChild(inpP);
 
                             const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
@@ -469,45 +454,42 @@
                             const inputA1 = document.createElement('input');
                             inputA1.className = 'form-control'; inputA1.placeholder = '예: H4';
                             inputA1.value = a.Cell.A1 || '';
-                            inputA1.addEventListener('input', e => {
-                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                desc.Approvals[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener('focus', () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                    desc.Approvals[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add('a1-active');
-                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
-                                };
-                            });
+                            inputA1.addEventListener('input', e => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = e.target.value; });
+                            inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
                             grpA1.append(inputA1); tdA1.appendChild(grpA1);
 
                             const tdType = document.createElement('td');
                             const selType = document.createElement('select');
                             selType.className = 'form-select form-select-sm';
-                            [['Person', '개인(사용자)'], ['Role', '역할(직책/그룹)'], ['Rule', '규칙(조건)']].forEach(([val, label]) => {
-                                const o = document.createElement('option'); o.value = val; o.text = label;
-                                if ((a.ApproverType || 'Person') === val) o.selected = true;
-                                selType.appendChild(o);
+                            [['Person', '개인(사용자)'], ['Role', '역할(직책/그룹)'], ['Rule', '규칙(조건)']].forEach(([v, l]) => {
+                                const o = document.createElement('option'); o.value = v; o.text = l; if ((a.ApproverType || 'Person') === v) o.selected = true; selType.appendChild(o);
                             });
-                            selType.addEventListener('change', e => { desc.Approvals[i].ApproverType = e.target.value; setValPlaceholder(); });
+                            selType.addEventListener('change', e => { desc.Approvals[i].ApproverType = e.target.value; render(); });
                             tdType.appendChild(selType);
 
                             const tdVal = document.createElement('td');
-                            const inpVal = document.createElement('input');
-                            inpVal.className = 'form-control form-control-sm';
-                            inpVal.value = a.ApproverValue || '';
-                            function setValPlaceholder() {
-                                const t = selType.value;
-                                if (t === 'Person') inpVal.placeholder = '사용자 ID (예: u1001)';
-                                else if (t === 'Role') inpVal.placeholder = '역할 코드 (예: ROLE_APPR1)';
-                                else inpVal.placeholder = '규칙 JSON (예: {"When":{"Dept":"SALES"},"Then":{"UserId":"boss"}})';
+
+                            if ((a.ApproverType || 'Person') === 'Person') {
+                                // === 일반 select 콤보 ===
+                                const place = document.createElement('div');
+                                tdVal.appendChild(place);
+                                (async () => {
+                                    const sel = await buildUserSelect(a.ApproverValue || '');
+                                    sel.addEventListener('change', ev => {
+                                        desc.Approvals[i].ApproverValue = ev.target.value || '';
+                                    });
+                                    place.replaceChildren(sel);
+                                })();
+                            } else {
+                                // 기존 그대로: Role / Rule 텍스트 입력
+                                const inpVal = document.createElement('input');
+                                inpVal.className = 'form-control form-control-sm';
+                                if ((a.ApproverType || 'Person') === 'Role') inpVal.placeholder = '역할 코드';
+                                else inpVal.placeholder = '규칙 JSON';
+                                inpVal.value = a.ApproverValue || '';
+                                inpVal.addEventListener('input', e => { desc.Approvals[i].ApproverValue = e.target.value; });
+                                tdVal.appendChild(inpVal);
                             }
-                            setValPlaceholder();
-                            inpVal.addEventListener('input', e => { desc.Approvals[i].ApproverValue = e.target.value; });
-                            tdVal.appendChild(inpVal);
 
                             const tdAct = document.createElement('td');
                             const delBtn = document.createElement('button');
@@ -521,30 +503,21 @@
                     }
                 } // render
 
-                document.getElementById('btnAddField').addEventListener('click', () => {
-                    desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
-                    render();
-                });
-                document.getElementById('btnAddAppr').addEventListener('click', () => {
-                    desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: 'Person', ApproverValue: '' });
-                    render();
-                });
+                document.getElementById('btnAddField').addEventListener('click', () => { desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render(); });
+                document.getElementById('btnAddAppr').addEventListener('click', () => { desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: 'Person', ApproverValue: '' }); render(); });
 
                 function tryParseRange(a1) {
                     const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
                     if (!m || m[1] !== m[3]) return null;
-                    let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10);
-                    if (r2 < r1) [r1, r2] = [r2, r1];
+                    let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10); if (r2 < r1) [r1, r2] = [r2, r1];
                     return { col: m[1], r1, r2 };
                 }
                 function expandFieldsForSave(fields) {
                     const out = [];
                     for (const f of fields) {
-                        const a1 = f?.Cell?.A1 || '';
-                        const rg = tryParseRange(a1);
+                        const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1);
                         if (!rg) { out.push(f); continue; }
-                        const tpl = (f.Key || '').trim();
-                        let idx = 1;
+                        const tpl = (f.Key || '').trim(); let idx = 1;
                         for (let r = rg.r1; r <= rg.r2; r++, idx++) {
                             let keyBase = (tpl || 'Field'); let key = keyBase;
                             if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx));
@@ -571,18 +544,13 @@
                         const slot = parseInt(a.Slot ?? 1, 10);
                         if (!Number.isFinite(slot) || slot < 1) return { ok: false, msg: `결재란 #${i + 1}: Slot은 1 이상 정수여야 합니다.` };
                         const t = (a.ApproverType || 'Person');
-                        if (!['Person', 'Role', 'Rule'].includes(t)) return { ok: false, msg: `결재란 #${i + 1}: 결재권자 유형이 올바르지 않습니다.` };
+                        if (!['Person', 'Role', 'Rule'].includes(t)) return { ok: false, msg: `결재권자 유형이 올바르지 않습니다.` };
                         const v = (a.ApproverValue || '').trim();
                         if (t === 'Person' || t === 'Role') {
                             if (!v) return { ok: false, msg: `결재란 #${i + 1}: ${t === 'Person' ? '사용자 ID' : '역할 코드'}를 입력해 주세요.` };
                         } else if (t === 'Rule') {
                             if (!v) return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON을 입력해 주세요.` };
-                            try {
-                                const obj = JSON.parse(v);
-                                if (obj == null || typeof obj !== 'object') throw 0;
-                            } catch {
-                                return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` };
-                            }
+                            try { const obj = JSON.parse(v); if (obj == null || typeof obj !== 'object') throw 0; } catch { return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` }; }
                         }
                     }
                     return { ok: true };
@@ -591,21 +559,17 @@
                 document.getElementById('btnSave').addEventListener('click', () => {
                     const payload = JSON.parse(JSON.stringify(desc));
                     payload.Fields = expandFieldsForSave(desc.Fields);
+
                     const ck = hasDuplicateKeys(payload.Fields);
-                    if (!ck.ok) {
-                        if (ck.reason === 'empty') alert(L.MsgKeyEmpty);
-                        else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || ''));
-                        return;
-                    }
-                    const v2 = validateApprovals(payload.Approvals || []);
-                    if (!v2.ok) { alert(v2.msg); return; }
+                    if (!ck.ok) { if (ck.reason === 'empty') alert(L.MsgKeyEmpty); else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || '')); return; }
+                    const v2 = validateApprovals(payload.Approvals || []); if (!v2.ok) { alert(v2.msg); return; }
                     document.getElementById('descriptor').value = JSON.stringify(payload);
                     document.getElementById('mapForm').submit();
                 });
 
                 render();
             })();
-        }); // run()
+        }); // run
     </script>
 }
 @* ===== 스크립트: 비-AJAX 분기 ===== *@
@@ -619,23 +583,43 @@ else
             NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
             Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
             MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
-            MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value))
-                };
+            MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
+            UserSearchPH: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_SearchPH"].Value)),
+            UserNoResult: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_NoResult"].Value)),
+            UserLoading: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Loading"].Value)),
+            UserClear: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Clear"].Value))
+                        };
         const T = {
             TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
             TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
             TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
-                };
+                        };
+        const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTL")));
 
-        /* ===== 프리뷰 렌더러(비-AJAX도 드래그 지원) ===== */
+        function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+        async function fetchUsers(q, take = 20) {
+            const url = new URL(USER_API, location.origin);
+            if (q && q.trim()) url.searchParams.set('q', q.trim());
+            url.searchParams.set('take', take);
+            const r = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!r.ok) return [];
+            return await r.json();
+        }
+        async function fetchUserById(id) {
+            if (!id) return null;
+            const url = new URL(USER_API, location.origin);
+            url.searchParams.set('id', id);
+            const r = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!r.ok) return null;
+            const arr = await r.json();
+            return Array.isArray(arr) && arr.length ? arr[0] : null;
+        }
+
         (function () {
             const raw = (document.getElementById('preview-json')?.textContent || '{}').trim();
             let preview = {}; try { preview = JSON.parse(raw); } catch { preview = {}; }
             const wrap = document.getElementById('xlPreview');
-            if (!preview.cells) {
-                if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>';
-                return;
-            }
+            if (!preview.cells) { if (wrap) wrap.innerHTML = '<div class="text-muted">' + L.NoPreview + '</div>'; return; }
 
             const merges = preview.merges || [];
             const skip = Array.from({ length: (preview.rows || 0) + 1 }, () => Array((preview.cols || 0) + 1).fill(false));
@@ -648,9 +632,7 @@ else
 
             const scale = 6;
             const colW = (preview.colW || []).map(w => Math.max(32, Math.round(w * scale)));
-
             function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
-            function toA1(r, c) { return `${toCol(c)}${r}`; }
 
             let html = `<table><colgroup>`;
             for (let c = 1; c <= preview.cols; c++) html += `<col style="width:${colW[c - 1] || 80}px">`;
@@ -661,11 +643,9 @@ else
                 html += `<tr><th class="rc">${r}</th>`;
                 for (let c = 1; c <= preview.cols; c++) {
                     if (skip[r][c]) continue;
-                    const span = topLeft.get(`${r},${c}`);
-                    const rs = span?.rs || 1, cs = span?.cs || 1;
-                    const txt = (preview.cells[r - 1]?.[c - 1] || '')
-                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-a1="${toA1(r, c)}" data-r="${r}" data-c="${c}">${txt}</td>`;
+                    const span = topLeft.get(`${r},${c}`); const rs = span?.rs || 1, cs = span?.cs || 1;
+                    const txt = (preview.cells[r - 1]?.[c - 1] || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    html += `<td ${rs > 1 ? `rowspan="${rs}"` : ''} ${cs > 1 ? `colspan="${cs}"` : ''} data-r="${r}" data-c="${c}">${txt}</td>`;
                 }
                 html += `</tr>`;
             }
@@ -676,76 +656,54 @@ else
             wrap.addEventListener('click', e => {
                 const td = e.target.closest('td'); if (!td) return;
                 const set = window.__a1 && window.__a1.set;
-                if (typeof set === 'function') set(td.getAttribute('data-a1') || '');
+                if (typeof set === 'function') {
+                    function toCol(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+                    const r = td.getAttribute('data-r'); const c = td.getAttribute('data-c');
+                    set(`${toCol(parseInt(c, 10))}${r}`);
+                }
                 wrap.querySelectorAll('td.sel').forEach(x => x.classList.remove('sel'));
                 td.classList.add('sel'); setTimeout(() => td.classList.remove('sel'), 250);
             });
 
-            // 드래그 선택(단일 열)
+            // 드래그 선택
             (function enableDragSelection() {
-                const area = document.getElementById('xlPreview');
-                if (!area) return;
-                let dragging = false;
-                let start = null;
-
-                function cellFromPoint(e) {
-                    const el = document.elementFromPoint(e.clientX, e.clientY);
-                    return el && el.closest ? el.closest('#xlPreview td') : null;
-                }
+                const area = document.getElementById('xlPreview'); if (!area) return;
+                let dragging = false, start = null;
+                function cellFromPoint(e) { const el = document.elementFromPoint(e.clientX, e.clientY); return el && el.closest ? el.closest('#xlPreview td') : null; }
                 function clearSel() { area.querySelectorAll('td.sel').forEach(td => td.classList.remove('sel')); }
                 function markRect(r1, c1, r2, c2) {
-                    clearSel();
-                    const ra = Math.min(r1, r2), rb = Math.max(r1, r2);
-                    const ca = Math.min(c1, c2), cb = Math.max(c1, c2);
-                    for (let r = ra; r <= rb; r++) {
-                        for (let c = ca; c <= cb; c++) {
-                            const td = area.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
-                            if (td) td.classList.add('sel');
-                        }
-                    }
+                    clearSel(); const ra = Math.min(r1, r2), rb = Math.max(r1, r2), ca = Math.min(c1, c2), cb = Math.max(c1, c2);
+                    for (let r = ra; r <= rb; r++) { for (let c = ca; c <= cb; c++) { const td = area.querySelector(`td[data-r="${r}"][data-c="${c}"]`); if (td) td.classList.add('sel'); } }
                 }
 
                 area.addEventListener('mousedown', e => {
-                    const td = e.target.closest('td');
-                    if (!td || !area.contains(td)) return;
-                    dragging = true;
-                    start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
-                    area.classList.add('dragging');
-                    markRect(start.r, start.c, start.r, start.c);
-                    e.preventDefault();
+                    const td = e.target.closest('td'); if (!td || !area.contains(td)) return;
+                    dragging = true; start = { r: parseInt(td.dataset.r || '0', 10), c: parseInt(td.dataset.c || '0', 10) };
+                    area.classList.add('dragging'); markRect(start.r, start.c, start.r, start.c); e.preventDefault();
                 });
 
                 area.addEventListener('mousemove', e => {
                     if (!dragging || !start) return;
                     const td = cellFromPoint(e); if (!td) return;
-                    const r = parseInt(td.dataset.r || '0', 10);
-                    const c = parseInt(td.dataset.c || '0', 10);
+                    const r = parseInt(td.dataset.r || '0', 10), c = parseInt(td.dataset.c || '0', 10);
                     markRect(start.r, start.c, r, c);
                 });
 
                 document.addEventListener('mouseup', () => {
                     if (!dragging || !start) return;
-                    dragging = false;
-                    area.classList.remove('dragging');
-
+                    dragging = false; area.classList.remove('dragging');
                     const selected = area.querySelectorAll('td.sel');
                     if (!selected.length) { clearSel(); start = null; return; }
-
                     const rows = Array.from(selected).map(td => parseInt(td.getAttribute('data-r') || '0', 10));
                     const cols = Array.from(selected).map(td => parseInt(td.getAttribute('data-c') || '0', 10));
-                    const r1 = Math.min(...rows), r2 = Math.max(...rows);
-                    const c1 = Math.min(...cols), c2 = Math.max(...cols);
-
+                    const r1 = Math.min(...rows), r2 = Math.max(...rows), c1 = Math.min(...cols), c2 = Math.max(...cols);
                     const set = window.__a1 && window.__a1.set;
                     if (typeof set === 'function') {
                         const toCol = (n) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
-                        const a1 = (r1 === r2 && c1 === c2)
-                            ? `${toCol(c1)}${r1}`
-                            : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
+                        const a1 = (r1 === r2 && c1 === c2) ? `${toCol(c1)}${r1}` : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
                         set(a1);
                     }
-                    clearSel();
-                    start = null;
+                    clearSel(); start = null;
                 });
             })();
 
@@ -762,13 +720,22 @@ else
                 function opt(val, text, sel) { const o = document.createElement('option'); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
                 window.__a1 = window.__a1 || {};
 
+                async function buildUserSelect(selectedId) {
+                    const sel = document.createElement('select');
+                    sel.className = 'form-select form-select-sm';
+                    sel.append(opt('', '—', false));
+                    let list = [];
+                    try { list = await fetchUsers('', 50); } catch { list = []; }
+                    list.forEach(x => sel.append(opt(x.id, x.text, x.id == selectedId)));
+                    return sel;
+                }
+
                 function render() {
                     // Fields
                     fieldsBody.innerHTML = '';
                     if (desc.Fields.length === 0) {
                         const tr = document.createElement('tr'); const td = document.createElement('td');
-                        td.colSpan = 3; td.className = 'text-muted'; td.textContent = L.NoRows;
-                        tr.appendChild(td); fieldsBody.appendChild(tr);
+                        td.colSpan = 4; td.className = 'text-muted'; td.textContent = L.NoRows; tr.appendChild(td); fieldsBody.appendChild(tr);
                     } else {
                         desc.Fields.forEach((f, i) => {
                             const tr = document.createElement('tr');
@@ -796,37 +763,27 @@ else
                             const inputA1 = document.createElement('input');
                             inputA1.className = 'form-control'; inputA1.placeholder = '예: C9 또는 C9:C35';
                             inputA1.value = (f.Cell && f.Cell.A1) || '';
-                            inputA1.addEventListener('input', e => {
-                                desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                desc.Fields[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener('focus', () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                    desc.Fields[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add('a1-active');
-                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
-                                };
-                            });
+                            inputA1.addEventListener('input', e => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = e.target.value; });
+                            inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
 
                             const pickBtn = document.createElement('button');
                             pickBtn.type = 'button'; pickBtn.className = 'btn btn-outline-secondary d-none';
                             pickBtn.textContent = L.PickCell;
-                            pickBtn.addEventListener('click', () => {
-                                inputA1.focus();
-                                document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            });
+                            pickBtn.addEventListener('click', () => { inputA1.focus(); document.getElementById('xlPreview').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 
-                            const delBtn = document.createElement('button');
-                            delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger';
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
-
-                            grp.append(inputA1, pickBtn, delBtn);
+                            grp.append(inputA1, pickBtn);
                             tdA1.appendChild(grp);
 
-                            tr.append(tdKey, tdType, tdA1);
+                            /* 액션 열(오른쪽) : 삭제 버튼 */
+                            const tdAct = document.createElement('td');
+                            const delBtn = document.createElement('button');
+                            delBtn.type = 'button';
+                            delBtn.className = 'btn btn-outline-danger btn-sm';
+                            delBtn.textContent = L.Delete;
+                            delBtn.addEventListener('click', () => { desc.Fields.splice(i, 1); render(); });
+                            tdAct.appendChild(delBtn);
+
+                            tr.append(tdKey, tdType, tdA1, tdAct);
                             fieldsBody.appendChild(tr);
                         });
                     }
@@ -834,103 +791,68 @@ else
                     // Approvals
                     apprBody.innerHTML = '';
                     if (desc.Approvals.length === 0) {
-                        const tr = document.createElement('tr');
-                        const td = document.createElement('td');
-                        td.colSpan = 6; td.className = 'text-muted'; td.textContent = L.NoRows;
-                        tr.appendChild(td);
-                        apprBody.appendChild(tr);
+                        const tr = document.createElement('tr'); const td = document.createElement('td');
+                        td.colSpan = 6; td.className = 'text-muted'; td.textContent = L.NoRows; tr.appendChild(td); apprBody.appendChild(tr);
                     } else {
                         desc.Approvals.forEach((a, i) => {
-                            a = a || {};
-                            if (!a.Cell) a.Cell = {};
-                            if (!a.ApproverType) a.ApproverType = 'Person';
-                            if (a.ApproverValue == null) a.ApproverValue = '';
+                            a = a || {}; if (!a.Cell) a.Cell = {}; if (!a.ApproverType) a.ApproverType = 'Person'; if (a.ApproverValue == null) a.ApproverValue = '';
 
                             const tr = document.createElement('tr');
 
                             const tdS = document.createElement('td');
                             const inpS = document.createElement('input');
                             inpS.type = 'number'; inpS.min = '1'; inpS.className = 'form-control form-control-sm';
-                            inpS.value = a.Slot ?? 1;
-                            inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
+                            inpS.value = a.Slot ?? 1; inpS.addEventListener('input', e => { desc.Approvals[i].Slot = parseInt(e.target.value || '1', 10); });
                             tdS.appendChild(inpS);
 
                             const tdP = document.createElement('td');
                             const inpP = document.createElement('input');
                             inpP.className = 'form-control form-control-sm';
-                            inpP.value = a.Part || '';
-                            inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
+                            inpP.value = a.Part || ''; inpP.addEventListener('input', e => { desc.Approvals[i].Part = e.target.value; });
                             tdP.appendChild(inpP);
 
                             const tdA1 = document.createElement('td'); tdA1.className = 'cell-a1';
                             const grpA1 = document.createElement('div'); grpA1.className = 'input-group input-group-sm';
-
                             const inputA1 = document.createElement('input');
                             inputA1.className = 'form-control'; inputA1.placeholder = '예: H4';
                             inputA1.value = a.Cell.A1 || '';
-                            inputA1.addEventListener('input', e => {
-                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                desc.Approvals[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener('focus', () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                    desc.Approvals[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add('a1-active');
-                                    setTimeout(() => inputA1.classList.remove('a1-active'), 800);
-                                };
-                            });
-
-                            grpA1.append(inputA1);
-                            tdA1.appendChild(grpA1);
+                            inputA1.addEventListener('input', e => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = e.target.value; });
+                            inputA1.addEventListener('focus', () => { window.__a1.set = (a1) => { desc.Approvals[i].Cell = desc.Approvals[i].Cell || {}; desc.Approvals[i].Cell.A1 = a1; inputA1.value = a1; inputA1.classList.add('a1-active'); setTimeout(() => inputA1.classList.remove('a1-active'), 800); }; });
+                            grpA1.append(inputA1); tdA1.appendChild(grpA1);
 
                             const tdType = document.createElement('td');
                             const selType = document.createElement('select');
                             selType.className = 'form-select form-select-sm';
-                            [
-                                ['Person', '개인(사용자)'],
-                                ['Role', '역할(직책/그룹)'],
-                                ['Rule', '규칙(조건)']
-                            ].forEach(([val, label]) => {
-                                const o = document.createElement('option');
-                                o.value = val;
-                                o.text = label;
-                                if ((a.ApproverType || 'Person') === val) o.selected = true;
-                                selType.appendChild(o);
+                            [['Person', '개인(사용자)'], ['Role', '역할(직책/그룹)'], ['Rule', '규칙(조건)']].forEach(([v, l]) => {
+                                const o = document.createElement('option'); o.value = v; o.text = l; if ((a.ApproverType || 'Person') === v) o.selected = true; selType.appendChild(o);
                             });
-                            selType.addEventListener('change', e => {
-                                const t = e.target.value;
-                                desc.Approvals[i].ApproverType = t;
-                                setValPlaceholder(); // 타입 바뀌면 placeholder 갱신
-                            });
+                            selType.addEventListener('change', e => { const t = e.target.value; desc.Approvals[i].ApproverType = t; render(); });
                             tdType.appendChild(selType);
 
                             const tdVal = document.createElement('td');
-                            const inpVal = document.createElement('input');
-                            inpVal.className = 'form-control form-control-sm';
-                            inpVal.value = a.ApproverValue || '';
-                            function setValPlaceholder() {
-                                const t = selType.value;
-                                if (t === 'Person') inpVal.placeholder = '사용자 ID (예: u1001)';
-                                else if (t === 'Role') inpVal.placeholder = '역할 코드 (예: ROLE_APPR1)';
-                                else inpVal.placeholder = '규칙 JSON (예: {"When":{"Dept":"SALES"},"Then":{"UserId":"boss"}})';
+                            if ((a.ApproverType || 'Person') === 'Person') {
+                                const holder = document.createElement('div'); tdVal.appendChild(holder);
+                                (async () => {
+                                    const sel = await buildUserSelect(a.ApproverValue || '');
+                                    sel.addEventListener('change', ev => {
+                                        desc.Approvals[i].ApproverValue = ev.target.value || '';
+                                    });
+                                    holder.replaceChildren(sel);
+                                })();
+                            } else {
+                                const inpVal = document.createElement('input');
+                                inpVal.className = 'form-control form-control-sm';
+                                if ((a.ApproverType || 'Person') === 'Role') inpVal.placeholder = '역할 코드';
+                                else inpVal.placeholder = '규칙 JSON';
+                                inpVal.value = a.ApproverValue || '';
+                                inpVal.addEventListener('input', e => { desc.Approvals[i].ApproverValue = e.target.value; });
+                                tdVal.appendChild(inpVal);
                             }
-                            setValPlaceholder();
-                            inpVal.addEventListener('input', e => {
-                                desc.Approvals[i].ApproverValue = e.target.value;
-                            });
-                            tdVal.appendChild(inpVal);
 
                             const tdAct = document.createElement('td');
                             const delBtn = document.createElement('button');
-                            delBtn.type = 'button';
-                            delBtn.className = 'btn btn-outline-danger btn-sm';
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener('click', () => {
-                                desc.Approvals.splice(i, 1);
-                                render();
-                            });
+                            delBtn.type = 'button'; delBtn.className = 'btn btn-outline-danger btn-sm'; delBtn.textContent = L.Delete;
+                            delBtn.addEventListener('click', () => { desc.Approvals.splice(i, 1); render(); });
                             tdAct.appendChild(delBtn);
 
                             tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
@@ -940,13 +862,7 @@ else
                 } // render
 
                 document.getElementById('btnAddField').addEventListener('click', () => { desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } }); render(); });
-                document.getElementById('btnAddAppr').addEventListener('click', () => {
-                    desc.Approvals.push({
-                        Slot: 1, Part: "", Cell: { A1: "" },
-                        ApproverType: 'Person', ApproverValue: ''
-                    });
-                    render();
-                });
+                document.getElementById('btnAddAppr').addEventListener('click', () => { desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: 'Person', ApproverValue: '' }); render(); });
 
                 function tryParseRange(a1) { const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/); if (!m || m[1] !== m[3]) return null; let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10); if (r2 < r1) [r1, r2] = [r2, r1]; return { col: m[1], r1, r2 }; }
                 function expandFieldsForSave(fields) { const out = []; for (const f of fields) { const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1); if (!rg) { out.push(f); continue; } const tpl = (f.Key || '').trim(); let idx = 1; for (let r = rg.r1; r <= rg.r2; r++, idx++) { let keyBase = (tpl || 'Field'); let key = keyBase; if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx)); if (key.includes('{row}')) key = key.replaceAll('{row}', String(r)); if (key === keyBase) key = `${keyBase}_${r}`; out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } }); } } return out; }
@@ -956,26 +872,14 @@ else
                     for (let i = 0; i < apprs.length; i++) {
                         const a = apprs[i] || {};
                         const slot = parseInt(a.Slot ?? 1, 10);
-                        if (!Number.isFinite(slot) || slot < 1) {
-                            return { ok: false, msg: `결재란 #${i + 1}: Slot은 1 이상 정수여야 합니다.` };
-                        }
+                        if (!Number.isFinite(slot) || slot < 1) return { ok: false, msg: `결재란 #${i + 1}: Slot은 1 이상 정수여야 합니다.` };
                         const t = (a.ApproverType || 'Person');
-                        if (!['Person', 'Role', 'Rule'].includes(t)) {
-                            return { ok: false, msg: `결재란 #${i + 1}: 결재권자 유형이 올바르지 않습니다.` };
-                        }
+                        if (!['Person', 'Role', 'Rule'].includes(t)) return { ok: false, msg: `결재권자 유형이 올바르지 않습니다.` };
                         const v = (a.ApproverValue || '').trim();
-                        if (t === 'Person' || t === 'Role') {
-                            if (!v) {
-                                return { ok: false, msg: `결재란 #${i + 1}: ${t === 'Person' ? '사용자 ID' : '역할 코드'}를 입력해 주세요.` };
-                            }
-                        } else if (t === 'Rule') {
+                        if (t === 'Person' || t === 'Role') { if (!v) return { ok: false, msg: `결재란 #${i + 1}: ${t === 'Person' ? '사용자 ID' : '역할 코드'}를 입력해 주세요.` }; }
+                        else if (t === 'Rule') {
                             if (!v) return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON을 입력해 주세요.` };
-                            try {
-                                const obj = JSON.parse(v);
-                                if (obj == null || typeof obj !== 'object') throw 0;
-                            } catch {
-                                return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` };
-                            }
+                            try { const obj = JSON.parse(v); if (obj == null || typeof obj !== 'object') throw 0; } catch { return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` }; }
                         }
                     }
                     return { ok: true };
@@ -984,14 +888,10 @@ else
                 document.getElementById('btnSave').addEventListener('click', () => {
                     const payload = JSON.parse(JSON.stringify(desc));
                     payload.Fields = expandFieldsForSave(desc.Fields);
+
                     const ck = hasDuplicateKeys(payload.Fields);
-                    if (!ck.ok) {
-                        if (ck.reason === 'empty') alert(L.MsgKeyEmpty);
-                        else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || ''));
-                        return;
-                    }
-                    const v2 = validateApprovals(payload.Approvals || []);
-                    if (!v2.ok) { alert(v2.msg); return; }
+                    if (!ck.ok) { if (ck.reason === 'empty') alert(L.MsgKeyEmpty); else if (ck.reason === 'dup') alert(L.MsgKeyDup + ' ' + (ck.key || '')); return; }
+                    const v2 = validateApprovals(payload.Approvals || []); if (!v2.ok) { alert(v2.msg); return; }
                     document.getElementById('descriptor').value = JSON.stringify(payload);
                     document.getElementById('mapForm').submit();
                 });
