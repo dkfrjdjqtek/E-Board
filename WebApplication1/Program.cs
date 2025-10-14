@@ -163,6 +163,12 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
     };
 });
 
+// 2025.10.14 Added: Anti-Forgery 헤더명 지정 (클라이언트 fetch 헤더와 동일해야 함)
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "RequestVerificationToken"; // Compose.cshtml fetch 헤더와 일치
+});
+
 var app = builder.Build();
 
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);

@@ -28,12 +28,9 @@
     <div id="approvalSubMenu"
          class="collapse @(isApprovalOpen ? "show" : "")"
          data-bs-parent="#sidebar-accordion">
-        <!--<a asp-area="" asp-controller="Approval" asp-action="Write" class="nav-link d-flex align-items-center">
-            <img src="~/images/sidebar2-write.png" alt="@(S["Sidebar_Menu1Sub1"])" width="36" height="36" class="me-2" />
-            
-            <span>@S["Sidebar_Menu1Sub1"]</span>
-        </a>-->
-        <a asp-area="" asp-controller="Document" asp-action="Report"
+
+        @* 2025.10.14 Changed: 사이드바 "문서 작성" 메뉴를 전자결재 작성 플로우 진입점(/Doc/New)으로 연결 *@
+        <a asp-area="" asp-controller="Doc" asp-action="New"
            class="nav-link d-flex align-items-center">
             <img src="~/images/sidebar2-write.png"
                  alt="@(S["Sidebar_Menu1Sub1"])" width="36" height="36" class="me-2" />

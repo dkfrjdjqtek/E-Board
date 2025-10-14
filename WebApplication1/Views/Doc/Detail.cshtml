@@ -1,0 +1,51 @@
+﻿@* 2025.10.14 Added: 저장 완료 후 랜딩/퍼머링크 상세 화면 스켈레톤 추가 상태/행동 영역 자리표시자 포함 *@
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["DOC_Title_Details"];
+    var docId = (string?)ViewBag.DocId ?? "";
+}
+<div class="container-xxl py-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h3 class="mb-0">@S["DOC_Title_Details"]</h3>
+        <div class="text-muted small">
+            <strong>@S["DOC_Label_DocId"]</strong> :
+            <code>@docId</code>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- 좌측: 문서 상태/결재 타임라인 -->
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>@S["DOC_Label_Status"]</strong></div>
+                <div class="card-body">
+                    <span class="badge bg-secondary">@S["DOC_Badge_Draft"]</span>
+                    <span class="ms-2 text-muted">@S["DOC_Help_StatusPlaceholder"]</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header py-2"><strong>@S["DOC_Label_ApprovalTimeline"]</strong></div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0" id="approval-timeline">
+                        <li class="text-muted">@S["DOC_Help_TimelinePlaceholder"]</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 우측: 행동 버튼 -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header py-2"><strong>@S["DOC_Label_Actions"]</strong></div>
+                <div class="card-body d-grid gap-2">
+                    <a class="btn btn-primary" asp-controller="Doc" asp-action="New">
+                        @S["DOC_Btn_NewDocument"]
+                    </a>
+                    <button class="btn btn-outline-secondary" disabled>@S["DOC_Btn_Print"]</button>
+                    <button class="btn btn-outline-secondary" disabled>@S["DOC_Btn_Download"]</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
