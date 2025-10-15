@@ -891,4 +891,31 @@
   <data name="_CM_Delete" xml:space="preserve">
     <value>Delete</value>
   </data>
+  <data name="DOC_Title_New" xml:space="preserve">
+    <value>New Document</value>
+  </data>
+  <data name="DOC_Label_Template" xml:space="preserve">
+    <value>Template</value>
+  </data>
+  <data name="DOC_Label_Search" xml:space="preserve">
+    <value>Search</value>
+  </data>
+  <data name="DOC_Opt_SelectTemplate" xml:space="preserve">
+    <value>Select a template</value>
+  </data>
+  <data name="DOC_Help_TemplateSelect" xml:space="preserve">
+    <value>Select a document template.</value>
+  </data>
+  <data name="DOC_Placeholder_TemplateSearch" xml:space="preserve">
+    <value>Search by title/code</value>
+  </data>
+  <data name="DOC_Btn_Compose" xml:space="preserve">
+    <value>Compose</value>
+  </data>
+  <data name="DOC_Btn_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="DOC_Val_TemplateRequired" xml:space="preserve">
+    <value>Please select a template.</value>
+  </data>
 </root>

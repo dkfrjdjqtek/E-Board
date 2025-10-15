@@ -891,4 +891,31 @@
   <data name="_CM_Delete" xml:space="preserve">
     <value>Hapus</value>
   </data>
+  <data name="DOC_Title_New" xml:space="preserve">
+    <value>Tulis Dokumen Baru</value>
+  </data>
+  <data name="DOC_Label_Template" xml:space="preserve">
+    <value>Templat</value>
+  </data>
+  <data name="DOC_Label_Search" xml:space="preserve">
+    <value>Cari</value>
+  </data>
+  <data name="DOC_Opt_SelectTemplate" xml:space="preserve">
+    <value>Pilih templat</value>
+  </data>
+  <data name="DOC_Help_TemplateSelect" xml:space="preserve">
+    <value>Pilih templat dokumen.</value>
+  </data>
+  <data name="DOC_Placeholder_TemplateSearch" xml:space="preserve">
+    <value>Cari berdasarkan judul/kode</value>
+  </data>
+  <data name="DOC_Btn_Compose" xml:space="preserve">
+    <value>Tulis</value>
+  </data>
+  <data name="DOC_Btn_Cancel" xml:space="preserve">
+    <value>Batal</value>
+  </data>
+  <data name="DOC_Val_TemplateRequired" xml:space="preserve">
+    <value>Silakan pilih templat.</value>
+  </data>
 </root>

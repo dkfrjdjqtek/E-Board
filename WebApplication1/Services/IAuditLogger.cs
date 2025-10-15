@@ -1,6 +1,7 @@
 ﻿namespace WebApplication1.Services
 {
-    public class IAuditLogger
+    public interface IAuditLogger
     {
+        Task LogAsync(string docId, string actorId, string actionCode, string? detailJson);
     }
 }

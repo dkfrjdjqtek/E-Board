@@ -891,4 +891,31 @@
   <data name="_CM_Delete" xml:space="preserve">
     <value>삭제</value>
   </data>
+  <data name="DOC_Title_New" xml:space="preserve">
+    <value>새 문서 작성</value>
+  </data>
+  <data name="DOC_Label_Template" xml:space="preserve">
+    <value>템플릿</value>
+  </data>
+  <data name="DOC_Label_Search" xml:space="preserve">
+    <value>검색</value>
+  </data>
+  <data name="DOC_Opt_SelectTemplate" xml:space="preserve">
+    <value>템플릿을 선택하세요</value>
+  </data>
+  <data name="DOC_Help_TemplateSelect" xml:space="preserve">
+    <value>문서 템플릿을 선택합니다.</value>
+  </data>
+  <data name="DOC_Placeholder_TemplateSearch" xml:space="preserve">
+    <value>템플릿 제목/코드 검색</value>
+  </data>
+  <data name="DOC_Btn_Compose" xml:space="preserve">
+    <value>작성하기</value>
+  </data>
+  <data name="DOC_Btn_Cancel" xml:space="preserve">
+    <value>취소</value>
+  </data>
+  <data name="DOC_Val_TemplateRequired" xml:space="preserve">
+    <value>템플릿을 선택해 주세요.</value>
+  </data>
 </root>

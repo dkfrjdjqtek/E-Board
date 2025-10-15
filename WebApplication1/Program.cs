@@ -12,6 +12,7 @@ using System.Globalization;
 using Microsoft.Extensions.Options;
 using WebApplication1;
 using Microsoft.AspNetCore.WebUtilities; // QueryHelpers
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddTransient<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<WebAuthnService>();
+builder.Services.AddScoped<IAuditLogger, AuditLoggerSql>(); // ★ Build() 이전으로 이동
 
 // -----------------------------
 // 2) DbContext
@@ -40,10 +42,10 @@ builder.Services
         options.Password.RequiredLength = 4;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders() // UI는 직접 구현 -> AddDefaultUI() 불필요하나, 있어도 무방
+    .AddDefaultTokenProviders()
     .AddDefaultUI();
 
-// 익명 허용: 필요한 Identity 페이지만 (폴더 전체 허용 제거)
+// 익명 허용: 필요한 Identity 페이지만
 builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Login");
@@ -54,25 +56,23 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmail");
     options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/ConfirmEmailChange");
     options.Conventions.AllowAnonymousToPage("/Account/Login");
-    options.Conventions.AllowAnonymousToPage("/Account/AccessDenied"); // 커스텀 접근거부 페이지도 쓰면 함께
+    options.Conventions.AllowAnonymousToPage("/Account/AccessDenied");
     options.Conventions.AddPageRoute("/Identity/Admin/AdminUserProfile", "/AdminUserProfile");
 });
 
-// 쿠키 설정(단일 블록, 변수명 options 유지)
+// 쿠키 설정
 builder.Services.ConfigureApplicationCookie(options =>
 {
-    options.LoginPath = "/Account/Login";                // ← 단일 경로
+    options.LoginPath = "/Account/Login";
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.ReturnUrlParameter = "returnUrl";
 
-    // 만료/쿠키
     options.SlidingExpiration = true;
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Lax;
     options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
-    // 어디서든 로그인 리다이렉트 발생 시 /Account/Login 으로
     options.Events.OnRedirectToLogin = context =>
     {
         var returnUrl = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
@@ -88,12 +88,12 @@ builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
     o.TokenLifespan = TimeSpan.FromMinutes(30);
 });
 
-// 2025.09.26 Added: 신규 사용자 초대 플로우 안전성 강화를 위한 이메일 확인 요구 설정
+// 2025.09.26 Added: 초대 완료 전 로그인 방지
 builder.Services.Configure<IdentityOptions>(o =>
 {
-    // 기존 설정 존재 시 유지 필수 다른 옵션 변경 금지
-    o.SignIn.RequireConfirmedEmail = true; // 2025.09.26 Added: 초대 완료 전 로그인 방지
+    o.SignIn.RequireConfirmedEmail = true;
 });
+
 // 커스텀 클레임 팩토리(있을 때만)
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 
@@ -102,21 +102,33 @@ builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomU
 // -----------------------------
 builder.Services.AddAuthorization(options =>
 {
-    // 로그인 필수(기본 정책)
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
 
-    // 관리자 정책
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireAssertion(ctx =>
         {
             var v = ctx.User.FindFirst("is_admin")?.Value;
-            return v == "1" || v == "2"; // 1: 관리자, 2: 슈퍼관리자
+            return v == "1" || v == "2";
         }));
 });
 
-
+// -----------------------------
+// 5) 업로드(요청 본문) 한도 — 전부 50MB로 통일 (Build 이전!)
+// -----------------------------
+builder.Services.Configure<FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 50L * 1024 * 1024; // 50MB
+});
+builder.Services.Configure<IISServerOptions>(o =>
+{
+    o.MaxRequestBodySize = 50L * 1024 * 1024; // IIS(in-process) 시
+});
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxRequestBodySize = 50L * 1024 * 1024; // Kestrel 직접 호스팅 시
+});
 
 // -----------------------------
 // 6) FIDO2
@@ -133,7 +145,9 @@ builder.Services.AddSingleton(provider =>
     return new Fido2(cfg);
 });
 
-// Multi Language
+// -----------------------------
+// 7) 다국어
+// -----------------------------
 builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 
 builder.Services
@@ -163,18 +177,21 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
     };
 });
 
-// 2025.10.14 Added: Anti-Forgery 헤더명 지정 (클라이언트 fetch 헤더와 동일해야 함)
+// -----------------------------
+// 8) Anti-Forgery
+// -----------------------------
 builder.Services.AddAntiforgery(options =>
 {
-    options.HeaderName = "RequestVerificationToken"; // Compose.cshtml fetch 헤더와 일치
+    options.HeaderName = "RequestVerificationToken"; // 클라이언트와 동일
 });
 
+// ===== Build =====
 var app = builder.Build();
 
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
 // -----------------------------
-// 7) Pipeline
+// 9) Pipeline
 // -----------------------------
 if (app.Environment.IsDevelopment())
 {
@@ -190,16 +207,18 @@ else
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
-// 기존 /Identity/Account/Login 접근 차단 → /Account/Login 으로 영구 리다이렉트
+// /Identity/Account/Login 접근 -> /Account/Login 영구 리다이렉트
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.Equals("/Identity/Account/Login", StringComparison.OrdinalIgnoreCase))
     {
-        var to = QueryHelpers.AddQueryString("/Account/Login",
-                  "returnUrl",
-                  ctx.Request.Query["returnUrl"].FirstOrDefault()
-                  ?? (ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString));
-        ctx.Response.Redirect(to, permanent: true); // 301/308 리다이렉트
+        var to = QueryHelpers.AddQueryString(
+            "/Account/Login",
+            "returnUrl",
+            ctx.Request.Query["returnUrl"].FirstOrDefault()
+            ?? (ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString)
+        );
+        ctx.Response.Redirect(to, permanent: true);
         return;
     }
     await next();
@@ -211,7 +230,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // -----------------------------
-// 9) 라우팅
+// 10) 라우팅
 // -----------------------------
 app.MapControllerRoute(
     name: "areas",

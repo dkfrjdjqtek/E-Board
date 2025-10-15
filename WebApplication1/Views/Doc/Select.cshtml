@@ -1,159 +1,151 @@
-﻿@* 2025.10.14 Added: /Doc/Create 방어 리다이렉트 시 TempData 알림 표시 처리 추가 (VALIDATION SUMMARY) *@
-@using Microsoft.AspNetCore.Mvc.Rendering
+﻿@* 2025.10.15 Changed: DocTL과 동일하게 서버사이드에서 사업장 부서 카테고리 템플릿 옵션을 즉시 렌더링하도록 정리. 버튼 라벨을 문서작성 DOC_Btn_Compose 되돌아가기 DOC_Btn_Cancel 로 적용. 기존 엔드포인트와 변수 아이디는 변경 없음 *@
+@using System.Text.Json
+@model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
-    ViewData["Title"] = S["DOC_Title_New"]; // 문서 작성
-    var serverList = ViewBag.Templates as IEnumerable<SelectListItem> ?? Enumerable.Empty<SelectListItem>();
-    // 2025.10.14 Added: 서버에서 전달된 경고 키(예: DOC_Val_TemplateRequired) 읽기
-    var serverAlertKey = TempData["NewDocAlert"] as string;
+    ViewData["Title"] = S["DOC_Title_New"];
+
+    // 서버에서 내려온 옵션(없으면 빈 컬렉션)
+    var compOptions = Model?.CompOptions ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();            // 사업장
+    var deptOptions = Model?.DepartmentOptions ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();      // 부서
+    var templates = (IEnumerable<(string code, string title)>)(ViewBag.Templates ?? Array.Empty<(string, string)>());         // 템플릿
+    var kinds = (IEnumerable<(string value, string text)>)(ViewBag.Kinds ?? Array.Empty<(string, string)>());                 // 카테고리
+
+    // 알림 및 placeholder 키
+    var txtSelect = S["_CM_Select"].Value;
+    var txtOptSelectTemplate = S["DOC_Opt_SelectTemplate"].Value;
+
+    // 선택값 보강(JSON 직렬화용 – 필요한 경우만 사용)
+    var __depts = (IEnumerable<(string value, string text)>)(ViewBag.Departments ?? Array.Empty<(string, string)>());
+    var __kinds = (IEnumerable<(string value, string text)>)(ViewBag.Kinds ?? Array.Empty<(string, string)>());
 }
-<style>
-    .w-22rem {
-        width: 22rem
-    }
-</style>
 
-<div class="container-xxl py-3">
-    <h3 class="mb-3">@S["DOC_Title_New"]</h3>
-
-    <!-- EB-VALIDATE 요약 -->
-    <div id="newdoc-alert" class="mb-3" aria-live="polite"></div>
-
+<div class="container-xxl">
     <div class="card">
         <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-lg-6">
-                    <label for="tplSelect" class="form-label">@S["DOC_Label_Template"]</label>
-                    <select id="tplSelect" class="form-select">
-                        <option value="">@S["DOC_Opt_SelectTemplate"]</option>
-                        @foreach (var item in serverList)
-                        {
-                            <option value="@item.Value">@item.Text</option>
-                        }
-                    </select>
-                    <div class="form-text text-muted">@S["DOC_Help_TemplateSelect"]</div>
-                </div>
+            <div id="newdoc-alert" class="mb-2"></div>
 
-                <div class="col-lg-3">
-                    <label for="tplQuery" class="form-label">@S["DOC_Label_Search"]</label>
-                    <input id="tplQuery" type="text" class="form-control" placeholder="@S["DOC_Placeholder_TemplateSearch"]" />
-                </div>
+            <form id="frm-newdoc" method="get" action="/Doc/Create">
+                <div class="row g-3 align-items-end">
+                    <!-- 사업장 -->
+                    <div class="col-12 col-lg-2">
+                        <label for="compCd" class="form-label mb-1">@S["DOC_Label_Site"]</label>
+                        <select id="compCd" name="compCd" class="form-select form-select-sm">
+                            <option value="__SELECT__">@txtSelect</option>
+                            @foreach (var it in compOptions)
+                            {
+                                <option value="@it.Value" selected="@(it.Selected ? "selected" : null)">@it.Text</option>
+                            }
+                        </select>
+                    </div>
 
-                <div class="col-lg-3 text-end">
-                    <button id="btnCompose" class="btn btn-primary">@S["DOC_Btn_Compose"]</button>
-                    <button id="btnCancel" class="btn btn-outline-secondary">@S["DOC_Btn_Cancel"]</button>
-                </div>
-            </div>
+                    <!-- 부서 -->
+                    <div class="col-12 col-lg-2">
+                        <label for="departmentId" class="form-label mb-1">@S["DOC_Label_Department"]</label>
+                        <select id="departmentId" name="departmentId" class="form-select form-select-sm">
+                            @if (!deptOptions.Any())
+                            {
+                                <option value="__SELECT__">@txtSelect</option>
+                            }
+                            else
+                            {
+                                <option value="__SELECT__">@txtSelect</option>
+                                @foreach (var it in deptOptions)
+                                {
+                                    <option value="@it.Value" selected="@(it.Selected ? "selected" : null)">@it.Text</option>
+                                }
+                            }
+                        </select>
+                    </div>
 
-            <div class="mt-3" id="clientList" hidden>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>@S["DOC_Col_Template"]</th>
-                                <th>@S["DOC_Col_Description"]</th>
-                                <th style="width:1%;white-space:nowrap">@S["DOC_Col_Action"]</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tplRows"></tbody>
-                    </table>
+                    <!-- 카테고리 -->
+                    <div class="col-12 col-lg-2">
+                        <label for="kindCode" class="form-label mb-1">@S["DOC_Label_Category"]</label>
+                        <select id="kindCode" name="kindCode" class="form-select form-select-sm">
+                            @if (!kinds.Any())
+                            {
+                                <option value="__SELECT__">@txtSelect</option>
+                            }
+                            else
+                            {
+                                <option value="__SELECT__">@txtSelect</option>
+                                @foreach (var k in kinds)
+                                {
+                                    <option value="@k.value">@k.text</option>
+                                }
+                            }
+                        </select>
+                    </div>
+
+                    <!-- 템플릿 -->
+                    <div class="col-12 col-lg-3">
+                        <label for="templateCode" class="form-label mb-1">@S["DOC_Label_TemplateName"]</label>
+                        <select id="templateCode" name="templateCode" class="form-select form-select-sm">
+                            <option value="">@txtOptSelectTemplate</option>
+                            @foreach (var t in templates)
+                            {
+                                <option value="@t.code">@t.title</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- 버튼 -->
+                    <div class="col-12 col-lg-1 d-grid d-lg-flex justify-content-lg-start">
+                        <button id="btn-load" type="submit" class="btn btn-secondary btn-sm w-100">@S["DOC_Btn_Compose"]</button>
+                    </div>
+                    <div class="col-12 col-lg-2 d-grid d-lg-flex justify-content-lg-end">
+                        <button id="btn-new-template" type="button" class="btn btn-light btn-sm w-100" data-action="back">@S["DOC_Btn_Cancel"]</button>
+                    </div>
                 </div>
-            </div>
+            </form>
+
+            <div class="mt-2 text-muted small">@S["DOC_Help_TemplateSelect"]</div>
         </div>
     </div>
 </div>
 
 @section Scripts {
     <script>
-        const EBV = window.EBValidate || {};
-        const S = (k) => k;
+        // ===== 필요 시 사용할 유틸 =====
+        const compSel = document.getElementById('compCd');
+        const deptSel = document.getElementById('departmentId');
+        const kindSel = document.getElementById('kindCode');
+        const tplSel = document.getElementById('templateCode');
+        const btnLoad = document.getElementById('btn-load');
 
-        // 2025.10.14 Added: 서버 전달 알림(TempData) → VALIDATION SUMMARY 출력
-        (function showServerAlert() {
-            const SERVER_ALERT = '@(serverAlertKey ?? "")';
-            if (SERVER_ALERT) {
-                if (EBV.showAlert) EBV.showAlert('newdoc-alert', [S(SERVER_ALERT)], { variant: 'danger' });
-                else document.getElementById('newdoc-alert').innerHTML =
-                    '<div class="alert alert-danger">' + S(SERVER_ALERT) + '</div>';
+        function clearOptions(sel) { while (sel.options.length) sel.remove(0); }
+        function addOptionsKV(sel, items) { (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.value ?? '')))); }
+        function setPlaceholder(sel, text) { const o = new Option(text, '__SELECT__'); sel.add(o, 0); sel.value = '__SELECT__'; }
+
+        // 서버에서 JSON 직렬화된 보강 데이터(있을 때만 사용)
+        const SVR_DATA = {
+            depts: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(__depts.Select(x => new { value = x.value, text = x.text }))),
+            kinds: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(__kinds.Select(x => new { value = x.value, text = x.text })))
+                };
+
+        // 초기 시딩: 서버가 넘긴 부서/카테고리 튜플이 있을 경우만 보강(사업장은 서버 렌더 고정)
+        (function seedFromServerLists() {
+            const TXT_SELECT = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Select"].Value));
+            if (deptSel && Array.isArray(SVR_DATA.depts) && SVR_DATA.depts.length && deptSel.options.length <= 1) {
+                clearOptions(deptSel); setPlaceholder(deptSel, TXT_SELECT); addOptionsKV(deptSel, SVR_DATA.depts);
+            }
+            if (kindSel && Array.isArray(SVR_DATA.kinds) && SVR_DATA.kinds.length && kindSel.options.length <= 1) {
+                clearOptions(kindSel); setPlaceholder(kindSel, TXT_SELECT); addOptionsKV(kindSel, SVR_DATA.kinds);
             }
         })();
 
-        const hasServerList = document.querySelector('#tplSelect option[value]:not([value=""])') !== null;
-
-        if (!hasServerList) {
-            fetch('/DocumentTemplates/list?active=1')
-                .then(r => r.ok ? r.json() : [])
-                .then(list => {
-                    const sel = document.getElementById('tplSelect');
-                    const rows = document.getElementById('tplRows');
-                    const has = Array.isArray(list) && list.length > 0;
-
-                    if (has) {
-                        list.forEach(t => {
-                            const opt = document.createElement('option');
-                            opt.value = t.code;
-                            opt.textContent = t.title;
-                            sel.append(opt);
-                        });
-
-                        document.getElementById('clientList').hidden = false;
-                        rows.innerHTML = '';
-                        list.forEach(t => {
-                            const tr = document.createElement('tr');
-                            tr.innerHTML =
-                                `<td><strong>${escapeHtml(t.title || '')}</strong><div class="small text-muted">${escapeHtml(t.code || '')}</div></td>
-                                     <td>${escapeHtml(t.description || '')}</td>
-                                     <td class="text-end">
-                                       <button type="button" class="btn btn-sm btn-outline-primary" data-code="${escapeAttr(t.code || '')}">
-                                         ${S('DOC_Btn_Compose')}
-                                       </button>
-                                     </td>`;
-                            rows.append(tr);
-                        });
-
-                        rows.addEventListener('click', (e) => {
-                            const btn = e.target.closest('button[data-code]');
-                            if (!btn) return;
-                            goCompose(btn.getAttribute('data-code'));
-                        });
-                    }
-                })
-                .catch(() => { /* ignore */ });
+        // 버튼 활성화 판단(필요 시 사용)
+        function updateBtnState() {
+            const ok = (tplSel && tplSel.value) || (kindSel && kindSel.value && kindSel.value !== '__SELECT__');
+            btnLoad?.classList.toggle('disabled', !ok);
+            btnLoad?.setAttribute('aria-disabled', String(!ok));
         }
+        updateBtnState();
 
-        document.getElementById('tplQuery')?.addEventListener('input', function () {
-            const q = (this.value || '').toLowerCase();
-            const sel = document.getElementById('tplSelect');
-            Array.from(sel.options).forEach((opt, i) => {
-                if (i === 0) return;
-                opt.hidden = q && !opt.text.toLowerCase().includes(q);
-            });
-            document.querySelectorAll('#tplRows tr').forEach(tr => {
-                const text = tr.textContent.toLowerCase();
-                tr.hidden = q && !text.includes(q);
-            });
-        });
-
-        document.getElementById('btnCompose')?.addEventListener('click', function (e) {
-            e.preventDefault();
-            const code = document.getElementById('tplSelect').value;
-            if (!code) { showErrors([S('DOC_Val_TemplateRequired')]); return; }
-            goCompose(code);
-        });
-
-        document.getElementById('btnCancel')?.addEventListener('click', function (e) {
-            e.preventDefault();
-            history.length > 1 ? history.back() : location.href = '/';
-        });
-
-        function goCompose(code) {
-            location.href = '/Doc/Create?templateCode=' + encodeURIComponent(code);
-        }
-        function showErrors(msgs) {
-            if (EBV.showAlert) EBV.showAlert('newdoc-alert', msgs, { variant: 'danger' });
-            else document.getElementById('newdoc-alert').innerHTML = '<div class="alert alert-danger">' + msgs.join('<br>') + '</div>';
-        }
-        function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
-        function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
+        // 선택 변경 시 버튼 상태만 보정(데이터 로딩은 서버사이드 렌더링 전제)
+        compSel?.addEventListener('change', updateBtnState);
+        deptSel?.addEventListener('change', updateBtnState);
+        kindSel?.addEventListener('change', updateBtnState);
+        tplSel?.addEventListener('change', updateBtnState);
     </script>
 }

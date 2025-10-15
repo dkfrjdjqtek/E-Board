@@ -891,4 +891,31 @@
   <data name="_CM_Delete" xml:space="preserve">
     <value>Xóa</value>
   </data>
+  <data name="DOC_Title_New" xml:space="preserve">
+    <value>Tạo tài liệu mới</value>
+  </data>
+  <data name="DOC_Label_Template" xml:space="preserve">
+    <value>Mẫu</value>
+  </data>
+  <data name="DOC_Label_Search" xml:space="preserve">
+    <value>Tìm kiếm</value>
+  </data>
+  <data name="DOC_Opt_SelectTemplate" xml:space="preserve">
+    <value>Chọn một mẫu</value>
+  </data>
+  <data name="DOC_Help_TemplateSelect" xml:space="preserve">
+    <value>Chọn mẫu tài liệu.</value>
+  </data>
+  <data name="DOC_Placeholder_TemplateSearch" xml:space="preserve">
+    <value>Tìm theo tiêu đề/mã</value>
+  </data>
+  <data name="DOC_Btn_Compose" xml:space="preserve">
+    <value>Soạn thảo</value>
+  </data>
+  <data name="DOC_Btn_Cancel" xml:space="preserve">
+    <value>Hủy</value>
+  </data>
+  <data name="DOC_Val_TemplateRequired" xml:space="preserve">
+    <value>Vui lòng chọn mẫu.</value>
+  </data>
 </root>

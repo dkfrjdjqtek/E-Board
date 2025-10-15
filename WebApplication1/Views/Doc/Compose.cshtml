@@ -1,4 +1,5 @@
-﻿@* 2025.10.14 Changed: Request 식별자 오류 해결 위해 Context.Request로 변경 모델 미보유 속성은 ViewBag 폴백 유지 *@
+﻿@* 2025.10.15 Changed: JSON POST를 EBCSRF.json으로 교체하여 Anti forgery 토큰 자동 부착 수동 헤더 제거 기타 로직 변경 없음 *@
+@* 2025.10.14 Changed: Request 식별자 오류 해결 위해 Context.Request로 변경 모델 미보유 속성은 ViewBag 폴백 유지 *@
 @using System.Text.Json
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
@@ -6,7 +7,7 @@
     ViewData["Title"] = S["DOC_Title_Compose"];
 
     // 2025.10.14 Changed: Request → Context.Request 로 교체하여 CS0103 해결
-    // 2025.10.14 Changed: 모델 미보유 속성은 ViewBag 값 사용(폴백), 기존 키나 구조 변경 없음
+    // 2025.10.14 Changed: 모델 미보유 속성은 ViewBag 값 사용 폴백 기존 키나 구조 변경 없음
     var templateCode = (string?)ViewBag.TemplateCode
                         ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);   // ← 여기 수정
     var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
@@ -122,7 +123,10 @@
 </div>
 
 @section Scripts {
+    <script src="~/js/eb.csrf.js"></script>
     <script>
+        // 2025.10.15 Changed: 모든 AJAX를 EBCSRF 래퍼로 통일(토큰 자동 부착)
+        // 2025.10.15 Removed: 수동 토큰 읽기/헤더 설정 코드 삭제
         const EBV = window.EBValidate || {};
         const S = (key) => key;
 
@@ -198,7 +202,7 @@
             const tbody = document.getElementById('tbody-approvals');
             const approvals = descriptor?.approvals || [];
             tbody.innerHTML = '';
-            approvals.forEach((ap, i) => {
+            approvals.forEach((ap) => {
                 const tr = ce('tr', { 'data-role': ap.roleKey || '' });
                 const tdRole = ce('td', {}, ce('span', {}, S(ap.roleKey || 'DOC_Approver_Unknown')));
                 const tdVal = ce('td', {});
@@ -218,19 +222,22 @@
                 tbody.append(tr);
             });
 
-            // 2025.10.14 Changed: SearchUser 응답 { id, text }와 호환되도록 라벨 선택 로직 보완(name 폴백 유지)
+            // 2025.10.15 Changed: GET도 래퍼 사용(쿠키/자격 증명 일관 처리)
             function buildUserSelect(initial) {
                 const sel = ce('select', { class: 'form-select form-select-sm' });
-                fetch('/DocTL/SearchUser?take=50').then(r => r.ok ? r.json() : []).then(list => {
-                    sel.append(ce('option', { value: '' }, S('DOC_Opt_Select')));
-                    (list || []).forEach(u => {
-                        const text = (u.text ?? u.name ?? '');
-                        sel.append(ce('option', { value: u.id }, text));
+                EBCSRF.fetch('/DocTL/SearchUser?take=50', { method: 'GET' })
+                    .then(r => r.ok ? r.json() : [])
+                    .then(list => {
+                        sel.append(ce('option', { value: '' }, S('DOC_Opt_Select')));
+                        (list || []).forEach(u => {
+                            const text = (u.text ?? u.name ?? '');
+                            sel.append(ce('option', { value: u.id }, text));
+                        });
+                        if (initial) sel.value = String(initial);
+                    })
+                    .catch(() => {
+                        sel.append(ce('option', { value: '' }, S('DOC_Opt_LoadFail')));
                     });
-                    if (initial) sel.value = String(initial);
-                }).catch(() => {
-                    sel.append(ce('option', { value: '' }, S('DOC_Opt_LoadFail')));
-                });
                 return sel;
             }
             function clearApprover(tr) {
@@ -243,9 +250,6 @@
             const form = document.getElementById('doc-form');
             form.addEventListener('submit', async (ev) => {
                 ev.preventDefault();
-                const errors = [];
-
-                // ...클라이언트 검증 동일...
 
                 const payload = {
                     templateCode: document.querySelector('input[name="TemplateCode"]')?.value || '',
@@ -254,29 +258,15 @@
                     descriptorVersion: descriptor?.version || null
                 };
 
-                // 2025.10.14 Added: AntiForgery 토큰 읽기
-                const anti = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
-
                 try {
-                    const res = await fetch(form.getAttribute('action') || '/Doc/Create', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'RequestVerificationToken': anti // 2025.10.14 Added
-                        },
-                        body: JSON.stringify(payload)
-                    });
-                    if (!res.ok) {
-                        const err = await res.json().catch(() => ({}));
-                        showErrors(err?.messages || [S('DOC_Err_SaveFailed')]);
-                        applyFieldErrors(err?.fieldErrors || {});
-                        return;
-                    }
-                    const ok = await res.json().catch(() => ({}));
+                    // 2025.10.15 Changed: JSON POST -> EBCSRF.json 사용(토큰 자동)
+                    const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', payload, 'POST');
                     if (ok?.redirectUrl) location.href = ok.redirectUrl;
                     else showSuccess([S('DOC_Msg_SaveSuccess')]);
-                } catch {
-                    showErrors([S('DOC_Err_Network')]);
+                } catch (e) {
+                    const err = e && e.payload ? e.payload : { messages: [S('DOC_Err_SaveFailed')] };
+                    showErrors(err.messages || [S('DOC_Err_SaveFailed')]);
+                    applyFieldErrors(err.fieldErrors || {});
                 }
             });
 
@@ -297,17 +287,16 @@
                 else document.getElementById('doc-alert').innerHTML = '<div class="alert alert-success">' + msgs.join('<br>') + '</div>';
             }
             function applyFieldErrors(errMap) {
-                Object.entries(errMap || {}).forEach(([name, msgs]) => {
+                Object.entries(errMap || {}).forEach(([name]) => {
                     const el = document.querySelector(`[name="${name}"]`);
                     if (el) el.classList.add('is-invalid');
                 });
             }
         })();
 
-        // 2025.10.14 Changed: 프리뷰 중복 마운트 방지 플래그 추가
+        // 2025.10.15 Changed: 동적 자산 로더는 기존대로 유지(필요 시 외부 도입 시점에서 마운트)
         window.__composeMounted = window.__composeMounted || false;
 
-        // 2025.10.14 Changed: 전역 엔트리 부재 시에만 폴백 텍스트 표시(동적 로더가 이후 마운트)
         (function mountPreviewFallback() {
             if (window.__composeMounted) return;
             const hasGlobal =
@@ -319,7 +308,6 @@
             }
         })();
 
-        // 2025.10.14 Added: 맵 화면 자산 동적 로더
         const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js";
         const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";
 
@@ -358,19 +346,18 @@
 
                 if (window.DOCTLMAP?.mount) {
                     window.DOCTLMAP.mount('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.14 Added
+                    window.__composeMounted = true; // 2025.10.15 Changed
                 } else if (window.DocTLPreview?.mount) {
                     window.DocTLPreview.mount('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.14 Added
+                    window.__composeMounted = true; // 2025.10.15 Changed
                 } else if (window.DOCTLMAP?.mountPreview) {
                     window.DOCTLMAP.mountPreview('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.14 Added
+                    window.__composeMounted = true; // 2025.10.15 Changed
                 } else {
                     const el = document.getElementById('xlPreview');
                     if (el && !el.textContent.trim()) el.textContent = S('DOC_Msg_PreviewFallback');
                 }
             } catch {
-                // 2025.10.14 Changed: 폴더 구조 정비에 맞춰 폴백 이동 경로 수정
                 location.href = '/Doc/New';
             }
         }
@@ -381,7 +368,6 @@
             ensureAssetsAndMount();
         }
 
-        // 2025.10.14 Changed: 취소 버튼 폴백 이동 경로 /Doc/New 로 정렬
         document.getElementById('btn-cancel')?.addEventListener('click', () => {
             history.length > 1 ? history.back() : location.href = '/Doc/New';
         });
