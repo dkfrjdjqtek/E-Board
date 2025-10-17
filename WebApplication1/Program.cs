@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using WebApplication1.Data;
 using WebApplication1.Models;
-using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory 등
+using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory, DocTemplateService
 using Fido2NetLib;
 using Microsoft.AspNetCore.Localization;
 using System.Globalization;
@@ -22,7 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddTransient<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<WebAuthnService>();
-builder.Services.AddScoped<IAuditLogger, AuditLoggerSql>(); // ★ Build() 이전으로 이동
+builder.Services.AddScoped<IAuditLogger, AuditLoggerSql>(); // Build() 이전
 
 // -----------------------------
 // 2) DbContext
@@ -123,11 +123,11 @@ builder.Services.Configure<FormOptions>(o =>
 });
 builder.Services.Configure<IISServerOptions>(o =>
 {
-    o.MaxRequestBodySize = 50L * 1024 * 1024; // IIS(in-process) 시
+    o.MaxRequestBodySize = 50L * 1024 * 1024; // IIS(in-process)
 });
 builder.WebHost.ConfigureKestrel(o =>
 {
-    o.Limits.MaxRequestBodySize = 50L * 1024 * 1024; // Kestrel 직접 호스팅 시
+    o.Limits.MaxRequestBodySize = 50L * 1024 * 1024; // Kestrel
 });
 
 // -----------------------------
@@ -185,13 +185,18 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "RequestVerificationToken"; // 클라이언트와 동일
 });
 
+// -----------------------------
+// 9) DocTemplateService (★ Build 이전에 등록)
+// -----------------------------
+builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
+
 // ===== Build =====
 var app = builder.Build();
 
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
 // -----------------------------
-// 9) Pipeline
+// 10) Pipeline
 // -----------------------------
 if (app.Environment.IsDevelopment())
 {
@@ -230,7 +235,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // -----------------------------
-// 10) 라우팅
+// 11) 라우팅
 // -----------------------------
 app.MapControllerRoute(
     name: "areas",

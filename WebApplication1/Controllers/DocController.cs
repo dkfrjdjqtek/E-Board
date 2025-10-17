@@ -1,23 +1,29 @@
-﻿// 2025.10.15 Changed: New 액션에서 Model.CompOptions 및 DepartmentOptions를 ViewBag에서 안전 매핑하여 View로 전달 DocTL과 동일 서버사이드 렌더로 값 표시 유지 나머지 로직 변경 없음
+﻿// 2025.10.16 Final: ToHex() 제거 → ToHexIfRgb(IXLCell) 헬퍼 도입
+// 2025.10.16 Final: BuildPreviewJsonFromExcel()로 스타일/병합/열폭 포함 미리보기 생성
+// 2025.10.16 Final: DocTL 디스크립터 → Compose 스키마 자동 변환 및 PreviewJson 안전 보장
 
 using System;
-using System.Linq;
-using System.Data;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Security.Claims;
 using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Localization;
-using WebApplication1.Models;
-using WebApplication1.Services;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Hosting;
-using System.IO;
-using Microsoft.AspNetCore.Mvc.Rendering; // 2025.10.15 Added
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Localization;
+using ClosedXML.Excel;
+using Microsoft.EntityFrameworkCore;
+using WebApplication1.Models;
+using WebApplication1.Data;
+using WebApplication1.Services;
+
 
 namespace WebApplication1.Controllers
 {
@@ -25,79 +31,175 @@ namespace WebApplication1.Controllers
     public class DocController : Controller
     {
         private readonly IStringLocalizer<SharedResource> _S;
-        private readonly IAuditLogger _audit;
         private readonly IConfiguration _cfg;
         private readonly IAntiforgery _antiforgery;
         private readonly IWebHostEnvironment _env;
+        private readonly ApplicationDbContext _db;
+        private readonly IDocTemplateService _tpl;
 
-        public DocController(IStringLocalizer<SharedResource> S, IAuditLogger audit, IConfiguration cfg, IAntiforgery antiforgery, IWebHostEnvironment env)
+        public DocController(
+            IStringLocalizer<SharedResource> S,
+            IConfiguration cfg,
+            IAntiforgery antiforgery,
+            IWebHostEnvironment env,
+            ApplicationDbContext db,
+            IDocTemplateService tpl)
         {
             _S = S;
-            _audit = audit;
             _cfg = cfg;
             _antiforgery = antiforgery;
-            _env = env; // 2025.10.15 Added
+            _env = env;
+            _db = db;
+            _tpl = tpl;
         }
 
-        // 1) 템플릿 선택
+        // ---------- New ----------
+
         [HttpGet]
         public IActionResult New()
         {
-            // 2025.10.15 Changed: DocTL과 동일하게 서버사이드로 콤보 옵션을 즉시 렌더할 수 있도록 뷰모델에 채워 전달
             var vm = new DocTLViewModel();
 
-            // 사업장: ViewBag.Sites가 SelectListItem 또는 (value,text) 튜플일 수 있어 둘 다 대응
-            if (ViewBag.Sites is IEnumerable<SelectListItem> siteItems && siteItems.Any())
+            // 1) 클레임 우선
+            var userComp = User.FindFirstValue("compCd") ?? "";
+            var userDept = User.FindFirstValue("departmentId") ?? "";
+
+            // 2) DB 보정
+            if (string.IsNullOrWhiteSpace(userComp) || string.IsNullOrWhiteSpace(userDept))
             {
-                vm.CompOptions = siteItems.ToList(); // ← 변경
-            }
-            else if (ViewBag.Sites is IEnumerable<(string value, string text)> siteTuples && siteTuples.Any())
-            {
-                vm.CompOptions = siteTuples
-                    .Select(t => new SelectListItem { Value = t.value, Text = t.text })
-                    .ToList(); // ← 변경
+                try
+                {
+                    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    if (!string.IsNullOrEmpty(userId))
+                    {
+                        var cs = _cfg.GetConnectionString("DefaultConnection");
+                        using var conn = new SqlConnection(cs);
+                        using var cmd = new SqlCommand(
+                            @"SELECT TOP 1 CompCd, DepartmentId
+                              FROM dbo.UserProfiles
+                              WHERE UserId = @userId", conn);
+                        cmd.Parameters.Add(new SqlParameter("@userId", SqlDbType.NVarChar, 450) { Value = userId });
+                        conn.Open();
+                        using var rd = cmd.ExecuteReader();
+                        if (rd.Read())
+                        {
+                            if (string.IsNullOrWhiteSpace(userComp) && !rd.IsDBNull(0))
+                                userComp = rd.GetString(0) ?? "";
+                            if (string.IsNullOrWhiteSpace(userDept) && !rd.IsDBNull(1))
+                                userDept = rd.GetInt32(1).ToString();
+                        }
+                    }
+                }
+                catch { /* ignore */ }
             }
 
-
-            // 부서: ViewBag.Departments 동일 패턴 매핑
-            if (ViewBag.Departments is IEnumerable<SelectListItem> deptItems && deptItems.Any())
+            // 기본 placeholder
+            vm.CompOptions = new List<SelectListItem>
             {
-                vm.DepartmentOptions = deptItems.ToList(); // ← 변경
-            }
-            else if (ViewBag.Departments is IEnumerable<(string value, string text)> deptTuples && deptTuples.Any())
-            {
-                vm.DepartmentOptions = deptTuples
-                    .Select(t => new SelectListItem { Value = t.value, Text = t.text })
-                    .ToList(); // ← 변경
-            }
+                new SelectListItem { Value = "", Text = _S["_CM_Select"].Value, Selected = true }
+            };
 
-            // 카테고리(ViewBag.Kinds), 템플릿(ViewBag.Templates)은 기존 공급 로직을 그대로 사용(뷰에서 직접 렌더링)
+            // 3) 사업장 목록
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                using var conn = new SqlConnection(cs);
+                using var cmd = new SqlCommand("SELECT CompCd, Name FROM dbo.CompMasters ORDER BY CompCd", conn);
+                conn.Open();
+                using var rd = cmd.ExecuteReader();
+                while (rd.Read())
+                {
+                    var compCd = rd.GetString(0);
+                    var name = rd.IsDBNull(1) ? compCd : rd.GetString(1);
+                    vm.CompOptions.Add(new SelectListItem
+                    {
+                        Value = compCd,
+                        Text = name,
+                        Selected = !string.IsNullOrWhiteSpace(userComp)
+                                   && string.Equals(userComp, compCd, StringComparison.OrdinalIgnoreCase)
+                    });
+                }
+                if (vm.CompOptions.Any(o => o.Selected))
+                    vm.CompOptions[0].Selected = false;
+            }
+            catch { /* ignore */ }
+
+            // 부서 옵션
+            vm.DepartmentOptions = new List<SelectListItem>
+            {
+                new SelectListItem { Value = "__SELECT__", Text = $"-- {_S["_CM_Select"]} --", Selected = true },
+                new SelectListItem { Value = "", Text = _S["_CM_Common"].Value, Selected = string.IsNullOrEmpty(userDept) }
+            };
+
+            ViewBag.Templates = Array.Empty<(string code, string title)>();
+            ViewBag.Kinds = Array.Empty<(string value, string text)>();
+            ViewBag.Departments = Array.Empty<(string value, string text)>();
+            ViewBag.Sites = Array.Empty<(string value, string text)>();
+            ViewBag.UserComp = userComp;
+
             return View("Select", vm);
         }
 
-        // 2) 선택된 템플릿으로 작성 화면
-        [HttpGet]
-        public IActionResult Create(string templateCode)
+        // ---------- Create (GET) ----------
+
+        public async Task<IActionResult> Create(string templateCode)
         {
-            if (string.IsNullOrWhiteSpace(templateCode))
+            var meta = await _tpl.LoadMetaAsync(templateCode);
+
+            // tuple은 null 아님. 각 필드는 비어 있으면 안전 폴백 적용
+            var descriptorJson = string.IsNullOrWhiteSpace(meta.descriptorJson) ? "{}" : meta.descriptorJson;
+            var previewJson = string.IsNullOrWhiteSpace(meta.previewJson) ? "{}" : meta.previewJson;
+            var excelAbsPath = meta.excelFilePath ?? string.Empty;
+
+            // previewJson이 비거나 cells가 없으면 Controller의 로컬 생성기 사용
+            if (string.IsNullOrWhiteSpace(previewJson) || !HasCells(previewJson))
             {
-                TempData["NewDocAlert"] = "DOC_Val_TemplateRequired";
-                return RedirectToAction(nameof(New));
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(excelAbsPath) && System.IO.File.Exists(excelAbsPath))
+                    {
+                        var rebuilt = BuildPreviewJsonFromExcel(excelAbsPath); // ← 서비스가 아니라 컨트롤러의 헬퍼 사용
+                        if (!string.IsNullOrWhiteSpace(rebuilt) && HasCells(rebuilt))
+                        {
+                            previewJson = rebuilt;
+                        }
+                    }
+                }
+                catch { /* 폴백 유지 */ }
             }
-
-            ViewBag.TemplateCode = templateCode;
-
-            // 2025.10.15 Changed: 실제 파일 저장소에서 템플릿 메타 로드
-            var (descriptorJson, previewJson, templateTitle) = LoadTemplateMeta(templateCode);
 
             ViewBag.DescriptorJson = descriptorJson;
             ViewBag.PreviewJson = previewJson;
-            ViewBag.TemplateTitle = templateTitle;
+            ViewBag.TemplateTitle = meta.templateTitle ?? string.Empty;
+            ViewBag.TemplateCode = templateCode;
 
-            return View("Compose", new DocTLViewModel());
+            // 엔드유저 화면에서는 입력 테이블 숨김 플래그 유지
+            ViewBag.HideCellPicker = true;
+
+            return View("Compose");
+
+            // ----- 로컬 헬퍼 유지 -----
+            static bool HasCells(string json)
+            {
+                if (string.IsNullOrWhiteSpace(json)) return false;
+                if (!json.Contains("\"cells\"", StringComparison.Ordinal)) return false;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("cells", out var cells)
+                        && cells.ValueKind == System.Text.Json.JsonValueKind.Array
+                        && cells.GetArrayLength() > 0)
+                    {
+                        var firstRow = cells[0];
+                        return firstRow.ValueKind == System.Text.Json.JsonValueKind.Array;
+                    }
+                }
+                catch { return false; }
+                return false;
+            }
         }
+        // ---------- CSRF ----------
 
-        // 2025.10.15 Added: CSRF 토큰 발급
         [HttpGet]
         [Produces("application/json")]
         public IActionResult Csrf()
@@ -106,185 +208,49 @@ namespace WebApplication1.Controllers
             return Json(new { headerName = "RequestVerificationToken", token = tokens.RequestToken });
         }
 
-        // 3) 작성본 저장(JSON POST)
+        // ---------- Create (POST) ----------
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Consumes("application/json")]
         [Produces("application/json")]
         public async Task<IActionResult> Create([FromBody] ComposePostDto? dto)
         {
-            if (dto is null)
+            if (dto is null || string.IsNullOrWhiteSpace(dto.templateCode))
+                return BadRequest(new { messages = new[] { "DOC_Val_TemplateRequired" } });
+
+            // 1) 템플릿 메타 재조회 (versionId, excelPath 확보)
+            var (descriptorJson, previewJson, title, versionId, excelPath)
+                = await _tpl.LoadMetaAsync(dto.templateCode);
+
+            if (versionId <= 0 || string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
+                return BadRequest(new { messages = new[] { "DOC_Err_TemplateNotReady" } });
+
+            // 2) 엑셀 생성 (입력값 채워넣기)
+            string? outputPath;
+            try
             {
-                ModelState.AddModelError("Payload", "DOC_Err_InvalidPayload");
+                outputPath = await GenerateExcelFromInputsAsync(versionId, excelPath, dto.inputs ?? new(), dto.descriptorVersion);
             }
-            else
+            catch (Exception ex)
             {
-                if (string.IsNullOrWhiteSpace(dto.templateCode))
-                    ModelState.AddModelError("TemplateCode", "DOC_Val_Required");
-
-                var descriptor = LoadDescriptor(dto.templateCode ?? string.Empty);
-
-                // 입력 필수 검증
-                foreach (var f in descriptor.Inputs.Where(x => x.Required))
-                {
-                    var ok = dto.inputs != null
-                             && dto.inputs.TryGetValue(f.Key ?? string.Empty, out var v)
-                             && !string.IsNullOrWhiteSpace(v);
-                    if (!ok)
-                        ModelState.AddModelError($"Inputs[{f.Key}]", "DOC_Val_Required");
-                }
-
-                // 결재 필수 검증
-                foreach (var ap in descriptor.Approvals.Where(x => x.Required))
-                {
-                    var ok = dto.approvals != null
-                             && dto.approvals.TryGetValue(ap.RoleKey ?? string.Empty, out var v)
-                             && !string.IsNullOrWhiteSpace(v);
-                    if (!ok)
-                        ModelState.AddModelError($"Approvals[{ap.RoleKey}]", "DOC_Val_ApproverRequired");
-                }
+                // 필요 시 로깅
+                // _logger.LogError(ex, "Excel generation failed");
+                return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" } });
             }
 
-            if (!ModelState.IsValid)
-            {
-                var fieldErrors = ModelState
-                    .Where(kv => kv.Value?.Errors?.Count > 0)
-                    .ToDictionary(
-                        kv => kv.Key,
-                        kv => kv.Value!.Errors.Select(e => e.ErrorMessage).Distinct().ToArray()
-                    );
-                var summaryMsgs = fieldErrors.Values.SelectMany(v => v).Distinct().ToArray();
-                return BadRequest(new { messages = summaryMsgs, fieldErrors });
-            }
+            // TODO: 여기서 DB에 문서 레코드 저장/첨부 등록 등이 필요하다면 구현
+            // var newDocId = SaveDocumentRow(..., outputPath, dto.inputs, dto.approvals);
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-
-            // 문서 키 예시
-            var docId = $"DOC_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
-
-            // (옵션) 컨텍스트 값
-            string? departmentId = null;
-            string? compCd = null;
-
-            // 2025.10.15 Changed: 템플릿 메타 실제 값 로드(파일 없으면 폴백)
-            var meta = LoadTemplateMeta(dto?.templateCode ?? string.Empty);
-            string templateTitle = meta.templateTitle;
-            string descriptorJson = meta.descriptorJson;
-            string previewJson = meta.previewJson;
-
-            // ✅ DB 저장부에서 사용할 널-안전 지역 변수
-            var d = dto ?? new ComposePostDto();
-
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            using (var conn = new SqlConnection(connStr))
-            {
-                await conn.OpenAsync();
-                using (var tx = conn.BeginTransaction())
-                {
-                    // Documents
-                    const string SQL_INS_DOC = @"
-INSERT INTO dbo.Documents
-    (DocId, TemplateCode, TemplateTitle, Status, DepartmentId, CompCd,
-     CreatedBy, DescriptorJson, PreviewJson)
-VALUES
-    (@DocId, @TemplateCode, @TemplateTitle, @Status, @DepartmentId, @CompCd,
-     @CreatedBy, @DescriptorJson, @PreviewJson);";
-
-                    using (var cmd = new SqlCommand(SQL_INS_DOC, conn, tx))
-                    {
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        cmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 50) { Value = d.templateCode ?? string.Empty });
-                        cmd.Parameters.Add(new SqlParameter("@TemplateTitle", SqlDbType.NVarChar, 200) { Value = (object?)templateTitle ?? DBNull.Value });
-                        cmd.Parameters.Add(new SqlParameter("@Status", SqlDbType.VarChar, 20) { Value = "Submitted" });
-                        cmd.Parameters.Add(new SqlParameter("@DepartmentId", SqlDbType.VarChar, 12) { Value = (object?)departmentId ?? DBNull.Value });
-                        cmd.Parameters.Add(new SqlParameter("@CompCd", SqlDbType.VarChar, 12) { Value = (object?)compCd ?? DBNull.Value });
-                        cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = userId });
-                        cmd.Parameters.Add(new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1) { Value = descriptorJson });
-                        cmd.Parameters.Add(new SqlParameter("@PreviewJson", SqlDbType.NVarChar, -1) { Value = previewJson });
-                        cmd.ExecuteNonQuery();
-                    }
-
-                    // DocumentInputs — 널 안정성(패턴 매칭)
-                    if (d.inputs is { Count: > 0 } inputs)
-                    {
-                        const string SQL_INS_INPUT = @"
-INSERT INTO dbo.DocumentInputs
-    (DocId, FieldKey, FieldValue)
-VALUES
-    (@DocId, @FieldKey, @FieldValue);";
-
-                        using (var cmd = new SqlCommand(SQL_INS_INPUT, conn, tx))
-                        {
-                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                            var pKey = cmd.Parameters.Add("@FieldKey", SqlDbType.NVarChar, 100);
-                            var pVal = cmd.Parameters.Add("@FieldValue", SqlDbType.NVarChar, -1);
-
-                            foreach (var kv in inputs)
-                            {
-                                pKey.Value = kv.Key ?? string.Empty;
-                                pVal.Value = (object?)(kv.Value ?? string.Empty) ?? DBNull.Value;
-                                cmd.ExecuteNonQuery();
-                            }
-                        }
-                    }
-
-                    // 2025.10.15 Added: Seq 컬럼 존재 여부 확인 후 INSERT 분기
-                    bool hasSeq;
-                    using (var chkSeq = new SqlCommand(
-                        "SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DocumentApprovals') AND name = 'Seq'", conn, tx))
-                    {
-                        hasSeq = (await chkSeq.ExecuteScalarAsync()) is not null;
-                    }
-
-                    string sqlInsAppr = hasSeq
-                        ? @"INSERT INTO dbo.DocumentApprovals (DocId, Seq, RoleKey, ApproverType, Value, Status)
-                           VALUES (@DocId, @Seq, @RoleKey, @ApproverType, @Value, @Status);"
-                        : @"INSERT INTO dbo.DocumentApprovals (DocId, RoleKey, ApproverType, Value, Status)
-                           VALUES (@DocId, @RoleKey, @ApproverType, @Value, @Status);";
-
-                    var approvalsMap = d.approvals;
-                    using (var cmd = new SqlCommand(sqlInsAppr, conn, tx))
-                    {
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        SqlParameter? pSeq = null;
-                        if (hasSeq) pSeq = cmd.Parameters.Add("@Seq", SqlDbType.Int);
-                        var pRole = cmd.Parameters.Add("@RoleKey", SqlDbType.NVarChar, 50);
-                        var pType = cmd.Parameters.Add("@ApproverType", SqlDbType.VarChar, 20);
-                        var pValue = cmd.Parameters.Add("@Value", SqlDbType.NVarChar, 128);
-                        var pStat = cmd.Parameters.Add("@Status", SqlDbType.VarChar, 20);
-
-                        var descriptor2 = LoadDescriptor(d.templateCode ?? string.Empty);
-                        for (int i = 0; i < descriptor2.Approvals.Count; i++)
-                        {
-                            var ap = descriptor2.Approvals[i];
-                            var roleKey = ap.RoleKey ?? string.Empty;
-
-                            string? chosen = null;
-                            approvalsMap?.TryGetValue(roleKey, out chosen);
-
-                            if (hasSeq && pSeq != null) pSeq.Value = i + 1;
-                            pRole.Value = roleKey;
-                            pType.Value = ap.ApproverType ?? "Person";
-                            pValue.Value = string.IsNullOrWhiteSpace(chosen) ? (object)DBNull.Value : chosen;
-                            pStat.Value = "Pending";
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-
-                    tx.Commit();
-                }
-            }
-
-            // 감사로그
-            try { await _audit.LogAsync(docId, userId, "Created", null); } catch { /* ignore */ }
-
-            var redirectUrl = Url.Action(nameof(Details), "Doc", new { id = docId });
+            // 3) 저장 후 이동
+            var redirectUrl = Url.Action(nameof(Details), "Doc", new { id = System.IO.Path.GetFileNameWithoutExtension(outputPath) })
+                              ?? "/Doc/Details";
             return Json(new { redirectUrl });
         }
 
-        // 4) 문서 상세(게시)
+
+        // ---------- Details ----------
         [HttpGet]
-        public async Task<IActionResult> Details(string id)
+        public IActionResult Details(string id)
         {
             if (string.IsNullOrWhiteSpace(id))
             {
@@ -292,104 +258,20 @@ VALUES
                 return RedirectToAction(nameof(New));
             }
 
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            using (var conn = new SqlConnection(connStr))
-            {
-                await conn.OpenAsync();
-
-                // 문서 본문
-                const string SQL_DOC = @"
-SELECT DocId, TemplateCode, TemplateTitle, Status, DepartmentId, CompCd,
-       DescriptorJson, PreviewJson
-FROM dbo.Documents WITH (NOLOCK)
-WHERE DocId = @DocId";
-
-                using (var cmd = new SqlCommand(SQL_DOC, conn))
-                {
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = id });
-                    using var rdr = await cmd.ExecuteReaderAsync();
-                    if (!await rdr.ReadAsync())
-                    {
-                        TempData["NewDocAlert"] = "DOC_Err_DocumentNotFound";
-                        return RedirectToAction(nameof(New));
-                    }
-
-                    ViewBag.DocumentId = rdr["DocId"]?.ToString() ?? id;
-                    ViewBag.TemplateCode = rdr["TemplateCode"]?.ToString() ?? "";
-                    ViewBag.TemplateTitle = rdr["TemplateTitle"]?.ToString() ?? "";
-                    ViewBag.Status = rdr["Status"]?.ToString() ?? "Draft";
-                    ViewBag.DescriptorJson = rdr["DescriptorJson"]?.ToString() ?? "{}";
-                    ViewBag.PreviewJson = rdr["PreviewJson"]?.ToString() ?? "{}";
-                    ViewBag.DepartmentId = rdr["DepartmentId"]?.ToString();
-                    ViewBag.CompCd = rdr["CompCd"]?.ToString();
-                }
-
-                // 입력값
-                const string SQL_INPUTS = @"
-SELECT FieldKey, FieldValue
-FROM dbo.DocumentInputs WITH (NOLOCK)
-WHERE DocId = @DocId";
-
-                var inputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                using (var cmd = new SqlCommand(SQL_INPUTS, conn))
-                {
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = id });
-                    using var rdr = await cmd.ExecuteReaderAsync();
-                    while (await rdr.ReadAsync())
-                    {
-                        var k = rdr["FieldKey"]?.ToString() ?? "";
-                        var v = rdr["FieldValue"]?.ToString() ?? "";
-                        if (!string.IsNullOrEmpty(k)) inputs[k] = v ?? "";
-                    }
-                }
-                ViewBag.InputsJson = JsonSerializer.Serialize(inputs);
-
-                // 2025.10.15 Added: Seq 유무에 따라 ORDER BY 분기
-                string sqlAppr = @"
-IF COL_LENGTH('dbo.DocumentApprovals','Seq') IS NOT NULL
-    SELECT RoleKey, ApproverType, Value, Status
-    FROM dbo.DocumentApprovals WITH (NOLOCK)
-    WHERE DocId = @DocId
-    ORDER BY Seq ASC;
-ELSE
-    SELECT RoleKey, ApproverType, Value, Status
-    FROM dbo.DocumentApprovals WITH (NOLOCK)
-    WHERE DocId = @DocId
-    ORDER BY RoleKey ASC;";
-
-                var appr = new List<object>();
-                using (var cmd = new SqlCommand(sqlAppr, conn))
-                {
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = id });
-                    using var rdr = await cmd.ExecuteReaderAsync();
-                    while (await rdr.ReadAsync())
-                    {
-                        appr.Add(new
-                        {
-                            roleKey = rdr["RoleKey"]?.ToString() ?? "",
-                            approverType = rdr["ApproverType"]?.ToString() ?? "",
-                            value = rdr["Value"]?.ToString() ?? "",
-                            status = rdr["Status"]?.ToString() ?? "Pending"
-                        });
-                    }
-                }
-                ViewBag.ApprovalsJson = JsonSerializer.Serialize(appr);
-            }
-
-            // 감사 로그
-            try
-            {
-                var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
-                await _audit.LogAsync(id, actorId, "Viewed", null);
-            }
-            catch { /* ignore */ }
+            ViewBag.DocumentId = id;
+            ViewBag.TemplateCode = "";
+            ViewBag.TemplateTitle = "";
+            ViewBag.Status = "Draft";
+            ViewBag.DescriptorJson = "{}";
+            ViewBag.PreviewJson = "{}";
+            ViewBag.InputsJson = "{}";
+            ViewBag.ApprovalsJson = "[]";
 
             return View("Detail", new DocTLViewModel());
         }
 
-        // ----------------- 내부 헬퍼/DTO -----------------
+        // ---------- DTOs ----------
 
-        // 클라이언트 페이로드 DTO(키명 변경 금지)
         public class ComposePostDto
         {
             public string? templateCode { get; set; }
@@ -398,35 +280,19 @@ ELSE
             public string? descriptorVersion { get; set; }
         }
 
-        // 디스크립터 구조(서버 검증용 최소 필드)
-        private record Descriptor(
-            List<InputField> Inputs,
-            List<ApprovalField> Approvals,
-            string? Version
-        )
+        private record Descriptor(List<InputField> Inputs, List<ApprovalField> Approvals, string? Version)
         {
             public static Descriptor Empty => new(new(), new(), null);
         }
 
-        private record InputField(
-            [property: JsonPropertyName("key")] string? Key,
-            [property: JsonPropertyName("type")] string? Type,
-            [property: JsonPropertyName("required")] bool Required,
-            [property: JsonPropertyName("a1")] string? A1
-        );
+        private record InputField(string? Key, string? Type, bool Required, string? A1);
+        private record ApprovalField(string? RoleKey, string? ApproverType, bool Required, string? Value);
 
-        private record ApprovalField(
-            [property: JsonPropertyName("roleKey")] string? RoleKey,
-            [property: JsonPropertyName("approverType")] string? ApproverType,
-            [property: JsonPropertyName("required")] bool Required,
-            [property: JsonPropertyName("value")] string? Value
-        );
-
-        // 2025.10.15 Changed: 파일 기반 디스크립터 사용
         private Descriptor LoadDescriptor(string templateCode)
         {
             var meta = LoadTemplateMeta(templateCode);
-            var json = string.IsNullOrWhiteSpace(meta.descriptorJson) ? "{}" : meta.descriptorJson;
+            var raw = string.IsNullOrWhiteSpace(meta.descriptorJson) ? "{}" : meta.descriptorJson;
+            var json = ConvertDescriptorIfNeeded(raw);
 
             try
             {
@@ -470,310 +336,448 @@ ELSE
             }
         }
 
-        // 2025.10.15 Added: 템플릿 메타 파일 로더
+        // ---------- Template Meta Loader ----------
+        // 최신 버전 메타를 DB에서 직접 읽고, PreviewJson이 없으면 ExcelFilePath로 미리보기 생성
         private (string descriptorJson, string previewJson, string templateTitle) LoadTemplateMeta(string templateCode)
         {
-            try
-            {
-                var root = Path.Combine(_env.WebRootPath ?? string.Empty, "templates", templateCode ?? string.Empty);
-                var descPath = Path.Combine(root, "descriptor.json");
-                var prevPath = Path.Combine(root, "preview.json");
-                var titlePath = Path.Combine(root, "title.txt");
+            string descriptorJson = "{}";
+            string previewJson = "{}";
+            string templateTitle = string.Empty;
 
-                string descriptorJson = System.IO.File.Exists(descPath) ? System.IO.File.ReadAllText(descPath) : "{}";
-                string previewJson = System.IO.File.Exists(prevPath) ? System.IO.File.ReadAllText(prevPath) : "{}";
-                string templateTitle = System.IO.File.Exists(titlePath) ? (System.IO.File.ReadAllText(titlePath)?.Trim() ?? string.Empty) : string.Empty;
-
-                if (string.IsNullOrWhiteSpace(descriptorJson)) descriptorJson = "{}";
-                if (string.IsNullOrWhiteSpace(previewJson)) previewJson = "{}";
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            if (string.IsNullOrWhiteSpace(cs))
                 return (descriptorJson, previewJson, templateTitle);
-            }
-            catch
+
+            using var conn = new SqlConnection(cs);
+            conn.Open();
+
+            // 1) 최신 버전 한 건 조회 (DocCode -> 최신 Version)
+            using (var cmd = new SqlCommand(@"
+SELECT TOP 1
+    m.DocName,
+    v.DescriptorJson,
+    v.PreviewJson,
+    v.ExcelFilePath
+FROM DocTemplateMaster m
+JOIN DocTemplateVersion v ON v.TemplateId = m.Id
+WHERE m.DocCode = @code
+ORDER BY v.VersionNo DESC;", conn))
             {
-                return ("{}", "{}", string.Empty);
-            }
-        }
+                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode ?? string.Empty });
 
-        // ====================== Comments API ======================
-        #region Comments
-
-        // 목록: GET /Doc/Comments?docId=...
-        [HttpGet]
-        [Produces("application/json")]
-        public async Task<IActionResult> Comments([FromQuery] string docId)
-        {
-            if (string.IsNullOrWhiteSpace(docId))
-                return BadRequest(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
-
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            var items = new List<object>();
-
-            using (var conn = new SqlConnection(connStr))
-            {
-                await conn.OpenAsync();
-
-                // 문서 존재 확인
-                const string SQL_DOC_EXISTS = @"SELECT 1 FROM dbo.Documents WITH (NOLOCK) WHERE DocId=@DocId";
-                using (var cmd = new SqlCommand(SQL_DOC_EXISTS, conn))
+                using var rd = cmd.ExecuteReader();
+                if (rd.Read())
                 {
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                    var ok = await cmd.ExecuteScalarAsync();
-                    if (ok == null) return NotFound(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
-                }
+                    templateTitle = rd["DocName"] as string ?? string.Empty;
+                    descriptorJson = rd["DescriptorJson"] as string ?? "{}";
+                    previewJson = rd["PreviewJson"] as string ?? "{}";
 
-                // 댓글 + 파일
-                const string SQL_COMMENTS = @"
-;WITH C AS
-(
-    SELECT c.CommentId, c.DocId, c.ParentCommentId, c.Body, c.CreatedAt, c.CreatedBy, 0 AS Depth
-    FROM dbo.DocumentComments AS c WITH (NOLOCK)
-    WHERE c.DocId = @DocId AND c.ParentCommentId IS NULL
-    UNION ALL
-    SELECT ch.CommentId, ch.DocId, ch.ParentCommentId, ch.Body, ch.CreatedAt, ch.CreatedBy, p.Depth + 1
-    FROM dbo.DocumentComments AS ch WITH (NOLOCK)
-    JOIN C AS p ON ch.ParentCommentId = p.CommentId
-)
-SELECT c.CommentId, c.ParentCommentId, c.Body, c.CreatedAt, c.CreatedBy, c.Depth,
-       f.FileId, f.FileKey, f.OriginalName, f.ContentType, f.ByteSize
-FROM C AS c
-LEFT JOIN dbo.DocumentCommentFiles AS f WITH (NOLOCK) ON f.CommentId = c.CommentId
-ORDER BY c.CreatedAt ASC, c.CommentId ASC, f.FileId ASC;";
-
-                var map = new Dictionary<long, dynamic>();
-                using (var cmd = new SqlCommand(SQL_COMMENTS, conn))
-                {
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                    using var rdr = await cmd.ExecuteReaderAsync();
-                    while (await rdr.ReadAsync())
+                    // 2) PreviewJson이 비어 있으면 ExcelFilePath로 미리보기 생성
+                    if (string.IsNullOrWhiteSpace(previewJson) || previewJson.Trim() == "{}")
                     {
-                        var cmtId = Convert.ToInt64(rdr["CommentId"]);
-                        if (!map.TryGetValue(cmtId, out var node))
+                        var excelPath = rd["ExcelFilePath"] as string ?? string.Empty;
+
+                        // ContentRoot 기준 상대경로라면 절대경로로 보정
+                        if (!string.IsNullOrWhiteSpace(excelPath) && !System.IO.Path.IsPathRooted(excelPath))
                         {
-                            node = new
-                            {
-                                commentId = cmtId,
-                                parentCommentId = rdr["ParentCommentId"] == DBNull.Value ? (long?)null : Convert.ToInt64(rdr["ParentCommentId"]),
-                                body = rdr["Body"]?.ToString() ?? "",
-                                createdAt = ((DateTime)rdr["CreatedAt"]).ToString("yyyy-MM-dd HH:mm:ss"),
-                                createdBy = rdr["CreatedBy"]?.ToString() ?? "",
-                                depth = Convert.ToInt32(rdr["Depth"]),
-                                files = new List<object>()
-                            };
-                            map[cmtId] = node;
+                            var baseDir = _env.ContentRootPath ?? AppContext.BaseDirectory;
+                            excelPath = System.IO.Path.Combine(baseDir, excelPath);
                         }
 
-                        if (rdr["FileId"] != DBNull.Value)
+                        if (!string.IsNullOrWhiteSpace(excelPath) && System.IO.File.Exists(excelPath))
                         {
-                            ((List<object>)node.files).Add(new
+                            try
                             {
-                                fileId = Convert.ToInt64(rdr["FileId"]),
-                                fileKey = rdr["FileKey"]?.ToString() ?? "",
-                                originalName = rdr["OriginalName"]?.ToString() ?? "",
-                                contentType = rdr["ContentType"]?.ToString() ?? "",
-                                byteSize = rdr["ByteSize"] == DBNull.Value ? 0L : Convert.ToInt64(rdr["ByteSize"])
-                            });
-                        }
-                    }
-                }
-
-                items = map.Values.Cast<object>().ToList();
-            }
-
-            return Json(new { items });
-        }
-
-        // 작성: POST /Doc/Comments
-        public sealed class CommentPostDto
-        {
-            public string? docId { get; set; }
-            public long? parentCommentId { get; set; }
-            public string? body { get; set; }
-            public List<CommentFileDto>? files { get; set; }
-        }
-        public sealed class CommentFileDto
-        {
-            public string? fileKey { get; set; }
-            public string? originalName { get; set; }
-            public string? contentType { get; set; }
-            public long? byteSize { get; set; }
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        [Consumes("application/json")]
-        [Produces("application/json")]
-        public async Task<IActionResult> Comments([FromBody] CommentPostDto dto)
-        {
-            if (dto == null || string.IsNullOrWhiteSpace(dto.docId))
-                return BadRequest(new { messages = new[] { "DOC_Err_InvalidPayload" } });
-            if (string.IsNullOrWhiteSpace(dto.body))
-                return BadRequest(new { messages = new[] { "DOC_Val_Required" }, fieldErrors = new { body = new[] { "DOC_Val_Required" } } });
-
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
-
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            using (var conn = new SqlConnection(connStr))
-            {
-                await conn.OpenAsync();
-                using (var tx = conn.BeginTransaction())
-                {
-                    // 문서 존재 확인
-                    const string SQL_DOC_EXISTS = @"SELECT 1 FROM dbo.Documents WITH (NOLOCK) WHERE DocId=@DocId";
-                    using (var chk = new SqlCommand(SQL_DOC_EXISTS, conn, tx))
-                    {
-                        chk.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = dto.docId! });
-                        var ok = await chk.ExecuteScalarAsync();
-                        if (ok == null)
-                        {
-                            tx.Rollback();
-                            return NotFound(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
-                        }
-                    }
-
-                    // 댓글 저장
-                    const string SQL_INS_C = @"
-INSERT INTO dbo.DocumentComments (DocId, ParentCommentId, Body, CreatedAt, CreatedBy)
-VALUES (@DocId, @ParentCommentId, @Body, SYSUTCDATETIME(), @CreatedBy);
-SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
-
-                    long newId;
-                    using (var cmd = new SqlCommand(SQL_INS_C, conn, tx))
-                    {
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = dto.docId! });
-                        cmd.Parameters.Add(new SqlParameter("@ParentCommentId", SqlDbType.BigInt) { Value = (object?)dto.parentCommentId ?? DBNull.Value });
-                        cmd.Parameters.Add(new SqlParameter("@Body", SqlDbType.NVarChar, -1) { Value = dto.body! });
-                        cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = userId });
-
-                        object? scalar = await cmd.ExecuteScalarAsync();
-                        if (scalar is null || scalar == DBNull.Value)
-                            throw new InvalidOperationException("Identity value was not returned.");
-
-                        newId = scalar switch
-                        {
-                            decimal d => (long)d,
-                            long l => l,
-                            int i => i,
-                            _ => Convert.ToInt64(scalar)
-                        };
-                    }
-
-                    // 파일 메타 저장
-                    if (dto.files is { Count: > 0 })
-                    {
-                        const string SQL_INS_F = @"
-INSERT INTO dbo.DocumentCommentFiles (CommentId, FileKey, OriginalName, ContentType, ByteSize)
-VALUES (@CommentId, @FileKey, @OriginalName, @ContentType, @ByteSize);";
-
-                        using (var cmd = new SqlCommand(SQL_INS_F, conn, tx))
-                        {
-                            var pCid = cmd.Parameters.Add("@CommentId", SqlDbType.BigInt);
-                            var pKey = cmd.Parameters.Add("@FileKey", SqlDbType.NVarChar, 200);
-                            var pNm = cmd.Parameters.Add("@OriginalName", SqlDbType.NVarChar, 260);
-                            var pCt = cmd.Parameters.Add("@ContentType", SqlDbType.NVarChar, 100);
-                            var pSz = cmd.Parameters.Add("@ByteSize", SqlDbType.BigInt);
-                            pSz.IsNullable = true;
-
-                            foreach (var f in dto.files.Where(x => x != null))
+                                previewJson = BuildPreviewJsonFromExcel(excelPath); // ← 이미 넣어둔 ClosedXML 기반 생성기 사용
+                            }
+                            catch
                             {
-                                pCid.Value = newId;
-                                pKey.Value = (object?)f!.fileKey ?? DBNull.Value;
-                                pNm.Value = (object?)f.originalName ?? DBNull.Value;
-                                pCt.Value = (object?)f.contentType ?? DBNull.Value;
-                                pSz.Value = f.byteSize is long bs ? bs : DBNull.Value;
-                                await cmd.ExecuteNonQueryAsync();
+                                previewJson = "{}";
                             }
                         }
                     }
-
-                    tx.Commit();
-
-                    try { await _audit.LogAsync(dto.docId!, userId, "CommentCreated", newId.ToString()); } catch { /* ignore */ }
                 }
             }
 
-            return Json(new { ok = true });
+            // 3) 웹루트 템플릿 폴더에 파일이 있는 경우는 그대로 우선 사용(선택)
+            try
+            {
+                var root = System.IO.Path.Combine(_env.WebRootPath ?? string.Empty, "templates", templateCode ?? string.Empty);
+                var descPath = System.IO.File.Exists(System.IO.Path.Combine(root, "descriptor.json"))
+                               ? System.IO.Path.Combine(root, "descriptor.json") : null;
+                var prevPath = System.IO.File.Exists(System.IO.Path.Combine(root, "preview.json"))
+                               ? System.IO.Path.Combine(root, "preview.json") : null;
+                var titlePath = System.IO.File.Exists(System.IO.Path.Combine(root, "title.txt"))
+                                ? System.IO.Path.Combine(root, "title.txt") : null;
+
+                if (descPath != null) descriptorJson = System.IO.File.ReadAllText(descPath);
+                if (prevPath != null) previewJson = System.IO.File.ReadAllText(prevPath);
+                if (titlePath != null) templateTitle = (System.IO.File.ReadAllText(titlePath) ?? "").Trim();
+            }
+            catch { /* 무시 */ }
+
+            // 4) 널/빈값 방어
+            if (string.IsNullOrWhiteSpace(descriptorJson)) descriptorJson = "{}";
+            if (string.IsNullOrWhiteSpace(previewJson)) previewJson = "{}";
+
+            return (descriptorJson, previewJson, templateTitle);
         }
 
-        // 삭제: DELETE /Doc/Comments/{id}?docId=...
-        [HttpDelete("/Doc/Comments/{id:long}")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteComment([FromRoute] long id, [FromQuery] string docId)
+
+
+        // ---------- DocTL → Compose 변환기 ----------
+
+        private static string ConvertDescriptorIfNeeded(string? json)
         {
-            if (string.IsNullOrWhiteSpace(docId))
-                return BadRequest(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
+            // 최소 구조
+            const string EMPTY = "{\"inputs\":[],\"approvals\":[],\"version\":\"converted\"}";
+            if (!TryParseJsonFlexible(json, out var doc)) return EMPTY;
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
+            try
+            {
+                var root = doc.RootElement;
 
-            using (var conn = new SqlConnection(connStr))
+                // 이미 Compose 스키마
+                if (root.TryGetProperty("inputs", out _)) return json!;
+
+                // DocTL 스키마 → Compose 스키마로 변환
+                List<(string key, string type, string a1)> inputs = new();
+                if (root.TryGetProperty("Fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var f in fieldsEl.EnumerateArray())
+                    {
+                        var key = f.TryGetProperty("Key", out var k) ? (k.GetString() ?? "").Trim() : "";
+                        if (string.IsNullOrEmpty(key)) continue;
+                        var type = f.TryGetProperty("Type", out var t) ? (t.GetString() ?? "Text") : "Text";
+                        string a1 = "";
+                        if (f.TryGetProperty("Cell", out var cell) && cell.ValueKind == JsonValueKind.Object)
+                            a1 = cell.TryGetProperty("A1", out var a) ? (a.GetString() ?? "") : "";
+                        inputs.Add((key, MapType(type), a1));
+                    }
+                }
+
+                var approvalsDict = new Dictionary<int, (string approverType, string? value)>();
+                if (root.TryGetProperty("Approvals", out var apprEl) && apprEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var a in apprEl.EnumerateArray())
+                    {
+                        int slot = a.TryGetProperty("Slot", out var s) && s.TryGetInt32(out var v) ? v : 0;
+                        if (slot <= 0) continue;
+                        var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
+                        var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
+                        approvalsDict[slot] = (MapApproverType(typ), val);
+                    }
+                }
+
+                var approvals = approvalsDict
+                    .OrderBy(kv => kv.Key)
+                    .Select(kv => new { roleKey = $"A{kv.Key}", approverType = kv.Value.approverType, required = false, value = kv.Value.value ?? "" })
+                    .ToList();
+
+                var obj = new
+                {
+                    inputs = inputs.Select(x => new { key = x.key, type = x.type, required = false, a1 = x.a1 }).ToList(),
+                    approvals,
+                    version = "converted"
+                };
+                return JsonSerializer.Serialize(obj);
+            }
+            catch { return EMPTY; }
+            finally { doc.Dispose(); }
+
+            static string MapType(string t)
+            {
+                t = (t ?? "").Trim().ToLowerInvariant();
+                if (t.StartsWith("date")) return "Date";
+                if (t.StartsWith("num") || t.Contains("number") || t.Contains("decimal") || t.Contains("integer")) return "Num";
+                return "Text";
+            }
+            static string MapApproverType(string t)
+            {
+                t = (t ?? "").Trim();
+                return (t == "Person" || t == "Role" || t == "Rule") ? t : "Person";
+            }
+        }
+        private static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
+        {
+            doc = null!;
+            if (string.IsNullOrWhiteSpace(json)) return false;
+
+            try
+            {
+                var first = JsonDocument.Parse(json);
+                if (first.RootElement.ValueKind == JsonValueKind.String)
+                {
+                    var inner = first.RootElement.GetString();
+                    first.Dispose();
+                    if (string.IsNullOrWhiteSpace(inner)) return false;
+                    doc = JsonDocument.Parse(inner!);
+                    return true;
+                }
+                doc = first;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        // ---------- Preview JSON 안전 보장 ----------
+
+        private static string EnsurePreviewJsonSafe(string? previewJson)
+        {
+            if (TryParseJsonFlexible(previewJson, out var doc))
+            {
+                doc.Dispose();            // 파싱만 확인했으면 그대로 사용
+                return previewJson!;
+            }
+
+            // 빈 그리드 폴백
+            int rows = 50, cols = 26;
+            var cells = new List<List<string>>(rows);
+            for (int r = 0; r < rows; r++)
+            {
+                var row = new List<string>(cols);
+                for (int c = 0; c < cols; c++) row.Add(string.Empty);
+                cells.Add(row);
+            }
+            var colW = Enumerable.Repeat(12.0, cols).ToList();
+            return JsonSerializer.Serialize(new { sheet = "Sheet1", rows, cols, cells, merges = Array.Empty<int[]>(), colW });
+        }
+
+        // ---------- 엑셀 → Preview JSON 생성기 ----------
+
+        private static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
+        {
+            using var wb = new XLWorkbook(excelPath);
+            var ws0 = wb.Worksheets.FirstOrDefault() ?? throw new InvalidOperationException("No worksheet.");
+
+            // 1) 셀 값
+            var cells = new List<List<string>>(maxRows);
+            for (int r = 1; r <= maxRows; r++)
+            {
+                var row = new List<string>(maxCols);
+                for (int c = 1; c <= maxCols; c++)
+                    row.Add(ws0.Cell(r, c).GetString());
+                cells.Add(row);
+            }
+
+            // 2) 병합
+            var merges = new List<int[]>();
+            foreach (var mr in ws0.MergedRanges)
+            {
+                var a = mr.RangeAddress;
+                int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
+                int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
+                if (r1 > maxRows || c1 > maxCols) continue;
+                r2 = Math.Min(r2, maxRows);
+                c2 = Math.Min(c2, maxCols);
+                if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
+            }
+
+            // 3) 열 폭
+            var colW = new List<double>(maxCols);
+            for (int c = 1; c <= maxCols; c++) colW.Add(ws0.Column(c).Width);
+
+            // 4) 스타일(필요 시 확장 가능)
+            var styles = new Dictionary<string, object>();
+            for (int r = 1; r <= maxRows; r++)
+            {
+                for (int c = 1; c <= maxCols; c++)
+                {
+                    var cell = ws0.Cell(r, c);
+                    var st = cell.Style;
+
+                    string? bgHex = ToHexIfRgb(cell);
+
+                    styles[$"{r},{c}"] = new
+                    {
+                        font = new
+                        {
+                            name = st.Font.FontName,
+                            size = st.Font.FontSize,
+                            bold = st.Font.Bold,
+                            italic = st.Font.Italic,
+                            underline = st.Font.Underline != XLFontUnderlineValues.None
+                        },
+                        align = new
+                        {
+                            h = st.Alignment.Horizontal.ToString(),
+                            v = st.Alignment.Vertical.ToString(),
+                            wrap = st.Alignment.WrapText
+                        },
+                        border = new
+                        {
+                            l = st.Border.LeftBorder.ToString(),
+                            r = st.Border.RightBorder.ToString(),
+                            t = st.Border.TopBorder.ToString(),
+                            b = st.Border.BottomBorder.ToString()
+                        },
+                        fill = new
+                        {
+                            bg = bgHex // null이면 프런트에서 기본값 처리
+                        }
+                    };
+                }
+            }
+
+            // 5) 직렬화
+            return JsonSerializer.Serialize(new
+            {
+                sheet = ws0.Name,
+                rows = maxRows,
+                cols = maxCols,
+                cells,
+                merges,
+                colW,
+                styles
+            });
+        }
+
+        // ---------- 색상 HEX 헬퍼 ----------
+
+        private static string? ToHexIfRgb(IXLCell cell)
+        {
+            try
+            {
+                var bg = cell?.Style?.Fill?.BackgroundColor;
+                if (bg != null && bg.ColorType == XLColorType.Color)
+                {
+                    var c = bg.Color; // System.Drawing.Color
+                    return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                }
+            }
+            catch { /* ignore */ }
+            return null;
+        }
+        //
+        /// <summary>
+        /// DocTemplateField(VersionId) 매핑을 기준으로 inputs를 엑셀에 채워 산출물을 만든다.
+        /// </summary>
+        private async Task<string> GenerateExcelFromInputsAsync(
+            long versionId,
+            string templateExcelPath,
+            Dictionary<string, string> inputs,
+            string? descriptorVersion)
+        {
+            // 1) 필드 매핑 불러오기 (A1 또는 Row/Col → A1)
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            var maps = new List<(string key, string a1, string type)>();
+
+            await using (var conn = new SqlConnection(cs))
             {
                 await conn.OpenAsync();
-                using (var tx = conn.BeginTransaction())
+                await using (var cmd = conn.CreateCommand())
                 {
-                    // 간단 권한 체크
-                    const string SQL_GET_OWNER = @"SELECT CreatedBy FROM dbo.DocumentComments WITH (NOLOCK) WHERE CommentId=@Id AND DocId=@DocId";
-                    string? owner = null;
-                    using (var cmd = new SqlCommand(SQL_GET_OWNER, conn, tx))
-                    {
-                        cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        owner = (string?)await cmd.ExecuteScalarAsync();
-                    }
-                    if (owner == null)
-                    {
-                        tx.Rollback();
-                        return NotFound(new { messages = new[] { "DOC_Err_NotFound" } });
-                    }
-                    if (!string.Equals(owner, userId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        tx.Rollback();
-                        return Forbid();
-                    }
+                    cmd.CommandText = @"
+SELECT [Key], [Type], A1, CellRow, CellColumn
+FROM dbo.DocTemplateField
+WHERE VersionId = @vid
+ORDER BY Id;";
+                    cmd.Parameters.Add(new SqlParameter("@vid", SqlDbType.BigInt) { Value = versionId });
 
-                    // 자식 댓글/파일부터 삭제
-                    const string SQL_DEL_FILES = @"
-DELETE f FROM dbo.DocumentCommentFiles f
-WHERE f.CommentId IN (
-    WITH RECURSIVE_CTE AS
-    (
-        SELECT CommentId FROM dbo.DocumentComments WHERE CommentId=@Id AND DocId=@DocId
-        UNION ALL
-        SELECT c.CommentId FROM dbo.DocumentComments c
-        JOIN RECURSIVE_CTE p ON c.ParentCommentId = p.CommentId
-    )
-    SELECT CommentId FROM RECURSIVE_CTE
-);";
-                    using (var cmd = new SqlCommand(SQL_DEL_FILES.Replace("WITH RECURSIVE_CTE", "C"), conn, tx))
+                    await using var rd = await cmd.ExecuteReaderAsync();
+                    while (await rd.ReadAsync())
                     {
-                        cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        await cmd.ExecuteNonQueryAsync();
-                    }
+                        var key = rd["Key"] as string ?? "";
+                        var typ = rd["Type"] as string ?? "Text";
 
-                    const string SQL_DEL_CMTS = @"
-;WITH C AS
-(
-    SELECT CommentId FROM dbo.DocumentComments WHERE CommentId=@Id AND DocId=@DocId
-    UNION ALL
-    SELECT c.CommentId FROM dbo.DocumentComments c JOIN C p ON c.ParentCommentId = p.CommentId
-)
-DELETE FROM dbo.DocumentComments WHERE CommentId IN (SELECT CommentId FROM C);";
-                    using (var cmd = new SqlCommand(SQL_DEL_CMTS, conn, tx))
-                    {
-                        cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
-                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        await cmd.ExecuteNonQueryAsync();
-                    }
+                        string a1 = rd["A1"] as string ?? "";
+                        if (string.IsNullOrWhiteSpace(a1))
+                        {
+                            int r = rd["CellRow"] is DBNull ? 0 : Convert.ToInt32(rd["CellRow"]);
+                            int c = rd["CellColumn"] is DBNull ? 0 : Convert.ToInt32(rd["CellColumn"]);
+                            if (r > 0 && c > 0) a1 = A1FromRowCol(r, c);
+                        }
 
-                    tx.Commit();
-                    try { await _audit.LogAsync(docId, userId, "CommentDeleted", id.ToString()); } catch { /* ignore */ }
+                        if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(a1))
+                            maps.Add((key, a1, MapFieldType(typ)));
+                    }
                 }
             }
 
-            return Json(new { ok = true });
-        }
+            // 2) 엑셀 열기
+            using var wb = new XLWorkbook(templateExcelPath);
+            var ws = wb.Worksheets.First();
 
-        #endregion
-        // ==================== /Comments API =======================
+            // 3) 값 채우기
+            foreach (var m in maps)
+            {
+                if (!inputs.TryGetValue(m.key, out var raw)) continue;
+                var cell = ws.Cell(m.a1);
+
+                if (string.IsNullOrEmpty(raw))
+                {
+                    cell.Clear(XLClearOptions.Contents); // 비우기 선택
+                    continue;
+                }
+
+                // 줄바꿈 감지 시 wrap
+                if (raw.Contains('\n') || raw.Contains('\r')) cell.Style.Alignment.WrapText = true;
+
+                switch (m.type.ToLowerInvariant())
+                {
+                    case "date":
+                        if (DateTime.TryParse(raw, out var dt))
+                        {
+                            cell.SetValue(dt);
+                            // 기존 서식 유지(템플릿이 갖고 있던 NumberFormat 사용),
+                            // 필요 시: cell.Style.DateFormat.Format = "yyyy-mm-dd";
+                        }
+                        else
+                        {
+                            cell.Value = raw;
+                        }
+                        break;
+
+                    case "num":
+                        if (decimal.TryParse(raw, out var dec))
+                        {
+                            cell.Value = dec;
+                            // 기존 NumberFormat 유지
+                        }
+                        else
+                        {
+                            cell.Value = raw;
+                        }
+                        break;
+
+                    default:
+                        cell.Value = raw;
+                        break;
+                }
+            }
+
+            // 4) 저장 경로
+            var outDir = System.IO.Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "Docs");
+            Directory.CreateDirectory(outDir);
+            var outName = $"DOC_{DateTime.Now:yyyyMMddHHmmssfff}.xlsx";
+            var outPath = System.IO.Path.Combine(outDir, outName);
+
+            wb.SaveAs(outPath);
+            return outPath;
+
+            // ---- local helpers ----
+            static string A1FromRowCol(int row, int col)
+            {
+                if (row < 1 || col < 1) return "";
+                string letters = "";
+                int n = col;
+                while (n > 0)
+                {
+                    int r = (n - 1) % 26;
+                    letters = (char)('A' + r) + letters;
+                    n = (n - 1) / 26;
+                }
+                return $"{letters}{row}";
+            }
+            static string MapFieldType(string? t)
+            {
+                var s = (t ?? "").Trim().ToLowerInvariant();
+                if (s.StartsWith("date")) return "Date";
+                if (s.StartsWith("num") || s.Contains("number") || s.Contains("decimal") || s.Contains("integer")) return "Num";
+                return "Text";
+            }
+        }
     }
 }

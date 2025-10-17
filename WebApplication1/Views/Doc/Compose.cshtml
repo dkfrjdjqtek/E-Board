@@ -1,122 +1,160 @@
-﻿@* 2025.10.15 Changed: JSON POST를 EBCSRF.json으로 교체하여 Anti forgery 토큰 자동 부착 수동 헤더 제거 기타 로직 변경 없음 *@
-@* 2025.10.14 Changed: Request 식별자 오류 해결 위해 Context.Request로 변경 모델 미보유 속성은 ViewBag 폴백 유지 *@
+﻿@* 2025.10.16 Changed: 미리보기 카드 제목 숨김 토글(HIDE_PREVIEW_LABEL) 추가 *@
+@* 2025.10.16 Changed: 엑셀 열 너비 px 변환식 적용 + <colgroup>로 고정 → 병합셀에서도 정확한 너비 유지 *@
+@* 2025.10.16 Changed: 시트 총너비를 컨테이너 폭에 자동 맞춤(scale) 적용(최대 2배, 최소 0.5배) *@
+@* 2025.10.16 Changed: contenteditable 셀의 폭 확장 방지(overflow, word-break 보강) *@
+@* 2025.10.16 Changed: 날짜 타입(Date) 셀은 input[type=date]로 렌더 + 수집 로직 보강 *@
+@* 2025.10.16 Changed: 미리보기 헤더/열머리글 숨김(표시 X) *@
+
+@* Compose (End-User) — 미리보기에서 직접 입력 *@
 @using System.Text.Json
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DOC_Title_Compose"];
 
-    // 2025.10.14 Changed: Request → Context.Request 로 교체하여 CS0103 해결
-    // 2025.10.14 Changed: 모델 미보유 속성은 ViewBag 값 사용 폴백 기존 키나 구조 변경 없음
     var templateCode = (string?)ViewBag.TemplateCode
-                        ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);   // ← 여기 수정
+                        ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);
     var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
+
     var descJson = (string?)ViewBag.DescriptorJson ?? "{}";
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
+
+    // 엔드유저는 입력/결재 테이블을 숨김
+    var HIDE_SIDE_TABLES = true;
+
+    // 2025.10.16 Added: 미리보기 카드 제목 숨김
+    var HIDE_PREVIEW_LABEL = true;
 }
+
 <style>
+    /* 2025.10.16 Changed: 시트가 컨테이너 폭을 충분히 쓰도록 */
     #xlPreview {
         overflow: auto;
-        max-height: 520px;
+        max-height: 78vh;
         border: 1px solid #e5e7eb;
-        border-radius: .25rem
+        border-radius: .25rem;
+        background: #fff;
+        padding: 8px;
     }
 
-    .cell-a1 .input-group {
-        max-width: 14rem
+    .xlfb {
+        border-collapse: collapse;
+        table-layout: fixed;
+        width: max-content; /* colgroup로 고정 */
+        transform-origin: top left; /* scale 기준점 */
     }
 
-    .cell-a1 .form-control {
-        max-width: 8rem
+        /* 2025.10.16 Changed: 행/열 헤더 숨김 */
+        .xlfb thead, .xlfb tbody th {
+            display: none;
+        }
+
+        .xlfb td {
+            border: 1px solid #dfe1e5;
+            padding: .35rem .45rem;
+            font-size: .925rem;
+            line-height: 1.2;
+            vertical-align: middle;
+            overflow: hidden; /* 셀 폭 확장 방지 */
+            word-break: break-word; /* 긴 텍스트 줄바꿈 */
+            overflow-wrap: anywhere;
+            white-space: pre-wrap; /* 줄바꿈 유지 */
+        }
+
+        .xlfb .merge {
+            background-clip: padding-box;
+        }
+
+        .xlfb .wrap {
+            white-space: pre-line;
+        }
+
+        .xlfb .ta-left {
+            text-align: left
+        }
+
+        .xlfb .ta-center {
+            text-align: center
+        }
+
+        .xlfb .ta-right {
+            text-align: right
+        }
+
+        .xlfb .va-top {
+            vertical-align: top
+        }
+
+        .xlfb .va-middle {
+            vertical-align: middle
+        }
+
+        .xlfb .va-bottom {
+            vertical-align: bottom
+        }
+
+    /* 편집 가능 셀 강조 */
+    .eb-editable {
+        cursor: text;
+        background: #fffdf7;
     }
 
-    .a1-active {
-        box-shadow: 0 0 0 .2rem rgba(13,110,253,.25)
+        .eb-editable:focus {
+            outline: 2px solid rgba(13,110,253,.35);
+            outline-offset: -2px;
+        }
+
+    /* 2025.10.16 Added: 날짜 입력 */
+    .eb-input-date {
+        width: 100%;
+        border: none;
+        outline: none;
+        background: transparent;
+        font: inherit;
+        padding: 0;
+        margin: 0;
+        height: 1.6em;
     }
 
-    .action-col {
-        width: 1%;
-        white-space: nowrap
+    .toolbar {
+        display: flex;
+        gap: .5rem;
+        align-items: center;
     }
 
-    .w-16rem {
-        width: 16rem
-    }
+        .toolbar .muted {
+            color: #6b7280;
+            font-size: .9rem;
+        }
 </style>
 
 <div class="container-xxl py-3">
-    <div class="d-flex align-items-center mb-3">
-        <h3 class="mb-0 me-3">@S["DOC_Title_Compose"]</h3>
-        <span class="text-muted">@templateTitle</span> @* 2025.10.14 Changed: ViewBag 폴백 사용 유지 *@
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div class="d-flex align-items-center gap-3">
+            <h3 class="mb-0">@S["DOC_Title_Compose"]</h3>
+            <span class="text-muted">@templateTitle</span>
+        </div>
+        <div class="toolbar">
+            <span class="muted">@S["DOC_Help_PreviewA1"]</span>
+            <button type="button" id="btn-cancel" class="btn btn-outline-secondary btn-sm">@S["DOC_Btn_Cancel"]</button>
+            <button type="button" id="btn-save" class="btn btn-primary btn-sm">@S["DOC_Btn_SaveDocument"]</button>
+        </div>
     </div>
 
-    <div id="doc-alert" class="mb-3" aria-live="polite"></div>
+    <div id="doc-alert" class="mb-2" aria-live="polite"></div>
 
     <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate>
-        <input type="hidden" name="TemplateCode" value="@templateCode" /> @* 2025.10.14 Changed *@
-        <input type="hidden" id="DescriptorJson" value='@Html.Raw(JsonEncodedText.Encode(descJson).ToString())' />
-        <input type="hidden" id="PreviewJson" value='@Html.Raw(JsonEncodedText.Encode(previewJson).ToString())' />
+        <input type="hidden" name="TemplateCode" value="@templateCode" />
+        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
+        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
 
-        <div class="row g-3">
-            <div class="col-lg-5">
-                <div class="card h-100">
-                    <div class="card-header py-2">
-                        <strong>@S["DOC_Label_Preview"]</strong>
-                    </div>
-                    <div class="card-body">
-                        <div id="xlPreview"></div>
-                        <div class="small text-muted mt-2">@S["DOC_Help_PreviewA1"]</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-7 d-flex flex-column gap-3">
-                <div class="card">
-                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                        <strong>@S["DOC_Label_InputFields"]</strong>
-                        <div class="text-muted small">@S["DOC_Help_InputFill"]</div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th class="w-16rem">@S["DOC_Col_FieldKey"]</th>
-                                        <th>@S["DOC_Col_Value"]</th>
-                                        <th class="action-col">@S["DOC_Col_Action"]</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tbody-inputs"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                        <strong>@S["DOC_Label_Approvals"]</strong>
-                        <div class="text-muted small">@S["DOC_Help_Approvals"]</div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th class="w-16rem">@S["DOC_Col_ApproverRole"]</th>
-                                        <th>@S["DOC_Col_ApproverValue"]</th>
-                                        <th class="action-col">@S["DOC_Col_Action"]</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tbody-approvals"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="d-flex justify-content-end gap-2">
-                    <button type="button" id="btn-cancel" class="btn btn-outline-secondary">@S["DOC_Btn_Cancel"]</button>
-                    <button type="submit" id="btn-save" class="btn btn-primary">@S["DOC_Btn_SaveDocument"]</button>
-                </div>
+        <div class="card">
+            @if (!HIDE_PREVIEW_LABEL)
+            {
+                <div class="card-header py-2"><strong>@S["DOC_Label_Preview"]</strong></div>
+            }
+            <div class="card-body">
+                <div id="xlPreview"></div>
             </div>
         </div>
     </form>
@@ -125,251 +163,358 @@
 @section Scripts {
     <script src="~/js/eb.csrf.js"></script>
     <script>
-        // 2025.10.15 Changed: 모든 AJAX를 EBCSRF 래퍼로 통일(토큰 자동 부착)
-        // 2025.10.15 Removed: 수동 토큰 읽기/헤더 설정 코드 삭제
-        const EBV = window.EBValidate || {};
-        const S = (key) => key;
+        (function () {
+            // 2025.10.16 Added: 엑셀 너비/높이 → px 변환
+            // 열 너비(문자 단위) → px: MS 규칙 근사식
+            function excelColWidthToPx(w) {
+                // if (w == null) return 0;
+                // const v = Number(w);
+                // if (!isFinite(v) || v <= 0) return 0;
+                // if (v < 1) return Math.round(v * 12);      // 소폭 컬럼
+                // return Math.floor(v * 7 + 5);              // 일반 컬럼(가장 흔한 근사)
+                const w = Number(width);
+                if (!isFinite(w) || w <= 0) return 0;
 
-        const descriptor = safeJson(document.getElementById('DescriptorJson')?.value) || {};
-        const preview = safeJson(document.getElementById('PreviewJson')?.value) || {};
-
-        function safeJson(s) { try { return JSON.parse(s || "{}"); } catch { return {}; } }
-        function ce(tag, attrs = {}, ...children) {
-            const el = document.createElement(tag);
-            Object.entries(attrs).forEach(([k, v]) => {
-                if (k === 'class') el.className = v;
-                else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v, false);
-                else if (v !== undefined && v !== null) el.setAttribute(k, v);
-            });
-            for (const c of children) el.append(c?.nodeType ? c : document.createTextNode(c ?? ''));
-            return el;
-        }
-
-        (function mountPreview() {
-            if (window.DocTLPreview?.mount) window.DocTLPreview.mount('#xlPreview', preview);
-            else if (window.DOCTLMAP?.mountPreview) window.DOCTLMAP.mountPreview('#xlPreview', preview);
-            else document.getElementById('xlPreview').textContent = S('DOC_Msg_PreviewFallback');
-
-            if (typeof window.enableDragSelection === 'function') {
-                window.enableDragSelection('#xlPreview', function (a1) {
-                    const target = document.querySelector('.cell-a1 input');
-                    if (target) {
-                        target.value = a1;
-                        target.classList.add('a1-active');
-                        setTimeout(() => target.classList.remove('a1-active'), 600);
-                    }
-                });
+                // 엑셀 공식 근사:
+                // px = floor( truncate((256*W + truncate(128/7)) / 256) * 7 + truncate(128/7) )
+                const trunc = Math.trunc;
+                const px = Math.floor(trunc((256 * w + trunc(128 / 7)) / 256) * 7 + trunc(128 / 7));
+                return px;
             }
-        })();
-
-        (function renderInputs() {
-            const tbody = document.getElementById('tbody-inputs');
-            const fields = descriptor?.inputs || [];
-            tbody.innerHTML = '';
-            fields.forEach((f, idx) => {
-                const tr = ce('tr', { 'data-key': f.key || '' });
-                const tdKey = ce('td', {}, ce('code', {}, f.key || ''));
-                const tdVal = ce('td', {},
-                    ce('div', { class: 'input-group input-group-sm cell-a1' },
-                        inputByType(f),
-                        ce('button', { type: 'button', class: 'btn btn-outline-secondary', onclick: () => openCellPicker(idx, f) }, S('DOC_Btn_SelectCell'))
-                    )
-                );
-                const tdAct = ce('td', { class: 'action-col text-end pe-2' },
-                    ce('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: () => clearInputRow(tr, f) }, S('DOC_Btn_Clear'))
-                );
-                tr.append(tdKey, tdVal, tdAct);
-                tbody.append(tr);
-            });
-
-            function inputByType(f) {
-                const inp = ce('input', { class: 'form-control', name: `Inputs[${f.key}]`, value: f.value ?? '', 'data-required': f.required ? '1' : '0' });
-                if (f.type === 'number') inp.type = 'number';
-                else if (f.type === 'date') inp.type = 'date';
-                else inp.type = 'text';
-                return inp;
+            // 행 높이(point) → px
+            function ptToPx(pt) {
+                return Math.floor(pt * 96 / 72);
             }
-            function openCellPicker(idx, f) {
-                if (window.__a1?.set) window.__a1.set(f.a1 || '');
-            }
-            function clearInputRow(tr, f) {
-                const inp = tr.querySelector('input.form-control');
-                if (inp) { inp.value = ''; inp.dispatchEvent(new Event('input')); }
-            }
-        })();
 
-        (function renderApprovals() {
-            const tbody = document.getElementById('tbody-approvals');
-            const approvals = descriptor?.approvals || [];
-            tbody.innerHTML = '';
-            approvals.forEach((ap) => {
-                const tr = ce('tr', { 'data-role': ap.roleKey || '' });
-                const tdRole = ce('td', {}, ce('span', {}, S(ap.roleKey || 'DOC_Approver_Unknown')));
-                const tdVal = ce('td', {});
-                const tdAct = ce('td', { class: 'action-col text-end pe-2' },
-                    ce('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: () => clearApprover(tr) }, S('DOC_Btn_Clear'))
-                );
+            function readJsonFromScriptTag(id) {
+                try {
+                    const el = document.getElementById(id); if (!el) return {};
+                    const raw = el.textContent || ''; const first = JSON.parse(raw);
+                    return (typeof first === 'string') ? JSON.parse(first) : first;
+                } catch { return {}; }
+            }
 
-                if ((ap.approverType || '').toLowerCase() === 'person') {
-                    const sel = buildUserSelect(ap.value);
-                    sel.name = `Approvals[${ap.roleKey}]`;
-                    tdVal.append(sel);
-                } else {
-                    const inp = ce('input', { class: 'form-control', name: `Approvals[${ap.roleKey}]`, value: ap.value || '' });
-                    tdVal.append(inp);
-                }
-                tr.append(tdRole, tdVal, tdAct);
-                tbody.append(tr);
+            const S = (k) => k;
+            const descriptor = readJsonFromScriptTag('DescriptorJson');
+            const preview = readJsonFromScriptTag('PreviewJson');
+
+            // 입력 페이로드
+            const payloadInputs = {};
+            const payloadApprovals = {};
+
+            // A1 파서
+            function a1ToRC(a1) {
+                if (!a1) return null;
+                const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
+                if (!m) return null;
+                const letters = m[1], row = parseInt(m[2], 10);
+                let col = 0; for (let i = 0; i < letters.length; i++) { col = col * 26 + (letters.charCodeAt(i) - 64); }
+                return { r: row, c: col };
+            }
+
+            // "r,c" -> { key, type }
+            const posToMeta = new Map();
+            (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => {
+                if (!f?.key) return;
+                const rc = a1ToRC(f.a1 || ''); if (!rc) return;
+                posToMeta.set(`${rc.r},${rc.c}`, { key: String(f.key), type: String(f.type || 'Text') });
             });
 
-            // 2025.10.15 Changed: GET도 래퍼 사용(쿠키/자격 증명 일관 처리)
-            function buildUserSelect(initial) {
-                const sel = ce('select', { class: 'form-select form-select-sm' });
-                EBCSRF.fetch('/DocTL/SearchUser?take=50', { method: 'GET' })
-                    .then(r => r.ok ? r.json() : [])
-                    .then(list => {
-                        sel.append(ce('option', { value: '' }, S('DOC_Opt_Select')));
-                        (list || []).forEach(u => {
-                            const text = (u.text ?? u.name ?? '');
-                            sel.append(ce('option', { value: u.id }, text));
-                        });
-                        if (initial) sel.value = String(initial);
-                    })
-                    .catch(() => {
-                        sel.append(ce('option', { value: '' }, S('DOC_Opt_LoadFail')));
-                    });
-                return sel;
-            }
-            function clearApprover(tr) {
-                const el = tr.querySelector('select, input');
-                if (el) { el.value = ''; el.dispatchEvent(new Event('change')); }
-            }
-        })();
+            // 렌더
+            mountPreviewEditable('#xlPreview', preview, posToMeta);
+            window.addEventListener('resize', () => autoScale(document.querySelector('#xlPreview .xlfb'), document.getElementById('xlPreview')));
 
-        (function wireSubmit() {
-            const form = document.getElementById('doc-form');
-            form.addEventListener('submit', async (ev) => {
-                ev.preventDefault();
-
-                const payload = {
-                    templateCode: document.querySelector('input[name="TemplateCode"]')?.value || '',
-                    inputs: collectKV('#tbody-inputs', 'Inputs'),
-                    approvals: collectKV('#tbody-approvals', 'Approvals'),
+            // 저장
+            document.getElementById('btn-save')?.addEventListener('click', async () => {
+                const form = document.getElementById('doc-form');
+                const tpl = form.querySelector('input[name="TemplateCode"]')?.value || '';
+                collectFromGrid();
+                const body = {
+                    templateCode: tpl,
+                    inputs: payloadInputs,
+                    approvals: payloadApprovals,
                     descriptorVersion: descriptor?.version || null
                 };
-
                 try {
-                    // 2025.10.15 Changed: JSON POST -> EBCSRF.json 사용(토큰 자동)
-                    const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', payload, 'POST');
+                    const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', body, 'POST');
                     if (ok?.redirectUrl) location.href = ok.redirectUrl;
                     else showSuccess([S('DOC_Msg_SaveSuccess')]);
                 } catch (e) {
                     const err = e && e.payload ? e.payload : { messages: [S('DOC_Err_SaveFailed')] };
                     showErrors(err.messages || [S('DOC_Err_SaveFailed')]);
-                    applyFieldErrors(err.fieldErrors || {});
                 }
             });
 
-            function collectKV(tbodySel, prefix) {
-                const map = {};
-                document.querySelectorAll(`${tbodySel} [name^="${prefix}["]`).forEach(el => {
-                    const m = el.name.match(/^\w+\[(.+)\]$/);
-                    if (m && m[1] != null) map[m[1]] = el.value ?? '';
-                });
-                return map;
-            }
+            document.getElementById('btn-cancel')?.addEventListener('click', () => {
+                history.length > 1 ? history.back() : location.href = '/Doc/New';
+            });
+
             function showErrors(msgs) {
-                if (EBV.showAlert) EBV.showAlert('doc-alert', msgs, { variant: 'danger' });
-                else document.getElementById('doc-alert').innerHTML = '<div class="alert alert-danger">' + msgs.join('<br>') + '</div>';
+                document.getElementById('doc-alert').innerHTML =
+                    '<div class="alert alert-danger">' + (msgs || []).join('<br>') + '</div>';
             }
             function showSuccess(msgs) {
-                if (EBV.showAlert) EBV.showAlert('doc-alert', msgs, { variant: 'success' });
-                else document.getElementById('doc-alert').innerHTML = '<div class="alert alert-success">' + msgs.join('<br>') + '</div>';
+                document.getElementById('doc-alert').innerHTML =
+                    '<div class="alert alert-success">' + (msgs || []).join('<br>') + '</div>';
             }
-            function applyFieldErrors(errMap) {
-                Object.entries(errMap || {}).forEach(([name]) => {
-                    const el = document.querySelector(`[name="${name}"]`);
-                    if (el) el.classList.add('is-invalid');
+
+            // 2025.10.16 Changed: date input 값 포함 수집
+            function collectFromGrid() {
+                document.querySelectorAll('#xlPreview td[data-key]').forEach(td => {
+                    const key = td.getAttribute('data-key');
+                    const dateInput = td.querySelector('input[type="date"]');
+                    const val = dateInput ? (dateInput.value || '') : (td.textContent ?? '');
+                    payloadInputs[key] = val;
                 });
             }
-        })();
 
-        // 2025.10.15 Changed: 동적 자산 로더는 기존대로 유지(필요 시 외부 도입 시점에서 마운트)
-        window.__composeMounted = window.__composeMounted || false;
-
-        (function mountPreviewFallback() {
-            if (window.__composeMounted) return;
-            const hasGlobal =
-                (window.DOCTLMAP && (window.DOCTLMAP.mount || window.DOCTLMAP.mountPreview)) ||
-                (window.DocTLPreview && window.DocTLPreview.mount);
-            if (!hasGlobal) {
-                const el = document.getElementById('xlPreview');
-                if (el && !el.textContent.trim()) el.textContent = S('DOC_Msg_PreviewFallback');
-            }
-        })();
-
-        const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js";
-        const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";
-
-        function ensureCss(href) {
-            return new Promise((resolve, reject) => {
-                if (!href) return resolve();
-                const exist = Array.from(document.styleSheets).some(s => s.href && s.href.indexOf(href) >= 0);
-                if (exist) return resolve();
-                const link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.href = href;
-                link.onload = () => resolve();
-                link.onerror = () => reject(new Error('css load fail'));
-                document.head.appendChild(link);
-            });
-        }
-        function ensureScript(src) {
-            return new Promise((resolve, reject) => {
-                if (!src) return resolve();
-                const exist = Array.from(document.scripts).some(s => s.src && s.src.indexOf(src) >= 0);
-                if (exist) return resolve();
-                const sc = document.createElement('script');
-                sc.src = src;
-                sc.onload = () => resolve();
-                sc.onerror = () => reject(new Error('js load fail'));
-                document.head.appendChild(sc);
-            });
-        }
-
-        async function ensureAssetsAndMount() {
-            try {
-                await ensureCss(ASSET_CSS);
-                await ensureScript(ASSET_JS);
-
-                if (window.__composeMounted) return;
-
-                if (window.DOCTLMAP?.mount) {
-                    window.DOCTLMAP.mount('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.15 Changed
-                } else if (window.DocTLPreview?.mount) {
-                    window.DocTLPreview.mount('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.15 Changed
-                } else if (window.DOCTLMAP?.mountPreview) {
-                    window.DOCTLMAP.mountPreview('#xlPreview', preview);
-                    window.__composeMounted = true; // 2025.10.15 Changed
-                } else {
-                    const el = document.getElementById('xlPreview');
-                    if (el && !el.textContent.trim()) el.textContent = S('DOC_Msg_PreviewFallback');
+            function toIsoDateOrEmpty(text) {
+                if (!text) return '';
+                const m1 = String(text).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+                if (m1) {
+                    const y = m1[1], m = m1[2].padStart(2, '0'), d = m1[3].padStart(2, '0');
+                    return `${y}-${m}-${d}`;
                 }
-            } catch {
-                location.href = '/Doc/New';
+                const m2 = String(text).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+                if (m2) {
+                    const y = m2[1], m = m2[2].padStart(2, '0'), d = m2[3].padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                }
+                return '';
             }
-        }
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', ensureAssetsAndMount, { once: true });
-        } else {
-            ensureAssetsAndMount();
-        }
+            // 2025.10.16 Changed: 경계 통합 + colgroup 너비 고정 + 자동 스케일
+            function mountPreviewEditable(sel, p, posMap) {
+                const host = document.querySelector(sel);
+                if (!host) return;
 
-        document.getElementById('btn-cancel')?.addEventListener('click', () => {
-            history.length > 1 ? history.back() : location.href = '/Doc/New';
-        });
+                if (!p || !Array.isArray(p.cells) || !p.cells.length) {
+                    host.innerHTML = '<div class="text-muted">DOC_Msg_PreviewFallback</div>';
+                    return;
+                }
+
+                const rows = p.rows || p.cells.length;
+                const cols = p.cols || Math.max(...p.cells.map(r => r.length));
+                const merges = Array.isArray(p.merges) ? p.merges : [];
+                const colW = Array.isArray(p.colW) ? p.colW : [];
+                const styles = (p.styles && typeof p.styles === 'object') ? p.styles : {};
+
+                // 병합 마스크
+                const mergeMap = new Map(); // "r-c" -> { master, rs, cs, covered }
+                for (const m of merges) {
+                    const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
+                    const rs = Math.max(1, r2 - r1 + 1), cs = Math.max(1, c2 - c1 + 1);
+                    const master = `${r1}-${c1}`; mergeMap.set(master, { master: true, rs, cs });
+                    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+                        const k = `${r}-${c}`; if (k !== master) mergeMap.set(k, { covered: true });
+                    }
+                }
+
+                // 스타일 그리드(경계 통합)
+                const styleGrid = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(null));
+                for (let r = 1; r <= rows; r++) {
+                    for (let c = 1; c <= cols; c++) {
+                        const key = `${r},${c}`;
+                        const st = styles[key] || {};
+                        const border = Object.assign({ l: 'None', r: 'None', t: 'None', b: 'None' }, st.border || {});
+                        styleGrid[r][c] = { font: st.font || null, align: st.align || null, fill: st.fill || null, border };
+                    }
+                }
+                function weight(name) {
+                    const s = String(name || '').toLowerCase();
+                    if (!s || s === 'none') return 0;
+                    if (s.includes('double')) return 6;
+                    if (s.includes('thick')) return 5;
+                    if (s.includes('mediumdashed') || s.includes('mediumdashdot') || s.includes('mediumdashdotdot')) return 4;
+                    if (s.includes('medium')) return 4;
+                    if (s.includes('dashed') || s.includes('dashdot') || s.includes('dashdotdot')) return 3;
+                    if (s.includes('dotted') || s.includes('hair')) return 2;
+                    return 1;
+                }
+                const stronger = (a, b) => weight(a) >= weight(b) ? a : b;
+                for (let r = 1; r <= rows; r++) {
+                    for (let c = 1; c <= cols; c++) {
+                        const cur = styleGrid[r][c]; if (!cur) continue;
+                        if (c < cols) {
+                            const right = styleGrid[r][c + 1];
+                            if (right) { const pick = stronger(cur.border.r, right.border.l); cur.border.r = pick; right.border.l = pick; }
+                        }
+                        if (r < rows) {
+                            const down = styleGrid[r + 1][c];
+                            if (down) { const pick = stronger(cur.border.b, down.border.t); cur.border.b = pick; down.border.t = pick; }
+                        }
+                    }
+                }
+
+                // 테이블 생성
+                const tbl = document.createElement('table'); tbl.className = 'xlfb';
+
+                // 2025.10.16 Added: colgroup으로 너비 고정
+                const colgroup = document.createElement('colgroup');
+                let sheetWidthPx = 0;
+                for (let c = 1; c <= cols; c++) {
+                    const cg = document.createElement('col');
+                    const px = excelColWidthToPx(colW[c - 1] ?? 8.43);
+                    cg.style.width = px + 'px';
+                    sheetWidthPx += px;
+                    colgroup.appendChild(cg);
+                }
+                tbl.appendChild(colgroup);
+
+                // 헤더(숨김 처리되지만 DOM은 유지)
+                const thead = document.createElement('thead');
+                const thr = document.createElement('tr');
+                const thBlank = document.createElement('th'); thBlank.textContent = ''; thr.append(thBlank);
+                for (let c = 1; c <= cols; c++) { const t = document.createElement('th'); t.textContent = ''; thr.append(t); }
+                thead.append(thr); tbl.append(thead);
+
+                // 바디
+                const tbody = document.createElement('tbody');
+                for (let r = 1; r <= rows; r++) {
+                    const tr = document.createElement('tr');
+                    const rth = document.createElement('th'); rth.textContent = ''; tr.append(rth); // 숨김
+                    for (let c = 1; c <= cols; c++) {
+                        const key = `${r}-${c}`, mm = mergeMap.get(key);
+                        if (mm && mm.covered) continue;
+                        const td = document.createElement('td');
+                        if (mm && mm.master) {
+                            if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs));
+                            if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs));
+                            td.classList.add('merge');
+                        }
+
+                        const val = (p.cells[r - 1]?.[c - 1] ?? '');
+                        td.textContent = (val === '' ? '' : String(val));
+
+                        // 스타일 적용
+                        applyStyle(td, styleGrid[r][c]);
+
+                        // 편집 (Date → input[type=date])
+                        const mapKey = `${r},${c}`;
+                        const meta = posMap.get(mapKey);
+                        const fieldKey = meta?.key;
+                        const fieldType = (meta?.type || 'Text').toLowerCase();
+                        const isEditable = !!fieldKey && (!(mm && !mm.master));
+
+                        if (isEditable) {
+                            if (fieldType === 'date') {
+                                const input = document.createElement('input');
+                                input.type = 'date';
+                                input.className = 'eb-input-date';
+                                input.value = toIsoDateOrEmpty(payloadInputs[fieldKey] ?? td.textContent ?? '');
+                                td.textContent = '';
+                                td.appendChild(input);
+                                td.setAttribute('data-key', fieldKey);
+                                input.addEventListener('change', () => { payloadInputs[fieldKey] = input.value || ''; });
+                                input.addEventListener('blur', () => { payloadInputs[fieldKey] = input.value || ''; });
+                                if (!(fieldKey in payloadInputs)) payloadInputs[fieldKey] = input.value || '';
+                            } else {
+                                td.setAttribute('contenteditable', 'true');
+                                td.classList.add('eb-editable');
+                                td.setAttribute('data-key', fieldKey);
+                                if (typeof payloadInputs[fieldKey] === 'string') td.textContent = payloadInputs[fieldKey];
+                                td.addEventListener('keydown', (ev) => {
+                                    if (ev.key === 'Enter') { ev.preventDefault(); document.execCommand('insertLineBreak'); }
+                                });
+                                td.addEventListener('input', () => {
+                                    payloadInputs[fieldKey] = td.textContent ?? '';
+                                });
+                            }
+                        }
+                        tr.append(td);
+                    }
+                    tbody.append(tr);
+                }
+                tbl.append(tbody);
+
+                host.innerHTML = ''; host.append(tbl);
+                requestAnimationFrame(() => autoScale(tbl, host));
+
+                // 컨테이너 폭에 자동 스케일
+                autoScale(tbl, host, sheetWidthPx);
+
+                // 내부: 테두리/서식 매핑
+                function applyStyle(td, st) {
+                    if (!st || typeof st !== 'object') return;
+                    if (st.font) {
+                        if (st.font.name) td.style.fontFamily = st.font.name;
+
+                        // ✨ pt -> px 변환
+                        const ptToPx = (pt) => Math.round((Number(pt) || 0) * (96 / 72));
+                        if (st.font.size) td.style.fontSize = ptToPx(st.font.size) + 'px';
+
+                        if (st.font.bold) td.style.fontWeight = '700';
+                        if (st.font.italic) td.style.fontStyle = 'italic';
+                        if (st.font.underline) td.style.textDecoration = 'underline';
+                    }
+                    if (st.align) {
+                        const h = String(st.align.h || '').toLowerCase();
+                        td.classList.remove('ta-left', 'ta-center', 'ta-right');
+                        if (h === 'center') td.classList.add('ta-center');
+                        else if (h === 'right') td.classList.add('ta-right');
+                        else td.classList.add('ta-left');
+
+                        const v = String(st.align.v || '').toLowerCase();
+                        td.classList.remove('va-top', 'va-middle', 'va-bottom');
+                        if (v === 'top') td.classList.add('va-top');
+                        else if (v === 'center' || v === 'middle') td.classList.add('va-middle');
+                        else if (v === 'bottom') td.classList.add('va-bottom');
+
+                        if (st.align.wrap) td.classList.add('wrap');
+                    }
+                    if (st.fill && st.fill.bg) td.style.backgroundColor = st.fill.bg;
+
+                    const cssOf = (name) => {
+                        const s = String(name || '').toLowerCase();
+                        if (!s || s === 'none') return { w: 0, sty: 'none' };
+                        if (s.includes('double')) return { w: 3, sty: 'double' };
+                        if (s.includes('mediumdashdotdot')) return { w: 2, sty: 'dashed' };
+                        if (s.includes('mediumdashdot')) return { w: 2, sty: 'dashed' };
+                        if (s.includes('mediumdashed')) return { w: 2, sty: 'dashed' };
+                        if (s.includes('dashdotdot')) return { w: 1, sty: 'dashed' };
+                        if (s.includes('dashdot')) return { w: 1, sty: 'dashed' };
+                        if (s.includes('dashed')) return { w: 1, sty: 'dashed' };
+                        if (s.includes('dotted') || s.includes('hair')) return { w: 1, sty: 'dotted' };
+                        if (s.includes('thick')) return { w: 3, sty: 'solid' };
+                        if (s.includes('medium')) return { w: 2, sty: 'solid' };
+                        return { w: 1, sty: 'solid' };
+                    };
+                    const color = '#000000';
+                    if (st.border) {
+                        const L = cssOf(st.border.l), R = cssOf(st.border.r), T = cssOf(st.border.t), B = cssOf(st.border.b);
+                        td.style.borderLeft = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
+                        td.style.borderRight = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
+                        td.style.borderTop = T.w ? `${T.w}px ${T.sty} ${color}` : 'none';
+                        td.style.borderBottom = B.w ? `${B.w}px ${B.sty} ${color}` : 'none';
+                    }
+                }
+            }
+
+            // 2025.10.16 Added: 컨테이너 폭에 맞게 scale 적용
+            function autoScale(tableEl, hostEl) {
+                if (!tableEl || !hostEl) return;
+
+                // 컨테이너 사용 가능 폭(패딩/스크롤 여유 -14px)
+                const hostW = Math.max(120, hostEl.clientWidth - 14);
+
+                // 자연 폭 측정: scale=1에서 scrollWidth 사용
+                const prev = tableEl.style.transform;
+                tableEl.style.transform = 'scale(1)';
+                const naturalW = Math.max(tableEl.scrollWidth, tableEl.getBoundingClientRect().width);
+                tableEl.style.transform = prev;
+
+                if (!naturalW || !isFinite(naturalW)) {
+                    tableEl.style.transform = 'scale(1)';
+                    return;
+                }
+
+                // 축소는 금지(최소 1), 가로 스크롤 방지를 위해 2px 여유
+                const rawScale = (hostW - 2) / naturalW;
+                const scale = Math.max(1, Math.min(2.5, rawScale));
+
+                tableEl.style.transformOrigin = 'top left';
+                tableEl.style.transform = `scale(${scale})`;
+            }
+        })();
     </script>
 }
