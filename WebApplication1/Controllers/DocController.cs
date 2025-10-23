@@ -1,6 +1,7 @@
 ﻿// 2025.10.16 Final: ToHex() 제거 → ToHexIfRgb(IXLCell) 헬퍼 도입
 // 2025.10.16 Final: BuildPreviewJsonFromExcel()로 스타일/병합/열폭 포함 미리보기 생성
 // 2025.10.16 Final: DocTL 디스크립터 → Compose 스키마 자동 변환 및 PreviewJson 안전 보장
+// 2025.10.16 Final: flowGroups 자동 생성(ORDER BY [Key], A1) 주입 → 템플릿별 3B 흘려쓰기 공통화
 
 using System;
 using System.Collections.Generic;
@@ -23,7 +24,7 @@ using Microsoft.EntityFrameworkCore;
 using WebApplication1.Models;
 using WebApplication1.Data;
 using WebApplication1.Services;
-
+using System.Text.Encodings.Web;
 
 namespace WebApplication1.Controllers
 {
@@ -168,6 +169,9 @@ namespace WebApplication1.Controllers
                 catch { /* 폴백 유지 */ }
             }
 
+            // ★ DocTL 스키마 → Compose 변환 + flowGroups 자동 주입 (ORDER BY [Key], A1)
+            descriptorJson = BuildDescriptorJsonWithFlowGroups(templateCode, descriptorJson);
+
             ViewBag.DescriptorJson = descriptorJson;
             ViewBag.PreviewJson = previewJson;
             ViewBag.TemplateTitle = meta.templateTitle ?? string.Empty;
@@ -198,6 +202,7 @@ namespace WebApplication1.Controllers
                 return false;
             }
         }
+
         // ---------- CSRF ----------
 
         [HttpGet]
@@ -231,22 +236,16 @@ namespace WebApplication1.Controllers
             {
                 outputPath = await GenerateExcelFromInputsAsync(versionId, excelPath, dto.inputs ?? new(), dto.descriptorVersion);
             }
-            catch (Exception ex)
+            catch
             {
-                // 필요 시 로깅
-                // _logger.LogError(ex, "Excel generation failed");
                 return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" } });
             }
-
-            // TODO: 여기서 DB에 문서 레코드 저장/첨부 등록 등이 필요하다면 구현
-            // var newDocId = SaveDocumentRow(..., outputPath, dto.inputs, dto.approvals);
 
             // 3) 저장 후 이동
             var redirectUrl = Url.Action(nameof(Details), "Doc", new { id = System.IO.Path.GetFileNameWithoutExtension(outputPath) })
                               ?? "/Doc/Details";
             return Json(new { redirectUrl });
         }
-
 
         // ---------- Details ----------
         [HttpGet]
@@ -287,6 +286,27 @@ namespace WebApplication1.Controllers
 
         private record InputField(string? Key, string? Type, bool Required, string? A1);
         private record ApprovalField(string? RoleKey, string? ApproverType, bool Required, string? Value);
+
+        // Compose 디스크립터 DTO (flowGroups 주입용)
+        private sealed class DescriptorDto
+        {
+            public string? version { get; set; }
+            public List<InputFieldDto>? inputs { get; set; }
+            public Dictionary<string, object>? styles { get; set; }
+            public List<object>? approvals { get; set; }
+            public List<FlowGroupDto>? flowGroups { get; set; }
+        }
+        private sealed class InputFieldDto
+        {
+            public string key { get; set; } = "";
+            public string? a1 { get; set; }
+            public string? type { get; set; }
+        }
+        private sealed class FlowGroupDto
+        {
+            public string id { get; set; } = "";
+            public List<string> keys { get; set; } = new();
+        }
 
         private Descriptor LoadDescriptor(string templateCode)
         {
@@ -423,8 +443,6 @@ ORDER BY v.VersionNo DESC;", conn))
             return (descriptorJson, previewJson, templateTitle);
         }
 
-
-
         // ---------- DocTL → Compose 변환기 ----------
 
         private static string ConvertDescriptorIfNeeded(string? json)
@@ -498,6 +516,7 @@ ORDER BY v.VersionNo DESC;", conn))
                 return (t == "Person" || t == "Role" || t == "Rule") ? t : "Person";
             }
         }
+
         private static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
         {
             doc = null!;
@@ -522,6 +541,7 @@ ORDER BY v.VersionNo DESC;", conn))
                 return false;
             }
         }
+
         // ---------- Preview JSON 안전 보장 ----------
 
         private static string EnsurePreviewJsonSafe(string? previewJson)
@@ -550,7 +570,11 @@ ORDER BY v.VersionNo DESC;", conn))
         private static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
         {
             using var wb = new XLWorkbook(excelPath);
-            var ws0 = wb.Worksheets.FirstOrDefault() ?? throw new InvalidOperationException("No worksheet.");
+            var ws0 = wb.Worksheets.First();
+
+            // 워크시트 기본값
+            double defaultRowPt = ws0.RowHeight; if (defaultRowPt <= 0) defaultRowPt = 15.0;
+            double defaultColChar = ws0.ColumnWidth; if (defaultColChar <= 0) defaultColChar = 8.43;
 
             // 1) 셀 값
             var cells = new List<List<string>>(maxRows);
@@ -575,19 +599,31 @@ ORDER BY v.VersionNo DESC;", conn))
                 if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
             }
 
-            // 3) 열 폭
+            // 3) 열 너비
             var colW = new List<double>(maxCols);
-            for (int c = 1; c <= maxCols; c++) colW.Add(ws0.Column(c).Width);
+            for (int c = 1; c <= maxCols; c++)
+            {
+                var w = ws0.Column(c).Width;
+                if (w <= 0) w = defaultColChar;
+                colW.Add(w);
+            }
 
-            // 4) 스타일(필요 시 확장 가능)
-            var styles = new Dictionary<string, object>();
+            // 4) 행 높이(포인트)
+            var rowH = new List<double>(maxRows);
             for (int r = 1; r <= maxRows; r++)
             {
+                var h = ws0.Row(r).Height;
+                if (h <= 0) h = defaultRowPt;
+                rowH.Add(h);
+            }
+
+            // 5) 스타일
+            var styles = new Dictionary<string, object>();
+            for (int r = 1; r <= maxRows; r++)
                 for (int c = 1; c <= maxCols; c++)
                 {
                     var cell = ws0.Cell(r, c);
                     var st = cell.Style;
-
                     string? bgHex = ToHexIfRgb(cell);
 
                     styles[$"{r},{c}"] = new
@@ -613,15 +649,11 @@ ORDER BY v.VersionNo DESC;", conn))
                             t = st.Border.TopBorder.ToString(),
                             b = st.Border.BottomBorder.ToString()
                         },
-                        fill = new
-                        {
-                            bg = bgHex // null이면 프런트에서 기본값 처리
-                        }
+                        fill = new { bg = bgHex }
                     };
                 }
-            }
 
-            // 5) 직렬화
+            // 6) 직렬화 — rowH 포함
             return JsonSerializer.Serialize(new
             {
                 sheet = ws0.Name,
@@ -630,6 +662,7 @@ ORDER BY v.VersionNo DESC;", conn))
                 cells,
                 merges,
                 colW,
+                rowH,
                 styles
             });
         }
@@ -650,7 +683,7 @@ ORDER BY v.VersionNo DESC;", conn))
             catch { /* ignore */ }
             return null;
         }
-        //
+
         /// <summary>
         /// DocTemplateField(VersionId) 매핑을 기준으로 inputs를 엑셀에 채워 산출물을 만든다.
         /// </summary>
@@ -721,8 +754,6 @@ ORDER BY Id;";
                         if (DateTime.TryParse(raw, out var dt))
                         {
                             cell.SetValue(dt);
-                            // 기존 서식 유지(템플릿이 갖고 있던 NumberFormat 사용),
-                            // 필요 시: cell.Style.DateFormat.Format = "yyyy-mm-dd";
                         }
                         else
                         {
@@ -734,7 +765,6 @@ ORDER BY Id;";
                         if (decimal.TryParse(raw, out var dec))
                         {
                             cell.Value = dec;
-                            // 기존 NumberFormat 유지
                         }
                         else
                         {
@@ -778,6 +808,143 @@ ORDER BY Id;";
                 if (s.StartsWith("num") || s.Contains("number") || s.Contains("decimal") || s.Contains("integer")) return "Num";
                 return "Text";
             }
+        }
+
+        // ================== 여기부터 flowGroups 자동 주입 로직 ==================
+
+        /// <summary>
+        /// DocTL/Compose 여부와 상관없이 descriptor JSON을 Compose 스키마로 정규화한 뒤
+        /// DB의 DocTemplateField를 사용해 flowGroups를 자동 생성하여 주입합니다.
+        /// </summary>
+        private string BuildDescriptorJsonWithFlowGroups(string templateCode, string rawDescriptorJson)
+        {
+            // 1) 스키마 정규화
+            var normalized = ConvertDescriptorIfNeeded(rawDescriptorJson);
+
+            // 2) 최신 VersionId
+            var versionId = GetLatestVersionId(templateCode);
+            if (versionId <= 0) return normalized;
+
+            // 3) 그룹 계산
+            var groups = BuildFlowGroupsForTemplate(versionId);
+
+            // 4) JSON에 주입
+            DescriptorDto desc;
+            try
+            {
+                desc = JsonSerializer.Deserialize<DescriptorDto>(normalized) ?? new DescriptorDto();
+            }
+            catch
+            {
+                desc = new DescriptorDto();
+            }
+            desc.flowGroups = groups;
+
+            var json = JsonSerializer.Serialize(
+                desc,
+                new JsonSerializerOptions
+                {
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    WriteIndented = false
+                });
+
+            return json;
+        }
+
+        /// <summary>
+        /// 템플릿 코드로 최신 VersionId 조회
+        /// </summary>
+        private long GetLatestVersionId(string templateCode)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            if (string.IsNullOrWhiteSpace(cs)) return 0;
+
+            try
+            {
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+                // 스키마에 따라 v.Id 또는 v.VersionId 사용
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1
+    COALESCE(CAST(v.Id AS BIGINT), CAST(v.VersionId AS BIGINT)) AS VersionId
+FROM DocTemplateMaster m
+JOIN DocTemplateVersion v ON v.TemplateId = m.Id
+WHERE m.DocCode = @code
+ORDER BY v.VersionNo DESC;", conn);
+                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode ?? string.Empty });
+                var obj = cmd.ExecuteScalar();
+                if (obj is long l) return l;
+                if (obj is int i) return i;
+                if (obj != null && long.TryParse(obj.ToString(), out var p)) return p;
+            }
+            catch { /* ignore */ }
+            return 0;
+        }
+
+        /// <summary>
+        /// DocTemplateField(VersionId)에서 [Key], A1, Row/Col을 읽어
+        /// 1) GROUP: 접두어(끝 "_숫자" 제거) 기준
+        /// 2) ORDER: (a) 숫자 인덱스 있으면 숫자순 → (b) 없으면 A1 → Row → Col
+        /// 로 Keys 배열을 만들고, 한 개짜리 그룹은 제외합니다.
+        /// </summary>
+        private List<FlowGroupDto> BuildFlowGroupsForTemplate(long versionId)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            var rows = new List<(string Key, string? A1, int Row, int Col, string BaseKey, int? Index)>();
+
+            using (var conn = new SqlConnection(cs))
+            {
+                conn.Open();
+                using var cmd = new SqlCommand(@"
+SELECT [Key], A1, CellRow, CellColumn
+FROM dbo.DocTemplateField
+WHERE VersionId = @vid AND [Key] IS NOT NULL
+ORDER BY [Key], A1;", conn);
+                cmd.Parameters.Add(new SqlParameter("@vid", SqlDbType.BigInt) { Value = versionId });
+                using var rd = cmd.ExecuteReader();
+                while (rd.Read())
+                {
+                    var key = rd["Key"] as string ?? "";
+                    var a1 = rd["A1"] as string;
+                    var r = rd["CellRow"] is DBNull ? 0 : Convert.ToInt32(rd["CellRow"]);
+                    var c = rd["CellColumn"] is DBNull ? 0 : Convert.ToInt32(rd["CellColumn"]);
+                    var (baseKey, idx) = ParseKey(key);
+                    rows.Add((key, a1, r, c, baseKey, idx));
+                }
+            }
+
+            var groups = rows
+                .GroupBy(x => x.BaseKey)
+                .Select(g =>
+                {
+                    var ordered = g
+                        .OrderBy(x => x.Index.HasValue ? 0 : 1)
+                        .ThenBy(x => x.Index)
+                        .ThenBy(x => x.A1)         // A1이 null이면 아래로
+                        .ThenBy(x => x.Row)
+                        .ThenBy(x => x.Col)
+                        .Select(x => x.Key)
+                        .ToList();
+
+                    return new FlowGroupDto { id = g.Key, keys = ordered };
+                })
+                .Where(g => g.keys.Count > 1) // 한 개짜리는 제외(의미 없음)
+                .ToList();
+
+            return groups;
+        }
+
+        /// <summary>
+        /// Key 끝에 "_숫자"가 있으면 (접두어, 숫자) 반환. 없으면 (원키, null)
+        /// 예) "진행업무_26" → ("진행업무", 26)
+        /// </summary>
+        private static (string BaseKey, int? Index) ParseKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return ("", null);
+            var i = key.LastIndexOf('_');
+            if (i > 0 && int.TryParse(key[(i + 1)..], out var n))
+                return (key[..i], n);
+            return (key, null);
         }
     }
 }

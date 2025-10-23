@@ -409,7 +409,8 @@ namespace WebApplication1.Controllers
                     var a1 = $"{letters}{start + 1}:{letters}{end + 1}";
                     result.Add(new FieldDef
                     {
-                        Key = hasBase ? $"{baseKey}_{{n}}" : f0.Key,
+                        //Key = hasBase ? $"{baseKey}_{{n}}" : f0.Key,
+                        Key = hasBase ? $"{baseKey}" : f0.Key,
                         Type = f0.Type,
                         Cell = new CellRef
                         {
@@ -510,17 +511,22 @@ namespace WebApplication1.Controllers
                 return RedirectToRoute("DocumentTemplates.Index");
             }
 
-            if (desc != null && desc.Fields != null && desc.Fields.Count > 0)
-            {
-                bool safeToCollapse = desc.Fields.All(f =>
-                    f?.Cell != null &&
-                    f.Cell.RowSpan <= 1 &&
-                    f.Cell.ColSpan <= 1 &&
-                    f.Cell.Row >= 0 &&
-                    f.Cell.Column >= 0);
+            // 매핑 필드 그룹화
+            //if (desc != null && desc.Fields != null && desc.Fields.Count > 0)
+            //{
+            //    bool safeToCollapse = desc.Fields.All(f =>
+            //        f?.Cell != null &&
+            //        f.Cell.RowSpan <= 1 &&
+            //        f.Cell.ColSpan <= 1 &&
+            //        f.Cell.Row >= 0 &&
+            //        f.Cell.Column >= 0);
 
-                if (safeToCollapse)
-                    desc.Fields = CollapseFieldsForUI(desc.Fields);
+            //    if (safeToCollapse)
+            //        desc.Fields = CollapseFieldsForUI(desc.Fields);
+            //}
+            if (desc?.Fields?.Count > 0)
+            {
+                desc.Fields = CollapseFieldsForUI(desc.Fields);
             }
             var descriptorJsonForUi = JsonSerializer.Serialize(desc, new JsonSerializerOptions { WriteIndented = true });
 

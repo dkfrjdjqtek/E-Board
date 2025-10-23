@@ -1,0 +1,173 @@
+﻿/* 2025.10.23 Added: VirtualPad 기반 단일 원본 버퍼 도입(셀은 뷰 전용) */
+/* 2025.10.23 Added: 그룹별 padMap/getPad/renderFromPad 추가 및 beforeinput를 pad만 갱신하도록 변경 */
+/* 2025.10.23 Added: 초기화 시 pad 생성 → 재랩 렌더 */
+
+/* ====== (1) 그래핌/정규화 유틸 아래에 "VirtualPad" 클래스 추가 ====== */
+// 위치: normalizeInput / splitGraphemes / countGraphemes / sliceGraphemes 정의 "바로 아래"에 추가
+// 기존 함수/이름 변경 없음
+// 2025.10.23 Added: VirtualPad
+class VirtualPad {
+    constructor(measureFn, cellCount) {
+        this._measure = measureFn;      // (cellIdx,text) => capG
+        this._n = cellCount;
+        this._text = "";                // \n 포함 단일 원본
+        this._caretG = 0;               // 그래핌 기준 전역 캐럿
+    }
+    fromCells(arr) { this._text = (arr || []).map(s => s || '').join('\n'); this._caretG = countGraphemes(this._text); }
+    get text() { return this._text; }
+    setCaretG(g) { const L = countGraphemes(this._text); this._caretG = Math.max(0, Math.min(L, g|0)); }
+    getCaretG() { return this._caretG; }
+
+    insertText(s) {
+        s = normalizeInput(String(s || ''));
+        const left = sliceGraphemes(this._text, 0, this._caretG);
+        const right = sliceGraphemes(this._text, this._caretG);
+        this._text = left + s + right;
+        this._caretG += countGraphemes(s);
+    }
+    insertNewline() { this.insertText('\n'); }
+    backspace() {
+        if (this._caretG === 0) return;
+        const left = sliceGraphemes(this._text, 0, this._caretG - 1);
+        const right = sliceGraphemes(this._text, this._caretG);
+        this._text = left + right; this._caretG -= 1;
+    }
+    del() {
+        const total = countGraphemes(this._text);
+        if (this._caretG >= total) return;
+        const left = sliceGraphemes(this._text, 0, this._caretG);
+        const right = sliceGraphemes(this._text, this._caretG + 1);
+        this._text = left + right;
+    }
+
+    // 원본을 셀 폭에 맞춰 재랩하여 n개 셀 문자열 반환
+    wrapToCells() {
+        const outs = new Array(this._n).fill('');
+        let remain = normalizeInput(this._text).replace(/\r\n?/g, '\n');
+        let i = 0;
+        while (i < outs.length && remain.length) {
+            // 줄 경계 우선
+            const nl = remain.indexOf('\n');
+            let chunk = remain, rest = '';
+            if (nl >= 0) { chunk = remain.slice(0, nl); rest = remain.slice(nl + 1); }
+
+            while (i < outs.length && chunk.length) {
+                const capG = Math.max(1, this._measure(i, chunk));
+                const take = sliceGraphemes(chunk, 0, capG);
+                outs[i++] = take;
+                chunk = sliceGraphemes(chunk, capG);
+            }
+            remain = chunk.length ? chunk + (rest ? ('\n' + rest) : '') : rest;
+        }
+        return outs;
+    }
+    // 전역 캐럿을 재랩 배열 내 (셀index, 로컬G)로 투영
+    caretToCellOffset(wrapped, measureRefill) {
+        // measureRefill: (i, text) => capG  (기존 measure와 동일)
+        const lines = this._text.split('\n');
+        let gSeen = 0, target = this._caretG, cellIdx = 0;
+
+        for (let li = 0; li < lines.length; li++) {
+            let line = lines[li];
+            while (line.length && cellIdx < wrapped.length) {
+                const capG = Math.max(1, measureRefill(cellIdx, line));
+                const take = sliceGraphemes(line, 0, capG);
+                const lenG = countGraphemes(take);
+                if (gSeen + lenG >= target) return { idx: cellIdx, localG: target - gSeen };
+                gSeen += lenG; line = sliceGraphemes(line, capG); cellIdx++;
+            }
+            if (li < lines.length - 1) {
+                if (gSeen === target) return { idx: Math.min(cellIdx, wrapped.length - 1), localG: 0 };
+                gSeen += 1; // '\n'
+            }
+        }
+        const last = Math.max(0, Math.min(wrapped.length - 1, cellIdx - 1));
+        return { idx: last, localG: countGraphemes(wrapped[last] || '') };
+    }
+}
+
+/* ====== (2) setupDelegatedAutoFlow 내부 변경 ====== */
+// 위치: function setupDelegatedAutoFlow(desc) { ... } 내부, 기존 코드 유지
+// 아래 3개 유틸을 "readCells" 선언 뒤, 이벤트 바인딩들보다 위에 추가
+// 2025.10.23 Added: padMap/getPad/renderFromPad
+const padMap = new Map(); // groupId -> VirtualPad
+function getPad(groupId) {
+    if (!padMap.has(groupId)) {
+        const cells = readCells(groupKeys[groupId]);
+        const n = Math.max(0, cells.length);
+        const measure = (cellIdx, text) => n ? fitLengthForCell(cells[cellIdx], text) : 1;
+        const pad = new VirtualPad(measure, n);
+        pad.fromCells(n ? cells.map(d => d.textContent || '') : []);
+        padMap.set(groupId, pad);
+    }
+    return padMap.get(groupId);
+}
+
+function renderFromPad(groupId) {
+    const cells = readCells(groupKeys[groupId]);
+    const pad = getPad(groupId);
+    const outs = pad.wrapToCells();
+
+    for (let i = 0; i < cells.length; i++) {
+        const s = outs[i] || '';
+        cells[i].textContent = s;
+        const td = cells[i].closest('td[data-key]');
+        const key = td?.getAttribute('data-key');
+        if (key) payloadInputs[key] = s;
+    }
+
+    const measure = (cellIdx, text) => fitLengthForCell(cells[cellIdx], text);
+    const pos = pad.caretToCellOffset(outs, measure);
+
+    // ⬇️ 경계 보정
+    const safeIdx = Math.min(Math.max(pos?.idx ?? 0, 0), Math.max(cells.length - 1, 0));
+    const maxLocalG = countGraphemes(cells[safeIdx]?.textContent || '');
+    const safeLocalG = Math.max(0, Math.min(pos?.localG ?? 0, maxLocalG));
+
+    if (cells[safeIdx]) placeCaretG(cells[safeIdx], safeLocalG);
+}
+
+/* ====== (3) beforeinput 핸들러를 VirtualPad 갱신형으로 교체 ====== */
+// 위치: container.addEventListener('beforeinput', (ev) => { ... }) 블럭 전체를 아래로 교체
+// 2025.10.23 Changed: pad만 갱신 → renderFromPad 호출
+container.addEventListener('beforeinput', (ev) => {
+    const target = ev.target; if (!(target instanceof Element)) return;
+    const td = target.closest('td[data-key]'); if (!td) return;
+    const key = td.getAttribute('data-key'); const groupId = keyToGroup.get(key); if (groupId == null) return;
+
+    ev.preventDefault(); if (composing) return;
+
+    const cells = readCells(groupKeys[groupId]); const idx = cells.findIndex(d => d === target); if (idx < 0) return;
+
+    const pad = getPad(groupId);
+
+    // 현재 전역 캐럿 = 그룹 내 누적 그래핌 + 로컬 그래핌
+    const lens = cells.map(d => countGraphemes(d.textContent || ''));
+    let gBase = 0; for (let i = 0; i < idx; i++) gBase += lens[i];
+    const localG = caretOffsetInG(target);
+    pad.setCaretG(gBase + localG);
+
+    const t = ev.inputType;
+    if (t === 'insertText' && ev.data) {
+        pad.insertText(ev.data);
+    } else if (t === 'insertFromPaste') {
+        const clipRaw = (ev.dataTransfer?.getData('text/plain') ?? '');
+        pad.insertText(normalizeInput(clipRaw).replace(/\r\n?/g, '\n'));
+    } else if (t === 'insertParagraph' || t === 'insertLineBreak') {
+        pad.insertNewline();
+    } else if (t === 'deleteContentBackward') {
+        pad.backspace();
+    } else if (t === 'deleteContentForward') {
+        pad.del();
+    } else {
+        return;
+    }
+    renderFromPad(groupId);
+});
+
+/* ====== (4) 그룹 초기화 시 pad 생성 후 표준 렌더 ====== */
+// 위치: setupDelegatedAutoFlow 마지막 초기 분배 구간
+// 기존: groupKeys.forEach((_, i) => { writeMaster(i, normalizeInput(ensureMaster(i))); distribute(i); });
+// 아래로 교체
+// 2025.10.23 Changed: pad 기반 초기 렌더
+groupKeys.forEach((_, i) => { getPad(i); renderFromPad(i); });

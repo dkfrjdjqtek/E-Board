@@ -1,110 +1,205 @@
-﻿@* 2025.10.16 Changed: 미리보기 카드 제목 숨김 토글(HIDE_PREVIEW_LABEL) 추가 *@
-@* 2025.10.16 Changed: 엑셀 열 너비 px 변환식 적용 + <colgroup>로 고정 → 병합셀에서도 정확한 너비 유지 *@
-@* 2025.10.16 Changed: 시트 총너비를 컨테이너 폭에 자동 맞춤(scale) 적용(최대 2배, 최소 0.5배) *@
-@* 2025.10.16 Changed: contenteditable 셀의 폭 확장 방지(overflow, word-break 보강) *@
-@* 2025.10.16 Changed: 날짜 타입(Date) 셀은 input[type=date]로 렌더 + 수집 로직 보강 *@
-@* 2025.10.16 Changed: 미리보기 헤더/열머리글 숨김(표시 X) *@
-
-@* Compose (End-User) — 미리보기에서 직접 입력 *@
-@using System.Text.Json
+﻿@* 2025.10.23 Final + DPR SNAP + Border Outline Fix + (Rendering ported from stable renderer)
+   - 한 블록(contenteditable)로 표시/입력/저장 일원화
+   - 라인그리드 정합(행높이=라인하이트, 상하 패딩 0)
+   - DPR 스냅(정수 경계 배치 + 소수 px 크기 유지)
+   - 테이블 외곽선 outline 보강(선 끊김/누락 방지)
+   - 2차 렌더러의 경계/폭/병합 계산 로직 이식
+   - 범위를 넘는 입력 하드 클램프
+   - 합성계층 고정으로 흔들림 완화 *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DOC_Title_Compose"];
-
     var templateCode = (string?)ViewBag.TemplateCode
                         ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);
     var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
 
     var descJson = (string?)ViewBag.DescriptorJson ?? "{}";
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
-
-    // 엔드유저는 입력/결재 테이블을 숨김
-    var HIDE_SIDE_TABLES = true;
-
-    // 2025.10.16 Added: 미리보기 카드 제목 숨김
-    var HIDE_PREVIEW_LABEL = true;
 }
 
 <style>
-    /* 2025.10.16 Changed: 시트가 컨테이너 폭을 충분히 쓰도록 */
-    #xlPreview {
-        overflow: auto;
-        max-height: 78vh;
-        border: 1px solid #e5e7eb;
-        border-radius: .25rem;
-        background: #fff;
-        padding: 8px;
+    :root {
+        --left-gap: 0px;
+        --top-gap: 0px;
+        --bottom-gap: 0px;
+        --actions-h: 0px;
+        --action-btn-w: 140px;
+        --action-btn-h: 36px
     }
 
+    html, body {
+        height: 100%;
+        overflow: hidden
+    }
+
+    /* 스크롤 컨테이너 */
+    #appScroll {
+        position: fixed;
+        inset: var(--top-gap) 0 var(--bottom-gap) var(--left-gap);
+        overflow: auto;
+        scrollbar-gutter: stable; /* 수직만 고정 가로 여백 예약 금지 */
+        contain: layout paint;
+        background: transparent;
+        border: 0 !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    /* 래퍼: 내용 폭만큼만 차지 */
+    .hwrap {
+        display: block; /* 2025.10.23 Changed */
+        width: fit-content; /* 2025.10.23 Changed: 내용 실폭만큼 */
+        padding: 0 !important;
+        margin: 0 !important;
+        min-width: 0;
+        border: 0 !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    /* 내부 문서 컨테이너: container-xxl 기본 패딩이 폭을 늘리지 않도록 제거 */
+    .doc-body.container-xxl {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        max-width: none;
+        width: fit-content; /* 내용 폭만큼 */
+        margin-left: auto;
+        margin-right: auto;
+        border: 0 !important;
+        outline: none !important;
+        box-shadow: none !important;
+        background-clip: padding-box;
+    }
+
+    /* 2025.10.23 Changed: 액션영역이 부모 폭을 넘기지 않도록 고정 */
+    .form-actions {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
+        background: rgba(255,255,255,.95);
+        backdrop-filter: saturate(150%) blur(4px);
+        border-top: 1px solid #e9ecef;
+        padding: .5rem 0;
+        left: auto;
+        right: auto; /* 뷰포트로 확장 금지 */
+        width: 100%; /* 부모(.doc-body)의 fit-content 폭을 그대로 상속 */
+        max-width: none;
+        margin: 0;
+    }
+
+        .form-actions .container-xxl {
+            width: 100% !important; /* 부모 폭만큼(넘지 않음) */
+            max-width: none;
+            display: flex;
+            gap: .5rem;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-start;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+    .action-btn {
+        width: var(--action-btn-w);
+        height: var(--action-btn-h);
+        white-space: nowrap
+    }
+
+    /* ===== Preview(Table) ===== */
+    #xlPreview {
+        width: max-content;
+        overflow: visible;
+        border: 0;
+        padding: 0;
+        margin: 0 auto; /* 가운데 정렬 */
+        background: transparent;
+        position: relative;
+        isolation: isolate;
+        z-index: 0;
+        contain: paint;
+        will-change: contents;
+        transform: translateZ(0);
+        backface-visibility: hidden; /* 합성계층 고정 */
+        outline: none !important;
+    }
+
+    /* 표 테이블: 화면에서는 외곽선 제거, 인쇄에서만 보강 */
     .xlfb {
         border-collapse: collapse;
         table-layout: fixed;
-        width: max-content; /* colgroup로 고정 */
-        transform-origin: top left; /* scale 기준점 */
+        position: relative;
+        z-index: 0;
+        outline: none !important; /* 화면 외곽선 제거 */
+        outline-offset: 0 !important;
     }
 
-        /* 2025.10.16 Changed: 행/열 헤더 숨김 */
+        .xlfb td, .xlfb th {
+            box-sizing: border-box;
+            position: relative
+        }
+
         .xlfb thead, .xlfb tbody th {
-            display: none;
+            display: none
         }
 
         .xlfb td {
-            border: 1px solid #dfe1e5;
-            padding: .35rem .45rem;
-            font-size: .925rem;
-            line-height: 1.2;
+            padding: 0;
             vertical-align: middle;
-            overflow: hidden; /* 셀 폭 확장 방지 */
-            word-break: break-word; /* 긴 텍스트 줄바꿈 */
+            overflow: hidden;
+            word-break: break-word;
             overflow-wrap: anywhere;
-            white-space: pre-wrap; /* 줄바꿈 유지 */
+            white-space: pre-wrap;
         }
 
-        .xlfb .merge {
-            background-clip: padding-box;
-        }
-
-        .xlfb .wrap {
-            white-space: pre-line;
-        }
-
-        .xlfb .ta-left {
-            text-align: left
-        }
-
-        .xlfb .ta-center {
-            text-align: center
-        }
-
-        .xlfb .ta-right {
-            text-align: right
-        }
-
-        .xlfb .va-top {
-            vertical-align: top
-        }
-
-        .xlfb .va-middle {
-            vertical-align: middle
-        }
-
-        .xlfb .va-bottom {
-            vertical-align: bottom
-        }
-
-    /* 편집 가능 셀 강조 */
-    .eb-editable {
-        cursor: text;
-        background: #fffdf7;
+    /* 상위 컨테이너 및 가상요소에서 주입되는 프레임 요소 완전 차단 */
+    :where(.doc-body, .hwrap, #appScroll, form#doc-form, .container-xxl),
+    :where(.doc-body, .hwrap, #appScroll, form#doc-form, .container-xxl)::before,
+    :where(.doc-body, .hwrap, #appScroll, form#doc-form, .container-xxl)::after {
+        border: 0 !important;
+        outline: 0 !important;
+        box-shadow: none !important;
+        background-image: none !important;
     }
 
-        .eb-editable:focus {
-            outline: 2px solid rgba(13,110,253,.35);
-            outline-offset: -2px;
-        }
+    .cellc {
+        padding: .0rem .45rem; /* 세로패딩 0 → 라인=행높이 */
+        font-size: .925rem;
+        line-height: 1.2;
+        max-height: 100%;
+        overflow: hidden;
+        display: block;
+        box-sizing: border-box;
+    }
 
-    /* 2025.10.16 Added: 날짜 입력 */
+    .ta-left {
+        text-align: left
+    }
+
+    .ta-center {
+        text-align: center
+    }
+
+    .ta-right {
+        text-align: right
+    }
+
+    .va-top {
+        vertical-align: top
+    }
+
+    .va-middle {
+        vertical-align: middle
+    }
+
+    .va-bottom {
+        vertical-align: bottom
+    }
+
+    .wrap {
+        white-space: pre-line
+    }
+
     .eb-input-date {
         width: 100%;
         border: none;
@@ -113,407 +208,473 @@
         font: inherit;
         padding: 0;
         margin: 0;
-        height: 1.6em;
+        height: 1.6em
     }
 
-    .toolbar {
-        display: flex;
-        gap: .5rem;
-        align-items: center;
+    /* ===== 단일 렌더/입력 블록 ===== */
+    .eb-block {
+        position: absolute;
+        box-sizing: border-box;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        background: transparent;
+        color: inherit;
+        overflow: hidden;
+        scrollbar-width: none;
+        overscroll-behavior: contain;
+        outline: none;
+        -webkit-user-modify: read-write-plaintext-only;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        contain: paint;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
     }
 
-        .toolbar .muted {
-            color: #6b7280;
-            font-size: .9rem;
+        .eb-block:hover {
+            outline: 1px dashed #d4c36a
         }
+
+        .eb-block:focus {
+            outline: 2px solid #d7b500
+        }
+
+    td.eb-editable .cellc {
+        background: transparent
+    }
+
+    @@media print {
+        /* 상위 프레임 제거 유지 */
+        .doc-body, .hwrap, #appScroll, form#doc-form, .container-xxl {
+            outline: none !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }
+        /* 인쇄 시 표 외곽선만 보강 */
+        .xlfb {
+            outline: 1px solid #000;
+            outline-offset: -1px;
+        }
+    }
 </style>
 
-<div class="container-xxl py-3">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-        <div class="d-flex align-items-center gap-3">
-            <h3 class="mb-0">@S["DOC_Title_Compose"]</h3>
-            <span class="text-muted">@templateTitle</span>
-        </div>
-        <div class="toolbar">
-            <span class="muted">@S["DOC_Help_PreviewA1"]</span>
-            <button type="button" id="btn-cancel" class="btn btn-outline-secondary btn-sm">@S["DOC_Btn_Cancel"]</button>
-            <button type="button" id="btn-save" class="btn btn-primary btn-sm">@S["DOC_Btn_SaveDocument"]</button>
+
+<div id="appScroll">
+    <div class="hwrap">
+        <div class="container-xxl py-3 doc-body">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="d-flex align-items-center gap-3">
+                    <h3 class="mb-0">@S["DOC_Title_Compose"]</h3>
+                    <span class="text-muted">@templateTitle</span>
+                </div>
+            </div>
+
+            <div id="doc-alert" class="mb-2" aria-live="polite"></div>
+
+            <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate>
+                <input type="hidden" name="TemplateCode" value="@templateCode" />
+                <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
+                <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
+
+                <div id="xlPreview"></div>
+
+                <div class="form-actions">
+                    <div class="container-xxl">
+                        <button type="button" id="btn-save" class="btn btn-primary action-btn">@S["DOC_Btn_SaveDocument"]</button>
+                        <button type="button" id="btn-cancel" class="btn btn-outline-secondary action-btn">@S["DOC_Btn_Cancel"]</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
-
-    <div id="doc-alert" class="mb-2" aria-live="polite"></div>
-
-    <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate>
-        <input type="hidden" name="TemplateCode" value="@templateCode" />
-        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
-        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
-
-        <div class="card">
-            @if (!HIDE_PREVIEW_LABEL)
-            {
-                <div class="card-header py-2"><strong>@S["DOC_Label_Preview"]</strong></div>
-            }
-            <div class="card-body">
-                <div id="xlPreview"></div>
-            </div>
-        </div>
-    </form>
 </div>
 
 @section Scripts {
     <script src="~/js/eb.csrf.js"></script>
     <script>
         (function () {
-            // 2025.10.16 Added: 엑셀 너비/높이 → px 변환
-            // 열 너비(문자 단위) → px: MS 규칙 근사식
-            function excelColWidthToPx(w) {
-                // if (w == null) return 0;
-                // const v = Number(w);
-                // if (!isFinite(v) || v <= 0) return 0;
-                // if (v < 1) return Math.round(v * 12);      // 소폭 컬럼
-                // return Math.floor(v * 7 + 5);              // 일반 컬럼(가장 흔한 근사)
-                const w = Number(width);
-                if (!isFinite(w) || w <= 0) return 0;
+            /* ===== helpers ===== */
+            if (!window.CSS || !CSS.escape) { (function () { const e = v => String(v).replace(/[^a-zA-Z0-9_\-]/g, ch => '\\' + ch); window.CSS = window.CSS || {}; CSS.escape = e; })() }
+            const $alert = () => document.getElementById('doc-alert');
+            const info = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-info', textContent: m })) }
+            const err = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-danger', textContent: m || 'DOC_Err_PreviewFailed' })) }
 
-                // 엑셀 공식 근사:
-                // px = floor( truncate((256*W + truncate(128/7)) / 256) * 7 + truncate(128/7) )
-                const trunc = Math.trunc;
-                const px = Math.floor(trunc((256 * w + trunc(128 / 7)) / 256) * 7 + trunc(128 / 7));
-                return px;
+            /* === DPR SNAP === */
+            const currentDPR = () => (window.devicePixelRatio || 1);
+            const snap = (v, dpr = currentDPR()) => Math.round(v * dpr) / dpr; // 좌표만 스냅
+            const setRectPx = (el, r) => { el.style.left = snap(r.left) + 'px'; el.style.top = snap(r.top) + 'px'; el.style.width = r.width + 'px'; el.style.height = r.height + 'px'; }
+
+            /* layout paddings */
+            function rectOrNull(sel) { const el = document.querySelector(sel); return el ? el.getBoundingClientRect() : null }
+            function applyOffsets() {
+                let left = 0, top = 0, bottom = 0;
+                const foot = rectOrNull('footer') || rectOrNull('.footer') || rectOrNull('#footerBar');
+                if (foot) { const fix = Math.round(foot.bottom) >= innerHeight - 1; if (fix) bottom = Math.max(0, Math.round(innerHeight - foot.top)); }
+                const side = rectOrNull('aside') || rectOrNull('.sidebar') || rectOrNull('#leftNav');
+                if (side) { const overlay = side.left > 0 || side.width >= innerWidth * 0.5; left = overlay ? 0 : Math.max(0, Math.round(side.right)); }
+                const head = rectOrNull('header') || rectOrNull('.navbar') || rectOrNull('.topbar');
+                if (head) { top = (head.top <= 0) ? Math.max(0, Math.round(head.bottom)) : 0; }
+                const root = document.documentElement;
+                root.style.setProperty('--left-gap', left + 'px');
+                root.style.setProperty('--top-gap', top + 'px');
+                root.style.setProperty('--bottom-gap', bottom + 'px');
+                const actions = document.querySelector('.form-actions');
+                const h = actions ? Math.ceil(actions.getBoundingClientRect().height) : 0;
+                root.style.setProperty('--actions-h', (h + 4) + 'px');
             }
-            // 행 높이(point) → px
-            function ptToPx(pt) {
-                return Math.floor(pt * 96 / 72);
-            }
+            addEventListener('resize', applyOffsets); addEventListener('load', applyOffsets); applyOffsets();
 
-            function readJsonFromScriptTag(id) {
-                try {
-                    const el = document.getElementById(id); if (!el) return {};
-                    const raw = el.textContent || ''; const first = JSON.parse(raw);
-                    return (typeof first === 'string') ? JSON.parse(first) : first;
-                } catch { return {}; }
-            }
+            function readJson(id) { try { const el = document.getElementById(id); if (!el) return {}; const raw = el.textContent || ''; const v = JSON.parse(raw); return (typeof v === 'string') ? JSON.parse(v) : v; } catch { return {} } }
+            const descriptor = readJson('DescriptorJson'), preview = readJson('PreviewJson');
 
-            const S = (k) => k;
-            const descriptor = readJsonFromScriptTag('DescriptorJson');
-            const preview = readJsonFromScriptTag('PreviewJson');
-
-            // 입력 페이로드
-            const payloadInputs = {};
-            const payloadApprovals = {};
-
-            // A1 파서
             function a1ToRC(a1) {
-                if (!a1) return null;
-                const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
-                if (!m) return null;
-                const letters = m[1], row = parseInt(m[2], 10);
-                let col = 0; for (let i = 0; i < letters.length; i++) { col = col * 26 + (letters.charCodeAt(i) - 64); }
+                if (!a1) return null; const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/); if (!m) return null;
+                const letters = m[1], row = parseInt(m[2], 10); let col = 0; for (let i = 0; i < letters.length; i++) col = col * 26 + (letters.charCodeAt(i) - 64);
                 return { r: row, c: col };
             }
 
-            // "r,c" -> { key, type }
             const posToMeta = new Map();
             (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => {
-                if (!f?.key) return;
-                const rc = a1ToRC(f.a1 || ''); if (!rc) return;
-                posToMeta.set(`${rc.r},${rc.c}`, { key: String(f.key), type: String(f.type || 'Text') });
+                if (!f?.key) return; const rc = a1ToRC(f.a1 || ''); if (!rc) return;
+                posToMeta.set(`${rc.r},${rc.c}`, { key: String(f.key), type: String(f.type || 'Text'), rc });
             });
 
-            // 렌더
-            mountPreviewEditable('#xlPreview', preview, posToMeta);
-            window.addEventListener('resize', () => autoScale(document.querySelector('#xlPreview .xlfb'), document.getElementById('xlPreview')));
+            const payloadInputs = {};
 
-            // 저장
-            document.getElementById('btn-save')?.addEventListener('click', async () => {
-                const form = document.getElementById('doc-form');
-                const tpl = form.querySelector('input[name="TemplateCode"]')?.value || '';
-                collectFromGrid();
-                const body = {
-                    templateCode: tpl,
-                    inputs: payloadInputs,
-                    approvals: payloadApprovals,
-                    descriptorVersion: descriptor?.version || null
-                };
-                try {
-                    const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', body, 'POST');
-                    if (ok?.redirectUrl) location.href = ok.redirectUrl;
-                    else showSuccess([S('DOC_Msg_SaveSuccess')]);
-                } catch (e) {
-                    const err = e && e.payload ? e.payload : { messages: [S('DOC_Err_SaveFailed')] };
-                    showErrors(err.messages || [S('DOC_Err_SaveFailed')]);
-                }
-            });
+            // === (from stable renderer) conversions ===
+            function excelColWidthToPx(W) { const w = Number(W); if (!isFinite(w) || w <= 0) return 0; const trunc = Math.trunc; return (trunc((256 * w + trunc(128 / 7)) / 256) * 7 + trunc(128 / 7)); }
+            const ptToPx = pt => ((Number(pt) || 0) * 96 / 72); // 소수 px 유지
 
-            document.getElementById('btn-cancel')?.addEventListener('click', () => {
-                history.length > 1 ? history.back() : location.href = '/Doc/New';
-            });
+            function ensureXbar() {
+                const app = document.getElementById('appScroll');
+                const wrap = app?.querySelector('.hwrap');
+                const tbl = document.querySelector('#xlPreview table');
+                const actions = document.querySelector('.form-actions');
+                if (!app || !wrap || !tbl) return;
 
-            function showErrors(msgs) {
-                document.getElementById('doc-alert').innerHTML =
-                    '<div class="alert alert-danger">' + (msgs || []).join('<br>') + '</div>';
-            }
-            function showSuccess(msgs) {
-                document.getElementById('doc-alert').innerHTML =
-                    '<div class="alert alert-success">' + (msgs || []).join('<br>') + '</div>';
+                // 실제 내용폭(보더 포함, 소수 픽셀 포함) - scrollWidth 사용
+                const tableW = Math.ceil(tbl.scrollWidth || 0);
+                const actionW = Math.ceil(actions?.scrollWidth || 0);
+                const contentW = Math.max(tableW, actionW);  // 어느 쪽이든 더 큰 쪽으로
+
+                // 래퍼를 실내용 폭으로 정확히 고정
+                wrap.style.width = contentW + 'px';
+                wrap.style.minWidth = contentW + 'px';
+
+                // 컨테이너 가로 스크롤은 필요할 때만
+                const hostW = Math.round(app.clientWidth);
+                app.style.overflowX = (contentW > hostW) ? 'auto' : 'hidden';
+                app.style.overflowY = 'auto';
             }
 
-            // 2025.10.16 Changed: date input 값 포함 수집
-            function collectFromGrid() {
-                document.querySelectorAll('#xlPreview td[data-key]').forEach(td => {
-                    const key = td.getAttribute('data-key');
-                    const dateInput = td.querySelector('input[type="date"]');
-                    const val = dateInput ? (dateInput.value || '') : (td.textContent ?? '');
-                    payloadInputs[key] = val;
+            // 기존 호출부 유지
+            addEventListener('resize', ensureXbar);
+            requestAnimationFrame(ensureXbar);
+            window.__ensureXbar = ensureXbar;
+
+            // 2025.10.23 Added: 혹시 남아있는 상위 요소 보더가 동적으로 주입되는 테마를 대비해 1프레임 뒤 재차 제거
+            requestAnimationFrame(() => {
+                const killers = ['.doc-body', '.hwrap', '#appScroll', 'form#doc-form', '.container-xxl'];
+                killers.forEach(sel => {
+                    const el = document.querySelector(sel);
+                    if (el) { el.style.border = '0'; el.style.outline = 'none'; el.style.boxShadow = 'none'; }
                 });
-            }
+                ensureXbar();
+            });
 
-            function toIsoDateOrEmpty(text) {
-                if (!text) return '';
-                const m1 = String(text).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
-                if (m1) {
-                    const y = m1[1], m = m1[2].padStart(2, '0'), d = m1[3].padStart(2, '0');
-                    return `${y}-${m}-${d}`;
+            /* ======= RENDER (ported) ======= */
+            function mount(sel, p) {
+                const host = document.querySelector(sel); if (!host) return;
+                if (!p || !Array.isArray(p.cells) || !p.cells.length) { host.innerHTML = '<div class="text-muted">DOC_Msg_PreviewFallback</div>'; return; }
+
+                const allRows = p.cells.length;
+                const allCols = Math.max(...p.cells.map(r => r.length), (p.colW?.length || 0), 1);
+
+                // 사용범위 계산
+                let minR = allRows, maxR = 1, minC = allCols, maxC = 1;
+                for (let r = 1; r <= allRows; r++) {
+                    const row = p.cells[r - 1] || [];
+                    for (let c = 1; c <= row.length; c++) {
+                        const v = row[c - 1];
+                        if (v !== '' && v != null) { minR = Math.min(minR, r); maxR = Math.max(maxR, r); minC = Math.min(minC, c); maxC = Math.max(maxC, c); }
+                    }
                 }
-                const m2 = String(text).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
-                if (m2) {
-                    const y = m2[1], m = m2[2].padStart(2, '0'), d = m2[3].padStart(2, '0');
-                    return `${y}-${m}-${d}`;
-                }
-                return '';
-            }
-
-            // 2025.10.16 Changed: 경계 통합 + colgroup 너비 고정 + 자동 스케일
-            function mountPreviewEditable(sel, p, posMap) {
-                const host = document.querySelector(sel);
-                if (!host) return;
-
-                if (!p || !Array.isArray(p.cells) || !p.cells.length) {
-                    host.innerHTML = '<div class="text-muted">DOC_Msg_PreviewFallback</div>';
-                    return;
-                }
-
-                const rows = p.rows || p.cells.length;
-                const cols = p.cols || Math.max(...p.cells.map(r => r.length));
-                const merges = Array.isArray(p.merges) ? p.merges : [];
-                const colW = Array.isArray(p.colW) ? p.colW : [];
-                const styles = (p.styles && typeof p.styles === 'object') ? p.styles : {};
+                const styles = p.styles || {};
+                Object.keys(styles).forEach(k => {
+                    const mm = k.match(/^(\d+),(\d+)$/); if (!mm) return;
+                    const r = parseInt(mm[1], 10), c = parseInt(mm[2], 10);
+                    minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+                    minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+                });
+                (p.merges || []).forEach(m => {
+                    const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10) || 0);
+                    minR = Math.min(minR, r1); maxR = Math.max(maxR, r2);
+                    minC = Math.min(minC, c1); maxC = Math.max(maxC, c2);
+                });
+                if (Array.isArray(p.colW) && p.colW.length) { minC = Math.min(minC, 1); maxC = Math.max(maxC, p.colW.length); }
+                if (minR > maxR) { minR = 1; maxR = Math.max(1, allRows); }
+                if (minC > maxC) { minC = 1; maxC = Math.max(1, allCols); }
 
                 // 병합 마스크
-                const mergeMap = new Map(); // "r-c" -> { master, rs, cs, covered }
-                for (const m of merges) {
-                    const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
-                    const rs = Math.max(1, r2 - r1 + 1), cs = Math.max(1, c2 - c1 + 1);
-                    const master = `${r1}-${c1}`; mergeMap.set(master, { master: true, rs, cs });
+                const mergeMap = new Map();
+                (p.merges || []).forEach(m => {
+                    let [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
+                    r1 = Math.max(r1, minR); c1 = Math.max(c1, minC);
+                    r2 = Math.min(r2, maxR); c2 = Math.min(c2, maxC);
+                    if (r1 > r2 || c1 > c2) return;
+                    const master = `${r1}-${c1}`;
+                    mergeMap.set(master, { master: true, rs: r2 - r1 + 1, cs: c2 - c1 + 1 });
                     for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
                         const k = `${r}-${c}`; if (k !== master) mergeMap.set(k, { covered: true });
                     }
-                }
+                });
 
-                // 스타일 그리드(경계 통합)
-                const styleGrid = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(null));
-                for (let r = 1; r <= rows; r++) {
-                    for (let c = 1; c <= cols; c++) {
-                        const key = `${r},${c}`;
-                        const st = styles[key] || {};
+                // 스타일/보더 그리드
+                const styleGrid = Array.from({ length: maxR + 1 }, () => Array(maxC + 1).fill(null));
+                for (let r = minR; r <= maxR; r++) {
+                    for (let c = minC; c <= maxC; c++) {
+                        const key = `${r},${c}`, st = styles[key] || {};
                         const border = Object.assign({ l: 'None', r: 'None', t: 'None', b: 'None' }, st.border || {});
                         styleGrid[r][c] = { font: st.font || null, align: st.align || null, fill: st.fill || null, border };
                     }
                 }
-                function weight(name) {
-                    const s = String(name || '').toLowerCase();
+                const weight = s => {
+                    s = String(s || '').toLowerCase();
                     if (!s || s === 'none') return 0;
                     if (s.includes('double')) return 6;
                     if (s.includes('thick')) return 5;
-                    if (s.includes('mediumdashed') || s.includes('mediumdashdot') || s.includes('mediumdashdotdot')) return 4;
-                    if (s.includes('medium')) return 4;
+                    if (s.includes('mediumdashed') || s.includes('mediumdashdot') || s.includes('mediumdashdotdot') || s.includes('medium')) return 4;
                     if (s.includes('dashed') || s.includes('dashdot') || s.includes('dashdotdot')) return 3;
                     if (s.includes('dotted') || s.includes('hair')) return 2;
-                    return 1;
-                }
-                const stronger = (a, b) => weight(a) >= weight(b) ? a : b;
-                for (let r = 1; r <= rows; r++) {
-                    for (let c = 1; c <= cols; c++) {
+                    return 1; // thin
+                };
+                const stronger = (a, b) => (weight(a) >= weight(b) ? a : b);
+                for (let r = minR; r <= maxR; r++) {
+                    for (let c = minC; c <= maxC; c++) {
                         const cur = styleGrid[r][c]; if (!cur) continue;
-                        if (c < cols) {
-                            const right = styleGrid[r][c + 1];
-                            if (right) { const pick = stronger(cur.border.r, right.border.l); cur.border.r = pick; right.border.l = pick; }
-                        }
-                        if (r < rows) {
-                            const down = styleGrid[r + 1][c];
-                            if (down) { const pick = stronger(cur.border.b, down.border.t); cur.border.b = pick; down.border.t = pick; }
-                        }
+                        if (c < maxC) { const right = styleGrid[r][c + 1]; if (right) { const pick = stronger(cur.border.r, right.border.l); cur.border.r = pick; right.border.l = pick; } }
+                        if (r < maxR) { const down = styleGrid[r + 1][c]; if (down) { const pick = stronger(cur.border.b, down.border.t); cur.border.b = pick; down.border.t = pick; } }
                     }
                 }
 
-                // 테이블 생성
-                const tbl = document.createElement('table'); tbl.className = 'xlfb';
+                // 너비 합
+                function colPxAt(c) { const wChar = (p.colW || [])[c - 1]; return excelColWidthToPx(wChar ?? 8.43); }
+                function sumColPx(c1, c2) { let s = 0; for (let i = c1; i <= c2; i++) s += colPxAt(i); return s; }
 
-                // 2025.10.16 Added: colgroup으로 너비 고정
+                // 표 생성
+                const tbl = document.createElement('table'); tbl.className = 'xlfb';
+                tbl.style.width = sumColPx(minC, maxC) + 'px';
+
                 const colgroup = document.createElement('colgroup');
-                let sheetWidthPx = 0;
-                for (let c = 1; c <= cols; c++) {
-                    const cg = document.createElement('col');
-                    const px = excelColWidthToPx(colW[c - 1] ?? 8.43);
-                    cg.style.width = px + 'px';
-                    sheetWidthPx += px;
-                    colgroup.appendChild(cg);
-                }
+                for (let c = minC; c <= maxC; c++) { const cg = document.createElement('col'); cg.style.width = colPxAt(c).toFixed(2) + 'px'; colgroup.appendChild(cg) }
                 tbl.appendChild(colgroup);
 
-                // 헤더(숨김 처리되지만 DOM은 유지)
-                const thead = document.createElement('thead');
-                const thr = document.createElement('tr');
-                const thBlank = document.createElement('th'); thBlank.textContent = ''; thr.append(thBlank);
-                for (let c = 1; c <= cols; c++) { const t = document.createElement('th'); t.textContent = ''; thr.append(t); }
-                thead.append(thr); tbl.append(thead);
-
-                // 바디
                 const tbody = document.createElement('tbody');
-                for (let r = 1; r <= rows; r++) {
+                const rowHeights = Array.isArray(p.rowH) ? p.rowH : [];
+                const DEFAULT_ROW_PT = 15;
+
+                for (let r = minR; r <= maxR; r++) {
                     const tr = document.createElement('tr');
-                    const rth = document.createElement('th'); rth.textContent = ''; tr.append(rth); // 숨김
-                    for (let c = 1; c <= cols; c++) {
-                        const key = `${r}-${c}`, mm = mergeMap.get(key);
-                        if (mm && mm.covered) continue;
-                        const td = document.createElement('td');
-                        if (mm && mm.master) {
-                            if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs));
-                            if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs));
-                            td.classList.add('merge');
-                        }
+                    const pt = (rowHeights[r - 1] != null) ? rowHeights[r - 1] : DEFAULT_ROW_PT;
+                    const rowPx = ptToPx(pt); tr.style.height = rowPx + 'px';
 
-                        const val = (p.cells[r - 1]?.[c - 1] ?? '');
-                        td.textContent = (val === '' ? '' : String(val));
+                    for (let c = minC; c <= maxC; c++) {
+                        const key = `${r}-${c}`, mm = mergeMap.get(key); if (mm && mm.covered) continue;
 
-                        // 스타일 적용
-                        applyStyle(td, styleGrid[r][c]);
+                        const td = document.createElement('td'); td.dataset.rowpx = String(rowPx);
+                        if (mm && mm.master) { if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs)); if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs)); }
 
-                        // 편집 (Date → input[type=date])
-                        const mapKey = `${r},${c}`;
-                        const meta = posMap.get(mapKey);
-                        const fieldKey = meta?.key;
+                        let spanCols = 1; if (mm && mm.master && mm.cs > 1) spanCols = mm.cs;
+                        td.style.width = sumColPx(c, c + spanCols - 1) + 'px';
+
+                        const cell = document.createElement('div'); cell.className = 'cellc';
+                        if (mm ? false : true) { cell.style.maxHeight = rowPx + 'px'; }
+
+                        const v = (p.cells[r - 1]?.[c - 1] ?? ''); cell.appendChild(document.createTextNode(v === '' ? '' : String(v)));
+
+                        applyStyleToCell(td, cell, styleGrid[r][c]);
+
+                        // 입력 가능한 셀(날짜만 그대로; 텍스트는 아래 단일블록에서 처리)
+                        const meta = posToMeta.get(`${r},${c}`); const fieldKey = meta?.key;
                         const fieldType = (meta?.type || 'Text').toLowerCase();
-                        const isEditable = !!fieldKey && (!(mm && !mm.master));
-
-                        if (isEditable) {
+                        const editable = !!fieldKey && !(mm && !mm.master);
+                        if (editable) {
+                            td.setAttribute('data-key', fieldKey); td.classList.add('eb-editable');
                             if (fieldType === 'date') {
-                                const input = document.createElement('input');
-                                input.type = 'date';
-                                input.className = 'eb-input-date';
-                                input.value = toIsoDateOrEmpty(payloadInputs[fieldKey] ?? td.textContent ?? '');
-                                td.textContent = '';
-                                td.appendChild(input);
-                                td.setAttribute('data-key', fieldKey);
-                                input.addEventListener('change', () => { payloadInputs[fieldKey] = input.value || ''; });
-                                input.addEventListener('blur', () => { payloadInputs[fieldKey] = input.value || ''; });
+                                const input = document.createElement('input'); input.type = 'date'; input.className = 'eb-input-date';
+                                input.value = toIsoDateOrEmpty(cell.textContent || ''); cell.textContent = ''; cell.appendChild(input);
+                                input.addEventListener('change', () => payloadInputs[fieldKey] = input.value || '');
+                                input.addEventListener('blur', () => payloadInputs[fieldKey] = input.value || '');
                                 if (!(fieldKey in payloadInputs)) payloadInputs[fieldKey] = input.value || '';
-                            } else {
-                                td.setAttribute('contenteditable', 'true');
-                                td.classList.add('eb-editable');
-                                td.setAttribute('data-key', fieldKey);
-                                if (typeof payloadInputs[fieldKey] === 'string') td.textContent = payloadInputs[fieldKey];
-                                td.addEventListener('keydown', (ev) => {
-                                    if (ev.key === 'Enter') { ev.preventDefault(); document.execCommand('insertLineBreak'); }
-                                });
-                                td.addEventListener('input', () => {
-                                    payloadInputs[fieldKey] = td.textContent ?? '';
-                                });
                             }
                         }
-                        tr.append(td);
+
+                        td.appendChild(cell); tr.appendChild(td);
                     }
-                    tbody.append(tr);
+                    tbody.appendChild(tr);
                 }
-                tbl.append(tbody);
+                tbl.appendChild(tbody);
+                host.innerHTML = ''; host.appendChild(tbl);
 
-                host.innerHTML = ''; host.append(tbl);
-                requestAnimationFrame(() => autoScale(tbl, host));
+                // 단일 contenteditable 블록 구성
+                createSingleBlocks();
+            }
 
-                // 컨테이너 폭에 자동 스케일
-                autoScale(tbl, host, sheetWidthPx);
+            // === 2번 렌더러의 셀 스타일러 이식 ===
+            function applyStyleToCell(td, cell, st) {
+                if (!st || typeof st !== 'object') return;
 
-                // 내부: 테두리/서식 매핑
-                function applyStyle(td, st) {
-                    if (!st || typeof st !== 'object') return;
-                    if (st.font) {
-                        if (st.font.name) td.style.fontFamily = st.font.name;
+                if (st.font) {
+                    if (st.font.name) cell.style.fontFamily = st.font.name;
+                    if (st.font.size) cell.style.fontSize = ptToPx(st.font.size) + 'px';
+                    if (st.font.bold) cell.style.fontWeight = '700';
+                    if (st.font.italic) cell.style.fontStyle = 'italic';
+                    if (st.font.underline) cell.style.textDecoration = 'underline';
+                }
+                if (st.align) {
+                    const h = String(st.align.h || '').toLowerCase();
+                    cell.classList.remove('ta-left', 'ta-center', 'ta-right');
+                    if (h === 'center') cell.classList.add('ta-center'); else if (h === 'right') cell.classList.add('ta-right'); else cell.classList.add('ta-left');
 
-                        // ✨ pt -> px 변환
-                        const ptToPx = (pt) => Math.round((Number(pt) || 0) * (96 / 72));
-                        if (st.font.size) td.style.fontSize = ptToPx(st.font.size) + 'px';
+                    const vAlign = String(st.align.v || '').toLowerCase();
+                    td.classList.remove('va-top', 'va-middle', 'va-bottom');
+                    if (vAlign === 'top') td.classList.add('va-top'); else if (vAlign === 'center' || vAlign === 'middle') td.classList.add('va-middle'); else td.classList.add('va-bottom');
 
-                        if (st.font.bold) td.style.fontWeight = '700';
-                        if (st.font.italic) td.style.fontStyle = 'italic';
-                        if (st.font.underline) td.style.textDecoration = 'underline';
-                    }
-                    if (st.align) {
-                        const h = String(st.align.h || '').toLowerCase();
-                        td.classList.remove('ta-left', 'ta-center', 'ta-right');
-                        if (h === 'center') td.classList.add('ta-center');
-                        else if (h === 'right') td.classList.add('ta-right');
-                        else td.classList.add('ta-left');
+                    if (st.align.wrap) cell.classList.add('wrap');
+                }
+                if (st.fill && st.fill.bg) cell.style.backgroundColor = st.fill.bg;
 
-                        const v = String(st.align.v || '').toLowerCase();
-                        td.classList.remove('va-top', 'va-middle', 'va-bottom');
-                        if (v === 'top') td.classList.add('va-top');
-                        else if (v === 'center' || v === 'middle') td.classList.add('va-middle');
-                        else if (v === 'bottom') td.classList.add('va-bottom');
-
-                        if (st.align.wrap) td.classList.add('wrap');
-                    }
-                    if (st.fill && st.fill.bg) td.style.backgroundColor = st.fill.bg;
-
-                    const cssOf = (name) => {
-                        const s = String(name || '').toLowerCase();
-                        if (!s || s === 'none') return { w: 0, sty: 'none' };
-                        if (s.includes('double')) return { w: 3, sty: 'double' };
-                        if (s.includes('mediumdashdotdot')) return { w: 2, sty: 'dashed' };
-                        if (s.includes('mediumdashdot')) return { w: 2, sty: 'dashed' };
-                        if (s.includes('mediumdashed')) return { w: 2, sty: 'dashed' };
-                        if (s.includes('dashdotdot')) return { w: 1, sty: 'dashed' };
-                        if (s.includes('dashdot')) return { w: 1, sty: 'dashed' };
-                        if (s.includes('dashed')) return { w: 1, sty: 'dashed' };
-                        if (s.includes('dotted') || s.includes('hair')) return { w: 1, sty: 'dotted' };
-                        if (s.includes('thick')) return { w: 3, sty: 'solid' };
-                        if (s.includes('medium')) return { w: 2, sty: 'solid' };
-                        return { w: 1, sty: 'solid' };
-                    };
-                    const color = '#000000';
-                    if (st.border) {
-                        const L = cssOf(st.border.l), R = cssOf(st.border.r), T = cssOf(st.border.t), B = cssOf(st.border.b);
-                        td.style.borderLeft = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
-                        td.style.borderRight = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
-                        td.style.borderTop = T.w ? `${T.w}px ${T.sty} ${color}` : 'none';
-                        td.style.borderBottom = B.w ? `${B.w}px ${B.sty} ${color}` : 'none';
-                    }
+                const cssOf = name => {
+                    const s = String(name || '').toLowerCase(); if (!s || s === 'none') return { w: 0, sty: 'none' };
+                    if (s.includes('double')) return { w: 3, sty: 'double' };
+                    if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed')) return { w: 2, sty: 'dashed' };
+                    if (s.includes('dashdotdot') || s.includes('dashdot') || s.includes('dashed')) return { w: 1, sty: 'dashed' };
+                    if (s.includes('dotted') || s.includes('hair')) return { w: 1, sty: 'dotted' };
+                    if (s.includes('thick')) return { w: 3, sty: 'solid' };
+                    if (s.includes('medium')) return { w: 2, sty: 'solid' };
+                    return { w: 1, sty: 'solid' };
+                };
+                const color = '#000';
+                if (st.border) {
+                    const L = cssOf(st.border.l), R = cssOf(st.border.r), T = cssOf(st.border.t), B = cssOf(st.border.b);
+                    td.style.borderLeft = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
+                    td.style.borderRight = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
+                    td.style.borderTop = T.w ? `${T.w}px ${T.sty} ${color}` : 'none';
+                    td.style.borderBottom = B.w ? `${B.w}px ${B.sty} ${color}` : 'none';
                 }
             }
 
-            // 2025.10.16 Added: 컨테이너 폭에 맞게 scale 적용
-            function autoScale(tableEl, hostEl) {
-                if (!tableEl || !hostEl) return;
+            /* ====== 단일 블록 (기존 유지) ====== */
+            function buildAutoFlowGroups(inputs) {
+                const byPrefixCol = new Map();
+                (inputs || []).forEach(f => {
+                    if (!f?.key || !f?.a1) return;
+                    const type = String(f.type || 'Text').toLowerCase(); if (type !== 'text') return;
+                    const m = String(f.key).match(/^(.*)_(\d+)$/);
+                    const rc = a1ToRC(f.a1); if (!rc) return;
+                    const sig = m ? `${m[1]}:${rc.c}` : `${f.key}:${rc.c}`;
+                    if (!byPrefixCol.has(sig)) byPrefixCol.set(sig, []);
+                    byPrefixCol.get(sig).push({ key: f.key, rc });
+                });
+                const groups = [];
+                byPrefixCol.forEach(list => { list.sort((a, b) => a.rc.r - b.rc.r); groups.push({ keys: list.map(x => x.key) }); });
+                return groups;
+            }
+            function cellDivByKey(key) { return document.querySelector(`#xlPreview td[data-key="${CSS.escape(key)}"] .cellc`) }
+            function tdByKey(key) { return document.querySelector(`#xlPreview td[data-key="${CSS.escape(key)}"]`) }
 
-                // 컨테이너 사용 가능 폭(패딩/스크롤 여유 -14px)
-                const hostW = Math.max(120, hostEl.clientWidth - 14);
+            function blockRectOfKeys(keys) {
+                const tds = keys.map(tdByKey).filter(Boolean); if (!tds.length) return null;
+                const host = document.getElementById('xlPreview').getBoundingClientRect();
+                let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+                for (const td of tds) { const rc = td.getBoundingClientRect(); l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom); }
+                return { left: (l - host.left), top: (t - host.top), width: (r - l), height: (b - t) };
+            }
+            function copyStyleFromFirstCell(el, firstCell) {
+                const td = firstCell.closest('td'); const cs = getComputedStyle(firstCell);
+                const rowPx = parseFloat(td?.dataset.rowpx || cs.lineHeight) || 16;
+                el.style.lineHeight = rowPx + 'px';
+                el.style.fontFamily = cs.fontFamily; el.style.fontSize = cs.fontSize; el.style.fontWeight = cs.fontWeight; el.style.fontStyle = cs.fontStyle;
+                el.style.letterSpacing = cs.letterSpacing; el.style.wordSpacing = cs.wordSpacing; el.style.textAlign = cs.textAlign;
+                el.style.paddingTop = '0px'; el.style.paddingBottom = '0px'; el.style.paddingLeft = cs.paddingLeft; el.style.paddingRight = cs.paddingRight;
+            }
 
-                // 자연 폭 측정: scale=1에서 scrollWidth 사용
-                const prev = tableEl.style.transform;
-                tableEl.style.transform = 'scale(1)';
-                const naturalW = Math.max(tableEl.scrollWidth, tableEl.getBoundingClientRect().width);
-                tableEl.style.transform = prev;
+            let blocks = [];
+            function createSingleBlocks() {
+                const groups = buildAutoFlowGroups(Array.isArray(descriptor?.inputs) ? descriptor.inputs : []);
+                const host = document.getElementById('xlPreview');
+                blocks.forEach(b => b.el.remove()); blocks = [];
 
-                if (!naturalW || !isFinite(naturalW)) {
-                    tableEl.style.transform = 'scale(1)';
-                    return;
+                for (const g of groups) {
+                    const keys = g.keys.filter(k => !!tdByKey(k)); if (!keys.length) continue;
+
+                    const lines = keys.map(k => (cellDivByKey(k)?.textContent || ''));
+                    keys.forEach(k => { const c = cellDivByKey(k); if (c) c.textContent = ''; });
+
+                    const block = document.createElement('div');
+                    block.className = 'eb-block';
+                    block.setAttribute('contenteditable', 'plaintext-only');
+                    block.textContent = lines.join('\n');
+
+                    const firstCell = cellDivByKey(keys[0]); if (!firstCell) continue;
+                    copyStyleFromFirstCell(block, firstCell);
+                    const r = blockRectOfKeys(keys); if (!r) continue;
+                    setRectPx(block, r);
+
+                    const maxLines = keys.length;
+                    const placeCaretEnd = (el) => { try { const s = window.getSelection(); const rr = document.createRange(); rr.selectNodeContents(el); rr.collapse(false); s.removeAllRanges(); s.addRange(rr); } catch { } }
+                    const clampAndSave = () => {
+                        let v = String(block.textContent || '').replace(/\r\n?/g, '\n');
+                        let arr = v.split('\n');
+                        if (arr.length > maxLines) { arr = arr.slice(0, maxLines); block.textContent = arr.join('\n'); placeCaretEnd(block); }
+                        for (let i = 0; i < maxLines; i++) { payloadInputs[keys[i]] = arr[i] ?? ''; }
+                    };
+                    block.addEventListener('input', clampAndSave);
+                    block.addEventListener('paste', (e) => { e.preventDefault(); const text = (e.clipboardData || window.clipboardData).getData('text'); document.execCommand('insertText', false, text); });
+                    block.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const cur = (block.textContent || '').replace(/\r\n?/g, '\n').split('\n').length; if (cur >= maxLines) { e.preventDefault(); } } });
+                    clampAndSave();
+
+                    host.appendChild(block);
+                    blocks.push({ el: block, keys, maxLines });
                 }
 
-                // 축소는 금지(최소 1), 가로 스크롤 방지를 위해 2px 여유
-                const rawScale = (hostW - 2) / naturalW;
-                const scale = Math.max(1, Math.min(2.5, rawScale));
+                const reposition = () => { for (const b of blocks) { const r = blockRectOfKeys(b.keys); if (!r) continue; setRectPx(b.el, r); } };
+                addEventListener('resize', reposition);
+                document.getElementById('appScroll')?.addEventListener('scroll', reposition, { passive: true });
 
-                tableEl.style.transformOrigin = 'top left';
-                tableEl.style.transform = `scale(${scale})`;
+                requestAnimationFrame(ensureXbar);
+            }
+
+            /* ===== render & actions ===== */
+            try { mount('#xlPreview', preview); }
+            catch (e) { console.error(e); err('DOC_Err_PreviewFailed'); }
+
+            document.getElementById('btn-save')?.addEventListener('click', async () => {
+                // 날짜 값 수집
+                document.querySelectorAll('#xlPreview td[data-key]').forEach(td => {
+                    const key = td.getAttribute('data-key'); if (!key) return;
+                    if (key in payloadInputs) return;
+                    const di = td.querySelector('input[type="date"]');
+                    if (di) payloadInputs[key] = di.value || '';
+                });
+                const form = document.getElementById('doc-form');
+                const tpl = form.querySelector('input[name=TemplateCode]')?.value || '';
+                const body = { templateCode: tpl, inputs: payloadInputs, approvals: {}, descriptorVersion: descriptor?.version || null };
+                try {
+                    const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', body, 'POST');
+                    if (ok?.redirectUrl) location.href = ok.redirectUrl; else info('DOC_Msg_Saved');
+                } catch (e) { err('DOC_Err_SaveFailed'); }
+            });
+
+            document.getElementById('btn-cancel')?.addEventListener('click', () => { history.length > 1 ? history.back() : location.href = '/Doc/New' });
+
+            function toIsoDateOrEmpty(text) {
+                if (!text) return ''; const s = String(text).trim();
+                let m = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+                if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+                return '';
             }
         })();
     </script>

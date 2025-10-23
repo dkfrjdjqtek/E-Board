@@ -335,7 +335,9 @@
                         const set = window.__a1 && window.__a1.set;
                         if (typeof set === 'function') {
                             const toCol = (n) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
-                            const a1 = (r1 === r2 && c1 === c2) ? `${toCol(c1)}${r1}` : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
+                            const a1 = (r1 === r2 && c1 === c2)
+                                ? `${toCol(c1)}${r1}`
+                                : `${toCol(c1)}${r1}:${toCol(c1)}${r2}`; // ← 끝 컬럼을 시작 컬럼으로 고정
                             set(a1);
                         }
                         clearSel(); start = null;
@@ -700,7 +702,10 @@ else
                     const set = window.__a1 && window.__a1.set;
                     if (typeof set === 'function') {
                         const toCol = (n) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
-                        const a1 = (r1 === r2 && c1 === c2) ? `${toCol(c1)}${r1}` : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
+                        //const a1 = (r1 === r2 && c1 === c2) ? `${toCol(c1)}${r1}` : `${toCol(c1)}${r1}:${toCol(c2)}${r2}`;
+                        const a1 = (r1 === r2 && c1 === c2)
+                            ? `${toCol(c1)}${r1}`
+                            : `${toCol(c1)}${r1}:${toCol(c1)}${r2}`; // ← 끝 컬럼을 시작 컬럼으로 고정
                         set(a1);
                     }
                     clearSel(); start = null;

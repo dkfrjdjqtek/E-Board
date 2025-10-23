@@ -215,8 +215,8 @@
             const docArea = document.getElementById('docArea');
 
             // === 추가: 컴포넌트 자산 로더 ===
-            const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js"; // ⬅ 실제 경로 넣어주세요
-            const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";       // ⬅ 실제 경로 넣어주세요
+            const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js"; // 실제 경로 넣어주세요
+            const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";       // 실제 경로 넣어주세요
 
             function ensureCss(href) {
                 return new Promise((resolve, reject) => {
@@ -348,7 +348,7 @@
                 if (p.compCd) qs.append('compCd', p.compCd);
                 //if (p.departmentId) qs.append('departmentId', p.departmentId);
                 if (p.departmentId !== undefined && p.departmentId !== '')
-                   qs.append('departmentId', p.departmentId);  // '0'도 포함
+                   qs.append('departmentId', p.departmentId);  // '0'도 포함 공용
                 if (p.kind) qs.append('kind', p.kind);
                 qs.append('docCode', p.docCode);
                 location.href = `${BASE}/load-template?${qs.toString()}`;
