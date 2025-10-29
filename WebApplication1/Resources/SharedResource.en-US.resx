@@ -918,4 +918,7 @@
   <data name="DOC_Val_TemplateRequired" xml:space="preserve">
     <value>Please select a template.</value>
   </data>
+  <data name="DOC_Title_Compose" xml:space="preserve">
+    <value>Compose Document</value>
+  </data>
 </root>

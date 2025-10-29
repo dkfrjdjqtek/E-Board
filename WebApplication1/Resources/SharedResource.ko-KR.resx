@@ -918,4 +918,7 @@
   <data name="DOC_Val_TemplateRequired" xml:space="preserve">
     <value>템플릿을 선택해 주세요.</value>
   </data>
+  <data name="DOC_Title_Compose" xml:space="preserve">
+    <value>문서 작성</value>
+  </data>
 </root>

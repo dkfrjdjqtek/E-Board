@@ -918,4 +918,7 @@
   <data name="DOC_Val_TemplateRequired" xml:space="preserve">
     <value>请选择模板。</value>
   </data>
+  <data name="DOC_Title_Compose" xml:space="preserve">
+    <value>撰写文档</value>
+  </data>
 </root>

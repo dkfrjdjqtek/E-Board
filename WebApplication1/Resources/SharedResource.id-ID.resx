@@ -918,4 +918,7 @@
   <data name="DOC_Val_TemplateRequired" xml:space="preserve">
     <value>Silakan pilih templat.</value>
   </data>
+  <data name="DOC_Title_Compose" xml:space="preserve">
+    <value>Tulis Dokumen</value>
+  </data>
 </root>

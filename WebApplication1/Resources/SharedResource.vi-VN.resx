@@ -918,4 +918,7 @@
   <data name="DOC_Val_TemplateRequired" xml:space="preserve">
     <value>Vui lòng chọn mẫu.</value>
   </data>
+  <data name="DOC_Title_Compose" xml:space="preserve">
+    <value>Soạn tài liệu</value>
+  </data>
 </root>
