@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// 2025.11.10 Changed: Kestrel 바인딩은 launchSettings.json에 위임, Development 환경에서 HTTPS 리다이렉트 해제
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
@@ -31,7 +32,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // -----------------------------
-// 3) Identity (딱 한 번만 등록)
+// 3) Identity
 // -----------------------------
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -82,7 +83,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
-// 이메일/비번재설정 등 토큰 유효시간
+// 이메일/비번 재설정 등 토큰 유효시간
 builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
 {
     o.TokenLifespan = TimeSpan.FromMinutes(30);
@@ -94,7 +95,7 @@ builder.Services.Configure<IdentityOptions>(o =>
     o.SignIn.RequireConfirmedEmail = true;
 });
 
-// 커스텀 클레임 팩토리(있을 때만)
+// 커스텀 클레임 팩토리
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 
 // -----------------------------
@@ -115,7 +116,7 @@ builder.Services.AddAuthorization(options =>
 });
 
 // -----------------------------
-// 5) 업로드(요청 본문) 한도 — 전부 50MB로 통일 (Build 이전!)
+// 5) 업로드(요청 본문) 한도 — 50MB
 // -----------------------------
 builder.Services.Configure<FormOptions>(o =>
 {
@@ -169,7 +170,6 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
     options.SupportedCultures = cultures;
     options.SupportedUICultures = cultures;
 
-    // Cookie > QueryString 순으로 탐지
     options.RequestCultureProviders = new List<IRequestCultureProvider>
     {
         new CookieRequestCultureProvider(),
@@ -182,11 +182,11 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
 // -----------------------------
 builder.Services.AddAntiforgery(options =>
 {
-    options.HeaderName = "RequestVerificationToken"; // 클라이언트와 동일
+    options.HeaderName = "RequestVerificationToken";
 });
 
 // -----------------------------
-// 9) DocTemplateService (★ Build 이전에 등록)
+// 9) DocTemplateService
 // -----------------------------
 builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
 
@@ -202,17 +202,18 @@ if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
     app.UseMigrationsEndPoint();
+    // 개발 환경: HTTP 5000 사용, HTTPS 리다이렉트 없음
 }
 else
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
+    app.UseHttpsRedirection(); // 운영에서만 HTTPS 강제
 }
 
-app.UseHttpsRedirection();
 app.UseStaticFiles();
 
-// /Identity/Account/Login 접근 -> /Account/Login 영구 리다이렉트
+// /Identity/Account/Login -> /Account/Login 영구 리다이렉트
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.Equals("/Identity/Account/Login", StringComparison.OrdinalIgnoreCase))

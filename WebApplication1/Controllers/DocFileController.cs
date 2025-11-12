@@ -39,8 +39,8 @@ namespace WebApplication1.Controllers
             public string? error { get; init; }
         }
 
-        // Form: files[] (multiple), optional: docId, commentId
-        // Return: { items: [{ fileKey, originalName, contentType, byteSize }], errors: [...] }
+        // Form: Files[] (multiple), optional: DocID, CommentID
+        // Return: { items: [{ FileKey, OriginalName, ContentType, ByteSize }], errors: [...] }
         [HttpPost("Upload")]
         [ValidateAntiForgeryToken]
         [RequestSizeLimit(50_000_000)]

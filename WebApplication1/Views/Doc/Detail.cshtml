@@ -1,459 +1,491 @@
-﻿@* 2025.10.15 Added: 댓글 작성 영역 파일 업로드 UI 연동(EBCSRF + /DocFile/Upload) 및 업로드된 메타를 댓글 POST에 포함 *@
-@* 2025.10.14 Reviewed: 변경 사항 없음 검토 완료 – i18n 키, EB-VALIDATE 패턴, 프리뷰 자산 로더, 댓글 UI/연동, ViewBag/Query 폴백, 상태 뱃지 및 표 렌더링 모두 요구사항 부합 *@
-@* 2025.10.14 Note: ASSET_JS/ASSET_CSS 자리표시자는 배포 경로로 교체 필요 (기능 영향 없음) *@
+﻿File: Views/Doc/Details.cshtml
+@* 2025.11.12 Changed: Detail 프리뷰 렌더러를 Compose와 '동일 엔진'으로 교체(범위 산정/열폭/테두리 가중치/유효폭 측정/최종폭 적용), 인쇄 시 #xhost만 100% 출력; 나머지 댓글·로그·승인 UI/리소스 키·권한 버튼은 기존 그대로 유지 *@
 @using System.Text.Json
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+
 @{
     ViewData["Title"] = S["DOC_Title_Detail"];
 
-    // ViewBag 값 사용 및 폴백
-    var docId = (string?)ViewBag.DocumentId ?? (Context?.Request?.Query["id"].ToString() ?? string.Empty);
+    // 실제 코멘트/로그/승인 데이터는 Controller에서 ViewBag로 전달되었다고 가정
+    string J(object v, string empty = "{}", bool allowArray = false)
+    {
+        if (v is null) return empty;
+        if (v is string s)
+        {
+            s = s.Trim();
+            if (s.Length == 0) return empty;
+            if (allowArray && s.StartsWith("[") && s.EndsWith("]")) return s;
+            if (s.StartsWith("{") && s.EndsWith("}")) return s;
+            return s; // 안전 장치
+        }
+        try { return JsonSerializer.Serialize(v); } catch { return empty; }
+    }
+
+    var docId        = (string?)ViewBag.DocId ?? (string?)ViewBag.DocumentId ?? (Context?.Request?.Query["id"].ToString() ?? string.Empty);
     var templateCode = (string?)ViewBag.TemplateCode ?? string.Empty;
-    var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
-    var status = (string?)ViewBag.Status ?? "Draft";
+    var templateTitle= (string?)ViewBag.TemplateTitle ?? string.Empty;
+    var status       = (string?)ViewBag.Status ?? "Draft";
 
-    var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
-    var inputsJson = (string?)ViewBag.InputsJson ?? "{}";
-    var approvalsJson = (string?)ViewBag.ApprovalsJson ?? "[]";
-    var descJson = (string?)ViewBag.DescriptorJson ?? "{}";
+    var descJson     = J(ViewBag.DescriptorJson);
+    var previewJson  = J(ViewBag.PreviewJson);
+    var inputsJson   = J(ViewBag.InputsJson);
+    var approvalsJson= J(ViewBag.ApprovalsJson, "[]", allowArray:true);
+    var viewLogsJson = J(ViewBag.ViewLogsJson,  "[]", allowArray:true);
+
+    var canBackToNew = (bool?)ViewBag.CanBackToNew ?? true;
+    var canPrint     = (bool?)ViewBag.CanPrint ?? true;
+    var canExport    = (bool?)ViewBag.CanExportPdf ?? true;
+    var canApprove   = (bool?)ViewBag.CanApprove ?? false;
+    var canHold      = (bool?)ViewBag.CanHold ?? false;
+    var canReject    = (bool?)ViewBag.CanReject ?? false;
 }
+
 <style>
-    /* 레이아웃 및 뱃지 스타일 */
-    #xlPreview {
-        overflow: auto;
-        max-height: 520px;
-        border: 1px solid #e5e7eb;
-        border-radius: .25rem
+    :root {
+        --vscroll-w: 0px;
+        --eb-group-bg: rgb(240 248 255 / 55%);
+        --eb-group-bg-hover: rgb(240 248 255 / 55%);
+        --eb-ring-border: #8CB8FF;
+        --eb-ring-glow: rgba(140,184,255,.35);
+        --eb-ring-w: 2px;
+        --eb-ring-pad: 2px;
+        --eb-ring-glow-w: 4px;
     }
 
-    .w-16rem {
-        width: 16rem
-    }
+    .doc-detail-root { padding-top: 1.25rem; padding-bottom: 2rem; }
+    .doc-detail-header{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1rem; margin-bottom:1rem; }
+    .doc-detail-title { font-size: 1.35rem; font-weight: 600; }
+    .doc-detail-meta  { display:flex; flex-wrap:wrap; gap:.4rem .9rem; font-size:.85rem; color:#6b7280; }
+    .doc-detail-actions{ margin-left:auto; display:flex; flex-wrap:wrap; gap:.25rem; }
 
-    .badge.status-Draft {
-        background: #e2e8f0;
-        color: #111827
-    }
+    .badge.status-Draft{background:#e2e8f0;color:#111827}
+    .badge.status-Submitted{background:#c7d2fe;color:#1e1b4b}
+    .badge.status-InProgress{background:#fde68a;color:#78350f}
+    .badge.status-Approved{background:#bbf7d0;color:#065f46}
+    .badge.status-Rejected{background:#fecaca;color:#7f1d1d}
 
-    .badge.status-Submitted {
-        background: #c7d2fe;
-        color: #1e1b4b
-    }
+    .doc-section{ background:#fff; border:1px solid #e5e7eb; border-radius:.375rem; padding:.75rem .875rem; margin-bottom:.75rem; }
+    .doc-section-title{ font-size:.95rem; font-weight:600; margin-bottom:.35rem; display:flex; align-items:center; gap:.4rem; }
+    .doc-section-sub{ font-size:.78rem; color:#9ca3af; margin-left:.15rem; }
 
-    .badge.status-InProgress {
-        background: #fde68a;
-        color: #78350f
-    }
+    /* ===== 프리뷰 (Compose와 동일 렌더 규칙) ===== */
+    .doc-preview-full{ padding:0; margin:0 0 1rem 0; border:none; background:transparent; }
+    #xhost{ display:block; width:auto; max-width:none; overflow:hidden; position:relative; }
+    .xlfb{ border-collapse:collapse; table-layout:fixed; position:relative; background:#fff; }
+    .xlfb td,.xlfb th{ box-sizing:border-box; position:relative; }
+    .xlfb thead,.xlfb tbody th{ display:none; }
+    .xlfb td{ padding:0; vertical-align:middle; overflow:hidden; word-break:break-word; white-space:pre-wrap; }
+    .cellc{ padding:0 .45rem; font-size:inherit; line-height:inherit; max-height:100%; overflow:hidden; display:block; white-space:pre-wrap; word-break:break-word; }
+    .ta-left{text-align:left}.ta-center{text-align:center}.ta-right{text-align:right}
+    .va-top{vertical-align:top}.va-middle{vertical-align:middle}.va-bottom{vertical-align:bottom}
+    .wrap{white-space:pre-line}
 
-    .badge.status-Approved {
-        background: #bbf7d0;
-        color: #065f46
-    }
+    /* ===== 댓글/로그/승인 ===== */
+    .doc-comments-list{ max-height:260px; overflow-y:auto; padding-right:2px; display:flex; flex-direction:column; gap:.5rem; font-size:.86rem; }
+    .doc-comment-item{ border-bottom:1px solid #f3f4f6; padding-bottom:.35rem; }
+    .doc-comment-meta{ display:flex; flex-wrap:wrap; gap:.5rem; font-size:.78rem; color:#9ca3af; }
+    .doc-comment-body{ margin-top:.15rem; white-space:pre-wrap; word-break:break-word; }
+    .doc-comment-files{ margin-top:.15rem; font-size:.78rem; }
+    .doc-comment-form textarea{ width:100%; resize:vertical; min-height:80px; }
+    #cmt-file-list li{ display:flex; align-items:center; gap:.5rem; }
+    #cmt-file-list button[data-remove]{ padding:.1rem .4rem; }
 
-    .badge.status-Rejected {
-        background: #fecaca;
-        color: #7f1d1d
-    }
+    .doc-viewlog-list{ max-height:160px; overflow-y:auto; font-size:.8rem; white-space:nowrap; }
 
-    /* 업로드 미리보기 */
-    #cmt-file-list li {
-        display: flex;
-        align-items: center;
-        gap: .5rem
-    }
+    .doc-approvals-table{ width:100%; font-size:.8rem; }
+    .doc-approvals-table th,.doc-approvals-table td{ padding:.25rem .4rem; border:1px solid #e5e7eb; }
+    .doc-approvals-actions{ display:flex; flex-wrap:wrap; gap:.35rem; justify-content:flex-end; margin-top:.4rem; }
 
-    #cmt-file-list button[data-remove] {
-        padding: .1rem .4rem
+    /* ===== 인쇄 전용: 프리뷰만 꽉 채워서 출력 ===== */
+    @media print {
+        @page { size: A4 portrait; margin: 0; }
+        html, body { margin:0 !important; padding:0 !important; background:#fff !important; }
+        body * { visibility: hidden !important; }
+        #print-xhost-wrapper, #print-xhost-wrapper * { visibility: visible !important; }
+        #print-xhost-wrapper { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important; background:#fff !important; }
+        #print-xhost-wrapper #xhost{ margin:0 !important; padding:0 !important; border:none !important; width:100% !important; max-width:none !important; overflow:visible !important; background:#fff !important; }
+        #print-xhost-wrapper #xhost .xlfb{ display:table !important; table-layout:fixed !important; border-collapse:collapse !important; width:100% !important; margin:0 !important; padding:0 !important; background:#fff !important; }
+        #xhost, #xhost .xlfb, #xhost .xlfb tr, #xhost .xlfb td, #xhost .xlfb th { page-break-inside:auto !important; break-inside:auto !important; }
+        .doc-detail-header, .doc-section, #detail-alert { display:none !important; }
     }
 </style>
 
-<div class="container-xxl py-3">
-    <div class="d-flex align-items-center gap-3 mb-3">
-        <h3 class="mb-0">@S["DOC_Title_Detail"]</h3>
-        <span class="text-muted"><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
-        <span class="text-muted"><strong>@S["DOC_Label_Template"]</strong> : <code>@templateCode</code> <span class="ms-1">@templateTitle</span></span>
-        <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
-    </div>
-
-    <div id="detail-alert" class="mb-3" aria-live="polite"></div>
-
-    <div class="row g-3">
-        <div class="col-lg-5">
-            <div class="card h-100">
-                <div class="card-header py-2"><strong>@S["DOC_Label_Preview"]</strong></div>
-                <div class="card-body">
-                    <div id="xlPreview"></div>
-                    <div class="small text-muted mt-2">@S["DOC_Help_PreviewReadonly"]</div>
-                </div>
+<div class="container-xxl doc-detail-root" data-doc-id="@docId">
+    <header class="doc-detail-header">
+        <div>
+            <div class="doc-detail-title">@S["DOC_Title_Detail"]</div>
+            <div class="doc-detail-meta">
+                <span><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
+                <span><strong>@S["_CM_Label_Template"]</strong> : <code>@templateCode</code> <span class="ms-1">@templateTitle</span></span>
+                <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
             </div>
         </div>
+        <div class="doc-detail-actions">
+            @if (canBackToNew)
+            { <a href="/Doc/New" class="btn btn-sm btn-outline-secondary">@S["DOC_Btn_BackToNew"]</a> }
+            @if (canPrint)
+            { <button type="button" class="btn btn-sm btn-outline-primary" id="btnPrint" title="@S["DOC_Btn_Print"]"><i class="bi bi-printer"></i></button> }
+            @if (canExport)
+            { <button type="button" class="btn btn-sm btn-outline-primary" id="btnExport" title="@S["DOC_Btn_Export"]"><i class="bi bi-file-earmark-pdf"></i></button> }
+        </div>
+    </header>
 
-        <div class="col-lg-7 d-flex flex-column gap-3">
-            <div class="card">
-                <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <strong>@S["DOC_Label_Inputs"]</strong>
-                    <div class="text-muted small">@S["DOC_Help_InputsReadonly"]</div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
-                                <tr><th class="w-16rem">@S["DOC_Col_FieldKey"]</th><th>@S["DOC_Col_Value"]</th></tr>
-                            </thead>
-                            <tbody id="tbody-inputs"></tbody>
-                        </table>
-                    </div>
-                </div>
+    <div id="detail-alert" class="mb-2" aria-live="polite"></div>
+
+    <!-- 1) Compose와 동일 엔진으로 렌더되는 프리뷰 -->
+    <section class="doc-preview-full" aria-label="Document preview">
+        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
+        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
+        <script type="application/json" id="InputsJson">@Html.Raw(inputsJson)</script>
+        <div id="xhost"></div>
+    </section>
+
+    <!-- 2) 댓글 -->
+    <section class="doc-section" aria-labelledby="doc-comments-list-title">
+        <div id="doc-comments-list-title" class="doc-section-title">
+            @S["_CM_Comment_Label"] <span id="cmt-count" class="doc-section-sub"></span>
+        </div>
+        <div id="cmt-alert" class="mb-1" aria-live="polite"></div>
+        <div id="cmt-list" class="doc-comments-list"></div>
+    </section>
+
+    <!-- 3) 댓글 입력 -->
+    <section class="doc-section" aria-labelledby="doc-comment-form-title">
+        <div id="doc-comment-form-title" class="doc-section-title">@S["DOC_Label_AddComment"]</div>
+        <div class="doc-comment-form">
+            <textarea id="cmt-body" class="form-control" rows="3" placeholder="@S["DOC_Placeholder_Comment"]"></textarea>
+            <div class="mt-2">
+                <input id="cmt-file" type="file" class="form-control form-control-sm" multiple />
+                <div class="small text-muted mt-1">@S["DOC_File_Help_UploadTypes"]</div>
+                <ul id="cmt-file-list" class="mt-2 mb-0 small"></ul>
             </div>
-
-            @* 댓글 카드 *@
-            <div class="card mt-3" id="doc-comments">
-                <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <strong>@S["DOC_Title_Comments"]</strong>
-                    <span class="text-muted small" id="cmt-count"></span>
-                </div>
-                <div class="card-body">
-                    <div id="cmt-alert" class="mb-2" aria-live="polite"></div>
-
-                    <div class="mb-3">
-                        <label for="cmt-body" class="form-label mb-1">@S["DOC_Label_AddComment"]</label>
-                        <textarea id="cmt-body" class="form-control" rows="3" placeholder="@S["DOC_Placeholder_Comment"]"></textarea>
-
-                        @* 업로드 UI – 미리보기/삭제 *@
-                        <div class="mt-2">
-                            <input id="cmt-file" type="file" class="form-control form-control-sm" multiple />
-                            <div class="small text-muted mt-1">@S["DOC_File_Help_UploadTypes"]</div>
-                            <ul id="cmt-file-list" class="mt-2 mb-0 small"></ul>
-                        </div>
-
-                        <div class="d-flex gap-2 mt-2">
-                            <button id="cmt-submit" type="button" class="btn btn-sm btn-primary">@S["DOC_Btn_CommentPost"]</button>
-                        </div>
-                    </div>
-
-                    <div id="cmt-list" class="d-flex flex-column gap-3"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <strong>@S["DOC_Label_Approvals"]</strong>
-                    <div class="text-muted small">@S["DOC_Help_ApprovalsReadonly"]</div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="w-16rem">@S["DOC_Col_ApproverRole"]</th>
-                                    <th>@S["DOC_Col_ApproverValue"]</th>
-                                    <th style="width:1%;white-space:nowrap">@S["DOC_Col_Status"]</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-approvals"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="d-flex justify-content-end gap-2">
-                <a class="btn btn-outline-secondary" href="/Doc/New">@S["DOC_Btn_BackToNew"]</a>
-                <button type="button" class="btn btn-outline-primary" id="btnPrint">@S["DOC_Btn_Print"]</button>
-                <button type="button" class="btn btn-outline-primary" id="btnExport">@S["DOC_Btn_Export"]</button>
+            <div class="d-flex gap-2 mt-2 justify-content-end">
+                <button id="cmt-submit" type="button" class="btn btn-sm btn-primary">@S["DOC_Btn_CommentPost"]</button>
             </div>
         </div>
-    </div>
+    </section>
+
+    <!-- 4) 조회 로그 -->
+    <section class="doc-section" aria-labelledby="doc-viewlog-title">
+        <div id="doc-viewlog-title" class="doc-section-title">@S["DOC_Title_ViewLog"]</div>
+        <div id="viewlog-list" class="doc-viewlog-list"></div>
+    </section>
+
+    <!-- 5) 승인 정보 + 액션 -->
+    <section class="doc-section" aria-labelledby="doc-approvals-title">
+        <div id="doc-approvals-title" class="doc-section-title">
+            @S["DOC_Label_Approvals"] <span class="doc-section-sub">@S["DOC_Help_ApprovalsReadonly"]</span>
+        </div>
+
+        <table class="doc-approvals-table">
+            <thead>
+            <tr>
+                <th style="width:18%;">@S["DOC_Col_ApproverRole"]</th>
+                <th>@S["DOC_Col_ApproverValue"]</th>
+                <th style="width:12%;">@S["DOC_Col_Status"]</th>
+                <th style="width:18%;">@S["DOC_Col_ApprovalTime"]</th>
+            </tr>
+            </thead>
+            <tbody id="tbody-approvals"></tbody>
+        </table>
+
+        <div class="doc-approvals-actions">
+            <button type="button" class="btn btn-sm btn-success" data-approve @(canApprove ? "" : "disabled")>@S["DOC_Btn_Approve"]</button>
+            <button type="button" class="btn btn-sm btn-warning" data-hold @(canHold ? "" : "disabled")>@S["DOC_Btn_Hold"]</button>
+            <button type="button" class="btn btn-sm btn-danger"  data-reject @(canReject ? "" : "disabled")>@S["DOC_Btn_Reject"]</button>
+        </div>
+    </section>
 </div>
 
 @section Scripts {
-    <script src="~/js/eb.csrf.js"></script>
-    <script>
-        // === 공통 유틸 ===
-        const S = (k) => k;
-        function safeJson(s) { try { return JSON.parse(s || "{}") } catch { return {} } }
-        function safeArr(s) { try { const a = JSON.parse(s || "[]"); return Array.isArray(a) ? a : [] } catch { return [] } }
-        function ce(tag, attrs = {}, ...children) {
-            const el = document.createElement(tag);
-            Object.entries(attrs).forEach(([k, v]) => {
-                if (k === 'class') el.className = v;
-                else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v, false);
-                else if (v !== undefined && v !== null) el.setAttribute(k, v);
-            });
-            for (const c of children) el.append(c?.nodeType ? c : document.createTextNode(c ?? ''));
-            return el;
+<script src="~/js/eb.csrf.js"></script>
+<script>
+(function () {
+    // ===== 리소스/유틸 =====
+    function decodeHtmlEntities(str){ if(str==null) return ''; let s=String(str);
+        s=s.replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCodePoint(parseInt(h,16)));
+        s=s.replace(/&#(\d+);/g,(_,d)=>String.fromCodePoint(parseInt(d,10)));
+        return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+    }
+    window.__RESX = {
+        DOC_Err_PreviewFailed: "@S["DOC_Err_PreviewFailed"]",
+        DOC_Msg_NoComments: "@S["DOC_Msg_NoComments"]",
+        DOC_Msg_NoViewLogs: "@S["DOC_Msg_NoViewLogs"]",
+        DOC_Msg_NoApprovals: "@S["DOC_Msg_NoApprovals"]",
+        DOC_Msg_Approve_Success: "@S["DOC_Msg_Approve_Success"]",
+        DOC_Err_SaveFailed: "@S["DOC_Err_SaveFailed"]",
+        DOC_Err_LoadFailed: "@S["DOC_Err_LoadFailed"]",
+        DOC_Err_DocumentNotFound: "@S["DOC_Err_DocumentNotFound"]"
+    };
+    const T = (m)=>{ if(m==null) return ''; if(Array.isArray(m)) return m.map(T).join('\n');
+        const s=String(m); const map=window.__RESX||{}; return decodeHtmlEntities(Object.prototype.hasOwnProperty.call(map,s)?map[s]:s); };
+
+    function readJson(id, fallback){ try{ const el=document.getElementById(id); if(!el) return fallback;
+        let v=JSON.parse(el.textContent||''); if(typeof v==='string'){ try{ v=JSON.parse(v); }catch{} }
+        return (v&&typeof v==='object')?v:fallback; }catch{return fallback;} }
+
+    // ===== Compose와 동일한 프리뷰 엔진 =====
+    const descriptor = readJson('DescriptorJson', {});
+    const preview    = readJson('PreviewJson', {});
+
+    function excelColWidthToPx(W){ const w=Number(W); if(!isFinite(w)||w<0) return 0; return Math.max(0, Math.floor(w*7+5)); }
+    const ptToPx = (pt)=>((Number(pt)||0)*96/72);
+
+    const a1ToRC=(a1)=>{ if(!a1) return null; const m=String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
+        if(!m) return null; const letters=m[1]; const row=parseInt(m[2],10); let col=0;
+        for(let i=0;i<letters.length;i++) col=col*26+(letters.charCodeAt(i)-64); return {r:row,c:col}; };
+
+    function hasVisibleStyle(st){
+        if(!st) return false;
+        if (st.fill && st.fill.bg) return true;
+        if (st.font && (st.font.bold||st.font.italic||st.font.underline||st.font.size||st.font.name)) return true;
+        const b=st.border||{}; return !!((b.l&&b.l!=='None')||(b.r&&b.r!=='None')||(b.t&&b.t!=='None')||(b.b&&b.b!=='None'));
+    }
+
+    function measureEffectiveContentWidth(tbl){
+        if(!tbl) return 0; const baseLeft=tbl.getBoundingClientRect().left; let maxRight=0;
+        for(const td of tbl.querySelectorAll('td')){
+            const cs=getComputedStyle(td);
+            const hasBorder=((parseFloat(cs.borderLeftWidth)||0)>0)||((parseFloat(cs.borderRightWidth)||0)>0)||((parseFloat(cs.borderTopWidth)||0)>0)||((parseFloat(cs.borderBottomWidth)||0)>0);
+            const hasText=(td.textContent||'').trim().length>0;
+            if(hasBorder||hasText){ const r=td.getBoundingClientRect().right; if(r>maxRight) maxRight=r; }
         }
+        const eff=Math.ceil(maxRight-baseLeft); return (isFinite(eff)&&eff>0)?eff:0;
+    }
 
-        // 서버 제공 데이터
-        const preview = safeJson('@Html.Raw(JsonEncodedText.Encode((string?)ViewBag.PreviewJson ?? "{}").ToString())');
-        const inputsMap = safeJson('@Html.Raw(JsonEncodedText.Encode((string?)ViewBag.InputsJson ?? "{}").ToString())');
-        const approvals = safeArr('@Html.Raw(JsonEncodedText.Encode((string?)ViewBag.ApprovalsJson ?? "[]").ToString())');
-        const descriptor = safeJson('@Html.Raw(JsonEncodedText.Encode((string?)ViewBag.DescriptorJson ?? "{}").ToString())');
+    function applyStyleToCell(td, cell, st){
+        if(!st||typeof st!=='object') return;
+        if(st.font){ if(st.font.name) cell.style.fontFamily=st.font.name; if(st.font.size) cell.style.fontSize=ptToPx(st.font.size)+'px';
+            if(st.font.bold) cell.style.fontWeight='700'; if(st.font.italic) cell.style.fontStyle='italic'; if(st.font.underline) cell.style.textDecoration='underline'; }
+        if(st.align){ const h=String(st.align.h||'').toLowerCase();
+            if(h==='center') cell.classList.add('ta-center'); else if(h==='right') cell.classList.add('ta-right'); else cell.classList.add('ta-left');
+            const v=String(st.align.v||'').toLowerCase(); if(v==='top') td.classList.add('va-top'); else if(v==='center'||v==='middle') td.classList.add('va-middle'); else td.classList.add('va-bottom');
+            if(st.align.wrap) cell.classList.add('wrap'); }
+        const cssOf=s=>{ s=String(s||'').toLowerCase(); if(!s||s==='none') return {w:0,sty:'none'};
+            if(s.includes('double')) return {w:3,sty:'double'}; if(s.includes('thick')) return {w:3,sty:'solid'};
+            if(s.includes('medium')) return {w:2,sty:'solid'}; if(s.includes('dash')) return {w:1,sty:'dashed'};
+            if(s.includes('dot')||s.includes('hair')) return {w:1,sty:'dotted'}; return {w:1,sty:'solid'}; };
+        const color='#000';
+        if(st.border){ const L=cssOf(st.border.l),R=cssOf(st.border.r),T0=cssOf(st.border.t),B0=cssOf(st.border.b);
+            td.style.borderLeft  = L.w?`${L.w}px ${L.sty} ${color}`:'none';
+            td.style.borderRight = R.w?`${R.w}px ${R.sty} ${color}`:'none';
+            td.style.borderTop   = T0.w?`${T0.w}px ${T0.sty} ${color}`:'none';
+            td.style.borderBottom= B0.w?`${B0.w}px ${B0.sty} ${color}`:'none'; }
+    }
 
-        // 프리뷰 로더(자산 경로 교체 필요)
-        const ASSET_JS = "/REPLACE/with/your/doctlmap.bundle.js";
-        const ASSET_CSS = "/REPLACE/with/your/doctlmap.css";
-        function ensureCss(href) {
-            return new Promise((res, rej) => {
-                if (!href) return res();
-                const exist = Array.from(document.styleSheets).some(s => s.href && s.href.indexOf(href) >= 0);
-                if (exist) return res();
-                const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = href;
-                link.onload = () => res(); link.onerror = () => rej(new Error('css load fail'));
-                document.head.appendChild(link);
-            });
-        }
-        function ensureScript(src) {
-            return new Promise((res, rej) => {
-                if (!src) return res();
-                const exist = Array.from(document.scripts).some(s => s.src && s.src.indexOf(src) >= 0);
-                if (exist) return res();
-                const sc = document.createElement('script'); sc.src = src;
-                sc.onload = () => res(); sc.onerror = () => rej(new Error('js load fail'));
-                document.head.appendChild(sc);
-            });
-        }
-        async function mountPreview() {
-            try {
-                await ensureCss(ASSET_CSS);
-                await ensureScript(ASSET_JS);
-                if (window.DOCTLMAP?.mount) window.DOCTLMAP.mount('#xlPreview', preview);
-                else if (window.DocTLPreview?.mount) window.DocTLPreview.mount('#xlPreview', preview);
-                else if (window.DOCTLMAP?.mountPreview) window.DOCTLMAP.mountPreview('#xlPreview', preview);
-                else document.getElementById('xlPreview').textContent = S('DOC_Msg_PreviewFallback');
-            } catch {
-                document.getElementById('xlPreview').textContent = S('DOC_Msg_PreviewFallback');
+    function mountPreview(){
+        const xhost=document.getElementById('xhost');
+        const p=preview||{};
+        if(!Array.isArray(p.cells)||!p.cells.length){ xhost.innerHTML=`<div class="alert alert-danger mb-0 py-1">${T("DOC_Err_PreviewFailed")}</div>`; return; }
+
+        // === 범위 산정: Compose 규칙 (내용/스타일/머지/descriptor.inputs 모두 포함) ===
+        const styles = p.styles || {};
+        const rows = p.cells.length;
+        let minR=Infinity, maxR=-Infinity, minC=Infinity, maxC=-Infinity;
+        const mark=(r,c)=>{ minR=Math.min(minR,r); maxR=Math.max(maxR,r); minC=Math.min(minC,c); maxC=Math.max(maxC,c); };
+
+        for(let r=1;r<=rows;r++){
+            const row=p.cells[r-1]||[];
+            for(let c=1;c<=row.length;c++){
+                const v=row[c-1];
+                if(v!==''&&v!=null) mark(r,c);
+                const st=styles[`${r},${c}`]; if(hasVisibleStyle(st)) mark(r,c);
             }
         }
+        (p.merges||[]).forEach(m=>{ const [r1,c1,r2,c2]=m.map(n=>parseInt(n,10)||0); mark(r1,c1); mark(r2,c2); });
+        (Array.isArray(descriptor?.inputs)?descriptor.inputs:[]).forEach(f=>{ const rc=a1ToRC(f?.a1); if(rc) mark(rc.r,rc.c); });
 
-        // 입력/결재 렌더링
-        (function renderInputs() {
-            const tbody = document.getElementById('tbody-inputs');
-            tbody.innerHTML = '';
-            const entries = Object.entries(inputsMap || {});
-            if (entries.length === 0) {
-                tbody.append(ce('tr', {}, ce('td', { colspan: '2', class: 'text-muted' }, S('DOC_Msg_NoInputs'))));
-                return;
-            }
-            entries.forEach(([key, val]) => {
-                tbody.append(ce('tr', { 'data-key': key }, ce('td', {}, ce('code', {}, key || '')), ce('td', {}, String(val ?? ''))));
-            });
-        })();
-        (function renderApprovals() {
-            const tbody = document.getElementById('tbody-approvals');
-            tbody.innerHTML = '';
-            const list = Array.isArray(approvals) ? approvals : [];
-            if (list.length === 0) {
-                tbody.append(ce('tr', {}, ce('td', { colspan: '3', class: 'text-muted' }, S('DOC_Msg_NoApprovals'))));
-                return;
-            }
-            list.forEach(ap => {
-                const roleKey = ap.roleKey || '';
-                const value = ap.value || '';
-                const st = ap.status || 'Pending';
-                tbody.append(ce('tr', { 'data-role': roleKey }, ce('td', {}, S(roleKey || 'DOC_Approver_Unknown')), ce('td', {}, String(value)), ce('td', {}, S('DOC_StatusShort_' + st))));
-            });
-        })();
+        if(!isFinite(minR)||!isFinite(minC)){ minR=1; maxR=1; minC=1; maxC=1; }
+        const maxColsFromCells=Math.max(...p.cells.map(r=>r.length),1);
+        maxC=Math.min(maxC,maxColsFromCells); minC=Math.max(minC,1);
 
-        // === 댓글 + 업로드 통합 ===
-        (function () {
-            const EBV = window.EBValidate || {};
-            const docId = '@(docId ?? "")' || (new URLSearchParams(location.search).get("id") || '');
-            const $list = document.getElementById('cmt-list');
-            const $alert = document.getElementById('cmt-alert');
-            const $count = document.getElementById('cmt-count');
-            const $file = document.getElementById('cmt-file');
-            const $fileList = document.getElementById('cmt-file-list');
-
-            if (!docId) { showErr([S('DOC_Err_DocumentNotFound')]); return; }
-
-            // 선택 파일 리스트(클라이언트 메모리에서 유지)
-            let pendingFiles = [];
-
-            // 파일 선택 시 미리보기 업데이트
-            $file?.addEventListener('change', () => {
-                pendingFiles = Array.from($file.files || []).filter(Boolean);
-                renderFileList();
-            });
-
-            // 미리보기 렌더링/삭제
-            function renderFileList() {
-                $fileList.innerHTML = '';
-                if (!pendingFiles.length) { return; }
-                pendingFiles.forEach((f, idx) => {
-                    const li = document.createElement('li');
-                    li.innerHTML = `
-                                <span>${escapeHtml(f.name)}</span>
-                                <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${idx}">&times;</button>`;
-                    $fileList.append(li);
-                });
-            }
-            $fileList.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-remove]');
-                if (!btn) return;
-                const idx = Number(btn.getAttribute('data-remove'));
-                if (Number.isInteger(idx) && idx >= 0) {
-                    pendingFiles.splice(idx, 1);
-                    $file.value = '';
-                    renderFileList();
-                }
-            });
-
-            // 목록 로드
-            loadComments();
-
-            // 댓글 등록: 파일이 있으면 업로드 → 메타 포함 POST
-            document.getElementById('cmt-submit')?.addEventListener('click', async () => {
-                const bodyEl = document.getElementById('cmt-body');
-                const body = (bodyEl.value || '').trim();
-                if (!body) { showErr([S('DOC_Val_Required')]); return; }
-
-                try {
-                    // 1) 업로드
-                    let filesMeta = [];
-                    if (pendingFiles.length) {
-                        filesMeta = await EBUpload.uploadFiles(pendingFiles, {
-                            url: '/DocFile/Upload',
-                            maxBytes: 20 * 1024 * 1024,
-                            allowExt: [],           // 필요 시 제한
-                            allowMimePrefix: [],    // 필요 시 제한
-                            t: S
-                        });
-                    }
-
-                    // 2) 댓글 POST
-                    const payload = {
-                        docId,
-                        parentCommentId: null,
-                        body,
-                        files: filesMeta.map(f => ({
-                            fileKey: f.fileKey,
-                            originalName: f.originalName,
-                            contentType: f.contentType,
-                            byteSize: f.byteSize
-                        }))
-                    };
-                    await EBCSRF.json('/Doc/Comments', payload, 'POST');
-
-                    // 성공 처리
-                    bodyEl.value = '';
-                    pendingFiles = [];
-                    $file.value = '';
-                    renderFileList();
-                    await loadComments();
-                    showOk([S('DOC_Msg_CommentCreated')]);
-                } catch (e) {
-                    const p = e?.payload;
-                    showErr((p?.messages) || [S('DOC_Err_SaveFailed')], p?.fieldErrors);
-                }
-            });
-
-            // 대댓글/삭제
-            $list.addEventListener('click', async (e) => {
-                const replyBtn = e.target.closest('button[data-reply]');
-                const delBtn = e.target.closest('button[data-del]');
-
-                if (replyBtn) {
-                    const parentId = replyBtn.getAttribute('data-reply');
-                    const ta = replyBtn.closest('.cmt-item').querySelector('textarea');
-                    const text = (ta?.value || '').trim();
-                    if (!text) { showErr([S('DOC_Val_Required')]); return; }
-                    try {
-                        await EBCSRF.json('/Doc/Comments', { docId, parentCommentId: Number(parentId), body: text, files: [] }, 'POST');
-                        await loadComments();
-                        showOk([S('DOC_Msg_CommentCreated')]);
-                    } catch (e2) {
-                        const p = e2?.payload;
-                        showErr((p?.messages) || [S('DOC_Err_SaveFailed')], p?.fieldErrors);
-                    }
-                }
-
-                if (delBtn) {
-                    const id = delBtn.getAttribute('data-del');
-                    try {
-                        const url = `/Doc/Comments/${id}?docId=${encodeURIComponent(docId)}`;
-                        const res = await EBCSRF.fetch(url, { method: 'DELETE' });
-                        const j = await res.json().catch(() => ({}));
-                        if (!res.ok) throw { payload: j };
-                        await loadComments();
-                        showOk([S('DOC_Msg_CommentDeleted')]);
-                    } catch (e3) {
-                        const p = e3?.payload;
-                        showErr((p?.messages) || [S('DOC_Err_DeleteFailed')], p?.fieldErrors);
-                    }
-                }
-            });
-
-            async function loadComments() {
-                try {
-                    const res = await EBCSRF.fetch('/Doc/Comments?docId=' + encodeURIComponent(docId), { method: 'GET' });
-                    const ok = await res.json().catch(() => ({}));
-                    const items = ok?.items || [];
-                    $count.textContent = items.length ? S('DOC_Cmt_Count').replace('{n}', items.length) : '';
-                    renderList(items);
-                } catch {
-                    showErr([S('DOC_Err_LoadFailed')]);
-                }
-            }
-
-            function renderList(items) {
-                $list.innerHTML = '';
-                for (const c of items) {
-                    const div = document.createElement('div');
-                    div.className = 'cmt-item border rounded p-2';
-                    div.innerHTML = `
-                                <div class="d-flex justify-content-between">
-                                    <div>
-                                      <strong>${escapeHtml(c.createdBy || '')}</strong>
-                                      <span class="text-muted small ms-2">${escapeHtml(c.createdAt || '')}</span>
-                                    </div>
-                                    <div>
-                                      <button type="button" class="btn btn-sm btn-outline-danger" data-del="${c.commentId}">${S('DOC_Btn_Delete')}</button>
-                                    </div>
-                                </div>
-                                <div class="mt-2">${nl2br(escapeHtml(c.body || ''))}</div>
-                                ${Array.isArray(c.files) && c.files.length ? filesHtml(c.files) : ''}
-                                <div class="mt-2 ms-3">
-                                    <textarea class="form-control form-control-sm mb-1" rows="2" placeholder="${S('DOC_Placeholder_Reply')}"></textarea>
-                                    <button type="button" class="btn btn-sm btn-outline-primary" data-reply="${c.commentId}">${S('DOC_Btn_Reply')}</button>
-                                </div>`;
-                    if (c.depth >= 1) div.style.marginLeft = (Math.min(c.depth, 4) * 16) + 'px';
-                    $list.append(div);
-                }
-            }
-            function filesHtml(list) {
-                const rows = list.map(f => {
-                    const name = escapeHtml(f.originalName || '');
-                    const bytes = Number(f.byteSize || 0).toLocaleString();
-                    const key = encodeURIComponent(f.fileKey || '');
-                    return `<li>
-                                <a href="/DocFile/${key}" target="_blank" rel="noopener">${name}</a>
-                                <span class="text-muted">(${bytes})</span>
-                            </li>`;
-                }).join('');
-                return `<ul class="mt-2 mb-0 small">${rows}</ul>`;
-            }
-            function showErr(msgs, fieldErrors) {
-                if (EBV.showAlert) EBV.showAlert('cmt-alert', msgs, { variant: 'danger', fieldErrors });
-                else $alert.innerHTML = `<div class="alert alert-danger">${(msgs || []).map(escapeHtml).join('<br>')}</div>`;
-            }
-            function showOk(msgs) {
-                if (EBV.showAlert) EBV.showAlert('cmt-alert', msgs, { variant: 'success' });
-                else $alert.innerHTML = `<div class="alert alert-success">${(msgs || []).map(escapeHtml).join('<br>')}</div>`;
-            }
-            function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m])) }
-            function nl2br(s) { return String(s || '').replace(/\n/g, '<br>') }
-        })();
-
-        // 인쇄/내보내기 버튼
-        document.getElementById('btnPrint')?.addEventListener('click', () => window.print());
-        document.getElementById('btnExport')?.addEventListener('click', () => {
-            const alertHost = document.getElementById('detail-alert');
-            alertHost.innerHTML = '<div class="alert alert-info">' + S('DOC_Msg_ExportWip') + '</div>';
+        // === 머지 맵 ===
+        const mergeMap=new Map();
+        (p.merges||[]).forEach(m=>{
+            let [r1,c1,r2,c2]=m.map(n=>parseInt(n,10));
+            r1=Math.max(r1,minR); c1=Math.max(c1,minC);
+            r2=Math.min(r2,maxR); c2=Math.min(c2,maxC);
+            if(r1>r2||c1>c2) return;
+            const master=`${r1}-${c1}`; mergeMap.set(master,{master:true,rs:r2-r1+1,cs:c2-c1+1});
+            for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++){ const k=`${r}-${c}`; if(k!==master) mergeMap.set(k,{covered:true}); }
         });
 
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPreview, { once: true });
-        else mountPreview();
-    </script>
+        // === 스타일 그리드 (경계 가중치 통일) ===
+        const styleGrid=Array.from({length:maxR+1},()=>Array(maxC+1).fill(null));
+        for(let r=minR;r<=maxR;r++){
+            for(let c=minC;c<=maxC;c++){
+                const key=`${r},${c}`; const st=styles[key]||{};
+                const border=Object.assign({l:'None',r:'None',t:'None',b:'None'}, st.border||{});
+                styleGrid[r][c]={ font:st.font||null, align:st.align||null, fill:st.fill||null, border };
+            }
+        }
+        const weight=s=>{ s=String(s||'').toLowerCase(); if(!s||s==='none') return 0;
+            if(s.includes('double')) return 6; if(s.includes('thick')) return 5;
+            if(s.includes('mediumdashdotdot')||s.includes('mediumdashdot')||s.includes('mediumdashed')||s.includes('medium')) return 4;
+            if(s.includes('dashed')||s.includes('dashdot')||s.includes('dashdotdot')) return 3; if(s.includes('dotted')||s.includes('hair')) return 2; return 1; };
+        const stronger=(a,b)=> (weight(a)>=weight(b)?a:b);
+        for(let r=minR;r<=maxR;r++){
+            for(let c=minC;c<=maxC;c++){
+                const cur=styleGrid[r][c]; if(!cur) continue;
+                if(c<maxC){ const right=styleGrid[r][c+1]; if(right){ const pick=stronger(cur.border.r, right.border.l); cur.border.r=pick; right.border.l=pick; } }
+                if(r<maxR){ const down =styleGrid[r+1][c]; if(down ){ const pick=stronger(cur.border.b, down.border.t); cur.border.b=pick; down.border.t=pick; } }
+            }
+        }
+
+        // === 컬럼 폭/테이블 생성 ===
+        const colPxAt=(c)=>{ const wChar=(p.colW||[])[c-1]; return excelColWidthToPx(wChar ?? 8.43); };
+        const sumColPx=(c1,c2)=>{ let s=0; for(let i=c1;i<=c2;i++) s+=colPxAt(i); return s; };
+
+        const tbl=document.createElement('table'); tbl.className='xlfb';
+        const colgroup=document.createElement('colgroup');
+        for(let c=minC;c<=maxC;c++){ const cg=document.createElement('col'); cg.style.width=colPxAt(c).toFixed(2)+'px'; colgroup.appendChild(cg); }
+        tbl.appendChild(colgroup);
+
+        const tbody=document.createElement('tbody');
+        const rowHeights=Array.isArray(p.rowH)?p.rowH:[]; const DEFAULT_ROW_PT=15;
+
+        for(let r=minR;r<=maxR;r++){
+            const tr=document.createElement('tr');
+            const pt=(rowHeights[r-1]!=null)?rowHeights[r-1]:DEFAULT_ROW_PT;
+            const rowPx=Math.round(ptToPx(pt)); tr.style.height=rowPx+'px'; tr.style.lineHeight=rowPx+'px';
+
+            for(let c=minC;c<=maxC;c++){
+                const key=`${r}-${c}`; const mm=mergeMap.get(key); if(mm&&mm.covered) continue;
+                const td=document.createElement('td'); if(mm&&mm.master){ if(mm.rs>1) td.setAttribute('rowspan',String(mm.rs)); if(mm.cs>1) td.setAttribute('colspan',String(mm.cs)); }
+                if(!(mm&&mm.master&&mm.cs>1)) td.style.width=colPxAt(c)+'px';
+
+                const cell=document.createElement('div'); cell.className='cellc'; if(!mm) cell.style.maxHeight=rowPx+'px';
+                const v=(preview.cells[r-1]?.[c-1] ?? ''); if(v!=='') cell.appendChild(document.createTextNode(String(v)));
+
+                applyStyleToCell(td, cell, styleGrid[r][c]);
+                td.appendChild(cell); tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+        tbl.appendChild(tbody);
+
+        const totalW = sumColPx(minC, maxC);
+        tbl.style.width = totalW + 'px';
+
+        xhost.innerHTML=''; xhost.appendChild(tbl);
+
+        const effW = measureEffectiveContentWidth(tbl) || totalW;
+        xhost.style.width = effW + 'px';
+        tbl.style.width   = effW + 'px';
+
+        // 인쇄용 wrapper 준비
+        (function preparePrintWrapper(){
+            const originalParent = xhost.parentNode;
+            const originalNext   = xhost.nextSibling;
+            const printWrapper   = document.createElement('div');
+            printWrapper.id = 'print-xhost-wrapper';
+            function moveTo(){ if(xhost.parentNode===printWrapper) return; if(!printWrapper.parentNode) document.body.appendChild(printWrapper); printWrapper.appendChild(xhost); }
+            function restore(){ if(!originalParent) return;
+                if (originalNext && originalNext.parentNode===originalParent) originalParent.insertBefore(xhost, originalNext);
+                else originalParent.appendChild(xhost);
+                if (printWrapper.parentNode) printWrapper.parentNode.removeChild(printWrapper);
+            }
+            function before(){ moveTo(); } function after(){ restore(); }
+            if(window.matchMedia){ const mq=window.matchMedia('print'); mq.addEventListener('change',e=>{ if(e.matches) before(); else after(); }); }
+            window.addEventListener('beforeprint', before); window.addEventListener('afterprint', after);
+        })();
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPreview, {once:true});
+    else mountPreview();
+
+    // ===== 댓글/파일 업로드 =====
+    (function initComments(){
+        const rawFetch=(window.fetch||function(){}).bind(window);
+        const EBC = (window.EBCSRF||window.EBCsrf)||{
+            async fetch(url,options){ const res=await rawFetch(url,options||{}); return res; },
+            async json(url,payload,method='POST'){ const res=await rawFetch(url,{method,headers:{'Content-Type':'application/json','Accept':'application/json'},body:method==='GET'?undefined:JSON.stringify(payload||{})}); const j=await res.json().catch(()=>({})); if(!res.ok){ const err=new Error('request failed'); err.payload=j; throw err; } return j; }
+        };
+        const $list = document.getElementById('cmt-list');
+        const $alert= document.getElementById('cmt-alert');
+        const $count= document.getElementById('cmt-count');
+        const $file = document.getElementById('cmt-file');
+        const $fileList = document.getElementById('cmt-file-list');
+        const $body = document.getElementById('cmt-body');
+        const $submit = document.getElementById('cmt-submit');
+        const docIdAttr = document.querySelector('.doc-detail-root')?.getAttribute('data-doc-id')||'';
+        if(!docIdAttr){ showErr([T('DOC_Err_DocumentNotFound')]); return; }
+        let pendingFiles=[];
+
+        $file?.addEventListener('change',()=>{ pendingFiles=Array.from($file.files||[]); renderFileList(); });
+        $fileList.addEventListener('click',(e)=>{ const btn=e.target.closest('button[data-remove]'); if(!btn) return; const idx=Number(btn.getAttribute('data-remove')); if(!Number.isNaN(idx)){ pendingFiles.splice(idx,1); $file.value=''; renderFileList(); }});
+        function renderFileList(){ $fileList.innerHTML=''; pendingFiles.forEach((f,i)=>{ const li=document.createElement('li'); li.innerHTML=`<span>${escapeHtml(f.name)}</span><span class="text-muted">(${Number(f.size||0).toLocaleString()})</span><button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`; $fileList.append(li); }); }
+
+        async function loadComments(){
+            try{ const res=await EBC.fetch('/Doc/Comments?docId='+encodeURIComponent(docIdAttr),{method:'GET',headers:{'Accept':'application/json'}}); const data=await res.json().catch(()=>({})); renderComments(Array.isArray(data.items)?data.items:[]); }
+            catch(e){ console.error('loadComments error',e); showErr([T('DOC_Err_LoadFailed')]); }
+        }
+        function renderComments(items){
+            $list.innerHTML=''; if(!items.length){ $count.textContent=''; $list.innerHTML=`<div class="text-muted">${T('DOC_Msg_NoComments')}</div>`; return; }
+            $count.textContent = `(${items.length})`;
+            items.forEach(c=>{ const wrap=document.createElement('div'); wrap.className='doc-comment-item'; const depth=Math.min(c.depth||0,4); if(depth>0) wrap.style.marginLeft=(depth*16)+'px';
+                wrap.innerHTML = `<div class="doc-comment-meta"><span><strong>${escapeHtml(c.createdBy||'')}</strong></span><span>${escapeHtml(c.createdAt||'')}</span></div><div class="doc-comment-body">${nl2br(escapeHtml(c.body||''))}</div>`;
+                $list.append(wrap);
+            });
+        }
+
+        $submit?.addEventListener('click', async ()=>{
+            const body = ($body.value||'').trim(); if(!body){ showErr([T('DOC_Err_SaveFailed')]); return; }
+            try{
+                const payload={ docId:docIdAttr, parentCommentId:null, body, files:[] };
+                await EBC.json('/Doc/Comments', payload, 'POST');
+                $body.value=''; pendingFiles=[]; if($file) $file.value=''; renderFileList(); $alert.innerHTML=''; await loadComments();
+            }catch(e){ console.error('post comment error',e); const p=e&&e.payload; showErr(p?.messages||[T('DOC_Err_SaveFailed')], p?.fieldErrors); }
+        });
+
+        function showErr(msgs){ $alert.innerHTML = `<div class="alert alert-danger py-1 mb-1">${(msgs||[]).map(escapeHtml).join('<br>')}</div>`; }
+        function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+        function nl2br(s){ return String(s||'').replace(/\n/g,'<br>'); }
+
+        loadComments();
+    })();
+
+    // ===== 조회 로그 =====
+    (function renderViewLogs(){
+        const host=document.getElementById('viewlog-list'); if(!host) return;
+        let logs; try{ logs=JSON.parse('@Html.Raw(viewLogsJson)'); }catch{ logs=null; }
+        if(!Array.isArray(logs)||!logs.length){ host.innerHTML=`<div class="text-muted">${T('DOC_Msg_NoViewLogs')}</div>`; return; }
+        host.innerHTML=''; logs.sort((a,b)=>(b.viewedAt||'').localeCompare(a.viewedAt||'')).forEach(v=>{ const row=document.createElement('div'); const when=v.viewedAtText||v.viewedAt||''; const who=v.userName||v.userId||''; row.textContent=`${when} - ${who}`; host.append(row); });
+    })();
+
+    // ===== 승인 정보 =====
+    (function renderApprovals(){
+        const tbody=document.getElementById('tbody-approvals'); if(!tbody) return;
+        let list; try{ list=JSON.parse('@Html.Raw(approvalsJson)'); }catch{ list=null; }
+        if(!Array.isArray(list)||!list.length){ const tr=document.createElement('tr'); tr.innerHTML=`<td colspan="4" class="text-muted">${T('DOC_Msg_NoApprovals')}</td>`; tbody.append(tr); return; }
+        const esc=s=>String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+        list.slice().sort((a,b)=>(a.step||a.stepOrder||0)-(b.step||b.stepOrder||0)).forEach(a=>{
+            const tr=document.createElement('tr');
+            tr.innerHTML=`<td>${esc(a.roleKey||a.Part||'')}</td><td>${esc(a.approverValue||a.value||a.approverName||'')}</td><td>${esc(a.status||a.Action||'Pending')}</td><td>${esc(a.actedAtText||a.actedAt||'')}</td>`;
+            tbody.append(tr);
+        });
+    })();
+
+    // ===== 인쇄/Export/승인 액션 =====
+    const docId = "@(docId ?? "")";
+    document.getElementById('btnPrint')?.addEventListener('click',() => window.print());
+    document.getElementById('btnExport')?.addEventListener('click',()=>{ if(!docId) return; location.href='/Doc/ExportPdf?id='+encodeURIComponent(docId); });
+
+    (function initApproveButtons(){
+        const EBC=window.EBCSRF||window.EBCsrf||{};
+        const alertHost=document.getElementById('detail-alert');
+        function show(msg,cls){ alertHost.innerHTML=`<div class="alert ${cls} py-1 my-1">${msg}</div>`; }
+        async function call(action){
+            try{
+                const res=await (EBC.json?EBC.json('/Doc/ApproveOrHold',{docId,action},'POST'):fetch('/Doc/ApproveOrHold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({docId,action})}).then(r=>r.json()));
+                if(!res||res.ok===false) throw {payload:res};
+                show(T('DOC_Msg_Approve_Success'),'alert-success'); location.reload();
+            }catch(e){ const p=e&&e.payload; const msgs=p?.messages||[T('DOC_Err_SaveFailed')]; show(msgs.join('<br>'),'alert-danger'); }
+        }
+        function bind(sel, action){ document.querySelectorAll(sel).forEach(btn=> btn.addEventListener('click',()=>{ if(btn.disabled) return; call(action); })); }
+        bind('[data-approve]','Approve'); bind('[data-hold]','Hold'); bind('[data-reject]','Reject');
+    })();
+})();
+</script>
 }

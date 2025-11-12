@@ -1,4 +1,5 @@
-﻿@* 2025.10.29 Changed: 보조 가로 스크롤바를 컨테이너(#doc-scroll) 내부 sticky 하단으로 이동, 표시 시에만 높이 예약; 동적 폭 변경 시 동기 재계산(ResizeObserver); 고정 레이어 제거로 헤더/푸터 가림 및 좌우 시작점 불일치 해소 *@
+﻿@* 2025.11.11 Changed: 포커스 링 단일화 및 활성 그룹 기준 재계산 (비고 영역에 고정되던 문제 수정) *@
+@* 2025.11.04 Changed: 메일 전송 요청 body 구성과 CSRF 토큰 적용 저장 응답 처리 보강 기타 로직 변경 없음 *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -10,33 +11,44 @@
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
 }
 <style>
+    :root {
+        --vscroll-w: 0px;
+        --eb-group-bg: rgb(240 248 255 / 55%);
+        --eb-group-bg-hover: rgb(240 248 255 / 55%);
+        --eb-ring-border: #8CB8FF;
+        --eb-ring-glow: rgba(140,184,255,.35);
+        --eb-ring-w: 2px;
+        --eb-ring-pad: 2px;
+        --eb-ring-glow-w: 4px;
+    }
+
+    @Html.Raw("@keyframes ebBlink{0%{box-shadow:none}50%{box-shadow:0 0 0 3px rgba(215,0,0,.35)}100%{box-shadow:none}}")
+
     html, body {
         height: 100%;
-        overflow: hidden !important; /* 전역 스크롤 차단 */
+        overflow: hidden !important;
         background: #fff;
         margin: 0;
     }
 
-    /* 단일 스크롤 컨테이너 */
     #doc-scroll {
         position: fixed;
-        inset: 0 0 0 0; /* 상단/좌우/하단은 JS에서 헤더/사이드바 인셋 반영 */
-        overflow: auto !important;
+        inset: 0;
+        overflow-y: auto !important;
+        overflow-x: auto !important;
         box-sizing: border-box;
         background: #fff;
-        z-index: 2;
+        z-index: 1;
         scrollbar-gutter: stable both-edges;
-        padding: 0; /* xbar는 표시 시 JS로 padding-bottom을 부여 */
+        padding-bottom: 0;
     }
 
-    /* 상위 레이아웃 간섭 제거용 */
     .doc-unclip {
         overflow: visible !important;
         max-width: none !important;
         transform: none !important;
         will-change: auto !important;
         filter: none !important;
-        contain: none !important;
     }
 
     .page-header {
@@ -48,377 +60,384 @@
     }
     .page-header h3 { margin: 0; }
 
-    .dbg { margin: 16px; max-width: 100%; overflow: hidden; }
-    .dbg > .box { background: #f7f7f9; border: 1px solid #e1e1e8; border-radius: 6px; padding: 12px; }
-    .dbg .ttl { font-weight: 700; margin-bottom: 6px; }
-    .dbg pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+    #xlPreview {
+        position: relative;
+        display: block;
+        margin: 0;
+        padding: 0;
+        overflow: visible;
+    }
 
-    /* 프리뷰 호스트: 여백 제거(우측 공백 방지) */
-    #xlPreview { position: relative; display: block; margin: 0; padding: 0; overflow: visible; }
-    #xhost { display: inline-block; width: auto; max-width: none; }
+    #xhost {
+        display: block;
+        width: auto;
+        max-width: none;
+        overflow: hidden;
+        position: relative;
+    }
 
-    .xlfb { border-collapse: collapse; table-layout: fixed; position: relative; }
-    .xlfb td, .xlfb th { box-sizing: border-box; position: relative; }
+    .xlfb {
+        border-collapse: collapse;
+        table-layout: fixed;
+        position: relative;
+    }
+
+    .xlfb td, .xlfb th {
+        box-sizing: border-box;
+        position: relative;
+    }
     .xlfb thead, .xlfb tbody th { display: none; }
-    .xlfb td { padding: 0; vertical-align: middle; overflow: hidden; word-break: break-word; white-space: pre-wrap; }
 
-    .cellc { padding: .0rem .45rem; font-size: .925rem; line-height: 1.2; max-height: 100%; overflow: hidden; display: block; }
-    .ta-left { text-align: left } .ta-center { text-align: center } .ta-right { text-align: right }
-    .va-top { vertical-align: top } .va-middle { vertical-align: middle } .va-bottom { vertical-align: bottom }
+    .xlfb td {
+        padding: 0;
+        vertical-align: middle;
+        overflow: hidden;
+        word-break: break-word;
+        white-space: pre-wrap;
+    }
+
+    .cellc {
+        padding: .0rem .45rem;
+        font-size: .925rem;
+        line-height: 1.2;
+        max-height: 100%;
+        overflow: hidden;
+        display: block;
+    }
+
+    .ta-left { text-align: left }
+    .ta-center { text-align: center }
+    .ta-right { text-align: right }
+    .va-top { vertical-align: top }
+    .va-middle { vertical-align: middle }
+    .va-bottom { vertical-align: bottom }
     .wrap { white-space: pre-line }
 
+    .eb-editable { transition: background-color .12s ease-in-out }
+    td.eb-group { background: var(--eb-group-bg) }
+    td.eb-group:hover { background: var(--eb-group-bg-hover) }
+
     .eb-input-date {
-        width: 100%; border: none; outline: none; background: transparent; font: inherit; padding: 0; margin: 0; height: 1.6em;
+        width: 100%;
+        border: none;
+        outline: none;
+        background: transparent;
+        font: inherit;
+        padding: 0;
+        margin: 0;
+        height: 1.6em;
     }
+    input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0 }
+    input[type="date"]::-moz-focus-inner { border: 0 }
 
     .eb-block {
-        position: absolute; box-sizing: border-box; background: transparent; color: inherit; outline: none;
-        white-space: pre; overflow: hidden; scrollbar-width: none;
-    }
-    .eb-block:hover { outline: 1px dashed #d4c36a }
-    .eb-block:focus { outline: 2px solid #d7b500 }
-
-    .form-actions { margin: 16px; padding: 12px 0; border-top: 1px solid #e9ecef; display: flex; gap: 8px }
-    .action-btn { width: 140px; height: 36px; white-space: nowrap }
-
-    /* 보조 가로 스크롤바: 컨테이너 내부 sticky 하단 */
-    #xbar {
-        position: sticky;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 16px;
-        background: #fff;
-        overflow-x: auto;
-        overflow-y: hidden;
-        z-index: 3;              /* 컨테이너 내부에서 세로 스크롤보다 위 */
-        display: none;           /* 필요 시에만 표시 */
-        border-top: none;        /* 필요 시 JS로 on/off */
-    }
-    #xbar .rail { height: 1px; }
-
-    /* 50px 단위 눈금자 */
-    #xhost .xl-ruler {
-        position: relative; height: 22px; margin: 0; pointer-events: none;
-        border-bottom: 1px solid rgba(0,0,0,.35);
-        background-image:
-            repeating-linear-gradient(to right, rgba(0,0,0,.35) 0px, rgba(0,0,0,.35) 1px, transparent 1px, transparent 50px),
-            repeating-linear-gradient(to right, rgba(0,0,0,.55) 0px, rgba(0,0,0,.55) 2px, transparent 2px, transparent 100px);
-        background-repeat: repeat-x; background-position: left bottom,left bottom;
-        background-size: 50px 22px,100px 22px;
-    }
-    #xhost .xl-ruler::after {
-        content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
-        background: repeating-linear-gradient(to right, rgba(0,0,0,.12) 0px, rgba(0,0,0,.12) 25px, transparent 25px, transparent 50px);
+        position: absolute;
+        box-sizing: border-box;
+        background: transparent;
+        color: inherit;
+        outline: none;
+        white-space: pre-wrap;
+        overflow: hidden;
+        scrollbar-width: none;
+        pointer-events: none;
+        z-index: 2;
+        padding-left: 0;
+        padding-right: 0;
+        user-select: none;
     }
 
-    @@media print {
-        #doc-scroll { overflow: visible; position: static; inset: auto; height: auto }
-        #xbar, .form-actions { display: none !important }
-        .xlfb { outline: 1px solid #000; outline-offset: -1px }
+    .eb-group-ring {
+        position: absolute;
+        pointer-events: none;
+        border: var(--eb-ring-w) solid var(--eb-ring-border);
+        border-radius: 6px;
+        box-shadow: 0 0 0 var(--eb-ring-glow-w) var(--eb-ring-glow);
+        z-index: 3;
+        display: none;
     }
+
+    .eb-ta {
+        position: absolute;
+        left: 0; top: 0;
+        width: 100%; height: 100%;
+        background: transparent;
+        border: none; outline: none;
+        z-index: 4; pointer-events: auto;
+        font: inherit; color: inherit; line-height: inherit;
+        padding: .0rem .45rem; margin: 0;
+        resize: none; overflow: hidden;
+        white-space: pre;
+        -webkit-user-modify: read-write-plaintext-only;
+    }
+
+    .form-actions {
+        margin: 16px;
+        padding: 12px 0;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        gap: 8px;
+        max-width: 100%;
+    }
+
+    .action-btn { width: 140px; height: 36px; white-space: nowrap; }
+
+    .eb-limit-blink { animation: ebBlink .18s ease-in-out 2 }
+
+    @Html.Raw("@media print{#doc-scroll{overflow:visible;position:static;inset:auto;height:auto;padding:0}.form-actions{display:none}.xlfb{outline:1px solid #000;outline-offset:-1px}td.eb-group{background:transparent!important}.eb-group-ring{display:none!important}}")
+
+    /* 디버그용 간단 모달 */
+    .eb-modal-mask {
+        position: fixed; inset: 0; background: rgba(0,0,0,.35);
+        z-index: 2000; display: flex; align-items: center; justify-content: center;
+    }
+    .eb-modal {
+        background: #fff; width: min(920px,96vw); max-height: 86vh;
+        border-radius: 8px; box-shadow: 0 14px 48px rgba(0,0,0,.25);
+        display: flex; flex-direction: column;
+    }
+    .eb-modal header {
+        padding: 10px 14px; border-bottom: 1px solid #e5e7eb;
+        display: flex; justify-content: space-between; align-items: center
+    }
+    .eb-modal .body { padding: 0; overflow: auto }
+    .eb-modal pre { margin: 0; padding: 12px 14px; font-size: .86rem }
+    .eb-modal footer {
+        padding: 10px 14px; border-top: 1px solid #e5e7eb;
+        display: flex; gap: 8px; justify-content: flex-end
+    }
+
+    .btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        height: 36px; padding: 0 14px; border-radius: 8px;
+        border: 1px solid transparent; cursor: pointer;
+    }
+    .btn-primary { background: #0d6efd; color: #fff }
+    .btn-outline { background: #fff; border-color: #cbd5e1; color: #111827 }
 </style>
 
-<div id="doc-scroll">
+<div id="doc-scroll" data-template-code="@templateCode">
     <div class="page-header">
         <h3>@S["DOC_Title_Compose"]</h3>
         <span class="text-muted">@templateTitle</span>
     </div>
-
     <div id="doc-alert" class="mb-2" aria-live="polite"></div>
-    <div id="dbg" class="dbg"></div>
 
-    <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate>
+    <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate style="max-width:100%">
         <input type="hidden" name="TemplateCode" value="@templateCode" />
+        <input type="hidden" name="templateCode" value="@templateCode" />
+
         <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
         <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
+
+        <script>
+            window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+                    DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+                    DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
+                    DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
+                    DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+                    DOC_Submit_Button = S["DOC_Submit_Button"].Value
+                }));
+            window.__tplFromServer = "@templateCode";
+        </script>
 
         <div id="xlPreview"><div id="xhost"></div></div>
 
         <div class="form-actions">
-            <button type="button" id="btn-save" class="btn btn-primary action-btn">@S["DOC_Btn_SaveDocument"]</button>
-            <button type="button" id="btn-cancel" class="btn btn-outline-secondary action-btn">@S["DOC_Btn_Cancel"]</button>
+            <button type="button" id="btn-save" class="btn btn-primary action-btn" data-doc-submit>
+                @S["DOC_Submit_Button"]
+            </button>
+            <button type="button" id="btn-cancel" class="btn btn-outline-secondary action-btn">
+                @S["DOC_Btn_Cancel"]
+            </button>
         </div>
     </form>
-
-    <!-- ★ 컨테이너 내부 sticky 하단으로 이동 -->
-    <div id="xbar"><div class="rail"></div></div>
 </div>
 
 @section Scripts {
 <script src="~/js/eb.csrf.js"></script>
 <script>
 (function () {
-    /* ===== 유틸 ===== */
-    const lockRootScroll = () => {
-        document.documentElement.style.setProperty('overflow-x', 'hidden', 'important');
-        document.body.style.setProperty('overflow-x', 'hidden', 'important');
-        document.documentElement.style.setProperty('overflow-y', 'hidden', 'important');
-        document.body.style.setProperty('overflow-y', 'hidden', 'important');
-    };
-    function escapeFixedTraps(el, maxHops = 12, maxApply = 6) {
-        let n = el.parentElement, hops = 0, applied = 0;
-        while (n && hops < maxHops && applied < maxApply) {
-            const cs = getComputedStyle(n);
-            const hasTrap = (cs.transform && cs.transform !== 'none')
-                || (cs.willChange && cs.willChange.includes('transform'))
-                || (cs.filter && cs.filter !== 'none') || (cs.contain && cs.contain !== 'none');
-            const clips = /(auto|scroll|hidden|clip)/.test(cs.overflowX) || /(auto|scroll|hidden|clip)/.test(cs.overflowY);
-            if (hasTrap || clips) { n.classList.add('doc-unclip'); applied++; }
-            n = n.parentElement; hops++;
+    try {
+        var els = document.querySelectorAll('.doc-unclip');
+        for (var i = 0; i < els.length; i++) {
+            els[i].style.setProperty('contain', 'none', 'important');
         }
-    }
+    } catch (e) { /* no-op */ }
+
+    /* ===== 공통 유틸 ===== */
+    const $ = (q, r = document) => r.querySelector(q);
+    const $$ = (q, r = document) => Array.from(r.querySelectorAll(q));
     const $alert = () => document.getElementById('doc-alert');
-    const info = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-info', textContent: m })) }
-    const err  = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-danger', textContent: m || 'DOC_Err_PreviewFailed' })) }
-    const dbgBox = document.getElementById('dbg');
-    const BASE_TITLE = document.title;
 
-    function dbg(title, data) {
-        const wrap = document.createElement('div'); wrap.className = 'box';
-        const h = document.createElement('div'); h.className = 'ttl'; h.textContent = '[HS-DBG] ' + title;
-        const pre = document.createElement('pre'); pre.textContent = (typeof data === 'string') ? data : JSON.stringify(data, null, 2);
-        wrap.appendChild(h); wrap.appendChild(pre); dbgBox.appendChild(wrap);
+    function decodeHtmlEntities(str) {
+        if (str == null) return '';
+        let s = String(str);
+        s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+        s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+        s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+             .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+        return s;
     }
 
-    /* ===== 스크롤 디버깅 ===== */
-    let _sync = { docMax: 0, barMax: 0, toDoc: (x)=>0, toBar:(x)=>0 };
-    let _rafScrollDebug = 0;
-    function updateScrollDebug() {
-        if (_rafScrollDebug) return;
-        _rafScrollDebug = requestAnimationFrame(() => {
-            _rafScrollDebug = 0;
-            const sc = document.getElementById('doc-scroll');
-            const xbar = document.getElementById('xbar');
-            if (!sc || !xbar) return;
-            const docCur = sc.scrollLeft | 0, docMax = _sync.docMax | 0;
-            const barCur = xbar.scrollLeft | 0, barMax = _sync.barMax | 0;
-            const msg = `SCROLL docX=${docCur}/${docMax} barX=${barCur}/${barMax}`;
-            const host = $alert();
-            if (host) {
-                const box = document.createElement('div');
-                box.className = 'alert alert-secondary';
-                box.textContent = msg;
-                host.replaceChildren(box);
-            }
-            document.title = `${BASE_TITLE} | X ${docCur}/${docMax} · B ${barCur}/${barMax}`;
-        });
-    }
+    const T = (m) => {
+        if (m == null) return '';
+        if (Array.isArray(m)) return m.map(T).join('\n');
+        const s = String(m);
+        const mapped = (window.__RESX && Object.prototype.hasOwnProperty.call(window.__RESX, s))
+            ? window.__RESX[s]
+            : s;
+        return decodeHtmlEntities(mapped);
+    };
 
-    /* 헤더/사이드바 인셋 추정 */
-    function computeEdgeInsets() {
-        const all = Array.from(document.body.getElementsByTagName('*'));
-        const vw = Math.max(320, window.innerWidth), vh = Math.max(320, window.innerHeight);
-        let topInset = 0, leftInset = 0;
-        for (const el of all) {
-            const cs = getComputedStyle(el), pos = cs.position;
-            if (pos !== 'fixed' && pos !== 'sticky') continue;
-            const r = el.getBoundingClientRect(), w = r.right - r.left, h = r.bottom - r.top;
-            const touchesLeft = (r.left <= 1) && (r.right > 1) && (w > 24) && (w <= vw * 0.6) && (r.top < vh) && (r.bottom > 0);
-            if (touchesLeft) leftInset = Math.max(leftInset, Math.round(r.right));
-            const touchesTop = (r.top <= 1) && (r.bottom > 1) && (h > 16) && (h <= vh * 0.5) && (r.left < vw) && (r.right > 0);
-            if (touchesTop) topInset = Math.max(topInset, Math.round(r.bottom));
+    const info = m => {
+        $alert()?.replaceChildren(
+            Object.assign(document.createElement('div'),
+                { className: 'alert alert-info', textContent: T(m) })
+        );
+    };
+    const ok = m => {
+        $alert()?.replaceChildren(
+            Object.assign(document.createElement('div'),
+                { className: 'alert alert-success', textContent: T(m) })
+        );
+    };
+    const err = m => {
+        $alert()?.replaceChildren(
+            Object.assign(document.createElement('div'),
+                { className: 'alert alert-danger', textContent: T(m || 'DOC_Err_PreviewFailed') })
+        );
+    };
+
+    /* ===== 레이아웃 고정 ===== */
+    function escapeFixedTraps(el, maxHops = 10, maxApply = 4) {
+        let n = el.parentElement, h = 0, a = 0;
+        while (n && h < maxHops && a < maxApply) {
+            const cs = getComputedStyle(n);
+            const hasTrap =
+                (cs.transform && cs.transform !== 'none') ||
+                (cs.willChange && cs.willChange.includes('transform')) ||
+                (cs.filter && cs.filter !== 'none') ||
+                (cs.contain && cs.contain !== 'none');
+            const clips =
+                /(auto|scroll|hidden|clip)/.test(cs.overflowX) ||
+                /(auto|scroll|hidden|clip)/.test(cs.overflowY);
+            if (hasTrap || clips) { n.classList.add('doc-unclip'); a++; }
+            n = n.parentElement; h++;
         }
-        topInset = Math.min(topInset, Math.floor(vh * 0.5));
-        leftInset = Math.min(leftInset, Math.floor(vw * 0.5));
-        return { topInset, leftInset };
     }
 
-    function placeScrollHost() {
-        lockRootScroll();
+    function computeInsets() {
+        const vw = Math.max(320, innerWidth), vh = Math.max(320, innerHeight);
+        let top = 0, left = 0, right = 0, bottom = 0;
+
+        const hdr = $('[data-app-header]');
+        const sdr = $('[data-app-sidebar]');
+        const ftr = $('footer,[data-app-footer]');
+
+        if (hdr) {
+            const r = hdr.getBoundingClientRect();
+            if (r.height > 0) top = Math.max(top, Math.round(r.bottom));
+        }
+        if (sdr) {
+            const r = sdr.getBoundingClientRect();
+            if (r.width > 0 && r.left <= 1) left = Math.max(left, Math.round(r.right));
+        }
+        if (ftr) {
+            const r = ftr.getBoundingClientRect();
+            if (r.height > 0) bottom = Math.max(bottom, Math.round(vh - r.top));
+        }
+
+        const sdr2 = document.querySelector('aside,.sidebar,[class*="sidebar"],[class*="SideBar"]');
+        if (sdr2) {
+            const r = sdr2.getBoundingClientRect();
+            if (r.width > 0 && r.left <= 1) left = Math.max(left, Math.round(r.right));
+        }
+
+        top = Math.min(top, Math.floor(vh * 0.5));
+        left = Math.min(left, Math.floor(vw * 0.6));
+        right = Math.min(right, Math.floor(vw * 0.4));
+        bottom = Math.min(bottom, Math.floor(vh * 0.5));
+        return { top, left, right, bottom };
+    }
+
+    function placeContainer() {
         const host = document.getElementById('doc-scroll');
-        const { topInset, leftInset } = computeEdgeInsets();
-        host.style.top = topInset + 'px';
-        host.style.left = leftInset + 'px';
-        host.style.right = '0px';
-        host.style.bottom = '0px';
+        const { top, left, right, bottom } = computeInsets();
+        host.style.top = top + 'px';
+        host.style.left = left + 'px';
+        host.style.right = right + 'px';
+        host.style.bottom = bottom + 'px';
         host.style.setProperty('overflow-x', 'auto', 'important');
         host.style.setProperty('overflow-y', 'auto', 'important');
-        clampBoth();
-        updateScrollDebug();
+
+        const vInner = host.offsetWidth - host.clientWidth;
+        host.style.paddingInlineEnd = (vInner > 0 ? vInner + 'px' : '0');
     }
 
+    /* ===== 프리뷰/스타일 보조 ===== */
     function readJson(id) {
         try {
-            const el = document.getElementById(id); if (!el) return {};
-            const raw = el.textContent || ''; const v = JSON.parse(raw);
-            return (typeof v === 'string') ? JSON.parse(v) : v;
-        } catch (e) { dbg('Parse error for ' + id, String(e)); return {}; }
+            const el = document.getElementById(id);
+            if (!el) return {};
+            const raw = el.textContent || '';
+            const v = JSON.parse(raw);
+            return typeof v === 'string' ? JSON.parse(v) : v;
+        } catch { return {}; }
     }
 
-    const descriptor = readJson('DescriptorJson'), preview = readJson('PreviewJson');
+    const descriptor = readJson('DescriptorJson');
+    const preview = readJson('PreviewJson');
+    window.descriptor = descriptor;
+
+    const excelColWidthToPx = W => {
+        const w = Number(W);
+        if (!isFinite(w) || w < 0) return 0;
+        return Math.max(0, Math.floor(w * 7 + 5));
+    };
+
+    const ptToPx = pt => ((Number(pt) || 0) * 96 / 72);
+
+    function hasVisibleStyle(st) {
+        if (!st) return false;
+        if (st.fill && st.fill.bg) return true;
+        if (st.font && (st.font.bold || st.font.italic || st.font.underline || st.font.size || st.font.name)) return true;
+        const b = st.border || {};
+        return !!((b.l && b.l !== 'None') || (b.r && b.r !== 'None') || (b.t && b.t !== 'None') || (b.b && b.b !== 'None'));
+    }
 
     function a1ToRC(a1) {
-        if (!a1) return null; const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
-        if (!m) return null; const letters = m[1], row = parseInt(m[2], 10); let col = 0;
-        for (let i = 0; i < letters.length; i++) col = col * 26 + (letters.charCodeAt(i) - 64);
+        if (!a1) return null;
+        const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
+        if (!m) return null;
+        const letters = m[1];
+        const row = parseInt(m[2], 10);
+        let col = 0;
+        for (let i = 0; i < letters.length; i++) {
+            col = col * 26 + (letters.charCodeAt(i) - 64);
+        }
         return { r: row, c: col };
     }
 
     const posToMeta = new Map();
     (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => {
-        if (!f?.key) return; const rc = a1ToRC(f.a1 || ''); if (!rc) return;
-        posToMeta.set(`${rc.r},${rc.c}`, { key: String(f.key), type: String(f.type || 'Text'), rc });
+        if (!f?.key) return;
+        const rc = a1ToRC(f.a1 || '');
+        if (!rc) return;
+        posToMeta.set(`${rc.r},${rc.c}`, {
+            key: String(f.key),
+            type: String(f.type || 'Text'),
+            rc
+        });
     });
 
     const payloadInputs = {};
-    const excelColWidthToPx = W => { const w = Number(W); if (!isFinite(w) || w < 0) return 0; return Math.max(0, Math.floor(w * 7 + 5)); };
-    const ptToPx = pt => ((Number(pt) || 0) * 96 / 72);
-    function hasVisibleStyle(st) {
-        if (!st) return false;
-        if (st.fill && st.fill.bg) return true;
-        if (st.font && (st.font.bold || st.font.italic || st.font.underline || st.font.size || st.font.name)) return true;
-        const b = st.border || {}; return !!((b.l && b.l !== 'None') || (b.r && b.r !== 'None') || (b.t && b.t !== 'None') || (b.b && b.b !== 'None'));
-    }
+    window.payloadInputs = payloadInputs;
 
-    /* 실제 그려진 영역 오른쪽 끝 픽셀 */
-    function measureEffectiveContentWidth(tblEl) {
-        if (!tblEl) return 0;
-        const baseLeft = tblEl.getBoundingClientRect().left;
-        let maxRight = 0;
-        const tds = tblEl.querySelectorAll('td');
-        for (let i = 0; i < tds.length; i++) {
-            const td = tds[i];
-            const cs = getComputedStyle(td);
-            const hasBorder =
-                (parseFloat(cs.borderLeftWidth) || 0) > 0 ||
-                (parseFloat(cs.borderRightWidth) || 0) > 0 ||
-                (parseFloat(cs.borderTopWidth) || 0) > 0 ||
-                (parseFloat(cs.borderBottomWidth) || 0) > 0;
-            const hasText = (td.textContent || '').trim().length > 0;
-            const isEditable = td.classList.contains('eb-editable');
-            if (hasBorder || hasText || isEditable) {
-                const r = td.getBoundingClientRect().right;
-                if (r > maxRight) maxRight = r;
-            }
-        }
-        const effective = Math.ceil(maxRight - baseLeft);
-        return isFinite(effective) && effective > 0 ? effective : 0;
-    }
-
-    /* ===== 표 렌더 ===== */
-    function mount(sel, p) {
-        const previewHost = document.querySelector(sel); if (!previewHost) return;
-        const xhost = document.getElementById('xhost');
-        if (!p || !Array.isArray(p.cells) || !p.cells.length) {
-            xhost.innerHTML = '<div class="alert alert-danger">DOC_Err_PreviewFailed</div>'; return;
-        }
-
-        const styles = p.styles || {}; const allRows = p.cells.length;
-        let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
-        const mark = (r, c) => { minR = Math.min(minR, r); maxR = Math.max(maxR, r); minC = Math.min(minC, c); maxC = Math.max(maxC, c); };
-        for (let r = 1; r <= allRows; r++) {
-            const row = p.cells[r - 1] || [];
-            for (let c = 1; c <= row.length; c++) {
-                const v = row[c - 1]; if (v !== '' && v != null) mark(r, c);
-                const st = styles[`${r},${c}`]; if (hasVisibleStyle(st)) mark(r, c);
-            }
-        }
-        (p.merges || []).forEach(m => { const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10) || 0); mark(r1, c1); mark(r2, c2); });
-        (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => { const rc = a1ToRC(f?.a1); if (rc) mark(rc.r, rc.c); });
-        if (!isFinite(minR) || !isFinite(minC)) { minR = 1; maxR = 1; minC = 1; maxC = 1; }
-        const maxColsFromCells = Math.max(...p.cells.map(r => r.length), 1);
-        maxC = Math.min(maxC, maxColsFromCells); minC = Math.max(minC, 1);
-
-        const mergeMap = new Map();
-        (p.merges || []).forEach(m => {
-            let [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
-            r1 = Math.max(r1, minR); c1 = Math.max(c1, minC); r2 = Math.min(r2, maxR); c2 = Math.min(c2, maxC);
-            if (r1 > r2 || c1 > c2) return;
-            const master = `${r1}-${c1}`; mergeMap.set(master, { master: true, rs: r2 - r1 + 1, cs: c2 - c1 + 1 });
-            for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { const k = `${r}-${c}`; if (k !== master) mergeMap.set(k, { covered: true }); }
-        });
-
-        const styleGrid = Array.from({ length: maxR + 1 }, () => Array(maxC + 1).fill(null));
-        for (let r = minR; r <= maxR; r++) for (let c = minC; c <= maxC; c++) {
-            const key = `${r},${c}`, st = styles[key] || {};
-            const border = Object.assign({ l: 'None', r: 'None', t: 'None', b: 'None' }, st.border || {});
-            styleGrid[r][c] = { font: st.font || null, align: st.align || null, fill: st.fill || null, border };
-        }
-        const weight = s => { s = String(s || '').toLowerCase(); if (!s || s === 'none') return 0;
-            if (s.includes('double')) return 6; if (s.includes('thick')) return 5;
-            if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed') || s.includes('medium')) return 4;
-            if (s.includes('dashed') || s.includes('dashdot') || s.includes('dashdotdot')) return 3;
-            if (s.includes('dotted') || s.includes('hair')) return 2; return 1; };
-        const stronger = (a, b) => (weight(a) >= weight(b) ? a : b);
-        for (let r = minR; r <= maxR; r++) {
-            for (let c = minC; c <= maxC; c++) {
-                const cur = styleGrid[r][c]; if (!cur) continue;
-                if (c < maxC) { const right = styleGrid[r][c + 1]; if (right) { const pick = stronger(cur.border.r, right.border.l); cur.border.r = pick; right.border.l = pick; } }
-                if (r < maxR) { const down = styleGrid[r + 1][c]; if (down) { const pick = stronger(cur.border.b, down.border.t); cur.border.b = pick; down.border.t = pick; } }
-            }
-        }
-
-        const colPxAt = c => { const wChar = (p.colW || [])[c - 1]; return excelColWidthToPx(wChar ?? 8.43); }
-        const sumColPx = (c1, c2) => { let s = 0; for (let i = c1; i <= c2; i++) s += colPxAt(i); return s; }
-
-        const tbl = document.createElement('table'); tbl.className = 'xlfb';
-        const colgroup = document.createElement('colgroup');
-        for (let c = minC; c <= maxC; c++) { const cg = document.createElement('col'); cg.style.width = colPxAt(c).toFixed(2) + 'px'; colgroup.appendChild(cg); }
-        tbl.appendChild(colgroup);
-
-        const tbody = document.createElement('tbody');
-        const rowHeights = Array.isArray(p.rowH) ? p.rowH : []; const DEFAULT_ROW_PT = 15;
-        for (let r = minR; r <= maxR; r++) {
-            const tr = document.createElement('tr');
-            const pt = (rowHeights[r - 1] != null) ? rowHeights[r - 1] : DEFAULT_ROW_PT;
-            const rowPx = ptToPx(pt); tr.style.height = rowPx + 'px';
-            for (let c = minC; c <= maxC; c++) {
-                const key = `${r}-${c}`, mm = mergeMap.get(key); if (mm && mm.covered) continue;
-                const td = document.createElement('td'); td.dataset.rowpx = String(rowPx);
-                if (mm && mm.master) { if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs)); if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs)); }
-                let spanCols = 1; if (mm && mm.master && mm.cs > 1) spanCols = mm.cs;
-                if (spanCols === 1) td.style.width = colPxAt(c) + 'px'; else td.style.removeProperty('width');
-
-                const cell = document.createElement('div'); cell.className = 'cellc';
-                if (!mm) cell.style.maxHeight = rowPx + 'px';
-                const v = (p.cells[r - 1]?.[c - 1] ?? ''); cell.appendChild(document.createTextNode(v === '' ? '' : String(v)));
-                applyStyleToCell(td, cell, styleGrid[r][c]);
-
-                const meta = posToMeta.get(`${r},${c}`); const fieldKey = meta?.key;
-                const fieldType = (meta?.type || 'Text').toLowerCase(); const editable = !!fieldKey && !(mm && !mm.master);
-                if (editable) {
-                    td.setAttribute('data-key', fieldKey); td.classList.add('eb-editable');
-                    if (fieldType === 'date') {
-                        const input = document.createElement('input'); input.type = 'date'; input.className = 'eb-input-date';
-                        input.value = toIsoDateOrEmpty(cell.textContent || ''); cell.textContent = ''; cell.appendChild(input);
-                        input.addEventListener('change', () => payloadInputs[fieldKey] = input.value || '');
-                        input.addEventListener('blur', () => payloadInputs[fieldKey] = input.value || '');
-                        if (!(fieldKey in payloadInputs)) payloadInputs[fieldKey] = input.value || '';
-                    }
-                }
-                td.appendChild(cell); tr.appendChild(td);
-            }
-            tbody.appendChild(tr);
-        }
-        tbl.appendChild(tbody);
-
-        const totalW = sumColPx(minC, maxC);
-        tbl.style.width = totalW + 'px';
-
-        xhost.innerHTML = '';
-        const ruler = document.createElement('div'); ruler.className = 'xl-ruler';
-        xhost.style.width = totalW + 'px';
-        ruler.style.width = totalW + 'px';
-        xhost.appendChild(ruler); xhost.appendChild(tbl);
-
-        // 초기 동기화 계산
-        updateScrollSyncFromDom();
-        // 오토플로우 블록
-        createSingleBlocks();
-
-        // 크기 변화 감지 → 동기화 갱신
-        const sc = document.getElementById('doc-scroll');
-        const xbar = document.getElementById('xbar');
-        const ro = new ResizeObserver(() => { updateScrollSyncFromDom(); clampBoth(); });
-        ro.observe(sc);
-        ro.observe(tbl);
-        ro.observe(xbar);
-    }
-
-    /* 스타일 적용 */
     function applyStyleToCell(td, cell, st) {
         if (!st || typeof st !== 'object') return;
+
         if (st.font) {
             if (st.font.name) cell.style.fontFamily = st.font.name;
             if (st.font.size) cell.style.fontSize = ptToPx(st.font.size) + 'px';
@@ -426,17 +445,26 @@
             if (st.font.italic) cell.style.fontStyle = 'italic';
             if (st.font.underline) cell.style.textDecoration = 'underline';
         }
+
         if (st.align) {
             const h = String(st.align.h || '').toLowerCase();
-            cell.classList.remove('ta-left','ta-center','ta-right');
-            if (h === 'center') cell.classList.add('ta-center'); else if (h === 'right') cell.classList.add('ta-right'); else cell.classList.add('ta-left');
-            const vAlign = String(st.align.v || '').toLowerCase();
-            td.classList.remove('va-top','va-middle','va-bottom');
-            if (vAlign === 'top') td.classList.add('va-top'); else if (vAlign === 'center' || vAlign === 'middle') td.classList.add('va-middle'); else td.classList.add('va-bottom');
+            cell.classList.remove('ta-left', 'ta-center', 'ta-right');
+            if (h === 'center') cell.classList.add('ta-center');
+            else if (h === 'right') cell.classList.add('ta-right');
+            else cell.classList.add('ta-left');
+
+            const v = String(st.align.v || '').toLowerCase();
+            td.classList.remove('va-top', 'va-middle', 'va-bottom');
+            if (v === 'top') td.classList.add('va-top');
+            else if (v === 'center' || v === 'middle') td.classList.add('va-middle');
+            else td.classList.add('va-bottom');
+
             if (st.align.wrap) cell.classList.add('wrap');
         }
-        const cssOf = name => {
-            const s = String(name || '').toLowerCase(); if (!s || s === 'none') return { w: 0, sty: 'none' };
+
+        const cssOf = s => {
+            s = String(s || '').toLowerCase();
+            if (!s || s === 'none') return { w: 0, sty: 'none' };
             if (s.includes('double')) return { w: 3, sty: 'double' };
             if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed')) return { w: 2, sty: 'dashed' };
             if (s.includes('dashdotdot') || s.includes('dashdot') || s.includes('dashed')) return { w: 1, sty: 'dashed' };
@@ -445,9 +473,13 @@
             if (s.includes('medium')) return { w: 2, sty: 'solid' };
             return { w: 1, sty: 'solid' };
         };
+
         const color = '#000';
         if (st.border) {
-            const L = cssOf(st.border.l), R = cssOf(st.border.r), T = cssOf(st.border.t), B = cssOf(st.border.b);
+            const L = cssOf(st.border.l),
+                  R = cssOf(st.border.r),
+                  T = cssOf(st.border.t),
+                  B = cssOf(st.border.b);
             td.style.borderLeft   = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
             td.style.borderRight  = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
             td.style.borderTop    = T.w ? `${T.w}px ${T.sty} ${color}` : 'none';
@@ -455,176 +487,1627 @@
         }
     }
 
-    /* ===== 가로 스크롤 동기화(컨테이너 내부 sticky) ===== */
-    function updateScrollSyncFromDom() {
-        const sc = document.getElementById('doc-scroll');
-        const xbar = document.getElementById('xbar');
-        const rail = xbar.querySelector('.rail');
-        const tblEl = document.querySelector('#xhost table');
+    function measureEffectiveContentWidth(tbl) {
+        if (!tbl) return 0;
+        const baseLeft = tbl.getBoundingClientRect().left;
+        let maxRight = 0;
 
-        // 테이블 폭 및 실효 콘텐츠 폭
-        const tblW = Math.max(1,
-            Math.ceil(tblEl?.getBoundingClientRect().width || 0),
-            (tblEl?.scrollWidth || 0)
+        for (const td of tbl.querySelectorAll('td')) {
+            const cs = getComputedStyle(td);
+            const hasBorder =
+                ((parseFloat(cs.borderLeftWidth) || 0) > 0) ||
+                ((parseFloat(cs.borderRightWidth) || 0) > 0) ||
+                ((parseFloat(cs.borderTopWidth) || 0) > 0) ||
+                ((parseFloat(cs.borderBottomWidth) || 0) > 0);
+            const hasText = (td.textContent || '').trim().length > 0;
+            const isEditable = td.classList.contains('eb-editable');
+
+            if (hasBorder || hasText || isEditable) {
+                const r = td.getBoundingClientRect().right;
+                if (r > maxRight) maxRight = r;
+            }
+        }
+
+        const eff = Math.ceil(maxRight - baseLeft);
+        return (isFinite(eff) && eff > 0) ? eff : 0;
+    }
+
+    function computeFinalDocW() {
+        const tbl = document.querySelector('#xhost table');
+        if (!tbl) return 0;
+        const eff = Math.max(1,
+            Number(window.__DOC_EFFW__) || 0,
+            measureEffectiveContentWidth(tbl) | 0
         );
-        const effW = measureEffectiveContentWidth(tblEl);
-        const contentW = Math.max(1, effW || tblW);
-
-        // 레일 리사이즈
-        rail.style.width = contentW + 'px';
-
-        // 보조바 표시 여부 및 컨테이너 padding-bottom 예약
-        const viewW = (sc.clientWidth | 0);
-        const showBar = contentW > viewW;
-        xbar.style.display = showBar ? 'block' : 'none';
-        xbar.style.borderTop = showBar ? '1px solid #e9ecef' : 'none';
-        sc.style.paddingBottom = showBar ? (xbar.offsetHeight + 2) + 'px' : '0px';
-
-        // 동기 변환식 갱신
-        const docMax = Math.max(0, contentW - viewW);
-        const barMax = Math.max(0, (rail.scrollWidth | 0) - (xbar.clientWidth | 0));
-        const clamp = (v, max) => (v < 0 ? 0 : (v > max ? max : v));
-        const toDoc = (barX) => docMax ? Math.round((barX * docMax) / Math.max(1, barMax)) : 0;
-        const toBar = (docX) => barMax ? Math.round((docX * barMax) / Math.max(1, docMax)) : 0;
-        _sync = { docMax, barMax, toDoc, toBar };
-
-        // 현재 값 보정 및 디버그 갱신
-        sc.scrollLeft = clamp(sc.scrollLeft | 0, docMax);
-        xbar.scrollLeft = clamp(toBar(sc.scrollLeft | 0), barMax);
-        updateScrollDebug();
+        const tblW = Math.max(1,
+            Number(window.__DOC_TOTALW__) || 0,
+            tbl.scrollWidth | 0,
+            tbl.offsetWidth | 0
+        );
+        return Math.min(eff, tblW);
     }
 
-    function clampBoth() {
+    function applyFinalWidth() {
+        const w = computeFinalDocW();
+        const xhost = document.getElementById('xhost');
+        if (xhost) xhost.style.width = (w > 0 ? w.toFixed(2) : '1') + 'px';
+        window.__DOC_FINALW__ = w;
+    }
+
+    let HMAX = 0;
+    function updateClampBounds() {
         const sc = document.getElementById('doc-scroll');
-        const xbar = document.getElementById('xbar');
-        const clamp = (v, max) => (v < 0 ? 0 : (v > max ? max : v));
-        sc.scrollLeft = clamp(sc.scrollLeft | 0, _sync.docMax);
-        xbar.scrollLeft = clamp(_sync.toBar(sc.scrollLeft | 0), _sync.barMax);
-        updateScrollDebug();
+        const finalW = computeFinalDocW();
+        if (!sc || !finalW) return;
+        const viewW = sc.clientWidth | 0;
+        const EPS = 6;
+        HMAX = Math.max(0, (finalW - viewW - EPS) | 0);
+        if (sc.scrollLeft > HMAX) sc.scrollLeft = HMAX;
+        if (sc.scrollLeft < 0) sc.scrollLeft = 0;
+        window.__DOC_FINALW__ = finalW;
     }
 
-    /* ===== 오토플로우 (기존 유지) ===== */
-    function buildAutoFlowGroups(inputs) {
-        const byPrefixCol = new Map();
-        (inputs || []).forEach(f => {
-            if (!f?.key || !f?.a1) return;
-            const type = String(f.type || 'Text').toLowerCase(); if (type !== 'text') return;
-            const m = String(f.key).match(/^(.*)_(\d+)$/); const rc = a1ToRC(f.a1); if (!rc) return;
-            const sig = m ? `${m[1]}:${rc.c}` : `${f.key}:${rc.c}`;
-            if (!byPrefixCol.has(sig)) byPrefixCol.set(sig, []);
-            byPrefixCol.get(sig).push({ key: f.key, rc });
-        });
-        const groups = []; byPrefixCol.forEach(list => { list.sort((a, b) => a.rc.r - b.rc.r); groups.push({ keys: list.map(x => x.key) }); });
-        return groups;
+    /* ===== 입력 그룹/포커스 링 유틸 ===== */
+
+    const cellDivByKey = k =>
+        document.querySelector(`#xhost td[data-key="${CSS.escape(k)}"] .cellc`);
+    const tdByKey = k =>
+        document.querySelector(`#xhost td[data-key="${CSS.escape(k)}"]`);
+
+    // [CHANGED] 포커스 링 host: 항상 #xhost 기준
+    function getRingHost() {
+        return document.getElementById('xhost');
     }
-    const cellDivByKey = key => document.querySelector(`#xhost td[data-key="${CSS.escape(key)}"] .cellc`);
-    const tdByKey   = key => document.querySelector(`#xhost td[data-key="${CSS.escape(key)}"]`);
-    function blockRectOfKeys(keys) {
-        const tds = keys.map(tdByKey).filter(Boolean); if (!tds.length) return null;
-        const host = document.getElementById('xhost').getBoundingClientRect();
-        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-        for (const td of tds) { const rc = td.getBoundingClientRect(); l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom); }
-        return { left: (l - host.left), top: (t - host.top), width: (r - l), height: (b - t) };
+
+    // [CHANGED] 포커스 링 단일 인스턴스 생성/재사용
+    function getOrCreateRing() {
+        const host = getRingHost();
+        if (!host) return null;
+        let el = host.querySelector(':scope > .eb-group-ring');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'eb-group-ring';
+            host.appendChild(el);
+        }
+        return el;
     }
-    function clampToTable(r) {
-        const tbl = document.querySelector('#xhost table'); if (!tbl) return r;
-        const w = Math.ceil(tbl.getBoundingClientRect().width);
-        const left = Math.max(0, Math.min(r.left, w));
-        const right = Math.max(left, Math.min(r.left + r.width, w));
-        return { left, top: r.top, width: (right - left), height: r.height };
+
+    // [CHANGED] 사각형 정보로 링 위치 갱신
+    function showRingForRect(rect) {
+        const ring = getOrCreateRing();
+        if (!ring || !rect) return;
+        const pad = parseFloat(
+            getComputedStyle(document.documentElement)
+                .getPropertyValue('--eb-ring-pad')
+        ) || 2;
+
+        ring.style.left   = Math.round(rect.left - pad) + 'px';
+        ring.style.top    = Math.round(rect.top  - pad) + 'px';
+        ring.style.width  = Math.max(0, Math.round(rect.width  + pad * 2)) + 'px';
+        ring.style.height = Math.max(0, Math.round(rect.height + pad * 2)) + 'px';
+        ring.style.display = 'block';
     }
-    function copyStyleFromFirstCell(el, firstCell) {
-        const td = firstCell.closest('td'); const cs = getComputedStyle(firstCell);
-        const rowPx = parseFloat(td?.dataset.rowpx || cs.lineHeight) || 16;
-        el.style.lineHeight = rowPx + 'px';
-        el.style.fontFamily = cs.fontFamily; el.style.fontSize = cs.fontSize; el.style.fontWeight = cs.fontWeight; el.style.fontStyle = cs.fontStyle;
-        el.style.letterSpacing = cs.letterSpacing; el.style.wordSpacing = cs.wordSpacing; el.style.textAlign = cs.textAlign;
-        el.style.paddingTop = '0px'; el.style.paddingBottom = '0px'; el.style.paddingLeft = cs.paddingLeft; el.style.paddingRight = cs.paddingRight;
-    }
-    let blocks = [];
-    function createSingleBlocks() {
-        const groups = buildAutoFlowGroups(Array.isArray(descriptor?.inputs) ? descriptor.inputs : []);
-        const host = document.getElementById('xhost');
-        blocks.forEach(b => b.el.remove()); blocks = [];
-        for (const g of groups) {
-            const keys = g.keys.filter(k => !!tdByKey(k)); if (!keys.length) continue;
-            const lines = keys.map(k => (cellDivByKey(k)?.textContent || '')); keys.forEach(k => { const c = cellDivByKey(k); if (c) c.textContent = ''; });
-            const block = document.createElement('div'); block.className = 'eb-block'; block.setAttribute('contenteditable', 'true'); block.textContent = lines.join('\n');
-            const firstCell = cellDivByKey(keys[0]); if (!firstCell) continue; copyStyleFromFirstCell(block, firstCell);
-            let r = blockRectOfKeys(keys); if (!r) continue; r = clampToTable(r);
-            block.style.left = Math.round(r.left) + 'px'; block.style.top = Math.round(r.top) + 'px'; block.style.width = r.width + 'px'; block.style.height = r.height + 'px';
-            const maxLines = keys.length;
-            const placeCaretEnd = el => { try { const s = window.getSelection(); const rr = document.createRange(); rr.selectNodeContents(el); rr.collapse(false); s.removeAllRanges(); s.addRange(rr); } catch { } }
-            const countLines = text => (String(text ?? '').match(/\n/g) || []).length + 1;
-            const clampAndSave = () => {
-                let v = String(block.textContent || '').replace(/\r\n?/g, '\n'); let arr = v.split('\n');
-                if (arr.length > maxLines) { arr = arr.slice(0, maxLines); block.textContent = arr.join('\n'); placeCaretEnd(block); }
-                if (arr.length < maxLines) { arr = arr.concat(Array(maxLines - arr.length).fill('')); block.textContent = arr.join('\n'); placeCaretEnd(block); }
-                for (let i = 0; i < maxLines; i++) payloadInputs[keys[i]] = (arr[i] ?? '');
-            };
-            block.addEventListener('beforeinput', e => { if (e.inputType === 'insertParagraph') { const cur = (block.innerText || '').replace(/\r\n?/g, '\n').split('\n').length; if (cur >= maxLines) e.preventDefault(); } });
-            block.addEventListener('keydown', e => {
-                if (e.key === 'Enter') {
-                    const cur = countLines((block.textContent || '').replace(/\r\n?/g, '\n')); if (cur >= maxLines) { e.preventDefault(); return; }
-                    e.preventDefault(); document.execCommand('insertText', false, '\n'); clampAndSave();
-                }
-            });
-            block.addEventListener('input', clampAndSave);
-            block.addEventListener('paste', e => { e.preventDefault(); const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\r\n?/g, '\n'); document.execCommand('insertText', false, text); });
-            clampAndSave(); host.appendChild(block); blocks.push({ el: block, keys, maxLines });
+
+    // [CHANGED] 활성 그룹/입력이 없을 때만 링 숨김
+    function hideRingIfIdle() {
+        const host = getRingHost();
+        if (!host) return;
+        const hasActiveBlock = host.querySelector('.eb-block[data-active="1"]');
+        const hasActiveInput = host.querySelector(
+            'td.eb-group input:focus, td.eb-group textarea:focus'
+        );
+        if (!hasActiveBlock && !hasActiveInput) {
+            const ring = getOrCreateRing();
+            if (ring) ring.style.display = 'none';
         }
     }
 
-    function toIsoDateOrEmpty(text) {
-        if (!text) return ''; const s = String(text).trim(); let m = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
-        if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`; return '';
+    function buildAutoFlowGroups(inputs) {
+        const by = new Map();
+        (inputs || []).forEach(f => {
+            if (!f?.key || !f?.a1) return;
+            const type = String(f.type || 'Text').toLowerCase();
+            if (type !== 'text') return;
+            const m = String(f.key).match(/^(.*)_(\d+)$/);
+            const rc = a1ToRC(f.a1);
+            if (!rc) return;
+            const base = m ? m[1] : f.key;
+            const sig = `${base}:${rc.c}`;
+            if (!by.has(sig)) by.set(sig, []);
+            by.get(sig).push({ key: f.key, rc });
+        });
+
+        const groups = [];
+        by.forEach(list => {
+            list.sort((a, b) => a.rc.r - b.rc.r);
+            let run = [];
+            for (let i = 0; i < list.length; i++) {
+                if (i === 0) { run = [list[i]]; continue; }
+                const prev = list[i - 1].rc.r;
+                const cur = list[i].rc.r;
+                if (cur === prev + 1) run.push(list[i]);
+                else {
+                    if (run.length) groups.push({ keys: run.map(x => x.key) });
+                    run = [list[i]];
+                }
+            }
+            if (run.length) groups.push({ keys: run.map(x => x.key) });
+        });
+        return groups;
     }
 
-    /* 실행 */
+    // [CHANGED] 개별 셀 input 포커스 시 해당 셀 rect 기준으로 링 표시, blur 시 idle 검사
+    function colorizeInputGroups() {
+        const groups = buildAutoFlowGroups(
+            Array.isArray(descriptor?.inputs) ? descriptor.inputs : []
+        );
+
+        groups.forEach(g => {
+            for (const k of g.keys) {
+                const td = tdByKey(k);
+                if (!td) continue;
+                td.classList.add('eb-group');
+            }
+        });
+
+        document.querySelectorAll('#xhost td[data-key]').forEach(td => {
+            td.classList.add('eb-group');
+            const input = td.querySelector('input,select,textarea');
+            if (!input) return;
+
+            input.addEventListener('focus', () => {
+                const hostRect = getRingHost()?.getBoundingClientRect();
+                const rc = td.getBoundingClientRect();
+                if (!hostRect) return;
+
+                const rect = {
+                    left:  Math.round(rc.left - hostRect.left),
+                    top:   Math.round(rc.top  - hostRect.top),
+                    width: Math.max(0, Math.round(rc.width)),
+                    height:Math.max(0, Math.round(rc.height))
+                };
+
+                td.dataset.active = '1';
+                showRingForRect(rect);
+            }, true);
+
+            input.addEventListener('blur', () => {
+                delete td.dataset.active;
+                hideRingIfIdle();
+            }, true);
+        });
+    }
+
+    /* ===== 텍스트 폭 클램프 유틸 ===== */
+
+    const __eb_canvas = document.createElement('canvas');
+    const __eb_ctx = __eb_canvas.getContext('2d');
+
+    function __eb_getAvailWidth(ta) {
+        const cs = getComputedStyle(ta);
+        return ta.clientWidth -
+            (parseFloat(cs.paddingLeft) || 0) -
+            (parseFloat(cs.paddingRight) || 0);
+    }
+
+    function __eb_ctxFontFrom(ta) {
+        const cs = getComputedStyle(ta);
+        return `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    }
+
+    function __eb_normalizeClamp(ta, maxLines) {
+        const norm = s => String(s || '').replace(/\r\n?/g, '\n');
+        const original = norm(ta.value);
+        const availW = __eb_getAvailWidth(ta);
+        __eb_ctx.font = __eb_ctxFontFrom(ta);
+
+        const tokens = [];
+        for (let i = 0; i < original.length;) {
+            const ch = original[i];
+            if (ch === '\n') { tokens.push('\n'); i++; continue; }
+            if (ch === ' ') {
+                let j = i + 1;
+                while (j < original.length && original[j] === ' ') j++;
+                tokens.push(original.slice(i, j));
+                i = j; continue;
+            }
+            let j = i + 1;
+            while (j < original.length && original[j] !== '\n' && original[j] !== ' ') j++;
+            tokens.push(original.slice(i, j));
+            i = j;
+        }
+
+        const lines = [''];
+        let li = 0;
+
+        function put(tok) {
+            if (tok === '\n') {
+                if (lines.length < maxLines) {
+                    lines.push('');
+                    li++;
+                    return true;
+                }
+                return false;
+            }
+            const cand = (lines[li] || '') + tok;
+            if (__eb_ctx.measureText(cand).width <= availW) {
+                lines[li] = cand; return true;
+            }
+            if (lines.length >= maxLines) return false;
+            lines.push(''); li++;
+            if (__eb_ctx.measureText(tok).width <= availW) {
+                lines[li] = tok; return true;
+            }
+            let acc = '';
+            for (const c of tok) {
+                const t = acc + c;
+                if (__eb_ctx.measureText(t).width > availW) {
+                    if (lines.length >= maxLines) break;
+                    lines[li] = acc;
+                    lines.push(''); li++;
+                    acc = __eb_ctx.measureText(c).width > availW ? '' : c;
+                } else {
+                    acc = t;
+                }
+            }
+            if (acc) lines[li] = acc;
+            return lines.length <= maxLines;
+        }
+
+        for (const t of tokens) {
+            if (!put(t)) break;
+        }
+
+        const out = (
+            lines.length >= maxLines
+                ? lines.slice(0, maxLines)
+                : lines.concat(Array(maxLines - lines.length).fill(''))
+        ).join('\n');
+
+        const pos = Math.min(out.length, (ta.selectionStart ?? out.length));
+        ta.value = out;
+        ta.setSelectionRange(pos, pos);
+    }
+
+    function __eb_bindBeforeInputWidthClamp(ta, maxLines) {
+        const norm = v => String(v || '').replace(/\r\n?/g, '\n');
+        const blink = el => {
+            el.classList.add('eb-limit-blink');
+            setTimeout(() => el.classList.remove('eb-limit-blink'), 260);
+        };
+
+        function tailHasFree(fromLineExclusive) {
+            const arr = norm(ta.value).split('\n');
+            for (let i = fromLineExclusive + 1; i < maxLines; i++) {
+                const s = (arr[i] ?? '');
+                if (s.trim().length === 0) return true;
+            }
+            return false;
+        }
+
+        function caretMeta() {
+            const raw = ta.value;
+            const s = ta.selectionStart ?? 0;
+            const e = ta.selectionEnd ?? s;
+            const up = norm(raw.slice(0, s));
+            const curLine = (up.match(/\n/g) || []).length;
+            const colInLine = up.length - (up.lastIndexOf('\n') + 1);
+            return { raw, s, e, curLine, colInLine };
+        }
+
+        const canEnterAt = lineIdx =>
+            (lineIdx < maxLines - 1) && tailHasFree(lineIdx);
+
+        if (ta.dataset.ebBind === '1') return;
+        ta.dataset.ebBind = '1';
+
+        ta.addEventListener('beforeinput', ev => {
+            const type = ev.inputType || '';
+            if (type.startsWith('delete')) return;
+            if (type === 'insertFromPaste') return;
+
+            const isEnter =
+                (type === 'insertParagraph' || type === 'insertLineBreak');
+            const data = isEnter ? '\n' : (ev.data || '');
+            if (!data && !/insert|composition/i.test(type)) return;
+
+            const { raw, s, e, curLine, colInLine } = caretMeta();
+
+            if (isEnter) {
+                ev.preventDefault();
+                if (!canEnterAt(curLine)) { blink(ta); return; }
+                ta.value = raw.slice(0, s) + '\n' + raw.slice(e);
+                const pos = s + 1;
+                ta.setSelectionRange(pos, pos);
+                queueMicrotask(() => __eb_normalizeClamp(ta, maxLines));
+                return;
+            }
+
+            const lines = norm(raw).split('\n');
+            const curLineText = lines[curLine] ?? '';
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const cs = getComputedStyle(ta);
+            ctx.font =
+                `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+
+            const candidate =
+                curLineText.slice(0, colInLine) +
+                (ev.data || '') +
+                curLineText.slice(colInLine + (e - s));
+
+            const tooWide =
+                ctx.measureText(candidate).width > __eb_getAvailWidth(ta);
+
+            if (tooWide) {
+                if (!canEnterAt(curLine)) { ev.preventDefault(); blink(ta); return; }
+                ev.preventDefault();
+                ta.value =
+                    raw.slice(0, s) + '\n' + (ev.data || '') + raw.slice(e);
+                const pos = s + 1 + (ev.data || '').length;
+                ta.setSelectionRange(pos, pos);
+                queueMicrotask(() => __eb_normalizeClamp(ta, maxLines));
+                return;
+            }
+
+            const simulated =
+                norm(raw.slice(0, s) + (ev.data || '') + raw.slice(e));
+            const lineCount =
+                (simulated.match(/\n/g) || []).length + 1;
+            if (lineCount > maxLines) {
+                ev.preventDefault();
+                blink(ta);
+            }
+        }, true);
+
+        ta.addEventListener('keydown', e => {
+            if (e.key !== 'Enter') return;
+            const raw = ta.value;
+            const s = ta.selectionStart ?? 0;
+            const up = raw.slice(0, s).replace(/\r\n?/g, '\n');
+            const curLine = (up.match(/\n/g) || []).length;
+            if (!canEnterAt(curLine)) {
+                e.preventDefault();
+                blink(ta);
+            }
+        }, true);
+    }
+
+    const TAB_SIZE = 4;
+    const TAB_SPACES = ' '.repeat(TAB_SIZE);
+
+    function __eb_insertSmart_fromStart(ta, text, maxLines) {
+        const norm = s => String(s || '').replace(/\r\n?/g, '\n');
+        const raw = norm(ta.value);
+        const s = ta.selectionStart ?? 0;
+        const startLine = (norm(raw.slice(0, s)).match(/\n/g) || []).length;
+        const head = raw.split('\n').slice(0, startLine);
+        ta.value = head.join('\n');
+        if (ta.value && !ta.value.endsWith('\n')) ta.value += '\n';
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+
+        text = norm(text).replace(/\t/g, TAB_SPACES);
+
+        const availW = __eb_getAvailWidth(ta);
+        __eb_ctx.font = __eb_ctxFontFrom(ta);
+
+        const tokens = [];
+        for (let i = 0; i < text.length;) {
+            const ch = text[i];
+            if (ch === '\n') { tokens.push('\n'); i++; continue; }
+            if (ch === ' ') {
+                let j = i + 1;
+                while (j < text.length && text[j] === ' ') j++;
+                tokens.push(text.slice(i, j));
+                i = j; continue;
+            }
+            let j = i + 1;
+            while (j < text.length && text[j] !== '\n' && text[j] !== ' ') j++;
+            tokens.push(text.slice(i, j));
+            i = j;
+        }
+
+        const lines = [''];
+        let li = 0;
+
+        function push(tok) {
+            if (tok === '\n') {
+                if (lines.length >= maxLines) return false;
+                lines.push(''); li++; return true;
+            }
+            const cand = (lines[li] || '') + tok;
+            if (__eb_ctx.measureText(cand).width <= availW) {
+                lines[li] = cand; return true;
+            }
+            if (lines.length >= maxLines) return false;
+            lines.push(''); li++;
+            if (__eb_ctx.measureText(tok).width <= availW) {
+                lines[li] = tok; return true;
+            }
+            for (const c of tok) {
+                const t = (lines[li] || '') + c;
+                if (__eb_ctx.measureText(t).width > availW) {
+                    if (lines.length >= maxLines) return false;
+                    lines.push(''); li++;
+                    if (__eb_ctx.measureText(c).width > availW) return false;
+                    lines[li] = c;
+                } else {
+                    lines[li] = t;
+                }
+            }
+            return true;
+        }
+
+        for (const t of tokens) {
+            if (!push(t)) break;
+        }
+
+        const body = lines.slice(0, maxLines).join('\n');
+        const glue = (ta.value && body) ? '\n' : '';
+        ta.value = ta.value + glue + body;
+        __eb_normalizeClamp(ta, maxLines);
+    }
+
+    function bindTabAsSpaces(ta) {
+        ta.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab') return;
+            e.preventDefault();
+            const s = ta.selectionStart || 0;
+            const selEnd = ta.selectionEnd || s;
+            const before = ta.value.slice(0, s);
+            const after = ta.value.slice(selEnd);
+            ta.value = before + ' '.repeat(4) + after;
+            const pos = s + 4;
+            ta.setSelectionRange(pos, pos);
+            ta.dispatchEvent(new Event('input'));
+        });
+    }
+
+    function yToLineIdx(relY, lineH, maxLines) {
+        const h = Math.max(1, lineH | 0);
+        const idx = Math.floor(
+            Math.max(0, Math.min(relY, maxLines * h - 1)) / h
+        );
+        return Math.max(0, Math.min(maxLines - 1, idx));
+    }
+
+    function moveCaretToLineEnd(ta, lineIdx) {
+        const lines = ta.value.replace(/\r\n?/g, '\n').split('\n');
+        const i = Math.max(0,
+            Math.min(lineIdx, Math.max(0, lines.length - 1)));
+        let pos = 0;
+        for (let k = 0; k < i; k++) pos += (lines[k] || '').length + 1;
+        pos += (lines[i] || '').length;
+        ta.setSelectionRange(pos, pos);
+    }
+
+    /* ===== 오버레이 그룹 ===== */
+
+    let blocks = [];
+
+    function copyStyleFromFirstCell(el, fc) {
+        const td = fc.closest('td');
+        const cs = getComputedStyle(fc);
+        const rowPx =
+            parseFloat(td?.dataset.rowpx || cs.lineHeight) || 16;
+        el.style.lineHeight = rowPx + 'px';
+        el.style.fontFamily = cs.fontFamily;
+        el.style.fontSize = cs.fontSize;
+        el.style.fontWeight = cs.fontWeight;
+        el.style.fontStyle = cs.fontStyle;
+        el.style.letterSpacing = cs.letterSpacing;
+        el.style.wordSpacing = cs.wordSpacing;
+        el.style.textAlign = cs.textAlign;
+        el.style.paddingTop = '0px';
+        el.style.paddingBottom = '0px';
+        el.style.paddingLeft = cs.paddingLeft;
+        el.style.paddingRight = cs.paddingRight;
+    }
+
+    function blockRectOfKeys(keys) {
+        const tds = keys.map(tdByKey).filter(Boolean);
+        if (!tds.length) return null;
+        const host = document.getElementById('xhost').getBoundingClientRect();
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        for (const td of tds) {
+            const rc = td.getBoundingClientRect();
+            l = Math.min(l, rc.left);
+            t = Math.min(t, rc.top);
+            r = Math.max(r, rc.right);
+            b = Math.max(b, rc.bottom + 1);
+        }
+        const left = Math.floor(l - host.left);
+        const top = Math.floor(t - host.top);
+        const right = Math.ceil(r - host.left);
+        const bottom = Math.ceil(b - host.top);
+        return {
+            left,
+            top,
+            width: Math.max(0, right - left),
+            height: Math.max(0, bottom - top)
+        };
+    }
+
+    function clampToTable(rect) {
+        const finalW =
+            Number(window.__DOC_FINALW__) || computeFinalDocW();
+        const left = Math.max(0, Math.min(rect.left, finalW));
+        const right = Math.max(
+            left,
+            Math.min(rect.left + rect.width, finalW)
+        );
+        return {
+            left,
+            top: rect.top,
+            width: (right - left),
+            height: rect.height
+        };
+    }
+
+    // [CHANGED] eb-block/textarea 포커스 시에도 공통 링 로직 사용
+    function createGroupsWithEditorOverlay() {
+        const groups = (function (inputs) {
+            const by = new Map();
+            (inputs || []).forEach(f => {
+                if (!f?.key || !f?.a1) return;
+                const type = String(f.type || 'Text').toLowerCase();
+                if (type !== 'text') return;
+                const m = String(f.key).match(/^(.*)_(\d+)$/);
+                const rc = a1ToRC(f.a1);
+                if (!rc) return;
+                const base = m ? m[1] : f.key;
+                const sig = `${base}:${rc.c}`;
+                if (!by.has(sig)) by.set(sig, []);
+                by.get(sig).push({ key: f.key, rc });
+            });
+
+            const gs = [];
+            by.forEach(list => {
+                list.sort((a, b) => a.rc.r - b.rc.r);
+                let run = [];
+                for (let i = 0; i < list.length; i++) {
+                    if (i === 0) { run = [list[i]]; continue; }
+                    const prev = list[i - 1].rc.r;
+                    const cur = list[i].rc.r;
+                    if (cur === prev + 1) run.push(list[i]);
+                    else {
+                        if (run.length) gs.push({ keys: run.map(x => x.key) });
+                        run = [list[i]];
+                    }
+                }
+                if (run.length) gs.push({ keys: run.map(x => x.key) });
+            });
+            return gs;
+        })(Array.isArray(descriptor?.inputs) ? descriptor.inputs : []);
+
+        blocks.forEach(b => { b.block?.remove(); b.ta?.remove(); });
+        blocks = [];
+
+        const host = document.getElementById('xhost');
+
+        for (const g of groups) {
+            const keys = g.keys.filter(k => !!tdByKey(k));
+            if (!keys.length) continue;
+
+            const firstCell = cellDivByKey(keys[0]);
+            if (!firstCell) continue;
+
+            const initLines =
+                keys.map(k => (cellDivByKey(k)?.textContent || ''));
+
+            keys.forEach(k => {
+                const c = cellDivByKey(k);
+                if (c) c.textContent = '';
+            });
+
+            const block = document.createElement('div');
+            block.className = 'eb-block';
+            block.setAttribute('tabindex', '-1');
+
+            const ta = document.createElement('textarea');
+            ta.className = 'eb-ta';
+            ta.setAttribute('rows', String(keys.length));
+            ta.setAttribute('wrap', 'off');
+
+            copyStyleFromFirstCell(block, firstCell);
+            copyStyleFromFirstCell(ta, firstCell);
+
+            const placeRect = () => {
+                const r = blockRectOfKeys(keys) ||
+                    { left: 0, top: 0, width: 0, height: 0 };
+                const rect = clampToTable({
+                    left:  Math.floor(r.left),
+                    top:   Math.floor(r.top),
+                    width: Math.ceil(r.width),
+                    height:Math.ceil(r.height + 2)
+                });
+
+                block.style.left = rect.left + 'px';
+                block.style.top = rect.top + 'px';
+                block.style.width = rect.width + 'px';
+                block.style.height = rect.height + 'px';
+
+                ta.style.left = rect.left + 'px';
+                ta.style.top = rect.top + 'px';
+                ta.style.width = rect.width + 'px';
+                ta.style.height = rect.height + 'px';
+            };
+
+            placeRect();
+
+            ta.value = initLines.some(t => t && t.length)
+                ? initLines.join('\n')
+                : '';
+
+            const lineH =
+                parseFloat(getComputedStyle(ta).lineHeight) || 16;
+            __eb_bindBeforeInputWidthClamp(ta, keys.length);
+
+            function syncPayload() {
+                let vis = ta.value.replace(/\r\n?/g, '\n').split('\n');
+                if (vis.length < keys.length)
+                    vis = vis.concat(
+                        Array(keys.length - vis.length).fill('')
+                    );
+                vis = vis.slice(0, keys.length);
+                for (let i = 0; i < keys.length; i++) {
+                    payloadInputs[keys[i]] = vis[i] ?? '';
+                }
+            }
+
+            syncPayload();
+
+            ta.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const text =
+                    (e.clipboardData?.getData('text/plain') || '')
+                        .replace(/\u200B/g, '');
+                __eb_insertSmart_fromStart(ta, text, keys.length);
+                __eb_normalizeClamp(ta, keys.length);
+                syncPayload();
+            });
+
+            bindTabAsSpaces(ta);
+
+            ta.addEventListener('input', () => {
+                __eb_normalizeClamp(ta, keys.length);
+                syncPayload();
+            });
+
+            ta.addEventListener('compositionend', () => {
+                ta.dispatchEvent(new Event('input'));
+            });
+
+            for (const k of keys) {
+                const td = tdByKey(k);
+                if (!td) continue;
+                td.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    ta.focus({ preventScroll: true });
+                    const rect = ta.getBoundingClientRect();
+                    const relY = Math.max(
+                        0,
+                        Math.min(rect.height - 1, e.clientY - rect.top)
+                    );
+                    const li = yToLineIdx(relY, lineH, keys.length);
+                    moveCaretToLineEnd(ta, li);
+                });
+            }
+
+            ta.addEventListener('focus', () => {
+                const r = blockRectOfKeys(keys);
+                if (!r) return;
+                block.dataset.active = '1';
+                const rect = clampToTable({
+                    left:  Math.floor(r.left),
+                    top:   Math.floor(r.top),
+                    width: Math.ceil(r.width),
+                    height:Math.ceil(r.height)
+                });
+                showRingForRect(rect);
+            }, true);
+
+            ta.addEventListener('blur', () => {
+                block.dataset.active = '0';
+                hideRingIfIdle();
+            }, true);
+
+            host.appendChild(block);
+            host.appendChild(ta);
+
+            blocks.push({
+                block,
+                ta,
+                keys,
+                placeRect,
+                // [CHANGED] 활성 상태일 때만 링 재계산
+                refreshRing: () => {
+                    if (block.dataset.active === '1') {
+                        const r = blockRectOfKeys(keys);
+                        if (!r) return;
+                        const rect = clampToTable({
+                            left:  Math.floor(r.left),
+                            top:   Math.floor(r.top),
+                            width: Math.ceil(r.width),
+                            height:Math.ceil(r.height)
+                        });
+                        showRingForRect(rect);
+                    }
+                }
+            });
+        }
+
+        window.__eb_blocks__ = blocks;
+        window.dispatchEvent(new CustomEvent('eb-editor-mounted'));
+
+        addEventListener('resize', () => {
+            blocks.forEach(b => {
+                b.placeRect();
+                b.refreshRing();
+            });
+        });
+    }
+
+    /* ===== 프리뷰 마운트 ===== */
+
+    function toIsoDateOrEmpty(text) {
+        if (!text) return '';
+        const s = String(text).trim();
+        let m = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+        if (m)
+            return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+        return '';
+    }
+
+    function mount(_, p) {
+        const xhost = document.getElementById('xhost');
+        if (!p || !Array.isArray(p.cells) || !p.cells.length) {
+            xhost.innerHTML =
+                '<div class="alert alert-danger">DOC_Err_PreviewFailed</div>';
+            return;
+        }
+
+        const styles = p.styles || {};
+        const allRows = p.cells.length;
+        let minR = Infinity, maxR = -Infinity,
+            minC = Infinity, maxC = -Infinity;
+
+        const mark = (r, c) => {
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+            minC = Math.min(minC, c);
+            maxC = Math.max(maxC, c);
+        };
+
+        for (let r = 1; r <= allRows; r++) {
+            const row = p.cells[r - 1] || [];
+            for (let c = 1; c <= row.length; c++) {
+                const v = row[c - 1];
+                if (v !== '' && v != null) mark(r, c);
+                const st = styles[`${r},${c}`];
+                if (hasVisibleStyle(st)) mark(r, c);
+            }
+        }
+
+        (p.merges || []).forEach(m => {
+            const [r1, c1, r2, c2] =
+                m.map(n => parseInt(n, 10) || 0);
+            mark(r1, c1); mark(r2, c2);
+        });
+
+        (Array.isArray(descriptor?.inputs) ? descriptor.inputs : [])
+            .forEach(f => {
+                const rc = a1ToRC(f?.a1);
+                if (rc) mark(rc.r, rc.c);
+            });
+
+        if (!isFinite(minR) || !isFinite(minC)) {
+            minR = 1; maxR = 1; minC = 1; maxC = 1;
+        }
+
+        const maxColsFromCells =
+            Math.max(...p.cells.map(r => r.length), 1);
+        maxC = Math.min(maxC, maxColsFromCells);
+        minC = Math.max(minC, 1);
+
+        const mergeMap = new Map();
+        (p.merges || []).forEach(m => {
+            let [r1, c1, r2, c2] =
+                m.map(n => parseInt(n, 10));
+            r1 = Math.max(r1, minR);
+            c1 = Math.max(c1, minC);
+            r2 = Math.min(r2, maxR);
+            c2 = Math.min(c2, maxC);
+            if (r1 > r2 || c1 > c2) return;
+            const master = `${r1}-${c1}`;
+            mergeMap.set(master, {
+                master: true,
+                rs: r2 - r1 + 1,
+                cs: c2 - c1 + 1
+            });
+            for (let r = r1; r <= r2; r++) {
+                for (let c = c1; c <= c2; c++) {
+                    const k = `${r}-${c}`;
+                    if (k !== master)
+                        mergeMap.set(k, { covered: true });
+                }
+            }
+        });
+
+        const styleGrid = Array.from(
+            { length: maxR + 1 },
+            () => Array(maxC + 1).fill(null)
+        );
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const key = `${r},${c}`;
+                const st = styles[key] || {};
+                const border = Object.assign(
+                    { l: 'None', r: 'None', t: 'None', b: 'None' },
+                    st.border || {}
+                );
+                styleGrid[r][c] = {
+                    font: st.font || null,
+                    align: st.align || null,
+                    fill: st.fill || null,
+                    border
+                };
+            }
+        }
+
+        const weight = s => {
+            s = String(s || '').toLowerCase();
+            if (!s || s === 'none') return 0;
+            if (s.includes('double')) return 6;
+            if (s.includes('thick')) return 5;
+            if (s.includes('mediumdashdotdot') ||
+                s.includes('mediumdashdot') ||
+                s.includes('mediumdashed') ||
+                s.includes('medium')) return 4;
+            if (s.includes('dashed') ||
+                s.includes('dashdot') ||
+                s.includes('dashdotdot')) return 3;
+            if (s.includes('dotted') || s.includes('hair')) return 2;
+            return 1;
+        };
+
+        const stronger = (a, b) => (weight(a) >= weight(b) ? a : b);
+
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const cur = styleGrid[r][c];
+                if (!cur) continue;
+
+                if (c < maxC) {
+                    const right = styleGrid[r][c + 1];
+                    if (right) {
+                        const pick = stronger(
+                            cur.border.r,
+                            right.border.l
+                        );
+                        cur.border.r = pick;
+                        right.border.l = pick;
+                    }
+                }
+
+                if (r < maxR) {
+                    const down = styleGrid[r + 1][c];
+                    if (down) {
+                        const pick = stronger(
+                            cur.border.b,
+                            down.border.t
+                        );
+                        cur.border.b = pick;
+                        down.border.t = pick;
+                    }
+                }
+            }
+        }
+
+        const colPxAt = c => {
+            const wChar = (p.colW || [])[c - 1];
+            return excelColWidthToPx(wChar ?? 8.43);
+        };
+
+        const sumColPx = (c1, c2) => {
+            let s = 0;
+            for (let i = c1; i <= c2; i++)
+                s += colPxAt(i);
+            return s;
+        };
+
+        const tbl = document.createElement('table');
+        tbl.className = 'xlfb';
+
+        const colgroup = document.createElement('colgroup');
+        for (let c = minC; c <= maxC; c++) {
+            const cg = document.createElement('col');
+            cg.style.width =
+                colPxAt(c).toFixed(2) + 'px';
+            colgroup.appendChild(cg);
+        }
+        tbl.appendChild(colgroup);
+
+        const tbody = document.createElement('tbody');
+        const rowHeights = Array.isArray(p.rowH) ? p.rowH : [];
+        const DEFAULT_ROW_PT = 15;
+
+        for (let r = minR; r <= maxR; r++) {
+            const tr = document.createElement('tr');
+            const pt =
+                (rowHeights[r - 1] != null)
+                    ? rowHeights[r - 1]
+                    : DEFAULT_ROW_PT;
+            const rowPx = ptToPx(pt);
+            tr.style.height = rowPx + 'px';
+
+            for (let c = minC; c <= maxC; c++) {
+                const key = `${r}-${c}`;
+                const mm = mergeMap.get(key);
+                if (mm && mm.covered) continue;
+
+                const td = document.createElement('td');
+                td.dataset.rowpx = String(rowPx);
+
+                if (mm && mm.master) {
+                    if (mm.rs > 1)
+                        td.setAttribute('rowspan', String(mm.rs));
+                    if (mm.cs > 1)
+                        td.setAttribute('colspan', String(mm.cs));
+                }
+
+                if (!(mm && mm.master && mm.cs > 1)) {
+                    td.style.width = colPxAt(c) + 'px';
+                }
+
+                const cell = document.createElement('div');
+                cell.className = 'cellc';
+                if (!mm) cell.style.maxHeight = rowPx + 'px';
+
+                const v =
+                    (preview.cells[r - 1]?.[c - 1] ?? '');
+                cell.appendChild(
+                    document.createTextNode(
+                        v === '' ? '' : String(v)
+                    )
+                );
+
+                applyStyleToCell(td, cell, styleGrid[r][c]);
+
+                const m = posToMeta.get(`${r},${c}`);
+                const fieldKey = m?.key;
+                const fieldType =
+                    (m?.type || 'Text').toLowerCase();
+                const editable =
+                    !!fieldKey && !(mm && !mm.master);
+
+                if (editable) {
+                    td.setAttribute('data-key', fieldKey);
+                    td.classList.add('eb-editable');
+
+                    if (fieldType === 'date') {
+                        td.dataset.type = 'date';
+                        td.classList.add('eb-group');
+
+                        const input =
+                            document.createElement('input');
+                        input.type = 'date';
+                        input.className = 'eb-input-date';
+
+                        const fromCell =
+                            (cell.textContent || '').trim();
+                        input.value =
+                            fromCell
+                                ? toIsoDateOrEmpty(fromCell)
+                                : new Date()
+                                    .toISOString()
+                                    .slice(0, 10);
+
+                        cell.textContent = '';
+                        cell.appendChild(input);
+
+                        const sync = () => {
+                            payloadInputs[fieldKey] =
+                                input.value || '';
+                        };
+                        input.addEventListener('change', sync);
+                        input.addEventListener('blur', sync);
+                        if (!(fieldKey in payloadInputs)) sync();
+
+                        td.addEventListener('mousedown', (e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            input.focus({ preventScroll: true });
+                            if (typeof input.showPicker === 'function') {
+                                try { input.showPicker(); } catch {}
+                            }
+                        });
+                    }
+                }
+
+                td.appendChild(cell);
+                tr.appendChild(td);
+            }
+
+            tbody.appendChild(tr);
+        }
+
+        tbl.appendChild(tbody);
+
+        const totalW = sumColPx(minC, maxC);
+        tbl.style.width = totalW + 'px';
+
+        const xhostEl = document.getElementById('xhost');
+        xhostEl.innerHTML = '';
+        xhostEl.appendChild(tbl);
+
+        window.__DOC_TOTALW__ = Math.max(1, totalW | 0);
+        window.__DOC_EFFW__ =
+            Math.max(1, measureEffectiveContentWidth(tbl) | 0);
+
+        applyFinalWidth();
+        requestAnimationFrame(
+            () => requestAnimationFrame(updateClampBounds)
+        );
+
+        colorizeInputGroups();
+        createGroupsWithEditorOverlay();
+    }
+
+    /* ===== 초기화/관찰 ===== */
+
     const host = document.getElementById('doc-scroll');
     escapeFixedTraps(host);
-    placeScrollHost();
-    window.addEventListener('load', placeScrollHost);
-    window.addEventListener('resize', () => { placeScrollHost(); updateScrollSyncFromDom(); });
-    window.addEventListener('scroll', () => { lockRootScroll(); });
+    placeContainer();
 
-    const mo = new MutationObserver(() => { placeScrollHost(); updateScrollSyncFromDom(); });
-    mo.observe(document.body, { attributes: true, childList: true, subtree: true });
+    host.addEventListener('scroll', () => {
+        if (host.scrollLeft > HMAX) host.scrollLeft = HMAX;
+        if (host.scrollLeft < 0) host.scrollLeft = 0;
+    }, { passive: true });
 
-    try { mount('#xlPreview', preview); } catch (e) { console.error(e); err('DOC_Err_PreviewFailed'); }
+    function rerenderAll() {
+        placeContainer();
+        applyFinalWidth();
+        updateClampBounds();
+        if (window.__eb_blocks__) {
+            window.__eb_blocks__.forEach(b => {
+                b.placeRect?.();
+                b.refreshRing?.();
+            });
+        }
+    }
 
-    // 스크롤 동기화 핸들러
-    document.getElementById('xbar')?.addEventListener('scroll', () => {
-        const sc = document.getElementById('doc-scroll'); const xbar = document.getElementById('xbar');
-        const clamp = (v, max) => (v < 0 ? 0 : (v > max ? max : v));
-        const nx = clamp(_sync.toDoc(xbar.scrollLeft | 0), _sync.docMax);
-        if (nx !== sc.scrollLeft) sc.scrollLeft = nx;
-        updateScrollDebug();
-    });
-    document.getElementById('doc-scroll')?.addEventListener('scroll', () => {
-        const sc = document.getElementById('doc-scroll'); const xbar = document.getElementById('xbar');
-        const clamp = (v, max) => (v < 0 ? 0 : (v > max ? max : v));
-        const nx = clamp(_sync.toBar(sc.scrollLeft | 0), _sync.barMax);
-        if (nx !== xbar.scrollLeft) xbar.scrollLeft = nx;
-        updateScrollDebug();
-    });
-
-    // 저장/취소
-    document.getElementById('btn-save')?.addEventListener('click', async () => {
-        document.querySelectorAll('#xhost td[data-key]').forEach(td => {
-            const key = td.getAttribute('data-key'); if (!key) return;
-            if (key in payloadInputs) return;
-            const di = td.querySelector('input[type="date"]'); if (di) payloadInputs[key] = di.value || '';
-        });
-        const form = document.getElementById('doc-form');
-        const tpl = form.querySelector('input[name=TemplateCode]')?.value || '';
-        const body = { templateCode: tpl, inputs: payloadInputs, approvals: {}, descriptorVersion: descriptor?.version || null };
+    async function firstReflow() {
         try {
-            const ok = await EBCSRF.json(form.getAttribute('action') || '/Doc/Create', body, 'POST');
-            if (ok?.redirectUrl) location.href = ok.redirectUrl; else info('DOC_Msg_Saved');
-        } catch (e) { err('DOC_Err_SaveFailed'); }
+            await (document.fonts?.ready || Promise.resolve());
+        } catch { }
+        await new Promise(r =>
+            requestAnimationFrame(
+                () => requestAnimationFrame(r)
+            )
+        );
+        rerenderAll();
+        setTimeout(rerenderAll, 0);
+    }
+
+    try {
+        mount('#xlPreview', preview);
+    } catch (e) {
+        console.error(e);
+        err('DOC_Err_PreviewFailed');
+    }
+
+    addEventListener('load', firstReflow, { once: true });
+    firstReflow();
+    addEventListener('resize', rerenderAll);
+
+    const xhostObsTarget = document.getElementById('xhost');
+    let moQueued = false;
+    new MutationObserver(() => {
+        if (moQueued) return;
+        moQueued = true;
+        requestAnimationFrame(() => {
+            const tbl = document.querySelector('#xhost table');
+            if (tbl) {
+                window.__DOC_EFFW__ = Math.max(
+                    Number(window.__DOC_EFFW__) || 0,
+                    measureEffectiveContentWidth(tbl) | 0
+                );
+            }
+            rerenderAll();
+            moQueued = false;
+        });
+    }).observe(xhostObsTarget, {
+        attributes: true,
+        childList: true,
+        subtree: true
     });
-    document.getElementById('btn-cancel')?.addEventListener('click', () => { history.length > 1 ? history.back() : location.href = '/Doc/New' });
+
+    /* ===== 메일 수신자 자동 구성 ===== */
+
+    function __collectFirstApproverEmailsFromDescriptor() {
+        const ds = Array.isArray(window.descriptor?.approvals)
+            ? window.descriptor.approvals
+            : [];
+        if (!ds.length) return [];
+
+        let minOrder = Infinity;
+        for (const a of ds) {
+            const ord =
+                (a?.order == null ? 1 : Number(a.order) || 0);
+            if (ord < minOrder) minOrder = ord;
+        }
+
+        const first = ds.filter(a => {
+            const ord =
+                (a?.order == null ? 1 : Number(a.order) || 0);
+            return ord === minOrder;
+        });
+
+        const emails = [];
+        for (const a of first) {
+            if (Array.isArray(a.users)) {
+                for (const u of a.users) {
+                    const e =
+                        u?.email || u?.mail || u?.Email;
+                    if (e) emails.push(String(e));
+                }
+            }
+            if (a.user) {
+                const e =
+                    a.user?.email || a.user?.mail || a.user?.Email;
+                if (e) emails.push(String(e));
+            }
+            if (Array.isArray(a.emails)) {
+                for (const e of a.emails)
+                    if (e) emails.push(String(e));
+            }
+            if (a.email) emails.push(String(a.email));
+        }
+
+        return [...new Set(emails.filter(Boolean))];
+    }
+
+    function buildApprovalsForPost() {
+        if (window.__approvals &&
+            (Array.isArray(window.__approvals.to) ||
+             Array.isArray(window.__approvals.steps))) {
+            return window.__approvals;
+        }
+        const toEmails = __collectFirstApproverEmailsFromDescriptor();
+        return { to: toEmails };
+    }
+
+    /* ===== 메일 파라미터 구성 ===== */
+
+    function buildMailForPost() {
+        if (window.__mail && typeof window.__mail === 'object') {
+            const m = window.__mail;
+            return {
+                to: Array.isArray(m.to) ? m.to : (m.to ? [m.to] : []),
+                cc: Array.isArray(m.cc) ? m.cc : (m.cc ? [m.cc] : []),
+                bcc: Array.isArray(m.bcc) ? m.bcc : (m.bcc ? [m.bcc] : []),
+                subject: m.subject || '',
+                body: m.body || '',
+                send: (m.send !== false),
+                from: m.from || null
+            };
+        }
+
+        const dm = window.descriptor?.mail || {};
+        const fromDesc = {
+            to: Array.isArray(dm.to) ? dm.to : (dm.to ? [dm.to] : []),
+            cc: Array.isArray(dm.cc) ? dm.cc : (dm.cc ? [dm.cc] : []),
+            bcc: Array.isArray(dm.bcc) ? dm.bcc : (dm.bcc ? [dm.bcc] : []),
+            subject: dm.subject || '',
+            body: dm.body || '',
+            send: (dm.send !== false),
+            from: dm.from || null
+        };
+
+        if (!fromDesc.to.length)
+            fromDesc.to = __collectFirstApproverEmailsFromDescriptor();
+        return fromDesc;
+    }
+
+    /* ===== 요청 Body 구성 ===== */
+
+    function buildRequestBody(tpl) {
+        return {
+            templateCode: tpl,
+            inputs: { ...(window.payloadInputs || {}) },
+            approvals: buildApprovalsForPost(),
+            mail: buildMailForPost()
+        };
+    }
+
+    /* ===== 템플릿 코드 회수 ===== */
+
+    function getTemplateCode() {
+        const d1 = document
+            .getElementById('doc-scroll')
+            ?.dataset?.templateCode?.trim();
+        if (d1) return d1;
+
+        const form = document.getElementById('doc-form');
+        const v1 = form
+            ?.querySelector('input[name=TemplateCode]')
+            ?.value?.trim();
+        if (v1) return v1;
+
+        const v1b = form
+            ?.querySelector('input[name=templateCode]')
+            ?.value?.trim();
+        if (v1b) return v1b;
+
+        try {
+            const qs = new URLSearchParams(location.search);
+            const v2 = (qs.get('templateCode') ||
+                        qs.get('TemplateCode') || '')
+                        .trim();
+            if (v2) return v2;
+        } catch { }
+
+        const v3 = (window.descriptor &&
+                    (window.descriptor.templateCode ||
+                     window.descriptor.code) || '');
+        if (v3) return String(v3).trim();
+
+        try {
+            const prev = JSON.parse(
+                document.getElementById('PreviewJson')
+                    ?.textContent || '{}'
+            );
+            const v3b = (prev?.meta?.templateCode || '');
+            if (v3b) return String(v3b).trim();
+        } catch { }
+
+        const v4 = (window.__tplFromServer || '').trim?.();
+        if (v4) return v4;
+
+        return "@templateCode".trim();
+    }
+
+    /* ===== CSRF ===== */
+
+    async function getCsrf() {
+        try {
+            const r = await fetch('/Doc/Csrf', {
+                credentials: 'same-origin'
+            });
+            if (!r.ok)
+                return {
+                    headerName: 'RequestVerificationToken',
+                    token: ''
+                };
+            return await r.json();
+        } catch {
+            return {
+                headerName: 'RequestVerificationToken',
+                token: ''
+            };
+        }
+    }
+
+    /* ===== Preview 교체 유틸 ===== */
+
+    function replacePreviewJsonToDom(jsonObj) {
+        try {
+            const holder =
+                document.getElementById('PreviewJson');
+            holder.textContent = JSON.stringify(jsonObj);
+            mount('#xlPreview', jsonObj);
+        } catch { }
+    }
+
+    /* ===== 저장 전 디버그 모달 ===== */
+
+    function showDebugPopup(data) {
+        const mask = document.createElement('div');
+        mask.className = 'eb-modal-mask';
+
+        const modal = document.createElement('div');
+        modal.className = 'eb-modal';
+
+        const header = document.createElement('header');
+        header.innerHTML =
+            '<strong>Submit Debug</strong>' +
+            '<span style="font-size:.85rem;color:#6b7280">' +
+            '확인 후 계속을 누르면 저장을 진행합니다' +
+            '</span>';
+
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(data, null, 2);
+
+        const body = document.createElement('div');
+        body.className = 'body';
+        body.appendChild(pre);
+
+        const footer = document.createElement('footer');
+        const btnCancel = Object.assign(
+            document.createElement('button'),
+            { className: 'btn btn-outline', textContent: '취소' }
+        );
+        const btnOk = Object.assign(
+            document.createElement('button'),
+            { className: 'btn btn-primary', textContent: '계속 저장' }
+        );
+
+        footer.append(btnCancel, btnOk);
+        modal.append(header, body, footer);
+        mask.appendChild(modal);
+        document.body.appendChild(mask);
+
+        return new Promise(resolve => {
+            btnCancel.onclick = () => {
+                document.body.removeChild(mask);
+                resolve(false);
+            };
+            btnOk.onclick = () => {
+                document.body.removeChild(mask);
+                resolve(true);
+            };
+            mask.addEventListener('click', (e) => {
+                if (e.target === mask) {
+                    document.body.removeChild(mask);
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    /* ===== 디버그 수집 ===== */
+
+    function debugCollectState(tpl, body, extra) {
+        const now = new Date().toISOString();
+        const ds = window.descriptor || {};
+        let approverTo = [];
+        try {
+            approverTo =
+                (body?.approvals?.to &&
+                 Array.isArray(body.approvals.to))
+                    ? body.approvals.to
+                    : __collectFirstApproverEmailsFromDescriptor();
+        } catch { }
+
+        const previewMeta = (function () {
+            try {
+                const p = JSON.parse(
+                    document.getElementById('PreviewJson')
+                        ?.textContent || '{}'
+                );
+                return p?.meta || null;
+            } catch { return null; }
+        })();
+
+        return {
+            timestamp: now,
+            templateCode_resolved: tpl,
+            descriptorVersion: ds?.version ?? null,
+            descriptorTemplateCode:
+                ds?.templateCode ?? ds?.code ?? null,
+            previewMeta,
+            inputKeys: Object.keys(body?.inputs || {}),
+            inputsSample: Object.fromEntries(
+                Object.entries(body?.inputs || {})
+                    .slice(0, Math.min(
+                        10,
+                        Object.keys(body?.inputs || {}).length
+                    ))
+            ),
+            approvals: body?.approvals ?? null,
+            approvals_to_effective: approverTo,
+            mail: body?.mail ?? null,
+            requestAction:
+                document.getElementById('doc-form')
+                    ?.getAttribute('action') || '/Doc/Create',
+            csrfHeaderName:
+                (extra?.csrf?.headerName ||
+                 'RequestVerificationToken'),
+            csrfTokenLen:
+                (extra?.csrf?.token || '').length,
+            viewport: { w: innerWidth, h: innerHeight },
+            table: {
+                totalW: window.__DOC_TOTALW__ || 0,
+                effW: window.__DOC_EFFW__ || 0,
+                finalW: window.__DOC_FINALW__ || 0,
+                hMax: (typeof HMAX === 'number' ? HMAX : 0)
+            },
+            me: (window.__me || null)
+        };
+    }
+
+    /* ===== 저장 로직 ===== */
+
+    const submitBtn =
+        document.querySelector('[data-doc-submit]') ||
+        document.getElementById('btn-save');
+    const cancelBtn = document.getElementById('btn-cancel');
+
+    submitBtn?.addEventListener('click', async () => {
+        // 오버레이 외 input(date 등) 값 보강
+        document.querySelectorAll('#xhost td[data-key]').forEach(td => {
+            const key = td.getAttribute('data-key');
+            if (!key) return;
+            if (key in payloadInputs) return;
+            const di = td.querySelector('input[type="date"]');
+            if (di) payloadInputs[key] = di.value || '';
+        });
+
+        const form = document.getElementById('doc-form');
+        const tpl = (getTemplateCode() || '').trim();
+        if (!tpl) {
+            const diag = {
+                reason: 'templateCode is empty before submit',
+                candidates: {
+                    dataset:
+                        (document.getElementById('doc-scroll')
+                            ?.dataset?.templateCode || null),
+                    hidden:
+                        (form
+                            ?.querySelector('input[name=TemplateCode]')
+                            ?.value || null),
+                    descriptor:
+                        (window.descriptor?.templateCode || null),
+                    previewMeta: (function () {
+                        try {
+                            return (
+                                JSON.parse(
+                                    document.getElementById('PreviewJson')
+                                        ?.textContent || '{}'
+                                )?.meta?.templateCode || null
+                            );
+                        } catch { return null; }
+                    })(),
+                    serverVar: '@(templateCode ?? string.Empty)'
+                }
+            };
+            await showDebugPopup(diag);
+            err('DOC_Val_TemplateRequired');
+            return;
+        }
+
+        const body = buildRequestBody(tpl);
+        const csrf = await getCsrf();
+
+        submitBtn.disabled = true;
+        try {
+            const r = await fetch(
+                form.getAttribute('action') || '/Doc/Create',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        [csrf.headerName]: csrf.token
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body)
+                }
+            );
+
+            const res = await r.json().catch(() => null);
+            if (!r.ok || !res) {
+                err(Array.isArray(res?.messages)
+                    ? res.messages
+                    : 'DOC_Err_SaveFailed');
+                return;
+            }
+
+            if (res.previewJson) {
+                const previewObj =
+                    (typeof res.previewJson === 'string')
+                        ? JSON.parse(res.previewJson)
+                        : res.previewJson;
+                replacePreviewJsonToDom(previewObj);
+            }
+
+            const parts = [T('DOC_Msg_Saved')];
+            if (res.status) parts.push(`• ${T(res.status)}`);
+
+            const mi = res.mailInfo || res.mail || {};
+            const displayFrom =
+                mi.from ||
+                body.mail?.from ||
+                window.descriptor?.currentUserEmail ||
+                (window.__me && window.__me.email) ||
+                '(n/a)';
+
+            let displayTo = '(n/a)';
+            if (Array.isArray(mi.to) && mi.to.length)
+                displayTo = mi.to.map(T).join(', ');
+            else if (Array.isArray(body.mail?.to) &&
+                     body.mail.to.length)
+                displayTo = body.mail.to.join(', ');
+            else {
+                const fb =
+                    __collectFirstApproverEmailsFromDescriptor();
+                if (fb.length) displayTo = fb.join(', ');
+            }
+
+            const subj =
+                mi.subject
+                    ? ` • Subj: ${T(mi.subject)}`
+                    : (body.mail?.subject
+                        ? ` • Subj: ${T(body.mail.subject)}`
+                        : '');
+
+            const errMsg =
+                mi.error ? ` • Err: ${T(mi.error)}` : '';
+
+            const head =
+                (mi.sent === true)
+                    ? ' • MAIL SENT'
+                    : (mi.sent === false
+                        ? ' • MAIL NOT SENT'
+                        : '');
+
+            const msg =
+                `${parts.join(' ')}${head}` +
+                ` • From: ${displayFrom}` +
+                ` • To: ${displayTo}` +
+                `${subj}${errMsg}`;
+
+            ((mi.sent === true) ? ok : err)(msg);
+
+            if (typeof window.__onDocSaved === 'function') {
+                try { window.__onDocSaved(res); } catch { }
+            }
+        } catch (e) {
+            console.error(e);
+            err('DOC_Err_SaveFailed');
+        } finally {
+            submitBtn.disabled = false;
+        }
+    });
+
+    /* ===== 기타 유틸 ===== */
+
+    function stripCssNoise(s) {
+        if (s == null) return '';
+        s = String(s);
+        const cssLike =
+            /{[^}]*}/.test(s) ||
+            /[:;]\s*(none|auto|hidden|solid|absolute|relative|flex|block|inline|scroll|clip|dashed|dotted|bold|italic)\b/i.test(s) ||
+            /\b(position|display|overflow|border|padding|margin|line-height|font|color|left|right|top|bottom|z-index|width|height)\s*:/i.test(s);
+        if (cssLike &&
+            !/[ㄱ-ㅎ가-힣A-Za-z0-9]/.test(
+                s.replace(/[{}`;:]/g, '')
+            )) return '';
+        return s.split('\n').map(line => {
+            const looksCss =
+                /:|{|}/.test(line) &&
+                /\b(display|position|overflow|border|padding|margin|font|color|z-index|width|height)\b/i.test(line);
+            return looksCss ? '' : line;
+        }).join('\n').trimEnd();
+    }
+
+    function ensureTemplateCode() {
+        const form = document.getElementById('doc-form');
+        const hid =
+            form?.querySelector('input[name=TemplateCode]');
+        const fromHidden = (hid?.value || '').trim();
+        const fromDesc =
+            (window.descriptor?.templateCode || '').trim();
+        const fromServer =
+            '@(templateCode ?? string.Empty)'.trim();
+        const resolved = fromHidden || fromDesc || fromServer;
+        if (hid && hid.value !== resolved) hid.value = resolved;
+
+        const host = document.getElementById('doc-scroll');
+        if (host && resolved) host.dataset.templateCode = resolved;
+
+        return resolved;
+    }
+
+    addEventListener('DOMContentLoaded', () => {
+        ensureTemplateCode();
+    });
+
+    cancelBtn?.addEventListener('click', () => {
+        history.length > 1
+            ? history.back()
+            : location.href = '/Doc/New';
+    });
 })();
 </script>
 }

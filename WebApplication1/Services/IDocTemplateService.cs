@@ -6,7 +6,7 @@ namespace WebApplication1.Services
     {
         /// <summary>
         /// 템플릿코드 기준으로 최신버전 메타를 읽어
-        /// - descriptorJson (inputs/approvals)
+        /// - descriptorJson (Inputs/Approvals)
         /// - previewJson (엑셀 미리보기; 없으면 ClosedXML로 생성)
         /// - templateTitle (문서 제목)
         /// - versionId (저장 시 참조)

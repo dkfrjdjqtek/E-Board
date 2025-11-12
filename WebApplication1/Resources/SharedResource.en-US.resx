@@ -543,7 +543,7 @@
   <data name="_CM_Site_Label" xml:space="preserve">
     <value>Site</value>
   </data>
-  <data name="DTL_Label_Kind" xml:space="preserve">
+  <data name="_CM_Label_Kind" xml:space="preserve">
     <value>Category</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
@@ -894,7 +894,7 @@
   <data name="DOC_Title_New" xml:space="preserve">
     <value>New Document</value>
   </data>
-  <data name="DOC_Label_Template" xml:space="preserve">
+  <data name="_CM_Label_Template" xml:space="preserve">
     <value>Template</value>
   </data>
   <data name="DOC_Label_Search" xml:space="preserve">
@@ -920,5 +920,188 @@
   </data>
   <data name="DOC_Title_Compose" xml:space="preserve">
     <value>Compose Document</value>
+  </data>
+  <data name="DOC_Submit_Button" xml:space="preserve">
+    <value>Submit</value>
+  </data>
+  <data name="DOC_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] {0}'s document {1} has been submitted.</value>
+  </data>
+  <data name="DOC_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="en"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Submission Notice for {1}'s document {2}&lt;/h2&gt;&lt;p&gt;Hello, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;{1}'s document {2} was submitted on {3} month {4} day at {5}:{6}.&lt;/p&gt;&lt;p&gt;Click the button below to open the document.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{7}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Open Document&lt;/a&gt;&lt;/p&gt;&lt;p&gt;If the button does not work, copy and paste the following URL into your browser.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{7}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;If you are not &lt;strong&gt;{0}&lt;/strong&gt;, please ignore this email and do not open it.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ This email was automatically generated and sent. Please do not reply.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="OC_Board_Title" xml:space="preserve">
+    <value>Approval Board</value>
+  </data>
+  <data name="DOC_Board_Tablist_Aria" xml:space="preserve">
+    <value>Document tabs</value>
+  </data>
+  <data name="DOC_Tab_CreatedByMe" xml:space="preserve">
+    <value>Submitted</value>
+  </data>
+  <data name="DOC_Tab_Approval" xml:space="preserve">
+    <value>Approvals</value>
+  </data>
+  <data name="DOC_Tab_SharedWithMe" xml:space="preserve">
+    <value>Shared</value>
+  </data>
+  <data name="DOC_Badge_Created_Aria" xml:space="preserve">
+    <value>Number of submitted documents</value>
+  </data>
+  <data name="DOC_Badge_Approval_Aria" xml:space="preserve">
+    <value>Number of documents pending approval</value>
+  </data>
+  <data name="DOC_Badge_Shared_Aria" xml:space="preserve">
+    <value>Number of unread shared documents</value>
+  </data>
+  <data name="DOC_Filter_Title_Label" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="DOC_Filter_Title_All" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="DOC_Filter_Title_Approved" xml:space="preserve">
+    <value>Approved</value>
+  </data>
+  <data name="DOC_Filter_Title_Rejected" xml:space="preserve">
+    <value>Rejected</value>
+  </data>
+  <data name="DOC_Filter_Title_Pending" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="DOC_Filter_Title_OnHold" xml:space="preserve">
+    <value>On hold</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
+    <value>Approval view</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Approved" xml:space="preserve">
+    <value>Approved</value>
+  </data>
+  <data name="DOC_Filter_Sort_Label" xml:space="preserve">
+    <value>Sort</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedDesc" xml:space="preserve">
+    <value>Created date desc</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedAsc" xml:space="preserve">
+    <value>Created date asc</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleAsc" xml:space="preserve">
+    <value>Title asc</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleDesc" xml:space="preserve">
+    <value>Title desc</value>
+  </data>
+  <data name="DOC_Filter_Search_Label" xml:space="preserve">
+    <value>Search</value>
+  </data>
+  <data name="DOC_Filter_Search_Placeholder" xml:space="preserve">
+    <value>Search by title or author</value>
+  </data>
+  <data name="DOC_Filter_Apply" xml:space="preserve">
+    <value>Apply</value>
+  </data>
+  <data name="DOC_Col_No" xml:space="preserve">
+    <value>No</value>
+  </data>
+  <data name="DOC_Col_Title" xml:space="preserve">
+    <value>Document title</value>
+  </data>
+  <data name="DOC_Col_Author" xml:space="preserve">
+    <value>Author</value>
+  </data>
+  <data name="DOC_Col_Date" xml:space="preserve">
+    <value>Created at</value>
+  </data>
+  <data name="DOC_Col_Status" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="DOC_Status_Approved" xml:space="preserve">
+    <value>Approved</value>
+  </data>
+  <data name="DOC_Status_Rejected" xml:space="preserve">
+    <value>Rejected</value>
+  </data>
+  <data name="DOC_Status_PendingA" xml:space="preserve">
+    <value>PendingA1 — {0}=step number)</value>
+  </data>
+  <data name="DOC_Status_Pending" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="DOC_Status_OnHold" xml:space="preserve">
+    <value>On hold</value>
+  </data>
+  <data name="DOC_Attach_Aria" xml:space="preserve">
+    <value>Has attachment</value>
+  </data>
+  <data name="DOC_Comment_Count_Aria" xml:space="preserve">
+    <value>{0} comments</value>
+  </data>
+  <data name="DOC_Pagination_Label" xml:space="preserve">
+    <value>Pagination</value>
+  </data>
+  <data name="DOC_Pagination_Prev" xml:space="preserve">
+    <value>Previous</value>
+  </data>
+  <data name="DOC_Pagination_Next" xml:space="preserve">
+    <value>Next</value>
+  </data>
+  <data name="DOC_List_Loading" xml:space="preserve">
+    <value>Loading…</value>
+  </data>
+  <data name="DOC_List_Empty" xml:space="preserve">
+    <value>There are no documents to display.</value>
+  </data>
+  <data name="DOC_Err_LoadFailed" xml:space="preserve">
+    <value>Failed to load the list.</value>
+  </data>
+  <data name="DOC_Err_BadgesFailed" xml:space="preserve">
+    <value>Failed to load badges.</value>
+  </data>
+  <data name="DOC_Link_Details_Aria" xml:space="preserve">
+    <value>Go to document details: {0} ({0}=document title)</value>
+  </data>
+  <data name="DOC_Board_Title" xml:space="preserve">
+    <value>Approval Board</value>
+  </data>
+  <data name="DOC_Cmt_Count" xml:space="preserve">
+    <value>{n}</value>
+  </data>
+  <data name="_CM_Comment_Label" xml:space="preserve">
+    <value>Comments</value>
+  </data>
+  <data name="DOC_Msg_NoComments" xml:space="preserve">
+    <value>No comments have been registered.</value>
+  </data>
+  <data name="DOC_Label_AddComment" xml:space="preserve">
+    <value>Add comment</value>
+  </data>
+  <data name="DOC_Placeholder_Comment" xml:space="preserve">
+    <value>Add your comment here.</value>
+  </data>
+  <data name="DOC_Title_ViewLog" xml:space="preserve">
+    <value>Document View Log</value>
+  </data>
+  <data name="DOC_Msg_NoViewLogs" xml:space="preserve">
+    <value>No one has viewed the document.</value>
+  </data>
+  <data name="DOC_Btn_Approve" xml:space="preserve">
+    <value>Approve</value>
+  </data>
+  <data name="DOC_Btn_Hold" xml:space="preserve">
+    <value>Hold</value>
+  </data>
+  <data name="DOC_Btn_Reject" xml:space="preserve">
+    <value>Reject</value>
+  </data>
+  <data name="DOC_Btn_CommentPost" xml:space="preserve">
+    <value>Post Comment</value>
   </data>
 </root>

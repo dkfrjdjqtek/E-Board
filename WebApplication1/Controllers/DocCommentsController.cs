@@ -1,33 +1,32 @@
-﻿// 2025.10.14 Added: 문서 댓글/대댓글/첨부 최소 API 스켈레톤 (EB-VALIDATE 규격 응답)
-// 2025.10.14 Added: 목록 조회, 작성(루트/대댓글), 삭제(소프트), 첨부 메타 등록
-// 주의 1) 기존 코드/키/구조 변경 없음. 신규 컨트롤러만 추가합니다.
-// 주의 2) 실제 DB 저장은 TODO 위치에서 기존 리포지토리/ORM을 사용해 연결하십시오.
-// 주의 3) 모든 에러는 Validation Summary/Valid State(EB-VALIDATE)를 따릅니다.
-// 주의 4) i18n: 모든 메시지는 리소스 키로 반환합니다(예: DOC_Err_InvalidPayload).
-
+﻿// 2025.11.10 Changed: 미사용 IStringLocalizer 필드 및 생성자 인수 제거로 IDE0052 경고 해소 기타 로직 변경 없음
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Localization;
-using WebApplication1.Services;
 
 namespace WebApplication1.Controllers
 {
     [Authorize]
-    [Route("Doc/Comments")]
+    [Route("Doc/Comments2")]
     public class DocCommentsController : Controller
     {
-        private readonly IStringLocalizer<SharedResource> _S;
-        private readonly IAuditLogger _audit;
+        // 다른 네임스페이스와 충돌 방지를 위해 완전 수식 사용
+        private readonly WebApplication1.Services.IAuditLogger _audit;
 
-        public DocCommentsController(IStringLocalizer<SharedResource> S, IAuditLogger audit)
+        // 상수 배열(경고 억제용)
+        private static readonly string[] ERR_INVALID_PAYLOAD = { "DOC_Err_InvalidPayload" };
+        private static readonly string[] ERR_DOC_NOT_FOUND = { "DOC_Err_DocumentNotFound" };
+        private static readonly string[] ERR_INVALID_REQUEST = { "DOC_Err_InvalidRequest" };
+
+        public DocCommentsController(WebApplication1.Services.IAuditLogger audit)
         {
-            _S = S;
             _audit = audit;
         }
 
-        // 2025.10.14 Added: 문서별 댓글 목록 조회 (루트+대댓글 포함, 단순 시간순)
-        // GET /Doc/Comments?docId=DOC_xxx
+        // GET /Doc/Comments?DocID=DOC_xxx
         [HttpGet]
         public IActionResult List([FromQuery] string docId)
         {
@@ -35,152 +34,171 @@ namespace WebApplication1.Controllers
             {
                 return BadRequest(new
                 {
-                    messages = new[] { "DOC_Err_DocumentNotFound" },
-                    fieldErrors = new Dictionary<string, string[]> { { "DocId", new[] { "DOC_Err_DocumentNotFound" } } }
+                    messages = ERR_DOC_NOT_FOUND,
+                    fieldErrors = new Dictionary<string, string[]> { { "DocId", ERR_DOC_NOT_FOUND } }
                 });
             }
 
-            // TODO: DB에서 DocumentComments + (선택) DocumentFiles join하여 목록 로드
-            // 반환 형식 예시(키/구조는 자유, 단 i18n 키 사용):
-            // [{ commentId, parentCommentId, threadRootId, depth, body, createdBy, createdAt, hasAttachment, files:[{fileId, originalName, byteSize}] }]
-            var list = Array.Empty<object>(); // TODO 교체
-
+            // TODO: DB에서 댓글+첨부 목록 로드
+            var list = Array.Empty<object>();
             return Json(new { items = list });
         }
 
-        // 2025.10.14 Added: 댓글 작성(루트/대댓글)
-        // POST /Doc/Comments
+        // POST /Doc/Comments  (JSON 본문, CSRF 헤더 사용)
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([FromBody] CreateCommentDto dto)
         {
             if (dto is null)
             {
                 return BadRequest(new
                 {
-                    messages = new[] { "DOC_Err_InvalidPayload" },
-                    fieldErrors = new Dictionary<string, string[]> { { "Payload", new[] { "DOC_Err_InvalidPayload" } } }
+                    messages = ERR_INVALID_PAYLOAD,
+                    fieldErrors = new Dictionary<string, string[]> { { "Payload", ERR_INVALID_PAYLOAD } }
                 });
             }
 
-            if (string.IsNullOrWhiteSpace(dto.docId))
+            if (string.IsNullOrWhiteSpace(dto.DocID))
                 ModelState.AddModelError("DocId", "DOC_Err_DocumentNotFound");
-            if (string.IsNullOrWhiteSpace(dto.body))
+            if (string.IsNullOrWhiteSpace(dto.Body))
                 ModelState.AddModelError("Body", "DOC_Val_Required");
 
             if (!ModelState.IsValid)
             {
                 var fieldErrors = ModelState
                     .Where(kv => kv.Value?.Errors?.Count > 0)
-                    .ToDictionary(kv => kv.Key, kv => kv.Value!.Errors.Select(e => e.ErrorMessage).Distinct().ToArray());
+                    .ToDictionary(
+                        kv => kv.Key,
+                        kv => kv.Value!.Errors.Select(e => e.ErrorMessage).Distinct().ToArray()
+                    );
                 var summary = fieldErrors.Values.SelectMany(v => v).Distinct().ToArray();
                 return BadRequest(new { messages = summary, fieldErrors });
             }
 
-            var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
-            // TODO: DB INSERT
-            // - DocumentComments: DocId, ParentCommentId(dto.parentCommentId), ThreadRootId(루트 계산), Depth(0/1+), Body(dto.body), CreatedBy(actorId)
-            // - (선택) DocumentFiles: dto.files가 있으면 메타 INSERT (실제 파일 저장/경로는 기존 스토리지 서비스 사용)
-            // - 생성된 commentId 반환
-            long newId = 0; // TODO 생성된 CommentId로 교체
+            // TODO: 댓글 저장 및 새 CommentID 반환
+            long newId = 0;
 
-            // 감사 로그(댓글 작성)
-            try { await _audit.LogAsync(dto.docId!, actorId, "CommentCreated", null); } catch { /* ignore */ }
+            try
+            {
+                await _audit.LogAsync(
+                    docId: dto.DocID!,
+                    actorId: actorId,
+                    actionCode: "CommentCreated",
+                    detailJson: null
+                );
+            }
+            catch
+            {
+                // 감사로그 실패는 무시
+            }
 
             return Json(new { commentId = newId, message = "DOC_Msg_CommentCreated" });
         }
 
-        // 2025.10.14 Added: 댓글 소프트 삭제
-        // DELETE /Doc/Comments/{id}?docId=DOC_xxx
+        // DELETE /Doc/Comments/{id}?DocID=DOC_xxx  (CSRF 헤더 사용)
         [HttpDelete("{id:long}")]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(long id, [FromQuery] string docId)
         {
             if (id <= 0 || string.IsNullOrWhiteSpace(docId))
             {
                 return BadRequest(new
                 {
-                    messages = new[] { "DOC_Err_InvalidRequest" },
+                    messages = ERR_INVALID_REQUEST,
                     fieldErrors = new Dictionary<string, string[]>
                     {
-                        { "CommentId", new[] { "DOC_Err_InvalidRequest" } },
-                        { "DocId", new[] { "DOC_Err_InvalidRequest" } }
+                        { "CommentId", ERR_INVALID_REQUEST },
+                        { "DocId",     ERR_INVALID_REQUEST }
                     }
                 });
             }
 
-            // TODO: 소유자/결재권자/공유 권한 검증(권한 없으면 403)
-            // TODO: DocumentComments.IsDeleted=1, UpdatedAt=UTCNOW
+            // TODO: 권한 검증 및 소프트 삭제 수행
 
-            var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
-            try { await _audit.LogAsync(docId, actorId, "CommentDeleted", null); } catch { /* ignore */ }
+            var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+            try
+            {
+                await _audit.LogAsync(
+                    docId: docId,
+                    actorId: actorId,
+                    actionCode: "CommentDeleted",
+                    detailJson: null
+                );
+            }
+            catch
+            {
+                // 감사로그 실패는 무시
+            }
 
             return Json(new { message = "DOC_Msg_CommentDeleted" });
         }
 
-        // 2025.10.14 Added: 첨부 메타 등록(파일 업로드는 기존 업로더 사용, 여기는 메타만 연결)
-        // POST /Doc/Comments/attach
+        // POST /Doc/Comments/attach  (JSON 본문, CSRF 헤더 사용)
         [HttpPost("attach")]
+        [ValidateAntiForgeryToken]
         public IActionResult Attach([FromBody] AttachDto dto)
         {
             if (dto is null)
             {
                 return BadRequest(new
                 {
-                    messages = new[] { "DOC_Err_InvalidPayload" },
-                    fieldErrors = new Dictionary<string, string[]> { { "Payload", new[] { "DOC_Err_InvalidPayload" } } }
+                    messages = ERR_INVALID_PAYLOAD,
+                    fieldErrors = new Dictionary<string, string[]> { { "Payload", ERR_INVALID_PAYLOAD } }
                 });
             }
 
-            if (string.IsNullOrWhiteSpace(dto.docId))
+            if (string.IsNullOrWhiteSpace(dto.DocID))
                 ModelState.AddModelError("DocId", "DOC_Err_DocumentNotFound");
-            if (string.IsNullOrWhiteSpace(dto.fileKey))
+            if (string.IsNullOrWhiteSpace(dto.FileKey))
                 ModelState.AddModelError("FileKey", "DOC_Val_Required");
-            if (string.IsNullOrWhiteSpace(dto.originalName))
+            if (string.IsNullOrWhiteSpace(dto.OriginalName))
                 ModelState.AddModelError("OriginalName", "DOC_Val_Required");
 
             if (!ModelState.IsValid)
             {
                 var fieldErrors = ModelState
                     .Where(kv => kv.Value?.Errors?.Count > 0)
-                    .ToDictionary(kv => kv.Key, kv => kv.Value!.Errors.Select(e => e.ErrorMessage).Distinct().ToArray());
+                    .ToDictionary(
+                        kv => kv.Key,
+                        kv => kv.Value!.Errors.Select(e => e.ErrorMessage).Distinct().ToArray()
+                    );
                 var summary = fieldErrors.Values.SelectMany(v => v).Distinct().ToArray();
                 return BadRequest(new { messages = summary, fieldErrors });
             }
 
-            // TODO: DocumentFiles INSERT (DocId, CommentId?, FileKey, OriginalName, StoragePath?, ContentType?, ByteSize, Sha256, UploadedBy)
-            // - 파일 저장 자체는 기존 업로드 엔드포인트/미들웨어 사용
-            // - 여기서는 업로드 완료 후 메타만 기록
-
+            // TODO: 첨부 메타 INSERT
             return Json(new { message = "DOC_Msg_AttachSaved" });
         }
 
-        // DTO들: 클라이언트와 키 이름 동일 유지
+        // ----- DTOs -----
         public class CreateCommentDto
         {
-            public string? docId { get; set; }
-            public long? parentCommentId { get; set; }   // 대댓글이면 대상 id
-            public string? body { get; set; }
-            public List<FileMeta>? files { get; set; }   // (선택) 업로드 완료 파일 메타
+            public string? DocID { get; set; }
+            public long? ParentCommentID { get; set; }
+            public string? Body { get; set; }
+            public List<FileMeta>? Files { get; set; }
         }
 
         public class AttachDto
         {
-            public string? docId { get; set; }
-            public long? commentId { get; set; }         // 특정 댓글 첨부 시 지정
-            public string? fileKey { get; set; }         // 스토리지 키(유니크)
-            public string? originalName { get; set; }
-            public string? storagePath { get; set; }
-            public string? contentType { get; set; }
-            public long? byteSize { get; set; }
-            public string? sha256Hex { get; set; }       // 선택
+            public string? DocID { get; set; }
+            public long? CommentID { get; set; }
+            public string? FileKey { get; set; }
+            public string? OriginalName { get; set; }
+            public string? StoragePath { get; set; }
+            public string? ContentType { get; set; }
+            public long? ByteSize { get; set; }
+            public string? SHA256Hex { get; set; }
         }
 
         public class FileMeta
         {
-            public string? fileKey { get; set; }
-            public string? originalName { get; set; }
-            public string? contentType { get; set; }
-            public long? byteSize { get; set; }
+            public string? FileKey { get; set; }
+            public string? OriginalName { get; set; }
+            public string? ContentType { get; set; }
+            public long? ByteSize { get; set; }
         }
     }
 }

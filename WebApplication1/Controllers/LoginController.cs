@@ -96,7 +96,12 @@ namespace WebApplication1.Controllers
                 user, model.Password, model.RememberMe, lockoutOnFailure: true);
 
             if (result.Succeeded)
-                return LocalRedirect(returnUrl ?? Url.Content("~/"));
+            {
+                //return LocalRedirect(returnUrl ?? Url.Content("~/"));
+                var target = (returnUrl != null && Url.IsLocalUrl(returnUrl)) ? returnUrl : "/Doc/Board";
+                return Redirect(target);
+            }
+                
 
             if (result.RequiresTwoFactor)
             {

@@ -95,7 +95,7 @@ ORDER BY Id;";
                     }
                 }
 
-                // 3) approvals  ← 위에 제시한 코드
+                // 3) Approvals  ← 위에 제시한 코드
                 var approvals = new List<object>();
 
                 using (var cmd3 = conn.CreateCommand())
@@ -236,7 +236,7 @@ ORDER BY Id;";
             var colW = new List<double>(maxCols);
             for (int c = 1; c <= maxCols; c++) colW.Add(ws0.Column(c).Width);
 
-            // very light styles
+            // very light Styles
             var styles = new Dictionary<string, object>();
             for (int r = 1; r <= maxRows; r++)
             {

@@ -1,0 +1,499 @@
+﻿@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@{
+    ViewData["Title"] = S["DOC_Board_Title"];
+}
+<style>
+    /* ★ 페이지 전체 스크롤은 레이아웃에 맡긴다: html/body 건드리지 말 것 */
+    /* html, body { ... } 제거 */
+
+    /* ★ 문서 리스트 전체를 감싸는 영역:
+           - 레이아웃의 본문 컨테이너 안에서만 사용
+           - 이 div 기준으로 스크롤바가 "본문 오른쪽"에 생긴다. */
+    .doc-board-wrap {
+        position: fixed;
+        /* === 레이아웃 값 맞게 숫자만 조정 === */
+        top: 56px; /* 상단 헤더 높이 */
+        left: 240px; /* 좌측 사이드바 너비 */
+        right: 0; /* 화면 오른쪽 끝까지 붙임 */
+        bottom: 32px; /* 푸터 높이. 푸터 없으면 0 */
+
+        padding: 50px 50px 50px 50px;
+        box-sizing: border-box;
+        overflow-y: auto; /* 이 컨테이너 하나만 세로 스크롤 담당 */
+        overflow-x: auto; /* 내용 넘치면 가로 스크롤 (필요 없으면 없애도 됨) */
+    }
+
+    /* ★ 보드 레이아웃 기본 */
+    .doc-board {
+        display: flex;
+        flex-direction: column;
+        gap: .75rem;
+    }
+
+    /* ================= 탭 영역 ================= */
+
+    .doc-tabs {
+        display: flex;
+        gap: .25rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    /* 공통 탭 기본형 */
+    .doc-tab {
+        padding: .5rem .75rem;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-top-left-radius: .5rem;
+        border-top-right-radius: .5rem;
+        color: #fff;
+        background: #6b7280;
+        transition: filter .15s ease, border-color .15s ease, background .15s ease, color .15s ease;
+    }
+
+        .doc-tab:hover {
+            filter: brightness(1.05);
+        }
+
+        .doc-tab:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: 2px;
+        }
+
+        /* 탭별 비선택 상태 그라데이션 */
+        .doc-tab[data-tab="created"] {
+            --sel: #111827;
+            background: linear-gradient(180deg,#4b5563,#111827);
+        }
+
+        .doc-tab[data-tab="approval"] {
+            --sel: #2563eb;
+            background: linear-gradient(180deg,#3b82f6,#1d4ed8);
+        }
+
+        .doc-tab[data-tab="shared"] {
+            --sel: #059669;
+            background: linear-gradient(180deg,#10b981,#047857);
+        }
+
+        /* 선택된 탭: 흰 배경 + 테마색 테두리 */
+        .doc-tab[aria-selected="true"] {
+            color: #111827;
+            background: #fff;
+            border-color: var(--sel,#111827) var(--sel,#111827) #fff;
+            box-shadow: 0 1px 0 #fff inset;
+            position: relative;
+        }
+
+        /* 배지 */
+        .doc-tab .badge {
+            margin-left: .35rem;
+            font-size: .75rem;
+            background: #ef4444;
+            color: #fff;
+            border-radius: 9999px;
+            padding: 0 .4rem;
+        }
+
+    /* ★ 임시: 탭 자체 숨김 (첫 탭만 사용하는 요구사항)
+           추후 사용 시 이 부분만 제거하면 됨 
+    .doc-tabs {
+        display: none;
+    }
+        */
+    /* ================= 필터 영역 ================= */
+
+    .doc-filter {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        align-items: center;
+    }
+
+        .doc-filter select,
+        .doc-filter input {
+            padding: .375rem .5rem;
+            border: 1px solid #d1d5db;
+            border-radius: .375rem;
+        }
+
+    /* ================= 테이블 ================= */
+
+    .doc-list {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        /* 데이터 셀 기본: 좌측 정렬 */
+        .doc-list td {
+            padding: .5rem .625rem;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+        }
+
+        /* 헤더(타이틀)는 중앙 정렬 + 구분선 강조 */
+        .doc-list th {
+            padding: .6rem .625rem;
+            font-weight: 600;
+            color: #374151;
+            background: #f9fafb;
+            text-align: center;
+            border-bottom: 2px solid #d1d5db;
+        }
+
+        /* 문서 제목 열(2번째 열) 데이터만 중앙 정렬 */
+        .doc-list td:nth-child(2) {
+            text-align: center;
+        }
+
+        /* 헤더 컬럼 사이 세로 구분선 (시각적 분리용) */
+        .doc-list thead th + th {
+            position: relative;
+        }
+
+            .doc-list thead th + th::before {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 30%;
+                bottom: 30%;
+                width: 1px;
+                background: rgba(0,0,0,.06);
+            }
+
+    /* ================= 기타 ================= */
+
+    .doc-title {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+        .doc-title .meta {
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+    .doc-clip {
+        width: 16px;
+        height: 16px;
+        display: inline-block;
+        background: no-repeat center/contain;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%236b7280" viewBox="0 0 16 16"><path d="M6.354 5.5l-.708.708 3.182 3.182a2 2 0 0 1-2.828 2.828L2.818 8.236a3.5 3.5 0 1 1 4.95-4.95l4.95 4.95a5 5 0 1 1-7.072 7.072l-3.89-3.889.708-.708 3.89 3.889a4 4 0 1 0 5.657-5.657l-4.95-4.95a2.5 2.5 0 1 0-3.536 3.536l3.182 3.182a1 1 0 1 0 1.414-1.414L6.354 5.5z"/></svg>');
+    }
+
+    .doc-paging {
+        display: flex;
+        gap: .25rem;
+        justify-content: center;
+        padding-top: .5rem;
+    }
+
+        .doc-paging button {
+            min-width: 32px;
+            height: 32px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            border-radius: .375rem;
+            cursor: pointer;
+        }
+
+            .doc-paging button[aria-current="page"] {
+                background: #111827;
+                color: #fff;
+                border-color: #111827;
+            }
+
+    .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0,0,0,0);
+        border: 0;
+    }
+</style>
+
+<div class="doc-board-wrap">
+    <div class="doc-board" id="docBoard"
+         data-api-list="/Doc/BoardData"
+         data-api-badges="/Doc/BoardBadges"
+         data-detail-url="/Doc/Detail/{docId}">
+
+        <!-- 탭: 현재 display:none 처리됨 -->
+        <div class="doc-tabs" role="tablist" aria-label="@S["DOC_Board_Tablist_Aria"]">
+            <button class="doc-tab" role="tab" data-tab="created" aria-selected="true">
+                @S["DOC_Tab_CreatedByMe"] <span class="badge" id="badge-created" hidden>0</span>
+            </button>
+            <button class="doc-tab" role="tab" data-tab="approval">
+                @S["DOC_Tab_Approval"] <span class="badge" id="badge-approval" hidden>0</span>
+            </button>
+            <button class="doc-tab" role="tab" data-tab="shared">
+                @S["DOC_Tab_SharedWithMe"] <span class="badge" id="badge-shared" hidden>0</span>
+            </button>
+        </div>
+
+        <!-- 필터 -->
+        <div class="doc-filter">
+            <label class="sr-only" for="filterTitle">@S["DOC_Filter_Title_Label"]</label>
+            <select id="filterTitle">
+                <option value="all">@S["DOC_Filter_Title_All"]</option>
+                <option value="approved">@S["DOC_Filter_Title_Approved"]</option>
+                <option value="rejected">@S["DOC_Filter_Title_Rejected"]</option>
+                <option value="pending">@S["DOC_Filter_Title_Pending"]</option>
+                <option value="onhold">@S["DOC_Filter_Title_OnHold"]</option>
+            </select>
+
+            <label class="sr-only" for="filterApprovalView">@S["DOC_Filter_ApprovalView_Label"]</label>
+            <select id="filterApprovalView" style="display:none">
+                <option value="all">@S["DOC_Filter_ApprovalView_All"]</option>
+                <option value="pending">@S["DOC_Filter_ApprovalView_Pending"]</option>
+                <option value="approved">@S["DOC_Filter_ApprovalView_Approved"]</option>
+            </select>
+
+            <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
+            <select id="filterSort">
+                <option value="created_desc">@S["DOC_Filter_Sort_CreatedDesc"]</option>
+                <option value="created_asc">@S["DOC_Filter_Sort_CreatedAsc"]</option>
+                <option value="title_asc">@S["DOC_Filter_Sort_TitleAsc"]</option>
+                <option value="title_desc">@S["DOC_Filter_Sort_TitleDesc"]</option>
+            </select>
+
+            <label class="sr-only" for="filterQuery">@S["DOC_Filter_Search_Label"]</label>
+            <input id="filterQuery" type="search" placeholder="@S["DOC_Filter_Search_Placeholder"]" />
+            <button type="button" id="filterApply">@S["DOC_Filter_Apply"]</button>
+        </div>
+
+        <!-- 리스트 -->
+        <table class="doc-list" aria-live="polite">
+            <thead>
+                <tr>
+                    <th style="width:72px">@S["DOC_Col_No"]</th>
+                    <th>@S["DOC_Col_Title"]</th>
+                    <th style="width:180px">@S["DOC_Col_Author"]</th>
+                    <th style="width:160px">@S["DOC_Col_Date"]</th>
+                    <th style="width:140px">@S["DOC_Col_Status"]</th>
+                </tr>
+            </thead>
+            <tbody id="docListBody">
+                <tr>
+                    <td colspan="5">@S["DOC_List_Loading"]</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- 페이징 -->
+        <div class="doc-paging" id="docPaging" aria-label="@S["DOC_Pagination_Label"]"></div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const root = document.getElementById('docBoard');
+        const apiList = root.dataset.apiList;
+        const apiBadges = root.dataset.apiBadges;
+        const detailUrl = root.dataset.detailUrl;
+
+        const tabs = Array.from(root.querySelectorAll('.doc-tab'));
+        const body = document.getElementById('docListBody');
+        const paging = document.getElementById('docPaging');
+
+        const filterTitle = document.getElementById('filterTitle') || { value: 'all' };
+        const filterSort = document.getElementById('filterSort');
+        const filterQuery = document.getElementById('filterQuery');
+        const filterApprovalView = document.getElementById('filterApprovalView');
+        const btnApply = document.getElementById('filterApply');
+
+        const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+        const state = {
+            tab: 'created',
+            page: 1,
+            pageSize: 20,
+            titleFilter: 'all',
+            sort: 'created_desc',
+            q: '',
+            approvalView: 'all'
+        };
+
+        // 탭 클릭(현재는 숨겨져 있지만 로직 유지)
+        tabs.forEach(t => {
+            t.addEventListener('click', () => {
+                tabs.forEach(x => x.setAttribute('aria-selected', 'false'));
+                t.setAttribute('aria-selected', 'true');
+                state.tab = t.dataset.tab;
+                state.page = 1;
+
+                if (state.tab === 'approval') {
+                    filterApprovalView.style.display = '';
+                } else {
+                    filterApprovalView.style.display = 'none';
+                    state.approvalView = 'all';
+                    if (filterApprovalView) filterApprovalView.value = 'all';
+                }
+                refreshBadges();
+                loadList();
+            });
+        });
+
+        // 검색 엔터
+        filterQuery.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') btnApply.click();
+        });
+
+        // 필터 적용
+        btnApply.addEventListener('click', () => {
+            state.titleFilter = filterTitle.value;
+            state.sort = filterSort.value;
+            state.q = filterQuery.value || '';
+            if (state.tab === 'approval')
+                state.approvalView = (filterApprovalView && filterApprovalView.value) || 'all';
+            state.pageSize = clamp(state.pageSize, 1, 100);
+            state.page = 1;
+            loadList();
+        });
+
+        function buildRow(item, displayNo) {
+            const tr = document.createElement('tr');
+
+            const tdNo = document.createElement('td');
+            tdNo.textContent = String(displayNo);
+
+            const tdTitle = document.createElement('td');
+            const link = document.createElement('a');
+            link.href = detailUrl.replace('{docId}', item.docId);
+            link.className = 'doc-title';
+            link.title = item.templateTitle;
+            link.textContent = item.templateTitle;
+            tdTitle.appendChild(link);
+
+            if (typeof item.commentCount === 'number' && item.commentCount > 0) {
+                const meta = document.createElement('span');
+                meta.className = 'meta';
+                meta.textContent = '(' + item.commentCount + ')';
+                tdTitle.appendChild(meta);
+            }
+            if (item.hasAttachment) {
+                const clip = document.createElement('i');
+                clip.className = 'doc-clip';
+                clip.setAttribute('aria-label', '@S["DOC_Attach_Aria"]');
+                tdTitle.appendChild(clip);
+            }
+
+            const tdAuthor = document.createElement('td');
+            tdAuthor.textContent = item.authorName || '';
+
+            const tdDate = document.createElement('td');
+            tdDate.textContent = item.createdAt || '';
+
+            const tdStatus = document.createElement('td');
+            tdStatus.textContent = item.status || '';
+
+            tr.append(tdNo, tdTitle, tdAuthor, tdDate, tdStatus);
+            return tr;
+        }
+
+        function renderList(res) {
+            body.innerHTML = '';
+
+            if (!res.items || res.items.length === 0) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 5;
+                td.textContent = '@S["DOC_List_Empty"]';
+                tr.appendChild(td);
+                body.appendChild(tr);
+                paging.innerHTML = '';
+                return;
+            }
+
+            // 번호 역순
+            const total = Number(res.total ?? 0) ||
+                (res.page - 1) * res.pageSize + res.items.length;
+            const startIndex = (res.page - 1) * res.pageSize;
+
+            res.items.forEach((item, idx) => {
+                const displayNo = total - startIndex - idx;
+                body.appendChild(buildRow(item, displayNo));
+            });
+
+            // 페이징
+            const totalPages = Math.max(1,
+                Math.ceil((res.total || 0) / res.pageSize));
+            paging.innerHTML = '';
+
+            const makeBtn = (label, page, current) => {
+                const b = document.createElement('button');
+                b.textContent = label;
+                if (current) b.setAttribute('aria-current', 'page');
+                b.addEventListener('click', () => {
+                    state.page = page;
+                    loadList();
+                });
+                return b;
+            };
+
+            const block = 10;
+            const blkIdx = Math.floor((state.page - 1) / block);
+            const start = blkIdx * block + 1;
+            const end = Math.min(totalPages, start + block - 1);
+
+            if (start > 1)
+                paging.appendChild(makeBtn('@S["DOC_Pagination_Prev"]', start - 1, false));
+            for (let p = start; p <= end; p++)
+                paging.appendChild(makeBtn(String(p), p, p === state.page));
+            if (end < totalPages)
+                paging.appendChild(makeBtn('@S["DOC_Pagination_Next"]', end + 1, false));
+        }
+
+        async function loadList() {
+            body.innerHTML =
+                '<tr><td colspan="5">@S["DOC_List_Loading"]</td></tr>';
+
+            const params = new URLSearchParams({
+                tab: state.tab,
+                page: state.page,
+                pageSize: state.pageSize,
+                titleFilter: state.titleFilter,
+                sort: state.sort,
+                q: state.q,
+                approvalView: state.approvalView
+            });
+
+            const r = await fetch(apiList + '?' + params.toString(), {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            const res = await r.json();
+            renderList(res);
+            refreshBadges();
+        }
+
+        async function refreshBadges() {
+            try {
+                const r = await fetch(apiBadges, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await r.json();
+                setBadge('created', data.created ?? 0);
+                setBadge('approval', data.approvalPending ?? 0);
+                setBadge('shared', data.sharedUnread ?? 0);
+            } catch { }
+        }
+
+        function setBadge(kind, n) {
+            const el = document.getElementById('badge-' + kind);
+            if (!el) return;
+            if (typeof n === 'number' && n > 0) {
+                el.textContent = n;
+                el.hidden = false;
+            } else {
+                el.textContent = '0';
+                el.hidden = true;
+            }
+        }
+
+        loadList();
+    })();
+</script>

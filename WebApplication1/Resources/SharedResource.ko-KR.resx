@@ -543,7 +543,7 @@
   <data name="_CM_Site_Label" xml:space="preserve">
     <value>사업장</value>
   </data>
-  <data name="DTL_Label_Kind" xml:space="preserve">
+  <data name="_CM_Label_Kind" xml:space="preserve">
     <value>범주</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
@@ -894,7 +894,7 @@
   <data name="DOC_Title_New" xml:space="preserve">
     <value>새 문서 작성</value>
   </data>
-  <data name="DOC_Label_Template" xml:space="preserve">
+  <data name="_CM_Label_Template" xml:space="preserve">
     <value>템플릿</value>
   </data>
   <data name="DOC_Label_Search" xml:space="preserve">
@@ -920,5 +920,188 @@
   </data>
   <data name="DOC_Title_Compose" xml:space="preserve">
     <value>문서 작성</value>
+  </data>
+  <data name="DOC_Submit_Button" xml:space="preserve">
+    <value>상신</value>
+  </data>
+  <data name="DOC_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] {0}님의 {1}(이)가 상신되었습니다.</value>
+  </data>
+  <data name="DOC_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="ko"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;{1}님의 {2} 상신 안내&lt;/h2&gt;&lt;p&gt;안녕하세요, &lt;strong&gt;{0}&lt;/strong&gt; 님.&lt;/p&gt;&lt;p&gt;{1}님의 문서 {2}(이)가 {3}월 {4}일 {5}시 {6}분에 상신되었습니다.&lt;/p&gt;&lt;p&gt;아래 버튼을 클릭하시면 해당 문서로 안내해 드리겠습니다.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{7}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;문서 안내&lt;/a&gt;&lt;/p&gt;&lt;p&gt;버튼이 동작하지 않으면 다음 주소를 복사해 브라우저 주소창에 붙여 넣으세요.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{7}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;&lt;strong&gt;{0}&lt;/strong&gt; 님이 아니시면 이 메일을 무시하시고 열지 마시기 바랍니다.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ 이 메일은 자동으로 생성되어 발송되었습니다. 이 메일에 회신하지 마십시요.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="OC_Board_Title" xml:space="preserve">
+    <value>전자 결재함</value>
+  </data>
+  <data name="DOC_Board_Tablist_Aria" xml:space="preserve">
+    <value>문서 탭</value>
+  </data>
+  <data name="DOC_Tab_CreatedByMe" xml:space="preserve">
+    <value>상신 문서함</value>
+  </data>
+  <data name="DOC_Tab_Approval" xml:space="preserve">
+    <value>결재 문서함</value>
+  </data>
+  <data name="DOC_Tab_SharedWithMe" xml:space="preserve">
+    <value>공유 문서함</value>
+  </data>
+  <data name="DOC_Badge_Created_Aria" xml:space="preserve">
+    <value>상신 문서 개수</value>
+  </data>
+  <data name="DOC_Badge_Approval_Aria" xml:space="preserve">
+    <value>결재 대기 문서 개수</value>
+  </data>
+  <data name="DOC_Badge_Shared_Aria" xml:space="preserve">
+    <value>읽지 않은 공유 문서 개수</value>
+  </data>
+  <data name="DOC_Filter_Title_Label" xml:space="preserve">
+    <value>상태</value>
+  </data>
+  <data name="DOC_Filter_Title_All" xml:space="preserve">
+    <value>전체</value>
+  </data>
+  <data name="DOC_Filter_Title_Approved" xml:space="preserve">
+    <value>승인됨</value>
+  </data>
+  <data name="DOC_Filter_Title_Rejected" xml:space="preserve">
+    <value>반려됨</value>
+  </data>
+  <data name="DOC_Filter_Title_Pending" xml:space="preserve">
+    <value>대기</value>
+  </data>
+  <data name="DOC_Filter_Title_OnHold" xml:space="preserve">
+    <value>보류</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
+    <value>결재 보기</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
+    <value>전체</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
+    <value>대기</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Approved" xml:space="preserve">
+    <value>승인됨</value>
+  </data>
+  <data name="DOC_Filter_Sort_Label" xml:space="preserve">
+    <value>정렬</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedDesc" xml:space="preserve">
+    <value>작성일 내림차순</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedAsc" xml:space="preserve">
+    <value>작성일 오름차순</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleAsc" xml:space="preserve">
+    <value>제목 오름차순</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleDesc" xml:space="preserve">
+    <value>제목 내림차순</value>
+  </data>
+  <data name="DOC_Filter_Search_Label" xml:space="preserve">
+    <value>검색</value>
+  </data>
+  <data name="DOC_Filter_Search_Placeholder" xml:space="preserve">
+    <value>제목 또는 작성자 검색</value>
+  </data>
+  <data name="DOC_Filter_Apply" xml:space="preserve">
+    <value>적용</value>
+  </data>
+  <data name="DOC_Col_No" xml:space="preserve">
+    <value>번호</value>
+  </data>
+  <data name="DOC_Col_Title" xml:space="preserve">
+    <value>문서 제목</value>
+  </data>
+  <data name="DOC_Col_Author" xml:space="preserve">
+    <value>작성자</value>
+  </data>
+  <data name="DOC_Col_Date" xml:space="preserve">
+    <value>작성일시</value>
+  </data>
+  <data name="DOC_Col_Status" xml:space="preserve">
+    <value>상태</value>
+  </data>
+  <data name="DOC_Status_Approved" xml:space="preserve">
+    <value>Approved</value>
+  </data>
+  <data name="DOC_Status_Rejected" xml:space="preserve">
+    <value>Rejected</value>
+  </data>
+  <data name="DOC_Status_PendingA" xml:space="preserve">
+    <value>PendingA{0} (예: PendingA1 — {0}=단계번호)</value>
+  </data>
+  <data name="DOC_Status_Pending" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="DOC_Status_OnHold" xml:space="preserve">
+    <value>OnHold</value>
+  </data>
+  <data name="DOC_Attach_Aria" xml:space="preserve">
+    <value>첨부 있음</value>
+  </data>
+  <data name="DOC_Comment_Count_Aria" xml:space="preserve">
+    <value>댓글 {0}개</value>
+  </data>
+  <data name="DOC_Pagination_Label" xml:space="preserve">
+    <value>페이지네이션</value>
+  </data>
+  <data name="DOC_Pagination_Prev" xml:space="preserve">
+    <value>이전</value>
+  </data>
+  <data name="DOC_Pagination_Next" xml:space="preserve">
+    <value>다음</value>
+  </data>
+  <data name="DOC_List_Loading" xml:space="preserve">
+    <value>불러오는 중…</value>
+  </data>
+  <data name="DOC_List_Empty" xml:space="preserve">
+    <value>표시할 문서가 없습니다.</value>
+  </data>
+  <data name="DOC_Err_LoadFailed" xml:space="preserve">
+    <value>목록을 불러오지 못했습니다.</value>
+  </data>
+  <data name="DOC_Err_BadgesFailed" xml:space="preserve">
+    <value>배지를 불러오지 못했습니다.</value>
+  </data>
+  <data name="DOC_Link_Details_Aria" xml:space="preserve">
+    <value>문서 상세로 이동: {0} ( {0}=문서 제목 )</value>
+  </data>
+  <data name="DOC_Board_Title" xml:space="preserve">
+    <value>전자 결재함</value>
+  </data>
+  <data name="DOC_Cmt_Count" xml:space="preserve">
+    <value>{n}</value>
+  </data>
+  <data name="_CM_Comment_Label" xml:space="preserve">
+    <value>댓글</value>
+  </data>
+  <data name="DOC_Msg_NoComments" xml:space="preserve">
+    <value>등록된 댓글이 없습니다.</value>
+  </data>
+  <data name="DOC_Label_AddComment" xml:space="preserve">
+    <value>댓글 입력</value>
+  </data>
+  <data name="DOC_Placeholder_Comment" xml:space="preserve">
+    <value>여기에 댓글을 입력하세요.</value>
+  </data>
+  <data name="DOC_Title_ViewLog" xml:space="preserve">
+    <value>문서 확인 로그</value>
+  </data>
+  <data name="DOC_Msg_NoViewLogs" xml:space="preserve">
+    <value>문서를 확인한 사람이 없습니다.</value>
+  </data>
+  <data name="DOC_Btn_Approve" xml:space="preserve">
+    <value>승인</value>
+  </data>
+  <data name="DOC_Btn_Hold" xml:space="preserve">
+    <value>보류</value>
+  </data>
+  <data name="DOC_Btn_Reject" xml:space="preserve">
+    <value>반려</value>
+  </data>
+  <data name="DOC_Btn_CommentPost" xml:space="preserve">
+    <value>댓글 등록</value>
   </data>
 </root>

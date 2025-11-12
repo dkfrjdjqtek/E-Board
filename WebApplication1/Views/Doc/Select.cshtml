@@ -23,7 +23,7 @@
                 <div class="row g-3 align-items-end">
 
                     <div class="col-12 col-lg-2">
-                        <label class="form-label mb-1" for="compCd">@S["DOC_Label_Site"]</label>
+                        <label class="form-label mb-1" for="compCd">@S["_CM_Site_Label"]</label>
                         <select id="compCd" name="compCd" class="form-select form-select-sm">
                             @foreach (var it in compOptions)
                             {
@@ -40,7 +40,7 @@
                     </div>
 
                     <div class="col-12 col-lg-2">
-                        <label class="form-label mb-1" for="departmentId">@S["DOC_Label_Department"]</label>
+                        <label class="form-label mb-1" for="departmentId">@S["_CM_Label_Department"]</label>
                         <select id="departmentId" name="departmentId" class="form-select form-select-sm">
                             @foreach (var it in deptOptions)
                             {
@@ -57,14 +57,14 @@
                     </div>
 
                     <div class="col-12 col-lg-2">
-                        <label class="form-label mb-1" for="kindCode">@S["DOC_Label_Category"]</label>
+                        <label class="form-label mb-1" for="kindCode">@S["_CM_Label_Kind"]</label>
                         <select id="kindCode" name="kindCode" class="form-select form-select-sm">
                             <option value="__SELECT__">@txtSelect</option>
                         </select>
                     </div>
 
                     <div class="col-12 col-lg-3">
-                        <label class="form-label mb-1" for="templateCode">@S["DOC_Label_TemplateName"]</label>
+                        <label class="form-label mb-1" for="templateCode">@S["_CM_Label_Template"]</label>
                         <select id="templateCode" name="templateCode" class="form-select form-select-sm">
                             <option value="">@txtTplPh</option>
                         </select>

@@ -123,7 +123,7 @@
   <data name="_CM_Site_Label" xml:space="preserve">
     <value>Cơ sở</value>
   </data>
-  <data name="DTL_Label_Kind" xml:space="preserve">
+  <data name="_CM_Label_Kind" xml:space="preserve">
     <value>Danh mục</value>
   </data>
   <data name="DTL_Label_DocName" xml:space="preserve">
@@ -894,7 +894,7 @@
   <data name="DOC_Title_New" xml:space="preserve">
     <value>Tạo tài liệu mới</value>
   </data>
-  <data name="DOC_Label_Template" xml:space="preserve">
+  <data name="_CM_Label_Template" xml:space="preserve">
     <value>Mẫu</value>
   </data>
   <data name="DOC_Label_Search" xml:space="preserve">
@@ -920,5 +920,188 @@
   </data>
   <data name="DOC_Title_Compose" xml:space="preserve">
     <value>Soạn tài liệu</value>
+  </data>
+  <data name="DOC_Submit_Button" xml:space="preserve">
+    <value>Trình ký</value>
+  </data>
+  <data name="DOC_Email_Subject" xml:space="preserve">
+    <value>[Han Young E-Board] Tài liệu {1} của {0} đã được trình ký.</value>
+  </data>
+  <data name="DOC_Email_BodyHtml" xml:space="preserve">
+    <value>&lt;!doctype html&gt;&lt;html lang="vi"&gt;&lt;body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:16px;"&gt;&lt;h2 style="margin:0 0 12px"&gt;Thông báo trình ký tài liệu {2} của {1}&lt;/h2&gt;&lt;p&gt;Xin chào, &lt;strong&gt;{0}&lt;/strong&gt;.&lt;/p&gt;&lt;p&gt;Tài liệu {2} của {1} đã được trình ký vào lúc {5}:{6} ngày {4} tháng {3}.&lt;/p&gt;&lt;p&gt;Nhấp nút bên dưới để mở tài liệu.&lt;/p&gt;&lt;p style="margin:20px 0"&gt;&lt;a href="{7}" style="background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block"&gt;Mở tài liệu&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Nếu nút không hoạt động, hãy sao chép và dán URL sau vào trình duyệt của bạn.&lt;/p&gt;&lt;p style="word-break:break-all;color:#555"&gt;{7}&lt;/p&gt;&lt;hr style="margin:24px 0;border:none;border-top:1px solid #eee"/&gt;&lt;p style="color:#6c757d"&gt;Nếu bạn không phải là &lt;strong&gt;{0}&lt;/strong&gt;, vui lòng bỏ qua email này và không mở.&lt;/p&gt;&lt;p style="color:#6c757d;margin-top:4px;"&gt;⚠️ Email này được tạo và gửi tự động. Vui lòng không trả lời.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</value>
+  </data>
+  <data name="OC_Board_Title" xml:space="preserve">
+    <value>Hộp phê duyệt điện tử</value>
+  </data>
+  <data name="DOC_Board_Tablist_Aria" xml:space="preserve">
+    <value>Thẻ tài liệu</value>
+  </data>
+  <data name="DOC_Tab_CreatedByMe" xml:space="preserve">
+    <value>Đã trình</value>
+  </data>
+  <data name="DOC_Tab_Approval" xml:space="preserve">
+    <value>Phê duyệt</value>
+  </data>
+  <data name="DOC_Tab_SharedWithMe" xml:space="preserve">
+    <value>Chia sẻ</value>
+  </data>
+  <data name="DOC_Badge_Created_Aria" xml:space="preserve">
+    <value>Số tài liệu đã trình</value>
+  </data>
+  <data name="DOC_Badge_Approval_Aria" xml:space="preserve">
+    <value>Số tài liệu chờ phê duyệt</value>
+  </data>
+  <data name="DOC_Badge_Shared_Aria" xml:space="preserve">
+    <value>Số tài liệu chia sẻ chưa đọc</value>
+  </data>
+  <data name="DOC_Filter_Title_Label" xml:space="preserve">
+    <value>Trạng thái</value>
+  </data>
+  <data name="DOC_Filter_Title_All" xml:space="preserve">
+    <value>Tất cả</value>
+  </data>
+  <data name="DOC_Filter_Title_Approved" xml:space="preserve">
+    <value>Đã phê duyệt</value>
+  </data>
+  <data name="DOC_Filter_Title_Rejected" xml:space="preserve">
+    <value>Bị từ chối</value>
+  </data>
+  <data name="DOC_Filter_Title_Pending" xml:space="preserve">
+    <value>Đang chờ</value>
+  </data>
+  <data name="DOC_Filter_Title_OnHold" xml:space="preserve">
+    <value>Tạm dừng</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
+    <value>Chế độ xem phê duyệt</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
+    <value>Tất cả</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
+    <value>Đang chờ</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Approved" xml:space="preserve">
+    <value>Đã phê duyệt</value>
+  </data>
+  <data name="DOC_Filter_Sort_Label" xml:space="preserve">
+    <value>Sắp xếp</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedDesc" xml:space="preserve">
+    <value>Ngày tạo giảm dần</value>
+  </data>
+  <data name="DOC_Filter_Sort_CreatedAsc" xml:space="preserve">
+    <value>Ngày tạo tăng dần</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleAsc" xml:space="preserve">
+    <value>Tiêu đề tăng dần</value>
+  </data>
+  <data name="DOC_Filter_Sort_TitleDesc" xml:space="preserve">
+    <value>Tiêu đề giảm dần</value>
+  </data>
+  <data name="DOC_Filter_Search_Label" xml:space="preserve">
+    <value>Tìm kiếm</value>
+  </data>
+  <data name="DOC_Filter_Search_Placeholder" xml:space="preserve">
+    <value>Tìm theo tiêu đề hoặc tác giả</value>
+  </data>
+  <data name="DOC_Filter_Apply" xml:space="preserve">
+    <value>Áp dụng</value>
+  </data>
+  <data name="DOC_Col_No" xml:space="preserve">
+    <value>Số</value>
+  </data>
+  <data name="DOC_Col_Title" xml:space="preserve">
+    <value>Tiêu đề tài liệu</value>
+  </data>
+  <data name="DOC_Col_Author" xml:space="preserve">
+    <value>Người tạo</value>
+  </data>
+  <data name="DOC_Col_Date" xml:space="preserve">
+    <value>Ngày giờ tạo</value>
+  </data>
+  <data name="DOC_Col_Status" xml:space="preserve">
+    <value>Trạng thái</value>
+  </data>
+  <data name="DOC_Status_Approved" xml:space="preserve">
+    <value>Đã phê duyệt</value>
+  </data>
+  <data name="DOC_Status_Rejected" xml:space="preserve">
+    <value>Bị từ chối</value>
+  </data>
+  <data name="DOC_Status_PendingA" xml:space="preserve">
+    <value>PendingA{0} (예: PendingA1 — {0}=단계번호)</value>
+  </data>
+  <data name="DOC_Status_Pending" xml:space="preserve">
+    <value>Đang chờ</value>
+  </data>
+  <data name="DOC_Status_OnHold" xml:space="preserve">
+    <value>Tạm dừng</value>
+  </data>
+  <data name="DOC_Attach_Aria" xml:space="preserve">
+    <value>Có tệp đính kèm</value>
+  </data>
+  <data name="DOC_Comment_Count_Aria" xml:space="preserve">
+    <value>{0} bình luận</value>
+  </data>
+  <data name="DOC_Pagination_Label" xml:space="preserve">
+    <value>Phân trang</value>
+  </data>
+  <data name="DOC_Pagination_Prev" xml:space="preserve">
+    <value>Trước</value>
+  </data>
+  <data name="DOC_Pagination_Next" xml:space="preserve">
+    <value>Sau</value>
+  </data>
+  <data name="DOC_List_Loading" xml:space="preserve">
+    <value>Đang tải…</value>
+  </data>
+  <data name="DOC_List_Empty" xml:space="preserve">
+    <value>Không có tài liệu để hiển thị.</value>
+  </data>
+  <data name="DOC_Err_LoadFailed" xml:space="preserve">
+    <value>Không thể tải danh sách.</value>
+  </data>
+  <data name="DOC_Err_BadgesFailed" xml:space="preserve">
+    <value>Không thể tải huy hiệu.</value>
+  </data>
+  <data name="DOC_Link_Details_Aria" xml:space="preserve">
+    <value>Đi đến chi tiết tài liệu: {0} ({0}=tiêu đề tài liệu)</value>
+  </data>
+  <data name="DOC_Board_Title" xml:space="preserve">
+    <value>Hộp phê duyệt điện tử</value>
+  </data>
+  <data name="DOC_Cmt_Count" xml:space="preserve">
+    <value>{n}</value>
+  </data>
+  <data name="_CM_Comment_Label" xml:space="preserve">
+    <value>Bình luận</value>
+  </data>
+  <data name="DOC_Msg_NoComments" xml:space="preserve">
+    <value>Chưa có bình luận nào.</value>
+  </data>
+  <data name="DOC_Label_AddComment" xml:space="preserve">
+    <value>Nhập bình luận</value>
+  </data>
+  <data name="DOC_Placeholder_Comment" xml:space="preserve">
+    <value>Nhập bình luận tại đây.</value>
+  </data>
+  <data name="DOC_Title_ViewLog" xml:space="preserve">
+    <value>Nhật ký xem tài liệu</value>
+  </data>
+  <data name="DOC_Msg_NoViewLogs" xml:space="preserve">
+    <value>Chưa có ai xem tài liệu.</value>
+  </data>
+  <data name="DOC_Btn_Approve" xml:space="preserve">
+    <value>Phê duyệt</value>
+  </data>
+  <data name="DOC_Btn_Hold" xml:space="preserve">
+    <value>Tạm dừng</value>
+  </data>
+  <data name="DOC_Btn_Reject" xml:space="preserve">
+    <value>Từ chối</value>
+  </data>
+  <data name="DOC_Btn_CommentPost" xml:space="preserve">
+    <value>Đăng bình luận</value>
   </data>
 </root>

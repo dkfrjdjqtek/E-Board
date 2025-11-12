@@ -23,7 +23,10 @@ namespace WebApplication1.Controllers
         
         public IActionResult Index()
         {
-            ViewBag.PageTitle = _S["Home_Title"];
+            //ViewBag.PageTitle = _S["Home_Title"];
+            //return View();
+            if (User?.Identity?.IsAuthenticated == true)
+                return Redirect("/Doc/Board");
             return View();
         }
 
