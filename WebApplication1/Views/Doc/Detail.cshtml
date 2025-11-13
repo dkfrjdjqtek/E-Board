@@ -1,4 +1,6 @@
-﻿@* 2025.11.07 Changed:
+﻿File: Views/Doc/Detail.cshtml
+@* 2025.11.13 Changed Detail 미리보기 편집 차단 로직 추가 *@
+@* 2025.11.07 Changed:
     - DOC 상세 화면을 세로 단일 컬럼 구조로 재배치
     - Compose와 동일한 엑셀 기반 프리뷰 렌더링 로직 적용 (read-only)
     - 타이틀/프리뷰/댓글/조회 로그/승인 정보·버튼 순서 정렬
@@ -635,6 +637,48 @@
             } catch { return fallback; }
         }
 
+        // Detail 프리뷰를 강제로 읽기 전용으로 만드는 헬퍼
+        function ensurePreviewReadOnly() {
+            const root = document.querySelector('.doc-preview-full');
+            if (!root) return;
+
+            const nodes = root.querySelectorAll('[contenteditable=""],[contenteditable="true"],textarea,input');
+            nodes.forEach(el => {
+                const tag = (el.tagName || '').toUpperCase();
+
+                if (tag === 'TEXTAREA' || tag === 'INPUT') {
+                    el.setAttribute('readonly', 'readonly');
+                } else {
+                    el.setAttribute('contenteditable', 'false');
+                }
+
+                el.addEventListener('keydown', function (e) {
+                    const k = e.key || '';
+
+                    // IME 조합 중에는 건드리지 않음
+                    if (e.isComposing) return;
+
+                    // 이동용 키들은 허용
+                    if (
+                        k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown' ||
+                        k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown' ||
+                        k === 'Tab' || k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta' ||
+                        /^F\d{1,2}$/.test(k)
+                    ) {
+                        return;
+                    }
+
+                    // Ctrl/Meta 조합(복사 등)은 허용
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+                    // 그 외 입력/삭제/개행은 차단
+                    if (k.length === 1 || k === 'Backspace' || k === 'Delete' || k === 'Enter') {
+                        e.preventDefault();
+                    }
+                });
+            });
+        }
+
         // ================== 프리뷰 렌더링 (Compose 와 동일 폭/폰트 로직) ==================
         (function () {
             const preview = readJsonFromScript('PreviewJson', {});
@@ -949,9 +993,13 @@
             }
 
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', mountPreview, { once: true });
+                document.addEventListener('DOMContentLoaded', function () {
+                    mountPreview();
+                    ensurePreviewReadOnly();
+                }, { once: true });
             } else {
                 mountPreview();
+                ensurePreviewReadOnly();
             }
         })();
 
@@ -1026,8 +1074,8 @@
                     const li = document.createElement('li');
                     li.innerHTML =
                         `<span>${escapeHtml(f.name)}</span>
-                                 <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
-                                 <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
+                                         <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
+                                         <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
                     $fileList.append(li);
                 });
             }
@@ -1065,12 +1113,12 @@
                     if (depth > 0) wrap.style.marginLeft = (depth * 16) + 'px';
 
                     wrap.innerHTML = `
-                                <div class="doc-comment-meta">
-                                    <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
-                                    <span>${escapeHtml(c.createdAt || '')}</span>
-                                </div>
-                                <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
-                            `;
+                                        <div class="doc-comment-meta">
+                                            <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
+                                            <span>${escapeHtml(c.createdAt || '')}</span>
+                                        </div>
+                                        <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
+                                    `;
                     $list.append(wrap);
                 });
             }
@@ -1183,10 +1231,10 @@
                     const st = a.status || a.Action || 'Pending';
                     const when = a.actedAtText || a.actedAt || '';
                     tr.innerHTML = `
-                                <td>${esc(role)}</td>
-                                <td>${esc(val)}</td>
-                                <td>${esc(st)}</td>
-                                <td>${esc(when)}</td>`;
+                                        <td>${esc(role)}</td>
+                                        <td>${esc(val)}</td>
+                                        <td>${esc(st)}</td>
+                                        <td>${esc(when)}</td>`;
                     tbody.append(tr);
                 });
         })();
