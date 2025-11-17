@@ -1,6 +1,4 @@
-﻿@* 2025.11.13 Changed: eb.doc.preview.common.js 공통 스크립트 사용하도록 Compose 화면 스크립트 분리 *@
-@* 2025.11.11 Changed: 포커스 링 단일화 및 활성 그룹 기준 재계산 (비고 영역에 고정되던 문제 수정) *@
-@* 2025.11.04 Changed: 메일 전송 요청 body 구성과 CSRF 토큰 적용 저장 응답 처리 보강 기타 로직 변경 없음 *@
+﻿@* 2025.11.15 Changed: 프리뷰 Excel 폰트 무시하고 공통 웹 폰트 사용 옵션 B 적용 및 스타일 중복 정리 *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -31,14 +29,6 @@
         padding-bottom: 0;
     }
 
-    .doc-unclip {
-        overflow: visible !important;
-        max-width: none !important;
-        transform: none !important;
-        will-change: auto !important;
-        filter: none !important;
-    }
-
     .page-header {
         display: flex;
         align-items: center;
@@ -46,7 +36,10 @@
         padding: 16px;
         margin: 0;
     }
-    .page-header h3 { margin: 0; }
+
+    .page-header h3 {
+        margin: 0;
+    }
 
     .form-actions {
         margin: 16px;
@@ -57,38 +50,35 @@
         max-width: 100%;
     }
 
-    .action-btn { width: 140px; height: 36px; white-space: nowrap; }
+    .action-btn {
+        width: 140px;
+        height: 36px;
+        white-space: nowrap;
+    }
 
     @Html.Raw("@media print{#doc-scroll{overflow:visible;position:static;inset:auto;height:auto;padding:0}.form-actions{display:none}}")
 
-    /* 디버그용 간단 모달 */
-    .eb-modal-mask {
-        position: fixed; inset: 0; background: rgba(0,0,0,.35);
-        z-index: 2000; display: flex; align-items: center; justify-content: center;
-    }
-    .eb-modal {
-        background: #fff; width: min(920px,96vw); max-height: 86vh;
-        border-radius: 8px; box-shadow: 0 14px 48px rgba(0,0,0,.25);
-        display: flex; flex-direction: column;
-    }
-    .eb-modal header {
-        padding: 10px 14px; border-bottom: 1px solid #e5e7eb;
-        display: flex; justify-content: space-between; align-items: center
-    }
-    .eb-modal .body { padding: 0; overflow: auto }
-    .eb-modal pre { margin: 0; padding: 12px 14px; font-size: .86rem }
-    .eb-modal footer {
-        padding: 10px 14px; border-top: 1px solid #e5e7eb;
-        display: flex; gap: 8px; justify-content: flex-end
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        cursor: pointer;
     }
 
-    .btn {
-        display: inline-flex; align-items: center; justify-content: center;
-        height: 36px; padding: 0 14px; border-radius: 8px;
-        border: 1px solid transparent; cursor: pointer;
+    .btn-primary {
+        background: #0d6efd;
+        color: #fff;
     }
-    .btn-primary { background: #0d6efd; color: #fff }
-    .btn-outline { background: #fff; border-color: #cbd5e1; color: #111827 }
+
+    .btn-outline-secondary {
+        background: #fff;
+        border-color: #cbd5e1;
+        color: #111827;
+    }
 </style>
 
 <div id="doc-scroll" data-template-code="@templateCode">
@@ -96,9 +86,11 @@
         <h3>@S["DOC_Title_Compose"]</h3>
         <span class="text-muted">@templateTitle</span>
     </div>
+
     <div id="doc-alert" class="mb-2" aria-live="polite"></div>
 
     <form id="doc-form" method="post" asp-controller="Doc" asp-action="Create" novalidate style="max-width:100%">
+        @Html.AntiForgeryToken()
         <input type="hidden" name="TemplateCode" value="@templateCode" />
         <input type="hidden" name="templateCode" value="@templateCode" />
 
@@ -106,19 +98,21 @@
         <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
 
         <script>
-            window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
-                    DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
-                    DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
-                    DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
-                    DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
-                    DOC_Submit_Button = S["DOC_Submit_Button"].Value
-                }));
-            window.__tplFromServer = "@templateCode";
+            window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new {
+                DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+                DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+                DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
+                DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
+                DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+                DOC_Submit_Button = S["DOC_Submit_Button"].Value
+            }));
+            // Compose 화면은 항상 쓰기 모드
+            window.__DOC_IS_WRITE__ = true;
         </script>
 
-        <div id="xlPreview"><div id="xhost"></div></div>
+        <div id="xlPreview">
+            <div id="xhost"></div>
+        </div>
 
         <div class="form-actions">
             <button type="button" id="btn-save" class="btn btn-primary action-btn" data-doc-submit>
@@ -138,4 +132,136 @@
 @section Scripts {
     <script src="~/js/eb.csrf.js"></script>
     <script src="~/js/eb.doc.preview.common.js"></script>
+
+    <script>
+        (function () {
+            function initPreview() {
+                // 공통 프리뷰 스크립트가 initCompose를 제공하면 사용, 아니면 mount 직접 호출
+                if (window.EBDocPreview?.initCompose) {
+                    return window.EBDocPreview.initCompose();
+                }
+
+                try {
+                    const raw = document.getElementById('PreviewJson')?.textContent || '{}';
+                    const preview = JSON.parse(raw || '{}');
+                    window.EBDocPreview?.mount('#xlPreview', preview, { isWrite: true });
+                } catch (e) {
+                    console.error('Compose preview init failed', e);
+                    const host = document.getElementById('xhost');
+                    if (host) {
+                        const msg = (window.__RESX && window.__RESX.DOC_Err_PreviewFailed) || 'Preview error';
+                        host.innerHTML = `<div class="alert alert-danger mb-0 py-1">${msg}</div>`;
+                    }
+                }
+            }
+
+            function resx(k, fallback) {
+                return (window.__RESX && window.__RESX[k]) || fallback || k;
+            }
+
+            async function submitJson(action, payload, csrf) {
+                return await fetch(action, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': csrf || ''
+                    },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            async function submitFormFallback(action, payload, csrf) {
+                const fd = new FormData();
+                fd.append('templateCode', payload.templateCode || '');
+                fd.append('inputsJson', JSON.stringify(payload.inputs || {}));
+                if (csrf) fd.append('__RequestVerificationToken', csrf);
+                return await fetch(action, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: fd
+                });
+            }
+
+            function pickDocId(data) {
+                return data?.docId || data?.id || data?.DocId || '';
+            }
+
+            async function handleSubmit() {
+                const btn = document.getElementById('btn-save');
+                const form = document.getElementById('doc-form');
+                const action = form.getAttribute('action') || '/Doc/Create';
+                const templateCode = document.querySelector('[name="templateCode"]')?.value || '';
+                const csrf = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                const inputs = (window.EBDocPreview && window.EBDocPreview.payloadInputs)
+                    ? window.EBDocPreview.payloadInputs
+                    : {};
+
+                if (!templateCode) {
+                    alert(resx('DOC_Val_TemplateRequired', 'Template required'));
+                    return;
+                }
+
+                btn.disabled = true;
+                const old = btn.textContent;
+                btn.textContent = '…';
+
+                try {
+                    // 1) JSON 우선 시도
+                    let res = await submitJson(action, { templateCode, inputs }, csrf);
+
+                    // JSON 미수용/CSRF 바인딩 실패 시 FormData 폴백
+                    if (!res.ok && (res.status === 400 || res.status === 404 || res.status === 415 || res.status === 419)) {
+                        res = await submitFormFallback(action, { templateCode, inputs }, csrf);
+                    }
+
+                    const ctype = res.headers.get('content-type') || '';
+                    const data = ctype.includes('application/json')
+                        ? await res.json().catch(() => ({}))
+                        : { html: await res.text() };
+
+                    if (!res.ok) {
+                        const detail = (data && (data.message || data.error || data.html))
+                            ? '\n' + (data.message || data.error || data.html).toString().slice(0, 500)
+                            : '';
+                        alert(resx('DOC_Err_SaveFailed', 'Save failed') + ` [${res.status}]` + detail);
+                        return;
+                    }
+
+                    if (data.redirectUrl) {
+                        location.href = data.redirectUrl;
+                        return;
+                    }
+
+                    // ★ 세그먼트가 아닌 쿼리 문자열로 Detail 이동 (404 방지)
+                    const docId = pickDocId(data);
+                    if (docId) {
+                        location.href = `/Doc/Detail?id=${encodeURIComponent(docId)}`;
+                        return;
+                    }
+
+                    alert(resx('DOC_Msg_Saved', 'Saved'));
+                } catch (e) {
+                    console.error(e);
+                    alert(resx('DOC_Err_SaveFailed', 'Save failed'));
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = old;
+                }
+            }
+
+            function wire() {
+                initPreview();
+                document.getElementById('btn-save')?.addEventListener('click', handleSubmit);
+                document.getElementById('btn-cancel')?.addEventListener('click', () => history.back());
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', wire, { once: true });
+            } else {
+                wire();
+            }
+        })();
+    </script>
 }

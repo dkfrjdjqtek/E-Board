@@ -1,4 +1,6 @@
-﻿/* 2025.11.13 Added: DOC Compose/Detail 공통 Excel 미리보기 및 오버레이 스타일 분리 */
+﻿/* 2025.11.14 Changed: 엑셀 폰트 완전히 무시, 웹 기준 공통 폰트/사이즈/자간 통일 + Compose/Detail 공통 프리뷰 스타일 적용 */
+/* 2025.11.14 Changed: 프리뷰 폰트 패밀리/자간 고정 및 box-sizing 통일, 상위 CSS 누수 차단 */
+/* 공통 폰트/자간 변수 (엑셀 스타일은 사용하지 않음) */
 :root {
     --vscroll-w: 0px;
     --eb-group-bg: rgb(240 248 255 / 55%);
@@ -8,24 +10,42 @@
     --eb-ring-w: 2px;
     --eb-ring-pad: 2px;
     --eb-ring-glow-w: 4px;
+    --eb-font: 'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',Arial,sans-serif; /* 여기 두 줄이 핵심: 폰트 패밀리 고정 + 기본 크기 16px */
+    --eb-font-size: 16px; /* 프리뷰 기본 폰트 크기(px) */
+    --eb-line-height: 1.2; /* 기본 라인 높이 배수 – 실제 셀/오버레이는 JS에서 rowH(px)로 덮어씌움 */
+    --eb-letter-spacing: normal; /* 자간/어간은 항상 normal 로 고정해서 줄바꿈 계산을 안정화 */
+    --eb-word-spacing: normal; /* 셀 좌우 패딩 */
+    --eb-cell-pad-x: 6px; /* .45rem → 6px */
 }
 
-/* 오토플로우 입력 제한 깜빡임 */
-@keyframes ebBlink {
-    0% {
-        box-shadow: none
-    }
-
-    50% {
-        box-shadow: 0 0 0 3px rgba(215,0,0,.35)
-    }
-
-    100% {
-        box-shadow: none
-    }
+/* 상위 전역 규칙 침투 차단 + box-sizing 통일 */
+#doc-scroll,
+#doc-scroll * {
+    box-sizing: border-box;
 }
 
-/* 프리뷰 전체 컨테이너 */
+/* 프리뷰 전체: "웹 기준" 공통 폰트/사이즈/자간만 사용 (엑셀 폰트/크기 무시) */
+#xlPreview,
+#xlPreview .xlfb {
+    font-family: var(--eb-font);
+    font-size: var(--eb-font-size);
+    line-height: var(--eb-line-height);
+    letter-spacing: var(--eb-letter-spacing);
+    word-spacing: var(--eb-word-spacing);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+    /* 셀/편집 영역은 자간·어간만 normal 로 고정(줄바꿈 계산 일치 목적) */
+    #xlPreview .xlfb td,
+    #xlPreview .xlfb th,
+    #xlPreview .xlfb .cellc,
+    #xlPreview .eb-ta {
+        letter-spacing: var(--eb-letter-spacing);
+        word-spacing: var(--eb-word-spacing);
+    }
+
+/* 프리뷰 컨테이너 */
 #xlPreview {
     position: relative;
     display: block;
@@ -34,7 +54,7 @@
     overflow: visible;
 }
 
-/* 실제 테이블/오버레이 호스트 */
+/* 테이블/오버레이 호스트 */
 #xhost {
     display: block;
     width: auto;
@@ -43,7 +63,7 @@
     position: relative;
 }
 
-/* Excel 스타일 테이블 */
+/* Excel 스타일 테이블(레이아웃/보더만 사용, 폰트는 무시) */
 .xlfb {
     border-collapse: collapse;
     table-layout: fixed;
@@ -56,32 +76,35 @@
         position: relative;
     }
 
-    /* 행/열 헤더 숨김(실제 양식만 표시) */
     .xlfb thead,
     .xlfb tbody th {
         display: none;
     }
 
-    /* 셀 기본 스타일 */
+    /* 셀 */
     .xlfb td {
         padding: 0;
         vertical-align: middle;
         overflow: hidden;
         word-break: break-word;
-        white-space: pre-wrap;
+        white-space: pre-wrap; /* 기본은 줄바꿈 허용 */
     }
+
+/* 텍스트 입력 대상 셀: 자동 줄바꿈 금지, 우리가 넣은 \n 만 사용 */
+td.eb-group .cellc,
+td[data-key] .cellc {
+    white-space: pre;
+}
 
 /* 셀 내부 div */
 .cellc {
-    padding: .0rem .45rem;
-    font-size: .925rem;
-    line-height: 1.2;
+    padding: 0 var(--eb-cell-pad-x);
     max-height: 100%;
     overflow: hidden;
     display: block;
 }
 
-/* 정렬/줄바꿈 클래스 */
+/* 정렬 */
 .ta-left {
     text-align: left;
 }
@@ -106,16 +129,17 @@
     vertical-align: bottom;
 }
 
+/* wrap 셀: 공백/줄바꿈 유지 + 자동 줄바꿈 */
 .wrap {
-    white-space: pre-line;
+    white-space: pre-wrap;
 }
 
-/* 편집 가능 셀 공통 표시 */
+/* 편집 가능 표시 */
 .eb-editable {
     transition: background-color .12s ease-in-out;
 }
 
-/* 입력 그룹 배경색 */
+/* 입력 그룹 배경 */
 td.eb-group {
     background: var(--eb-group-bg);
 }
@@ -124,7 +148,7 @@ td.eb-group {
         background: var(--eb-group-bg-hover);
     }
 
-/* 날짜 입력 셀 스타일 */
+/* 날짜 입력 */
 .eb-input-date {
     width: 100%;
     border: none;
@@ -136,7 +160,6 @@ td.eb-group {
     height: 1.6em;
 }
 
-/* 브라우저 기본 date 아이콘 제거 */
 input[type="date"]::-webkit-calendar-picker-indicator {
     opacity: 0;
 }
@@ -145,7 +168,7 @@ input[type="date"]::-moz-focus-inner {
     border: 0;
 }
 
-/* 오토플로우 오버레이 블록(표 위에 깔리는 영역) */
+/* 오버레이 블록 */
 .eb-block {
     position: absolute;
     box-sizing: border-box;
@@ -162,7 +185,7 @@ input[type="date"]::-moz-focus-inner {
     user-select: none;
 }
 
-/* 활성 그룹 포커스 링 */
+/* 포커스 링 */
 .eb-group-ring {
     position: absolute;
     pointer-events: none;
@@ -173,7 +196,7 @@ input[type="date"]::-moz-focus-inner {
     display: none;
 }
 
-/* 실제 입력 textarea (오버레이) */
+/* 오버레이 textarea */
 .eb-ta {
     position: absolute;
     left: 0;
@@ -185,25 +208,37 @@ input[type="date"]::-moz-focus-inner {
     outline: none;
     z-index: 4;
     pointer-events: auto;
-    font: inherit;
+    font: inherit; /* 폰트 패밀리/사이즈는 위 공통값 사용 */
     color: inherit;
-    line-height: inherit;
-    padding: .0rem .45rem;
+    line-height: inherit; /* JS에서 rowH(px)로 다시 덮어씀 */
+    padding: 0 var(--eb-cell-pad-x);
     margin: 0;
     resize: none;
     overflow: hidden;
-    white-space: pre;
+    white-space: pre; /* 측정/클램프 로직과 일치 */
     -webkit-user-modify: read-write-plaintext-only;
 }
 
-/* 입력 제한 도달 시 시각 피드백 */
+/* 입력 제한 피드백 */
+@keyframes ebBlink {
+    0% {
+        box-shadow: none;
+    }
+
+    50% {
+        box-shadow: 0 0 0 3px rgba(215,0,0,.35);
+    }
+
+    100% {
+        box-shadow: none;
+    }
+}
+
 .eb-limit-blink {
     animation: ebBlink .18s ease-in-out 2;
 }
 
-/* 인쇄 시 테이블 외곽선/배경/포커스링 정리
-   (페이지 레이아웃 관련 #doc-scroll, .form-actions 등은 각 화면에서 별도 정의)
-*/
+/* 인쇄 */
 @media print {
     .xlfb {
         outline: 1px solid #000;

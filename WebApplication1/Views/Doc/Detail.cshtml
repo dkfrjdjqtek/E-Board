@@ -1,12 +1,4 @@
-﻿File: Views/Doc/Detail.cshtml
-@* 2025.11.13 Changed Detail 미리보기 편집 차단 로직 추가 *@
-@* 2025.11.07 Changed:
-    - DOC 상세 화면을 세로 단일 컬럼 구조로 재배치
-    - Compose와 동일한 엑셀 기반 프리뷰 렌더링 로직 적용 (read-only)
-    - 타이틀/프리뷰/댓글/조회 로그/승인 정보·버튼 순서 정렬
-    - [2025.11.10] 인쇄 시 순수 문서 프리뷰(#xhost)만 출력하도록 @media print 정리
-    - [2025.11.10] 하단 고정 승인/보류/반려 버튼 추가 (1/2 : 1/4 : 1/4)
-*@
+﻿@* 2025.11.14 Changed: Compose와 동일한 #doc-scroll / #xlPreview 구조 적용, 엑셀 폰트 무시하고 웹 공통 프리뷰 폰트만 사용 *@
 @using System.Text.Json
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
@@ -61,15 +53,24 @@
 }
 
 <style>
-    :root {
-        --vscroll-w: 0px;
-        --eb-group-bg: rgb(240 248 255 / 55%);
-        --eb-group-bg-hover: rgb(240 248 255 / 55%);
-        --eb-ring-border: #8CB8FF;
-        --eb-ring-glow: rgba(140,184,255,.35);
-        --eb-ring-w: 2px;
-        --eb-ring-pad: 2px;
-        --eb-ring-glow-w: 4px;
+    /* ================== Compose와 동일한 스크롤 컨테이너 ================== */
+    html, body {
+        height: 100%;
+        overflow: hidden !important;
+        background: #fff;
+        margin: 0;
+    }
+
+    #doc-scroll {
+        position: fixed;
+        inset: 0;
+        overflow-y: auto !important;
+        overflow-x: auto !important;
+        box-sizing: border-box;
+        background: #fff;
+        z-index: 1;
+        scrollbar-gutter: stable both-edges;
+        padding-bottom: 0;
     }
 
     .doc-detail-root {
@@ -153,8 +154,7 @@
         margin-left: .15rem;
     }
 
-    /* ===== 프리뷰 ===== */
-
+    /* ===== 프리뷰 래퍼 (폰트/라인은 eb.doc.preview.css에서 통일 관리) ===== */
     .doc-preview-full {
         padding: 0;
         margin: 0 0 1rem 0;
@@ -162,81 +162,7 @@
         background: transparent;
     }
 
-    #xhost {
-        display: block;
-        width: auto;
-        max-width: none;
-        overflow: hidden;
-        position: relative;
-    }
-
-    .xlfb {
-        border-collapse: collapse;
-        table-layout: fixed;
-        position: relative;
-        background: #ffffff;
-    }
-
-        .xlfb td,
-        .xlfb th {
-            box-sizing: border-box;
-            position: relative;
-        }
-
-        .xlfb thead,
-        .xlfb tbody th {
-            display: none;
-        }
-
-        .xlfb td {
-            padding: 0;
-            vertical-align: middle;
-            overflow: hidden;
-            word-break: break-word;
-            white-space: pre-wrap;
-        }
-
-    .ta-left {
-        text-align: left;
-    }
-
-    .ta-center {
-        text-align: center;
-    }
-
-    .ta-right {
-        text-align: right;
-    }
-
-    .va-top {
-        vertical-align: top;
-    }
-
-    .va-middle {
-        vertical-align: middle;
-    }
-
-    .va-bottom {
-        vertical-align: bottom;
-    }
-
-    /* Compose 와 동일: WrapText 셀에만 .wrap 이 걸리고 pre-line 으로 개행 + 자동 줄바꿈 */
-    .wrap {
-        white-space: pre-line;
-    }
-
-    /* ▼ Compose 의 #xlPreview 대신 Detail 의 #xhost 에 맞게 폰트/크기 통일 */
-    .cellc {
-        padding: .0rem .45rem;
-        font-size: .925rem;
-        line-height: 1.2;
-        max-height: 100%;
-        overflow: hidden;
-        display: block;
-    }
-
     /* ===== 댓글/로그/승인 ===== */
-
     .doc-comments-list {
         max-height: 260px;
         overflow-y: auto;
@@ -313,45 +239,14 @@
         margin-top: .4rem;
     }
 
-    /* ===== 하단 고정 버튼바 ===== */
-
-    .doc-bottom-actions {
-        position: sticky;
-        bottom: 0;
-        z-index: 50;
-        display: flex;
-        gap: .5rem;
-        padding: .5rem .75rem .75rem;
-        margin-top: .5rem;
-        background: #ffffff;
-        border-top: 1px solid #e5e7eb;
-    }
-
-        .doc-bottom-actions button {
-            height: 2.75rem;
-            font-size: .95rem;
-            font-weight: 600;
-        }
-
-        /* 비율: 승인 1/2, 보류/반려 각 1/4 */
-        .doc-bottom-actions .btn-approve {
-            flex: 2;
-        }
-
-        .doc-bottom-actions .btn-hold,
-        .doc-bottom-actions .btn-reject {
-            flex: 1;
-        }
-
-    /* ================== 문서 출력 전용 ================== */
+    /* ================== 인쇄 전용 ================== */
     @@media print {
         @@page {
             size: A4 portrait;
             margin: 0;
         }
 
-        html,
-        body {
+        html, body {
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
@@ -368,8 +263,7 @@
 
         .doc-detail-header,
         .doc-section,
-        #detail-alert,
-        .doc-bottom-actions {
+        #detail-alert {
             display: none !important;
         }
         /* 프린트용 래퍼만 보이게 */
@@ -385,7 +279,7 @@
             max-width: none !important;
             background: #fff !important;
         }
-            /* 실제 문서 영역을 페이지 가로 꽉 채우기 */
+
             #print-xhost-wrapper #xhost {
                 margin: 0 !important;
                 padding: 0 !important;
@@ -441,148 +335,163 @@
                 break-inside: auto !important;
             }
     }
-
 </style>
 
-<div class="container-xxl doc-detail-root" data-doc-id="@docId">
-    <!-- 상단 타이틀 + 메타 + 액션 -->
-    <header class="doc-detail-header">
-        <div>
-            <div class="doc-detail-title">@S["DOC_Title_Detail"]</div>
-            <div class="doc-detail-meta">
-                <span><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
-                <span>
-                    <strong>@S["_CM_Label_Template"]</strong> :
-                    <code>@templateCode</code>
-                    <span class="ms-1">@templateTitle</span>
-                </span>
-                <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
+<div id="doc-scroll">
+    <div class="container-xxl doc-detail-root" data-doc-id="@docId">
+        <!-- 상단 타이틀 + 메타 + 액션 -->
+        <header class="doc-detail-header">
+            <div>
+                <div class="doc-detail-title">@S["DOC_Title_Detail"]</div>
+                <div class="doc-detail-meta">
+                    <span><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
+                    <span>
+                        <strong>@S["_CM_Label_Template"]</strong> :
+                        <code>@templateCode</code>
+                        <span class="ms-1">@templateTitle</span>
+                    </span>
+                    <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
+                </div>
             </div>
-        </div>
-        <div class="doc-detail-actions">
-            @if (canBackToNew)
-            {
-                <a href="/Doc/New" class="btn btn-sm btn-outline-secondary">
-                    @S["DOC_Btn_BackToNew"]
-                </a>
-            }
-            @if (canPrint)
-            {
-                <button type="button" class="btn btn-sm btn-outline-primary" id="btnPrint" title="@S["DOC_Btn_Print"]">
-                    <i class="bi bi-printer"></i>
-                </button>
-            }
-            @if (canExport)
-            {
-                <button type="button" class="btn btn-sm btn-outline-primary" id="btnExport" title="@S["DOC_Btn_Export"]">
-                    <i class="bi bi-file-earmark-pdf"></i>
-                </button>
-            }
-        </div>
-    </header>
+            <div class="doc-detail-actions">
+                @if (canBackToNew)
+                {
+                    <a href="/Doc/New" class="btn btn-sm btn-outline-secondary">
+                        @S["DOC_Btn_BackToNew"]
+                    </a>
+                }
+                @if (canPrint)
+                {
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            id="btnPrint"
+                            title="@S["DOC_Btn_Print"]">
+                        <i class="bi bi-printer"></i>
+                    </button>
+                }
+                @if (canExport)
+                {
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            id="btnExport"
+                            title="@S["DOC_Btn_Export"]">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                    </button>
+                }
+            </div>
+        </header>
 
-    <div id="detail-alert" class="mb-2" aria-live="polite"></div>
+        <div id="detail-alert" class="mb-2" aria-live="polite"></div>
 
-    <!-- 1. 문서 프리뷰 -->
-    <section class="doc-preview-full" aria-label="Document preview">
-        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
-        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
-        <script type="application/json" id="InputsJson">@Html.Raw(inputsJson)</script>
-        <div id="xhost"></div>
-    </section>
+        <!-- 1. 문서 프리뷰 -->
+        <section class="doc-preview-full" aria-label="Document preview">
+            <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
+            <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
+            <script type="application/json" id="InputsJson">@Html.Raw(inputsJson)</script>
+            <script type="application/json" id="ViewLogsJson">@Html.Raw(viewLogsJson)</script>
+            <script type="application/json" id="ApprovalsJson">@Html.Raw(approvalsJson)</script>
 
-    <!-- 2. 코멘트 리스트 -->
-    <section class="doc-section" aria-labelledby="doc-comments-list-title">
-        <div id="doc-comments-list-title" class="doc-section-title">
-            @S["_CM_Comment_Label"]
-            <span id="cmt-count" class="doc-section-sub"></span>
-        </div>
-        <div id="cmt-alert" class="mb-1" aria-live="polite"></div>
-        <div id="cmt-list" class="doc-comments-list"></div>
-    </section>
+            <!-- Compose와 완전히 동일한 래퍼 구조 -->
+            <div id="xlPreview">
+                <div id="xhost"></div>
+            </div>
+        </section>
 
-    <!-- 3. 코멘트 입력 -->
-    <section class="doc-section" aria-labelledby="doc-comment-form-title">
-        <div id="doc-comment-form-title" class="doc-section-title">
-            @S["DOC_Label_AddComment"]
-        </div>
-        <div class="doc-comment-form">
-            <textarea id="cmt-body"
-                      class="form-control"
-                      rows="3"
-                      placeholder="@S["DOC_Placeholder_Comment"]"></textarea>
+        <!-- 2. 코멘트 리스트 -->
+        <section class="doc-section" aria-labelledby="doc-comments-list-title">
+            <div id="doc-comments-list-title" class="doc-section-title">
+                @S["_CM_Comment_Label"]
+                <span id="cmt-count" class="doc-section-sub"></span>
+            </div>
+            <div id="cmt-alert" class="mb-1" aria-live="polite"></div>
+            <div id="cmt-list" class="doc-comments-list"></div>
+        </section>
 
-            <div class="mt-2">
-                <input id="cmt-file" type="file" class="form-control form-control-sm" multiple />
-                <div class="small text-muted mt-1">@S["DOC_File_Help_UploadTypes"]</div>
-                <ul id="cmt-file-list" class="mt-2 mb-0 small"></ul>
+        <!-- 3. 코멘트 입력 -->
+        <section class="doc-section" aria-labelledby="doc-comment-form-title">
+            <div id="doc-comment-form-title" class="doc-section-title">
+                @S["DOC_Label_AddComment"]
+            </div>
+            <div class="doc-comment-form">
+                <textarea id="cmt-body"
+                          class="form-control"
+                          rows="3"
+                          placeholder="@S["DOC_Placeholder_Comment"]"></textarea>
+
+                <div class="mt-2">
+                    <input id="cmt-file" type="file" class="form-control form-control-sm" multiple />
+                    <div class="small text-muted mt-1">@S["DOC_File_Help_UploadTypes"]</div>
+                    <ul id="cmt-file-list" class="mt-2 mb-0 small"></ul>
+                </div>
+
+                <div class="d-flex gap-2 mt-2 justify-content-end">
+                    <button id="cmt-submit" type="button" class="btn btn-sm btn-primary">
+                        @S["DOC_Btn_CommentPost"]
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 조회 로그 -->
+        <section class="doc-section" aria-labelledby="doc-viewlog-title">
+            <div id="doc-viewlog-title" class="doc-section-title">
+                @S["DOC_Title_ViewLog"]
+            </div>
+            <div id="viewlog-list" class="doc-viewlog-list"></div>
+        </section>
+
+        <!-- 5. 승인 정보 -->
+        <section class="doc-section" aria-labelledby="doc-approvals-title">
+            <div id="doc-approvals-title" class="doc-section-title">
+                @S["DOC_Label_Approvals"]
+                <span class="doc-section-sub">@S["DOC_Help_ApprovalsReadonly"]</span>
             </div>
 
-            <div class="d-flex gap-2 mt-2 justify-content-end">
-                <button id="cmt-submit" type="button" class="btn btn-sm btn-primary">
-                    @S["DOC_Btn_CommentPost"]
+            <table class="doc-approvals-table">
+                <thead>
+                    <tr>
+                        <th style="width:18%;">@S["DOC_Col_ApproverRole"]</th>
+                        <th>@S["DOC_Col_ApproverValue"]</th>
+                        <th style="width:12%;">@S["DOC_Col_Status"]</th>
+                        <th style="width:18%;">@S["DOC_Col_ApprovalTime"]</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-approvals"></tbody>
+            </table>
+
+            <div class="doc-approvals-actions">
+                <button type="button"
+                        class="btn btn-sm btn-success"
+                        data-approve
+                @(canApprove ? "" : "disabled")>
+                    @S["DOC_Btn_Approve"]
+                </button>
+                <button type="button"
+                        class="btn btn-sm btn-warning"
+                        data-hold
+                @(canHold ? "" : "disabled")>
+                    @S["DOC_Btn_Hold"]
+                </button>
+                <button type="button"
+                        class="btn btn-sm btn-danger"
+                        data-reject
+                @(canReject ? "" : "disabled")>
+                    @S["DOC_Btn_Reject"]
                 </button>
             </div>
-        </div>
-    </section>
-
-    <!-- 4. 조회 로그 -->
-    <section class="doc-section" aria-labelledby="doc-viewlog-title">
-        <div id="doc-viewlog-title" class="doc-section-title">
-            @S["DOC_Title_ViewLog"]
-        </div>
-        <div id="viewlog-list" class="doc-viewlog-list"></div>
-    </section>
-
-    <!-- 5. 승인 정보 + 상단 작은 버튼 -->
-    <section class="doc-section" aria-labelledby="doc-approvals-title">
-        <div id="doc-approvals-title" class="doc-section-title">
-            @S["DOC_Label_Approvals"]
-            <span class="doc-section-sub">@S["DOC_Help_ApprovalsReadonly"]</span>
-        </div>
-
-        <table class="doc-approvals-table">
-            <thead>
-                <tr>
-                    <th style="width:18%;">@S["DOC_Col_ApproverRole"]</th>
-                    <th>@S["DOC_Col_ApproverValue"]</th>
-                    <th style="width:12%;">@S["DOC_Col_Status"]</th>
-                    <th style="width:18%;">@S["DOC_Col_ApprovalTime"]</th>
-                </tr>
-            </thead>
-            <tbody id="tbody-approvals"></tbody>
-        </table>
-
-        <div class="doc-approvals-actions">
-            <button type="button"
-                    class="btn btn-sm btn-success"
-                    data-approve
-            @(canApprove ? "" : "disabled")>
-                @S["DOC_Btn_Approve"]
-            </button>
-            <button type="button"
-                    class="btn btn-sm btn-warning"
-                    data-hold
-            @(canHold ? "" : "disabled")>
-                @S["DOC_Btn_Hold"]
-            </button>
-            <button type="button"
-                    class="btn btn-sm btn-danger"
-                    data-reject
-            @(canReject ? "" : "disabled")>
-                @S["DOC_Btn_Reject"]
-            </button>
-        </div>
-    </section>
-
-    <!-- 하단 고정 큰 버튼바 (필요 시 사용) -->
-    @* 하단 큰 버튼바는 현재 주석 처리 상태 *@
+        </section>
+    </div>
 </div>
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/eb.doc.preview.css" asp-append-version="true" />
+}
 
 @section Scripts {
     <script src="~/js/eb.csrf.js"></script>
+
     <script>
-        // ================== 공통 유틸 ==================
+        // ================== 공통 리소스/유틸 ==================
         function decodeHtmlEntities(str) {
             if (str == null) return '';
             let s = String(str);
@@ -637,375 +546,17 @@
             } catch { return fallback; }
         }
 
-        // Detail 프리뷰를 강제로 읽기 전용으로 만드는 헬퍼
-        function ensurePreviewReadOnly() {
-            const root = document.querySelector('.doc-preview-full');
-            if (!root) return;
-
-            const nodes = root.querySelectorAll('[contenteditable=""],[contenteditable="true"],textarea,input');
-            nodes.forEach(el => {
-                const tag = (el.tagName || '').toUpperCase();
-
-                if (tag === 'TEXTAREA' || tag === 'INPUT') {
-                    el.setAttribute('readonly', 'readonly');
-                } else {
-                    el.setAttribute('contenteditable', 'false');
-                }
-
-                el.addEventListener('keydown', function (e) {
-                    const k = e.key || '';
-
-                    // IME 조합 중에는 건드리지 않음
-                    if (e.isComposing) return;
-
-                    // 이동용 키들은 허용
-                    if (
-                        k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown' ||
-                        k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown' ||
-                        k === 'Tab' || k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta' ||
-                        /^F\d{1,2}$/.test(k)
-                    ) {
-                        return;
-                    }
-
-                    // Ctrl/Meta 조합(복사 등)은 허용
-                    if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-                    // 그 외 입력/삭제/개행은 차단
-                    if (k.length === 1 || k === 'Backspace' || k === 'Delete' || k === 'Enter') {
-                        e.preventDefault();
-                    }
-                });
-            });
-        }
-
-        // ================== 프리뷰 렌더링 (Compose 와 동일 폭/폰트 로직) ==================
-        (function () {
-            const preview = readJsonFromScript('PreviewJson', {});
-            const descriptor = readJsonFromScript('DescriptorJson', {});
-            window.descriptor = descriptor;
-
-            const excelColWidthToPx = W => {
-                const w = Number(W);
-                if (!isFinite(w) || w < 0) return 0;
-                return Math.max(0, Math.floor(w * 7 + 5));
-            };
-            const ptToPx = pt => ((Number(pt) || 0) * 96 / 72);
-
-            function hasVisibleStyle(st) {
-                if (!st) return false;
-                if (st.fill && st.fill.bg) return true;
-                if (st.font && (st.font.bold || st.font.italic || st.font.underline || st.font.size || st.font.name))
-                    return true;
-                const b = st.border || {};
-                return !!((b.l && b.l !== 'None') || (b.r && b.r !== 'None') ||
-                    (b.t && b.t !== 'None') || (b.b && b.b !== 'None'));
-            }
-
-            // compose 와 같은 방식으로 실제 내용 폭 측정
-            function measureEffectiveContentWidth(tbl) {
-                if (!tbl) return 0;
-                const baseLeft = tbl.getBoundingClientRect().left;
-                let maxRight = 0;
-                for (const td of tbl.querySelectorAll('td')) {
-                    const cs = getComputedStyle(td);
-                    const hasBorder =
-                        ((parseFloat(cs.borderLeftWidth) || 0) > 0) ||
-                        ((parseFloat(cs.borderRightWidth) || 0) > 0) ||
-                        ((parseFloat(cs.borderTopWidth) || 0) > 0) ||
-                        ((parseFloat(cs.borderBottomWidth) || 0) > 0);
-                    const hasText = (td.textContent || '').trim().length > 0;
-                    const isEditable = td.classList.contains('eb-editable');
-                    if (hasBorder || hasText || isEditable) {
-                        const r = td.getBoundingClientRect().right;
-                        if (r > maxRight) maxRight = r;
-                    }
-                }
-                const eff = Math.ceil(maxRight - baseLeft);
-                return (isFinite(eff) && eff > 0) ? eff : 0;
-            }
-
-            function mountPreview() {
-                const xhost = document.getElementById('xhost');
-                if (!xhost) return;
-
-                try {
-                    if (!preview || !Array.isArray(preview.cells) || !preview.cells.length) {
-                        xhost.innerHTML =
-                            `<div class="alert alert-danger mb-0 py-1">${T("DOC_Err_PreviewFailed")}</div>`;
-                        return;
-                    }
-
-                    const p = preview;
-                    const styles = p.styles || {};
-                    let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
-
-                    function mark(r, c) {
-                        minR = Math.min(minR, r);
-                        maxR = Math.max(maxR, r);
-                        minC = Math.min(minC, c);
-                        maxC = Math.max(maxC, c);
-                    }
-
-                    for (let r = 1; r <= p.cells.length; r++) {
-                        const row = p.cells[r - 1] || [];
-                        for (let c = 1; c <= row.length; c++) {
-                            const v = row[c - 1];
-                            if (v !== '' && v != null) mark(r, c);
-                            const st = styles[`${r},${c}`];
-                            if (hasVisibleStyle(st)) mark(r, c);
-                        }
-                    }
-
-                    (p.merges || []).forEach(m => {
-                        const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10) || 0);
-                        mark(r1, c1); mark(r2, c2);
-                    });
-
-                    if (!isFinite(minR) || !isFinite(minC)) {
-                        minR = 1; maxR = Math.max(1, (p.rows || 1));
-                        minC = 1; maxC = Math.max(1, (p.cols || 1));
-                    }
-
-                    const maxColsFromCells = Math.max(...p.cells.map(r => r.length), 1);
-                    maxC = Math.min(maxC, maxColsFromCells);
-                    minC = Math.max(minC, 1);
-
-                    const mergeMap = new Map();
-                    (p.merges || []).forEach(m => {
-                        let [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
-                        r1 = Math.max(r1, minR);
-                        c1 = Math.max(c1, minC);
-                        r2 = Math.min(r2, maxR);
-                        c2 = Math.min(c2, maxC);
-                        if (r1 > r2 || c1 > c2) return;
-                        const master = `${r1}-${c1}`;
-                        mergeMap.set(master, { master: true, rs: r2 - r1 + 1, cs: c2 - c1 + 1 });
-                        for (let rr = r1; rr <= r2; rr++) {
-                            for (let cc = c1; cc <= c2; cc++) {
-                                const k = `${rr}-${cc}`;
-                                if (k !== master) mergeMap.set(k, { covered: true });
-                            }
-                        }
-                    });
-
-                    const styleGrid = [];
-                    for (let r = minR; r <= maxR; r++) {
-                        styleGrid[r] = styleGrid[r] || [];
-                        for (let c = minC; c <= maxC; c++) {
-                            const key = `${r},${c}`;
-                            const st = styles[key] || {};
-                            const border = Object.assign(
-                                { l: 'None', r: 'None', t: 'None', b: 'None' },
-                                st.border || {});
-                            styleGrid[r][c] = {
-                                font: st.font || null,
-                                align: st.align || null,
-                                fill: st.fill || null,
-                                border
-                            };
-                        }
-                    }
-
-                    const weight = s => {
-                        s = String(s || '').toLowerCase();
-                        if (!s || s === 'none') return 0;
-                        if (s.includes('double')) return 6;
-                        if (s.includes('thick')) return 5;
-                        if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') ||
-                            s.includes('mediumdashed') || s.includes('medium')) return 4;
-                        if (s.includes('dashed') || s.includes('dashdot') || s.includes('dashdotdot')) return 3;
-                        if (s.includes('dotted') || s.includes('hair')) return 2;
-                        return 1;
-                    };
-                    const stronger = (a, b) => (weight(a) >= weight(b) ? a : b);
-
-                    for (let r = minR; r <= maxR; r++) {
-                        for (let c = minC; c <= maxC; c++) {
-                            const cur = styleGrid[r][c];
-                            if (!cur) continue;
-                            if (c < maxC) {
-                                const right = styleGrid[r][c + 1];
-                                if (right) {
-                                    const pick = stronger(cur.border.r, right.border.l);
-                                    cur.border.r = pick;
-                                    right.border.l = pick;
-                                }
-                            }
-                            if (r < maxR) {
-                                const down = styleGrid[r + 1][c];
-                                if (down) {
-                                    const pick = stronger(cur.border.b, down.border.t);
-                                    cur.border.b = pick;
-                                    down.border.t = pick;
-                                }
-                            }
-                        }
-                    }
-
-                    const colPxAt = c => {
-                        const wChar = (p.colW || [])[c - 1];
-                        return excelColWidthToPx(wChar ?? 8.43);
-                    };
-                    const sumColPx = (c1, c2) => {
-                        let s = 0;
-                        for (let i = c1; i <= c2; i++) s += colPxAt(i);
-                        return s;
-                    };
-
-                    const tbl = document.createElement('table');
-                    tbl.className = 'xlfb';
-
-                    const colgroup = document.createElement('colgroup');
-                    for (let c = minC; c <= maxC; c++) {
-                        const cg = document.createElement('col');
-                        cg.style.width = colPxAt(c).toFixed(2) + 'px';
-                        colgroup.appendChild(cg);
-                    }
-                    tbl.appendChild(colgroup);
-
-                    const tbody = document.createElement('tbody');
-                    const rowHeights = Array.isArray(p.rowH) ? p.rowH : [];
-                    const DEFAULT_ROW_PT = 15;
-
-                    function applyStyleToCell(td, cell, st) {
-                        if (!st || typeof st !== 'object') return;
-
-                        const font = st.font || null;
-                        if (font) {
-                            if (font.bold) cell.style.fontWeight = '700';
-                            if (font.italic) cell.style.fontStyle = 'italic';
-                            if (font.underline) cell.style.textDecoration = 'underline';
-
-                            if (font.size != null) {
-                                const pt = Number(font.size);
-                                if (isFinite(pt) && pt > 0) {
-                                    cell.style.fontSize = ptToPx(pt).toFixed(2) + 'px';
-                                }
-                            }
-
-                            if (font.name) {
-                                cell.style.fontFamily =
-                                    `"${font.name}", '맑은 고딕', 'Malgun Gothic', dotum, Arial, sans-serif`;
-                            }
-                        }
-
-                        if (st.align) {
-                            const h = String(st.align.h || '').toLowerCase();
-                            if (h === 'center') cell.classList.add('ta-center');
-                            else if (h === 'right') cell.classList.add('ta-right');
-                            else cell.classList.add('ta-left');
-
-                            const v = String(st.align.v || '').toLowerCase();
-                            if (v === 'top') td.classList.add('va-top');
-                            else if (v === 'center' || v === 'middle') td.classList.add('va-middle');
-                            else td.classList.add('va-bottom');
-
-                            if (st.align.wrap) cell.classList.add('wrap');
-                        }
-
-                        const cssOf = s => {
-                            s = String(s || '').toLowerCase();
-                            if (!s || s === 'none') return { w: 0, sty: 'none' };
-                            if (s.includes('double')) return { w: 3, sty: 'double' };
-                            if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed'))
-                                return { w: 2, sty: 'dashed' };
-                            if (s.includes('dashdotdot') || s.includes('dashdot') || s.includes('dashed'))
-                                return { w: 1, sty: 'dashed' };
-                            if (s.includes('dotted') || s.includes('hair'))
-                                return { w: 1, sty: 'dotted' };
-                            if (s.includes('thick')) return { w: 3, sty: 'solid' };
-                            if (s.includes('medium')) return { w: 2, sty: 'solid' };
-                            return { w: 1, sty: 'solid' };
-                        };
-
-                        const color = '#000';
-                        if (st.border) {
-                            const L = cssOf(st.border.l), R = cssOf(st.border.r),
-                                T0 = cssOf(st.border.t), B0 = cssOf(st.border.b);
-                            td.style.borderLeft = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
-                            td.style.borderRight = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
-                            td.style.borderTop = T0.w ? `${T0.w}px ${T0.sty} ${color}` : 'none';
-                            td.style.borderBottom = B0.w ? `${B0.w}px ${B0.sty} ${color}` : 'none';
-                        }
-                    }
-
-                    for (let r = minR; r <= maxR; r++) {
-                        const tr = document.createElement('tr');
-                        const pt = (rowHeights[r - 1] != null) ? rowHeights[r - 1] : DEFAULT_ROW_PT;
-                        const rowPx = ptToPx(pt);
-                        tr.style.height = rowPx + 'px';
-
-                        for (let c = minC; c <= maxC; c++) {
-                            const key = `${r}-${c}`;
-                            const mm = mergeMap.get(key);
-                            if (mm && mm.covered) continue;
-
-                            const td = document.createElement('td');
-                            if (mm && mm.master) {
-                                if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs));
-                                if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs));
-                            }
-                            if (!(mm && mm.master && mm.cs > 1)) {
-                                td.style.width = colPxAt(c) + 'px';
-                            }
-
-                            const cellDiv = document.createElement('div');
-                            cellDiv.className = 'cellc';
-                            if (!mm) cellDiv.style.maxHeight = rowPx + 'px';
-
-                            const raw = p.cells[r - 1]?.[c - 1] ?? '';
-                            if (raw !== '' && raw != null) {
-                                cellDiv.appendChild(document.createTextNode(String(raw)));
-                            }
-
-                            applyStyleToCell(td, cellDiv, styleGrid[r][c]);
-                            td.appendChild(cellDiv);
-                            tr.appendChild(td);
-                        }
-                        tbody.appendChild(tr);
-                    }
-
-                    tbl.appendChild(tbody);
-
-                    // 열폭 합계
-                    const totalW = sumColPx(minC, maxC);
-                    tbl.style.width = totalW + 'px';
-
-                    xhost.innerHTML = '';
-                    xhost.appendChild(tbl);
-
-                    const effW = measureEffectiveContentWidth(tbl) || totalW;
-
-                    // Compose 와 동일: 실제 내용 폭과 전체 열폭 중 더 작은 쪽을 최종 폭으로 사용
-                    window.__DOC_TOTALW__ = Math.max(1, totalW | 0);
-                    window.__DOC_EFFW__ = Math.max(1, effW | 0);
-
-                    const finalW = Math.min(window.__DOC_EFFW__ || window.__DOC_TOTALW__, window.__DOC_TOTALW__);
-                    xhost.style.width = finalW + 'px';
-
-                    window.__DOC_FINALW__ = finalW;
-                } catch (e) {
-                    console.error(e);
-                    xhost.innerHTML =
-                        `<div class="alert alert-danger mb-0 py-1">${T("DOC_Err_PreviewFailed")}</div>`;
-                }
-            }
-
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function () {
-                    mountPreview();
-                    ensurePreviewReadOnly();
-                }, { once: true });
-            } else {
-                mountPreview();
-                ensurePreviewReadOnly();
-            }
-        })();
-
-        // Razor docId -> JS 전역
         const docId = "@(docId ?? "")";
+    </script>
 
+    <script>
+        // Detail 화면은 항상 읽기 전용 (공통 프리뷰가 이 플래그를 읽음)
+        window.__DOC_IS_WRITE__ = false;
+    </script>
+
+    <script src="~/js/eb.doc.preview.common.js"></script>
+
+    <script>
         // ================== 댓글 & 파일 업로드 ==================
         (function initComments() {
             const EBV = window.EBValidate || {};
@@ -1074,8 +625,8 @@
                     const li = document.createElement('li');
                     li.innerHTML =
                         `<span>${escapeHtml(f.name)}</span>
-                                         <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
-                                         <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
+                                 <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
+                                 <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
                     $fileList.append(li);
                 });
             }
@@ -1113,12 +664,13 @@
                     if (depth > 0) wrap.style.marginLeft = (depth * 16) + 'px';
 
                     wrap.innerHTML = `
-                                        <div class="doc-comment-meta">
-                                            <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
-                                            <span>${escapeHtml(c.createdAt || '')}</span>
-                                        </div>
-                                        <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
-                                    `;
+                                <div class="doc-comment-meta">
+                                    <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
+                                    <span>${escapeHtml(c.createdAt || '')}</span>
+                                </div>
+                                <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
+                            `;
+
                     $list.append(wrap);
                 });
             }
@@ -1135,7 +687,7 @@
                         docId: docIdAttr,
                         parentCommentId: null,
                         body: body,
-                        files: []
+                        files: [] // 파일 업로드 후 키 매핑 예정
                     };
 
                     await EBC.json('/Doc/Comments', payload, 'POST');
@@ -1150,7 +702,7 @@
                 } catch (e) {
                     console.error('post comment error', e);
                     const p = e && e.payload;
-                    showErr(p?.messages || [T('DOC_Err_SaveFailed')], p?.fieldErrors);
+                    showErr(p?.messages || [T('DOC_Err_SaveFailed')]);
                 }
             });
 
@@ -1180,9 +732,7 @@
             const host = document.getElementById('viewlog-list');
             if (!host) return;
 
-            let logs;
-            try { logs = JSON.parse('@Html.Raw(viewLogsJson)'); }
-            catch { logs = null; }
+            const logs = readJsonFromScript('ViewLogsJson', []);
 
             if (!Array.isArray(logs) || !logs.length) {
                 host.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoViewLogs')}</div>`;
@@ -1191,6 +741,7 @@
 
             host.innerHTML = '';
             logs
+                .slice()
                 .sort((a, b) => (b.viewedAt || '').localeCompare(a.viewedAt || ''))
                 .forEach(v => {
                     const row = document.createElement('div');
@@ -1206,14 +757,11 @@
             const tbody = document.getElementById('tbody-approvals');
             if (!tbody) return;
 
-            let list;
-            try { list = JSON.parse('@Html.Raw(approvalsJson)'); }
-            catch { list = null; }
+            const list = readJsonFromScript('ApprovalsJson', []);
 
             if (!Array.isArray(list) || !list.length) {
                 const tr = document.createElement('tr');
-                tr.innerHTML =
-                    `<td colspan="4" class="text-muted">${T('DOC_Msg_NoApprovals')}</td>`;
+                tr.innerHTML = `<td colspan="4" class="text-muted">${T('DOC_Msg_NoApprovals')}</td>`;
                 tbody.append(tr);
                 return;
             }
@@ -1231,42 +779,41 @@
                     const st = a.status || a.Action || 'Pending';
                     const when = a.actedAtText || a.actedAt || '';
                     tr.innerHTML = `
-                                        <td>${esc(role)}</td>
-                                        <td>${esc(val)}</td>
-                                        <td>${esc(st)}</td>
-                                        <td>${esc(when)}</td>`;
+                                <td>${esc(role)}</td>
+                                <td>${esc(val)}</td>
+                                <td>${esc(st)}</td>
+                                <td>${esc(when)}</td>`;
                     tbody.append(tr);
                 });
         })();
 
         // ================== 인쇄/Export ==================
-        document.getElementById('btnPrint')?.addEventListener('click', () => {
-            window.print();
-        });
-
+        document.getElementById('btnPrint')?.addEventListener('click', () => { window.print(); });
         document.getElementById('btnExport')?.addEventListener('click', () => {
             if (!docId) return;
             const url = '/Doc/ExportPdf?id=' + encodeURIComponent(docId);
             window.location.href = url;
         });
 
-        // ================== 승인 버튼 처리 (상단+하단 공통) ==================
+        // ================== 승인 버튼 처리 ==================
         (function initApproveButtons() {
             const EBC = window.EBCSRF || window.EBCsrf || {};
             const alertHost = document.getElementById('detail-alert');
             if (!alertHost || !docId) return;
 
             function show(msg, cls) {
-                alertHost.innerHTML =
-                    `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
+                alertHost.innerHTML = `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
             }
 
             async function call(action) {
                 try {
-                    const res = await EBC.json('/Doc/ApproveOrHold', {
-                        docId: docId,
-                        action: action
-                    }, 'POST');
+                    const res = await (EBC.json
+                        ? EBC.json('/Doc/ApproveOrHold', { docId, action }, 'POST')
+                        : fetch('/Doc/ApproveOrHold', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ docId, action })
+                        }).then(r => r.json()));
 
                     if (!res || res.ok === false) throw { payload: res };
                     show(T('DOC_Msg_Approve_Success'), 'alert-success');
@@ -1292,7 +839,7 @@
             bind('[data-reject]', 'Reject');
         })();
 
-        // ================== 인쇄용 테이블 자동 맞춤 ==================
+        // ================== 인쇄용 xhost 이동/복원 ==================
         (function () {
             const xhost = document.getElementById('xhost');
             if (!xhost) return;
@@ -1303,10 +850,8 @@
             printWrapper.id = 'print-xhost-wrapper';
 
             function moveToPrintWrapper() {
-                // 이미 이동한 상태면 중복 방지
                 if (xhost.parentNode === printWrapper) return;
 
-                // 래퍼를 body 직속으로
                 if (!printWrapper.parentNode) {
                     document.body.appendChild(printWrapper);
                 }
@@ -1317,43 +862,29 @@
             function restoreFromPrintWrapper() {
                 if (!originalParent) return;
 
-                // 원래 위치로 복구
                 if (originalNext && originalNext.parentNode === originalParent) {
                     originalParent.insertBefore(xhost, originalNext);
                 } else {
                     originalParent.appendChild(xhost);
                 }
 
-                // 래퍼 제거
                 if (printWrapper.parentNode) {
                     printWrapper.parentNode.removeChild(printWrapper);
                 }
             }
 
-            function handleBeforePrint() {
-                moveToPrintWrapper();
-            }
+            function handleBeforePrint() { moveToPrintWrapper(); }
+            function handleAfterPrint() { restoreFromPrintWrapper(); }
 
-            function handleAfterPrint() {
-                restoreFromPrintWrapper();
-            }
-
-            // 브라우저가 print 미디어 전환을 알려줄 때 처리
             if (window.matchMedia) {
                 const mq = window.matchMedia('print');
                 mq.addEventListener('change', function (e) {
-                    if (e.matches) {
-                        handleBeforePrint();
-                    } else {
-                        handleAfterPrint();
-                    }
+                    if (e.matches) handleBeforePrint(); else handleAfterPrint();
                 });
             }
 
-            // 일반 beforeprint/afterprint 이벤트도 함께 사용
             window.addEventListener('beforeprint', handleBeforePrint);
             window.addEventListener('afterprint', handleAfterPrint);
         })();
-
     </script>
 }
