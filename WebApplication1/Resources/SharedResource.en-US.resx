@@ -1104,4 +1104,7 @@
   <data name="DOC_Btn_CommentPost" xml:space="preserve">
     <value>Post Comment</value>
   </data>
+  <data name="DOC_Btn_Recall" xml:space="preserve">
+    <value>Recall</value>
+  </data>
 </root>

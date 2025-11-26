@@ -25,6 +25,7 @@ using Microsoft.Extensions.Options;
 using WebApplication1.Data;
 using WebApplication1.Models;
 using WebApplication1.Services;
+using WebApplication1.Controllers;
 
 namespace WebApplication1.Controllers
 {
@@ -501,20 +502,74 @@ WHERE a.DocId = @DocId
             if (string.IsNullOrWhiteSpace(dto.docId) || string.IsNullOrWhiteSpace(dto.action))
                 return BadRequest(new { messages = new[] { "DOC_Err_BadRequest" } });
 
+            var actionLower = dto.action!.ToLowerInvariant();
+
+            // ===== 1) 회수 전용 처리 =====
+            if (actionLower == "recall")
+            {
+                var (canRecall, canApprove, canHold, canReject) = await GetApprovalCapabilitiesAsync(dto.docId);
+                if (!canRecall)
+                    return Forbid(); // 기안자가 아니거나 1차 Pending 이 아님
+
+                var csRecall = _cfg.GetConnectionString("DefaultConnection") ?? "";
+                await using (var conn = new SqlConnection(csRecall))
+                {
+                    await conn.OpenAsync();
+
+                    // 문서 상태 Recalled 로 변경 (현재 Pending 상태인 경우만)
+                    await using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = @"
+UPDATE dbo.Documents
+SET Status = N'Recalled'
+WHERE DocId = @DocId
+  AND ISNULL(Status,N'') LIKE N'Pending%';";
+                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+
+                    // 아직 처리되지 않은 승인 라인을 Recalled 로 일괄 전환
+                    await using (var ac = conn.CreateCommand())
+                    {
+                        ac.CommandText = @"
+UPDATE dbo.DocumentApprovals
+SET Status    = N'Recalled',
+    Action    = N'Recalled',
+    ActedAt   = SYSUTCDATETIME(),
+    ActorName = @actor
+WHERE DocId = @DocId
+  AND ISNULL(Status,N'') = N'Pending';";
+                        ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                        ac.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200)
+                        {
+                            Value = GetCurrentUserDisplayNameStrict() ?? string.Empty
+                        });
+                        await ac.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // 회수에서는 엑셀 스탬프는 찍지 않고 상태만 변경
+                return Json(new { ok = true, docId = dto.docId, status = "Recalled" });
+            }
+
+            // ===== 2) 승인 / 보류 / 반려 공통 처리 =====
+
             var outXlsx = ResolveOutputPathFromDocId(dto.docId);
             if (string.IsNullOrWhiteSpace(outXlsx) || !System.IO.File.Exists(outXlsx))
                 return NotFound(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
 
             var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
             var approverName = GetCurrentUserDisplayNameStrict();
+
+            // 엑셀에 도장/라벨 적용
             ApplyStampToExcel(outXlsx!, dto.slot, dto.action!, approverName);
 
-            var newStatus = dto.action!.ToLowerInvariant() switch
+            var newStatus = actionLower switch
             {
                 "approve" => $"ApprovedA{dto.slot}",
                 "hold" => $"OnHoldA{dto.slot}",
                 "reject" => $"RejectedA{dto.slot}",
-                _ => $"Updated"
+                _ => "Updated"
             };
 
             try
@@ -523,39 +578,46 @@ WHERE a.DocId = @DocId
                 await using var conn = new SqlConnection(cs);
                 await conn.OpenAsync();
 
+                // 현재 단계 DocumentApprovals 업데이트
                 await using (var u = conn.CreateCommand())
                 {
                     u.CommandText = @"
 UPDATE dbo.DocumentApprovals
-SET Action=@act, ActedAt=SYSUTCDATETIME(), ActorName=@actor,
-    Status = CASE WHEN @act=N'approve' THEN N'Approved'
-                  WHEN @act=N'hold'    THEN N'OnHold'
-                  WHEN @act=N'reject'  THEN N'Rejected'
-                  ELSE ISNULL(Status, N'Updated') END,
+SET Action = @act,
+    ActedAt = SYSUTCDATETIME(),
+    ActorName = @actor,
+    Status = CASE 
+                WHEN @act = N'approve' THEN N'Approved'
+                WHEN @act = N'hold'    THEN N'OnHold'
+                WHEN @act = N'reject'  THEN N'Rejected'
+                ELSE ISNULL(Status, N'Updated')
+             END,
     UserId = COALESCE(UserId, @uid)
-WHERE DocId=@id AND StepOrder=@step;";
-                    u.Parameters.Add(new SqlParameter("@act", SqlDbType.NVarChar, 20) { Value = dto.action!.ToLowerInvariant() });
-                    u.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = approverName });
+WHERE DocId = @id AND StepOrder = @step;";
+                    u.Parameters.Add(new SqlParameter("@act", SqlDbType.NVarChar, 20) { Value = actionLower });
+                    u.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = approverName ?? string.Empty });
                     u.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
                     u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                     u.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = dto.slot });
                     await u.ExecuteNonQueryAsync();
                 }
 
+                // 기본 문서 상태 1차 업데이트
                 await using (var u = conn.CreateCommand())
                 {
-                    u.CommandText = @"UPDATE dbo.Documents SET Status=@st WHERE DocId=@id;";
+                    u.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
                     u.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = newStatus });
                     u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                     await u.ExecuteNonQueryAsync();
                 }
 
-                if (dto.action.Equals("approve", StringComparison.OrdinalIgnoreCase))
+                // ===== 승인 시 다음 단계 메일 및 상태 전파 =====
+                if (actionLower == "approve")
                 {
                     string? templateCode = null;
                     await using (var q = conn.CreateCommand())
                     {
-                        q.CommandText = @"SELECT TOP 1 TemplateCode FROM dbo.Documents WHERE DocId=@id;";
+                        q.CommandText = @"SELECT TOP 1 TemplateCode FROM dbo.Documents WHERE DocId = @id;";
                         q.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                         templateCode = (string?)await q.ExecuteScalarAsync();
                     }
@@ -569,22 +631,26 @@ WHERE DocId=@id AND StepOrder=@step;";
                         var toList = ResolveApproverEmails(normalizedDesc, next);
                         if (toList.Count == 0)
                         {
+                            // 다음 단계가 없으면 최종 승인 처리
                             _log.LogWarning("Next-step approver not resolved. docId={docId}, step={step}", dto.docId, next);
+
                             await using var up2a = conn.CreateCommand();
-                            up2a.CommandText = @"UPDATE dbo.Documents SET Status=N'Approved' WHERE DocId=@id;";
+                            up2a.CommandText = @"UPDATE dbo.Documents SET Status = N'Approved' WHERE DocId = @id;";
                             up2a.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                             await up2a.ExecuteNonQueryAsync();
                             newStatus = "Approved";
                         }
                         else
                         {
+                            // 다음 승인자에게 메일 발송
                             var subject = $"[승인요청] {templateCode} - {next}차";
                             var body = $"이 문서의 {next}차 승인을 요청드립니다. 문서번호: {dto.docId}";
                             foreach (var to in toList)
                                 await _emailSender.SendEmailAsync(to, subject, body);
 
+                            // 문서 상태를 다음 Pending 으로 전환
                             await using var up2 = conn.CreateCommand();
-                            up2.CommandText = @"UPDATE dbo.Documents SET Status=@st WHERE DocId=@id;";
+                            up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
                             up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
                             up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                             await up2.ExecuteNonQueryAsync();
@@ -607,25 +673,19 @@ WHERE DocId=@id AND StepOrder=@step;";
         {
             if (string.IsNullOrWhiteSpace(id))
             {
-                // HttpContext? 체이닝 결과가 null일 수 있으므로, 임시 변수로 받았다가 유효할 때만 대입
                 var qid = HttpContext?.Request?.Query["id"].ToString();
                 if (!string.IsNullOrWhiteSpace(qid))
-                {
-                    id = qid; // id는 non-nullable이지만 여기서는 qid가 공백 아님이 보장됨
-                }
+                    id = qid;
             }
 
             if (string.IsNullOrWhiteSpace(id))
-            {
-                // 문서 ID 없으면 게시판으로 이동 (또는 BadRequest로 변경 가능)
                 return RedirectToAction("Board");
-            }
 
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
 
-            // ---------- 1) 기본 문서 정보 ----------
+            // ---------------- 1) 기본 문서 정보 ----------------
             string? templateCode = null;
             string? templateTitle = null;
             string? status = null;
@@ -643,13 +703,12 @@ SELECT TOP 1
        d.DescriptorJson,
        d.OutputPath
 FROM dbo.Documents d
-WHERE d.DocId = @id;";
-                cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = id });
+WHERE d.DocId = @DocId;";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
 
                 await using var rd = await cmd.ExecuteReaderAsync();
                 if (!await rd.ReadAsync())
                 {
-                    // 문서 없음
                     ViewBag.Message = _S["DOC_Err_DocumentNotFound"];
                     ViewBag.DocId = id;
                     ViewBag.DocumentId = id;
@@ -663,10 +722,8 @@ WHERE d.DocId = @id;";
                 outputPath = rd["OutputPath"] as string ?? "";
             }
 
-            // InputsJson 컬럼이 DB에 없으므로, 뷰용 기본값만 세팅
+            // ---------------- 2) 프리뷰 JSON ----------------
             var inputsJson = "{}";
-
-            // ---------- 2) 프리뷰 JSON ----------
             string previewJson = "{}";
             try
             {
@@ -681,7 +738,7 @@ WHERE d.DocId = @id;";
                 previewJson = "{}";
             }
 
-            // ---------- 3) 승인 정보 ----------
+            // ---------------- 3) 승인 정보 ----------------
             var approvals = new List<object>();
             await using (var ac = conn.CreateCommand())
             {
@@ -689,56 +746,86 @@ WHERE d.DocId = @id;";
 SELECT StepOrder, RoleKey, ApproverValue, UserId,
        Status, Action, ActedAt, ActorName
 FROM dbo.DocumentApprovals
-WHERE DocId = @id
+WHERE DocId = @DocId
 ORDER BY StepOrder;";
-                ac.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = id });
+                ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
 
                 await using var r = await ac.ExecuteReaderAsync();
                 while (await r.ReadAsync())
                 {
-                    DateTime? acted = r["ActedAt"] as DateTime?;
+                    DateTime? acted = r.IsDBNull(6) ? (DateTime?)null : r.GetDateTime(6);
+                    string? when = acted.HasValue
+                        ? ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
+                        : null;
+
                     approvals.Add(new
                     {
-                        step = (int)r["StepOrder"],
+                        step = r.GetInt32(0),
                         roleKey = r["RoleKey"]?.ToString(),
                         approverValue = r["ApproverValue"]?.ToString(),
                         userId = r["UserId"]?.ToString(),
                         status = r["Status"]?.ToString(),
                         action = r["Action"]?.ToString(),
-                        actedAtText = acted.HasValue
-                                        ? ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
-                                        : null,
+                        actedAtText = when,
                         actorName = r["ActorName"]?.ToString()
                     });
                 }
             }
 
-            // ---------- 4) 조회 로그 (옵션) ----------
+            // ---------------- 4) 조회 로그 기록 (INSERT) ----------------
+            try
+            {
+                await LogDocumentViewAsync(conn, id);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Detail: LogDocumentViewAsync failed for {DocId}", id);
+            }
+
+            // ---------------- 5) 조회 로그 조회 (SELECT) ----------------
             var viewLogs = new List<object>();
             try
             {
                 await using var vc = conn.CreateCommand();
                 vc.CommandText = @"
-SELECT TOP 200 ViewedAtUtc, UserId, UserName
-FROM dbo.DocumentViewLogs
-WHERE DocId = @id
-ORDER BY ViewedAtUtc DESC;";
-                vc.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = id });
+SELECT TOP 200
+       v.ViewedAt,
+       v.ViewerId,
+       v.ViewerRole,
+       v.ClientIp,
+       v.UserAgent,
+       COALESCE(p.DisplayName, u.UserName, u.Email) AS UserName
+FROM dbo.DocumentViewLogs v
+LEFT JOIN dbo.UserProfiles p ON p.UserId = v.ViewerId
+LEFT JOIN dbo.AspNetUsers  u ON u.Id     = v.ViewerId
+WHERE v.DocId = @DocId
+ORDER BY v.ViewedAt DESC;";
+
+                vc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
 
                 await using var vr = await vc.ExecuteReaderAsync();
+
+                // 공통 문자열 변환 헬퍼
+                string? GetStringSafe(int ordinal)
+                    => vr.IsDBNull(ordinal) ? null : Convert.ToString(vr.GetValue(ordinal));
+
                 while (await vr.ReadAsync())
                 {
-                    DateTime? viewed = vr["ViewedAtUtc"] as DateTime?;
-                    var when = viewed.HasValue
-                        ? ToLocalStringFromUtc(DateTime.SpecifyKind(viewed.Value, DateTimeKind.Utc))
-                        : null;
+                    DateTime? viewedUtc = vr.IsDBNull(0) ? (DateTime?)null : vr.GetDateTime(0);
+
+                    // Utc → Local + 표시용 문자열
+                    DateTime? viewedLocal = viewedUtc?.ToLocalTime();
+                    string? when = viewedLocal?.ToString("yyyy-MM-dd HH:mm");
 
                     viewLogs.Add(new
                     {
-                        viewedAt = when,
+                        viewedAt = viewedLocal,      // 원본 DateTime (필요 없으면 지워도 됨)
                         viewedAtText = when,
-                        userId = vr["UserId"]?.ToString(),
-                        userName = vr["UserName"]?.ToString()
+                        userId = GetStringSafe(1),
+                        viewerRole = GetStringSafe(2),
+                        clientIp = GetStringSafe(3),
+                        userAgent = GetStringSafe(4),
+                        userName = GetStringSafe(5)
                     });
                 }
             }
@@ -747,23 +834,217 @@ ORDER BY ViewedAtUtc DESC;";
                 _log.LogWarning(ex, "Detail: load view logs failed for {DocId}", id);
             }
 
-            // ---------- 5) ViewBag (뷰/댓글 JS에서 사용하는 키) ----------
-            ViewBag.DocId = id;           // JS에서 사용
-            ViewBag.DocumentId = id;           // 호환용
+            // try/catch 밖에서 JSON으로 변환
+            ViewBag.ViewLogsJson = JsonSerializer.Serialize(viewLogs);
+
+            // ---------------- 6) (선택) Audit 로그 조회 ----------------
+            // 필요하면 여기에서 DocumentAuditLogs 도 읽어서 ViewBag.DocumentAuditJson 등에 실어주면 됩니다.
+            // 지금은 뷰에 안 쓰고 있으니 생략.
+
+            // ---------------- 7) ViewBag 세팅 ----------------
+            ViewBag.DocId = id;
+            ViewBag.DocumentId = id;
             ViewBag.TemplateCode = templateCode ?? "";
             ViewBag.TemplateTitle = templateTitle ?? "";
             ViewBag.Status = status ?? "";
 
             ViewBag.DescriptorJson = descriptorJson ?? "{}";
-            ViewBag.InputsJson = inputsJson;       // "{}" 고정
+            ViewBag.InputsJson = inputsJson;
             ViewBag.PreviewJson = previewJson;
 
             ViewBag.ApprovalsJson = JsonSerializer.Serialize(approvals);
             ViewBag.ViewLogsJson = JsonSerializer.Serialize(viewLogs);
 
-            // 댓글은 /Doc/Comments?docId=... API에서 별도 로드
+            var caps = await GetApprovalCapabilitiesAsync(id);
+            ViewBag.CanRecall = caps.CanRecall;
+            ViewBag.CanApprove = caps.CanApprove;
+            // CanHold / CanReject 는 기존 로직대로 따로 계산하고 있다면 그대로 유지
 
-            return View("Detail"); // Views/Doc/Detail.cshtml
+            return View("Detail");
+        }
+        private static string CalculateViewerRole(
+            string? createdBy,
+            string viewerId,
+            List<(int StepOrder, string? UserId, string Status)> approvals)
+        {
+            if (string.IsNullOrWhiteSpace(viewerId))
+                return "Unknown";
+
+            var isCreator = !string.IsNullOrWhiteSpace(createdBy) &&
+                            string.Equals(createdBy, viewerId, StringComparison.OrdinalIgnoreCase);
+
+            var isApprover = approvals.Exists(a =>
+                !string.IsNullOrWhiteSpace(a.UserId) &&
+                string.Equals(a.UserId, viewerId, StringComparison.OrdinalIgnoreCase));
+
+            if (isCreator && isApprover) return "Creator+Approver";
+            if (isCreator) return "Creator";
+            if (isApprover) return "Approver";
+            return "Viewer";
+        }
+
+        private async Task LogDocumentViewAsync(SqlConnection conn, string docId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            var userName = User.Identity?.Name ?? "";
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "";
+            var userAgent = Request.Headers["User-Agent"].ToString() ?? "";
+
+            // ViewerRole 계산(기안자/결재자/공유자 여부 등은 나중에 더 정교하게 바꿔도 됨)
+            string viewerRole = "Other";
+
+            // 기안자 / 결재자 여부 간단 판별
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT 
+    CreatedBy,
+    CASE WHEN EXISTS (
+        SELECT 1 
+        FROM dbo.DocumentApprovals da 
+        WHERE da.DocId = d.DocId AND da.UserId = @UserId
+    ) THEN 1 ELSE 0 END AS IsApprover
+FROM dbo.Documents d
+WHERE d.DocId = @DocId;";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = (object)userId ?? DBNull.Value });
+
+                using var r = await cmd.ExecuteReaderAsync();
+                if (await r.ReadAsync())
+                {
+                    var createdBy = r["CreatedBy"] as string;
+                    var isApprover = (int)r["IsApprover"] == 1;
+
+                    var isCreator = !string.IsNullOrWhiteSpace(createdBy) &&
+                                    string.Equals(createdBy, userId, StringComparison.OrdinalIgnoreCase);
+
+                    if (isCreator && isApprover)
+                        viewerRole = "Creator+Approver";
+                    else if (isCreator)
+                        viewerRole = "Creator";
+                    else if (isApprover)
+                        viewerRole = "Approver";
+                    else
+                        viewerRole = "SharedOrOther";
+                }
+            }
+
+            // 중복 방지(선택사항): 같은 사용자·역할이 최근 N분 안에 본 기록이 있으면 스킵 등은 나중에 필요하면 추가
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+INSERT INTO dbo.DocumentViewLogs
+    (DocId, ViewerId, ViewerRole, ViewedAt, ClientIp, UserAgent)
+VALUES
+    (@DocId, @ViewerId, @ViewerRole, SYSUTCDATETIME(), @ClientIp, @UserAgent);";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                cmd.Parameters.Add(new SqlParameter("@ViewerId", SqlDbType.NVarChar, 450) { Value = (object)userId ?? DBNull.Value });
+                cmd.Parameters.Add(new SqlParameter("@ViewerRole", SqlDbType.NVarChar, 50) { Value = (object)viewerRole ?? DBNull.Value });
+                cmd.Parameters.Add(new SqlParameter("@ClientIp", SqlDbType.NVarChar, 64) { Value = (object)clientIp ?? DBNull.Value });
+                cmd.Parameters.Add(new SqlParameter("@UserAgent", SqlDbType.NVarChar, 512) { Value = (object)userAgent ?? DBNull.Value });
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 필요하면 여기서 DocumentAuditLogs 에도 "View" 액션으로 1줄 남겨도 됨
+        }
+        // ---------- Helper: DocumentViewLogs INSERT ----------
+        private async Task WriteDocumentViewLogAsync(
+            SqlConnection conn,
+            string docId,
+            string viewerId,
+            string viewerRole)
+        {
+            if (string.IsNullOrWhiteSpace(docId) || string.IsNullOrWhiteSpace(viewerId))
+                return;
+
+            var ip = HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? string.Empty;
+            var ua = HttpContext?.Request?.Headers["User-Agent"].ToString() ?? string.Empty;
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+INSERT INTO dbo.DocumentViewLogs
+    (DocId, ViewerId, ViewerRole, ViewedAt, ClientIp, UserAgent)
+VALUES
+    (@DocId, @ViewerId, @ViewerRole, SYSUTCDATETIME(), @ClientIp, @UserAgent);";
+
+            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+            cmd.Parameters.Add(new SqlParameter("@ViewerId", SqlDbType.NVarChar, 450) { Value = viewerId });
+            cmd.Parameters.Add(new SqlParameter("@ViewerRole", SqlDbType.NVarChar, 50)
+            {
+                Value = string.IsNullOrWhiteSpace(viewerRole) ? (object)DBNull.Value : viewerRole
+            });
+            cmd.Parameters.Add(new SqlParameter("@ClientIp", SqlDbType.NVarChar, 64)
+            {
+                Value = string.IsNullOrWhiteSpace(ip) ? (object)DBNull.Value : ip
+            });
+            cmd.Parameters.Add(new SqlParameter("@UserAgent", SqlDbType.NVarChar, 512)
+            {
+                Value = string.IsNullOrWhiteSpace(ua) ? (object)DBNull.Value : ua
+            });
+
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>
+        /// Detail 화면 진입 시 DocumentViewLogs + DocumentAuditLogs 에 조회 이력 기록
+        /// </summary>
+        private async Task InsertDocumentViewAndAuditAsync(
+            SqlConnection conn,
+            string docId,
+            string? userId,
+            string? userName)
+        {
+            if (string.IsNullOrWhiteSpace(docId))
+                return;
+
+            // 익명/시스템 계정까지 모두 남길지 여부는 필요 시 조건 추가
+            var uid = userId ?? string.Empty;
+            var uname = userName ?? string.Empty;
+
+            try
+            {
+                // 1) DocumentViewLogs: 누가 언제 봤는지
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+INSERT INTO dbo.DocumentViewLogs (DocId, ViewedAtUtc, UserId, UserName)
+VALUES (@DocId, SYSUTCDATETIME(), @UserId, @UserName);";
+                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450)
+                    {
+                        Value = string.IsNullOrEmpty(uid) ? DBNull.Value : uid
+                    });
+                    cmd.Parameters.Add(new SqlParameter("@UserName", SqlDbType.NVarChar, 200)
+                    {
+                        Value = string.IsNullOrEmpty(uname) ? DBNull.Value : uname
+                    });
+
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                // 2) DocumentAuditLogs: 액션 코드만 간단히 남김 (기존 테이블 구조 기준)
+                //    - 컬럼: DocId, UserId, ActionCode, CreatedAtUtc(기본값) 정도만 있다고 가정
+                await using (var ac = conn.CreateCommand())
+                {
+                    ac.CommandText = @"
+INSERT INTO dbo.DocumentAuditLogs (DocId, UserId, ActionCode)
+VALUES (@DocId, @UserId, @ActionCode);";
+                    ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    ac.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450)
+                    {
+                        Value = string.IsNullOrEmpty(uid) ? DBNull.Value : uid
+                    });
+                    ac.Parameters.Add(new SqlParameter("@ActionCode", SqlDbType.NVarChar, 50) { Value = "View" });
+
+                    await ac.ExecuteNonQueryAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                // 조회 로그 기록 실패해도 화면은 계속 보여야 하므로 Warning 으로만 남김
+                _log.LogWarning(ex, "Detail: InsertDocumentViewAndAuditAsync failed for {DocId}", docId);
+            }
         }
 
         // ========== DetailsData (상세 데이터 API) ==========
@@ -1072,6 +1353,83 @@ ORDER BY StepOrder;";
             {
                 return false;
             }
+        }
+
+        /// 현재 로그인 사용자가 주어진 문서에 대해  회수 가능 여부(CanRecall) 승인/보류/반려 가능 여부(CanApprove)를 판단.
+        // 2025.11.20 Changed: GetApprovalCapabilitiesAsync 에 Hold/Reject 권한 플래그 추가 (튜플 2개 → 4개로 확장, Detail 뷰와 정합)
+        private async Task<(bool CanRecall, bool CanApprove, bool CanHold, bool CanReject)> GetApprovalCapabilitiesAsync(string docId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(docId) || string.IsNullOrWhiteSpace(userId))
+                return (false, false, false, false);
+
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            // 1) 문서 기안자 조회
+            string? createdBy = null;
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"SELECT TOP 1 CreatedBy FROM dbo.Documents WHERE DocId = @DocId;";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                var obj = await cmd.ExecuteScalarAsync();
+                createdBy = obj as string;
+            }
+
+            if (string.IsNullOrWhiteSpace(createdBy))
+                return (false, false, false, false);
+
+            // 2) 승인 라인 전체 조회
+            var approvals = new List<(int StepOrder, string? UserId, string Status)>();
+            await using (var ac = conn.CreateCommand())
+            {
+                ac.CommandText = @"
+SELECT StepOrder, UserId, ISNULL(Status,N'') AS Status
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+ORDER BY StepOrder;";
+                ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+                await using var r = await ac.ExecuteReaderAsync();
+                while (await r.ReadAsync())
+                {
+                    var step = r.GetInt32(0);
+                    var uid = r.IsDBNull(1) ? null : r.GetString(1);
+                    var st = r.GetString(2);
+                    approvals.Add((step, uid, st));
+                }
+            }
+
+            if (approvals.Count == 0)
+                return (false, false, false, false);
+
+            // 3) 현재 Pending 단계, 1차 단계 계산
+            var firstStep = approvals.OrderBy(a => a.StepOrder).First();
+            var currentPending = approvals.FirstOrDefault(a =>
+                string.Equals(a.Status, "Pending", StringComparison.OrdinalIgnoreCase));
+
+            bool isCreator = string.Equals(createdBy, userId, StringComparison.OrdinalIgnoreCase);
+            bool isCurrentApprover =
+                currentPending.StepOrder > 0 &&
+                !string.IsNullOrWhiteSpace(currentPending.UserId) &&
+                string.Equals(currentPending.UserId, userId, StringComparison.OrdinalIgnoreCase);
+
+            bool firstNotActed =
+                firstStep.StepOrder > 0 &&
+                string.Equals(firstStep.Status, "Pending", StringComparison.OrdinalIgnoreCase);
+
+            // 승인 가능 = 현재 Pending 단계 담당자
+            bool canApprove = isCurrentApprover;
+
+            // 회수 가능 = 기안자이면서 1차 승인자가 아직 Pending
+            bool canRecall = isCreator && firstNotActed;
+
+            // Hold/Reject 도 "현재 승인 가능한 사람"만 가능하게 동일 규칙 적용
+            bool canHold = canApprove;
+            bool canReject = canApprove;
+
+            return (canRecall, canApprove, canHold, canReject);
         }
 
         // ========= 입력값 → 엑셀 =========
@@ -1786,9 +2144,7 @@ WHERE p.UserId=@v OR p.Email=@v OR p.DisplayName=@v OR p.Name=@v;";
         // ========= 승인 동기화 =========
         private async Task EnsureApprovalsAndSyncAsync(string docId, string docCode)
         {
-            // (생략 없이 프로젝트에 이미 쓰이던 동일 SQL 사용)
             const string sql = @"/* ... 기존 EnsureApprovalsAndSync SQL 내용 ... */";
-            // 위 주석 부분에 실제 SQL (이미 가지고 계신 것) 그대로 두시면 됩니다.
             await _db.Database.ExecuteSqlRawAsync(sql, docId, docCode);
         }
 
@@ -1856,18 +2212,28 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             }
             else if (tab == "approval")
             {
+                // 현재 사용자에게 "지금 차례가 된" Pending 문서만 보이도록 정밀 필터
                 string whereApprovalView = (approvalView ?? string.Empty).ToLowerInvariant() switch
                 {
-                    "pending" => " AND ISNULL(a.Status, N'') = N'Pending' ",
-                    "approved" => " AND (ISNULL(a.Action, N'') = N'Approved' OR ISNULL(a.Status, N'') = N'Approved') ",
+                    // 문서 상태(PendingA{n})와 내가 담당인 단계(a.StepOrder)가 일치하는 경우만 Pending 으로 간주
+                    "pending" =>
+                        " AND ISNULL(a.Status, N'') = N'Pending' " +
+                        " AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10)) ",
+                    "approved" =>
+                        " AND (ISNULL(a.Action, N'') = N'Approved' OR ISNULL(a.Status, N'') = N'Approved') ",
                     _ => ""
                 };
+
+                // 회수된 문서(Recalled)는 결재 문서함에서 제외
+                const string whereRecalledFilter = @"
+  AND ISNULL(d.Status, N'') <> N'Recalled'
+  AND ISNULL(a.Status, N'') <> N'Recalled'";
 
                 sqlCount = @"
 SELECT COUNT(1)
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId" + whereApprovalView + whereSearch + whereTitleFilter + ";";
+WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + ";";
 
                 sqlList = @"
 SELECT d.DocId, d.TemplateTitle, d.CreatedAt, 
@@ -1881,7 +2247,7 @@ SELECT d.DocId, d.TemplateTitle, d.CreatedAt,
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
-WHERE a.UserId = @UserId" + whereApprovalView + whereSearch + whereTitleFilter + $@"
+WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + $@"
 {orderBy}
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             }
@@ -2257,9 +2623,9 @@ WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
         [HttpGet("Comments")]
         [Produces("application/json")]
         public async Task<IActionResult> GetComments(
-    [FromQuery] string? docId,
-    [FromQuery] string? id,
-    [FromQuery] string? documentId)
+            [FromQuery] string? docId,
+            [FromQuery] string? id,
+            [FromQuery] string? documentId)
         {
             docId = !string.IsNullOrWhiteSpace(docId)
                 ? docId
@@ -2298,15 +2664,12 @@ ORDER BY ThreadRootId, Depth, CreatedAt;";
                 var depth = Convert.ToInt32(rd["Depth"]);
                 var hasAttachment = Convert.ToBoolean(rd["HasAttachment"]);
 
-                // CreatedAt → 로컬 시간 문자열
                 var createdAtUtc = (DateTime)rd["CreatedAt"];
                 var createdAtLocal = ToLocalStringFromUtc(
                     DateTime.SpecifyKind(createdAtUtc, DateTimeKind.Utc));
 
                 var createdBy = rd["CreatedBy"]?.ToString() ?? "";
 
-                // 본인 삭제/수정 권한 (필요 시 Admin 권한 조건 추가)
-                // 2025.11.10 Changed: canModify 계산 시 User null 가능성 방지를 위해 null 조건 연산자 적용 (CS8602 경고 제거, 동작 동일)
                 var safeCreatedBy = createdBy ?? string.Empty;
                 var safeCurrentUser = currentUser ?? string.Empty;
 
@@ -2334,11 +2697,10 @@ ORDER BY ThreadRootId, Depth, CreatedAt;";
             return Json(new { items });
         }
 
-
         [HttpPost("Comments")]
+        [ValidateAntiForgeryToken] // JSON 요청도 EB-CSRF 헤더로 보호
         [Consumes("application/json")]
         [Produces("application/json")]
-        // [ValidateAntiForgeryToken]  // 일단 주석 처리해서 토큰 문제부터 배제
         public async Task<IActionResult> PostComment([FromBody] DocCommentPostDto dto)
         {
             try
@@ -2438,8 +2800,8 @@ VALUES
         }
 
         [HttpDelete("Comments/{id}")]
+        [ValidateAntiForgeryToken]
         [Produces("application/json")]
-        // [ValidateAntiForgeryToken] // 동일하게, 원인잡고 나중에 필요시 추가
         public async Task<IActionResult> DeleteComment(int id, string docId)
         {
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
@@ -2463,6 +2825,7 @@ WHERE CommentId = @id AND DocId = @docId;";
         }
 
         [HttpPut("Comments/{id}")]
+        [ValidateAntiForgeryToken]
         [Consumes("application/json")]
         [Produces("application/json")]
         public async Task<IActionResult> UpdateComment(int id, [FromBody] DocCommentPostDto dto)
@@ -2484,7 +2847,7 @@ SET Body = @Body,
 WHERE CommentId = @Id
   AND DocId = @DocId
   AND IsDeleted = 0
-  AND CreatedBy = @UserName;"; // 본인만 수정
+  AND CreatedBy = @UserName;";
             cmd.Parameters.Add(new SqlParameter("@Body", SqlDbType.NVarChar, -1) { Value = dto.body.Trim() });
             cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
             cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId ?? "" });
@@ -2492,7 +2855,7 @@ WHERE CommentId = @Id
 
             var rows = await cmd.ExecuteNonQueryAsync();
             if (rows == 0)
-                return Forbid(); // 또는 NotFound
+                return Forbid();
 
             return Json(new { ok = true });
         }

@@ -31,7 +31,7 @@
 
     <!-- 본문 래퍼 -->
     <div id="layout-body" class="d-flex">
-        <!-- 사이드바 -->
+        <!-- 사이드바: 기존 동작 유지 (폭/반응형은 site.css/_custom.css 에서만 제어) -->
         <aside class="sidebar-host flex-shrink-0">
             @await Html.PartialAsync("_Sidebar")
         </aside>
@@ -42,13 +42,6 @@
         </main>
     </div>
 
-    <!--
-    <footer class="border-top footer text-muted small py-2">
-        <div class="container">
-            &copy; 2025 - WebApplication1 - <a asp-controller="Home" asp-action="Privacy">Privacy</a>
-        </div>
-    </footer>
-    -->
     <footer class="border-top footer app-footer text-muted small">
         <div class="container-fluid px-3">
             <div class="d-flex align-items-center justify-content-between flex-nowrap">
@@ -79,6 +72,7 @@
     @await RenderSectionAsync("Scripts", required: false)
 
     <script>
+        // 헤더/푸터 실제 높이를 CSS 변수(--header-h, --footer-h)에 반영
         (() => {
             const root = document.documentElement;
             function sync() {

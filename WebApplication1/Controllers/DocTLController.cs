@@ -1,4 +1,5 @@
-﻿// 2025.10.13 Changed: LoadTemplate() 미리보기 생성 시 latest.ExcelFilePath 직접 참조 제거, ADO로 Version.ExcelFilePath 조회하여 사용
+﻿// 2025.11.24 Changed: DocTLMap 미리보기 JSON에 스타일 정보 포함 및 EnsurePreviewJson에서 styles 보존
+// 2025.10.13 Changed: LoadTemplate() 미리보기 생성 시 latest.ExcelFilePath 직접 참조 제거, ADO로 Version.ExcelFilePath 조회하여 사용
 // 2025.10.13 Added: LoadTemplate()에서 기존 Excel 경로를 excelPathForPost 변수로 유지하여 ViewBag.ExcelPath에 전달(업데이트 저장 시 경로 유지)
 // 2025.10.13 Changed: 경고(CS8619) 억제를 위해 null 안전 연산자 일부 보완
 // 2025.10.13 Fixed: MapSave()가 기존 DocCode를 받아 같은 마스터에 새 버전으로 저장되도록 수정
@@ -495,7 +496,7 @@ namespace WebApplication1.Controllers
             }
 
             var descriptorJsonRaw = ReadFileByRole("DescriptorJson", "DescriptorJSON", "Descriptor");
-            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview");
+            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview"); // ← DB 값은 일단 읽어오되, 아래에서 덮어씀
 
             if (string.IsNullOrWhiteSpace(descriptorJsonRaw))
             {
@@ -511,19 +512,6 @@ namespace WebApplication1.Controllers
                 return RedirectToRoute("DocumentTemplates.Index");
             }
 
-            // 매핑 필드 그룹화
-            //if (desc != null && desc.Fields != null && desc.Fields.Count > 0)
-            //{
-            //    bool safeToCollapse = desc.Fields.All(f =>
-            //        f?.Cell != null &&
-            //        f.Cell.RowSpan <= 1 &&
-            //        f.Cell.ColSpan <= 1 &&
-            //        f.Cell.Row >= 0 &&
-            //        f.Cell.Column >= 0);
-
-            //    if (safeToCollapse)
-            //        desc.Fields = CollapseFieldsForUI(desc.Fields);
-            //}
             if (desc?.Fields?.Count > 0)
             {
                 desc.Fields = CollapseFieldsForUI(desc.Fields);
@@ -568,9 +556,8 @@ namespace WebApplication1.Controllers
                 // 경로 조회 실패 시 무시
             }
 
-            // ★ PreviewJson이 비었을 때만 엑셀 열어 미리보기 생성
-            if (string.IsNullOrWhiteSpace(previewJson) &&
-                !string.IsNullOrWhiteSpace(excelPathForPost) &&
+            // ★ DocTLMap에서는 DB previewJson 이 있더라도, 엑셀 파일이 있으면 항상 엑셀 기준으로 미리보기 다시 생성
+            if (!string.IsNullOrWhiteSpace(excelPathForPost) &&
                 System.IO.File.Exists(excelPathForPost))
             {
                 try
@@ -579,51 +566,17 @@ namespace WebApplication1.Controllers
                     var ws0 = wb.Worksheets.FirstOrDefault();
                     if (ws0 != null)
                     {
-                        const int PREV_MAX_ROWS = 50;
-                        const int PREV_MAX_COLS = 26;
-
-                        var cells = new List<List<string>>(PREV_MAX_ROWS);
-                        for (int r = 1; r <= PREV_MAX_ROWS; r++)
-                        {
-                            var row = new List<string>(PREV_MAX_COLS);
-                            for (int c = 1; c <= PREV_MAX_COLS; c++)
-                                row.Add(ws0.Cell(r, c).GetString());
-                            cells.Add(row);
-                        }
-
-                        var merges = new List<int[]>();
-                        foreach (var mr in ws0.MergedRanges)
-                        {
-                            var a = mr.RangeAddress;
-                            int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
-                            int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
-                            if (r1 > PREV_MAX_ROWS || c1 > PREV_MAX_COLS) continue;
-                            r2 = Math.Min(r2, PREV_MAX_ROWS);
-                            c2 = Math.Min(c2, PREV_MAX_COLS);
-                            if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
-                        }
-
-                        var colW = new List<double>(PREV_MAX_COLS);
-                        for (int c = 1; c <= PREV_MAX_COLS; c++)
-                            colW.Add(ws0.Column(c).Width);
-
-                        previewJson = JsonSerializer.Serialize(new
-                        {
-                            sheet = ws0.Name,
-                            rows = PREV_MAX_ROWS,
-                            cols = PREV_MAX_COLS,
-                            cells,
-                            merges,
-                            colW
-                        });
+                        // 여기서 Compose/Detail 과 동일한 BuildPreviewJsonWithStyles 사용
+                        previewJson = BuildPreviewJsonWithStyles(ws0, 50, 26);
                     }
                 }
                 catch
                 {
-                    // 폴백은 아래 EnsurePreviewJson에서 처리
+                    // 실패하면 아래 EnsurePreviewJson 에서 최소 구조로 복구
                 }
             }
 
+            // 최종 안전망
             previewJson = EnsurePreviewJson(previewJson);
 
             // ★ 기존 Excel 파일 경로 hidden 전달(업데이트 시 유지)
@@ -877,36 +830,53 @@ namespace WebApplication1.Controllers
             var ws0 = wb.Worksheets.FirstOrDefault();
             if (ws0 != null)
             {
-                const int PREV_MAX_ROWS = 50;
-                const int PREV_MAX_COLS = 26;
-
-                var cells = new List<List<string>>(PREV_MAX_ROWS);
-                for (int r = 1; r <= PREV_MAX_ROWS; r++)
+                string previewJson;
+                try
                 {
-                    var row = new List<string>(PREV_MAX_COLS);
+                    // 스타일까지 포함한 프리뷰 JSON 생성
+                    previewJson = BuildPreviewJsonWithStyles(ws0, 50, 26);
+                }
+                catch
+                {
+                    // 예외 시 최소 정보만 가진 프리뷰로 폴백
+                    const int PREV_MAX_ROWS = 50;
+                    const int PREV_MAX_COLS = 26;
+
+                    var cells = new List<List<string>>(PREV_MAX_ROWS);
+                    for (int r = 1; r <= PREV_MAX_ROWS; r++)
+                    {
+                        var row = new List<string>(PREV_MAX_COLS);
+                        for (int c = 1; c <= PREV_MAX_COLS; c++)
+                            row.Add(ws0.Cell(r, c).GetString());
+                        cells.Add(row);
+                    }
+
+                    var merges = new List<int[]>();
+                    foreach (var mr in ws0.MergedRanges)
+                    {
+                        var a = mr.RangeAddress;
+                        int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
+                        int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
+                        if (r1 > PREV_MAX_ROWS || c1 > PREV_MAX_COLS) continue;
+                        r2 = Math.Min(r2, PREV_MAX_ROWS);
+                        c2 = Math.Min(c2, PREV_MAX_COLS);
+                        if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
+                    }
+
+                    var colW = new List<double>(PREV_MAX_COLS);
                     for (int c = 1; c <= PREV_MAX_COLS; c++)
-                        row.Add(ws0.Cell(r, c).GetString());
-                    cells.Add(row);
+                        colW.Add(ws0.Column(c).Width);
+
+                    previewJson = JsonSerializer.Serialize(new
+                    {
+                        sheet = ws0.Name,
+                        rows = PREV_MAX_ROWS,
+                        cols = PREV_MAX_COLS,
+                        cells,
+                        merges,
+                        colW
+                    });
                 }
-
-                var merges = new List<int[]>();
-                foreach (var mr in ws0.MergedRanges)
-                {
-                    var a = mr.RangeAddress;
-                    int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
-                    int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
-                    if (r1 > PREV_MAX_ROWS || c1 > PREV_MAX_COLS) continue;
-                    r2 = Math.Min(r2, PREV_MAX_ROWS);
-                    c2 = Math.Min(c2, PREV_MAX_COLS);
-                    if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
-                }
-
-                var colW = new List<double>(PREV_MAX_COLS);
-                for (int c = 1; c <= PREV_MAX_COLS; c++)
-                    colW.Add(ws0.Column(c).Width);
-
-                var preview = new { sheet = ws0.Name, rows = PREV_MAX_ROWS, cols = PREV_MAX_COLS, cells, merges, colW };
-                var previewJson = JsonSerializer.Serialize(preview);
 
                 ViewBag.PreviewJson = previewJson;
                 ViewData["PreviewJson"] = previewJson;
@@ -1260,6 +1230,170 @@ namespace WebApplication1.Controllers
             return (true, null, null);
         }
 
+        // 엑셀 색상을 #RRGGBB 문자열로 변환
+        private static string? ToHex(object? colorObj)
+        {
+            if (colorObj == null) return null;
+
+            try
+            {
+                // ClosedXML XLColor/IXLColor 둘 다 Color 프로퍼티(System.Drawing.Color)를 가집니다.
+                var prop = colorObj.GetType().GetProperty("Color");
+                if (prop == null) return null;
+
+                var value = prop.GetValue(colorObj);
+                if (value is System.Drawing.Color c)
+                {
+                    return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                }
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // DocTLMap 미리보기용 스타일 포함 프리뷰 JSON 생성
+        private static string BuildPreviewJsonWithStyles(IXLWorksheet ws0, int maxRows = 50, int maxCols = 26)
+        {
+            int rows = maxRows;
+            int cols = maxCols;
+
+            var cells = new List<List<string>>(rows);
+            for (int r = 1; r <= rows; r++)
+            {
+                var row = new List<string>(cols);
+                for (int c = 1; c <= cols; c++)
+                {
+                    row.Add(ws0.Cell(r, c).GetString());
+                }
+                cells.Add(row);
+            }
+
+            var merges = new List<int[]>();
+            foreach (var mr in ws0.MergedRanges)
+            {
+                var a = mr.RangeAddress;
+                int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
+                int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
+                if (r1 > rows || c1 > cols) continue;
+                r2 = Math.Min(r2, rows);
+                c2 = Math.Min(c2, cols);
+                if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
+            }
+
+            var colW = new List<double>(cols);
+            var colPx = new List<int>(cols);
+            for (int c = 1; c <= cols; c++)
+            {
+                var w = ws0.Column(c).Width;
+                colW.Add(w);
+                int px = (int)Math.Round(w * 7);
+                if (px <= 0) px = 64;
+                colPx.Add(px);
+            }
+
+            var rowPx = new List<int>(rows);
+            for (int r = 1; r <= rows; r++)
+            {
+                var h = ws0.Row(r).Height;
+                int px = (int)Math.Round(h * 1.6);
+                if (px <= 0) px = 20;
+                rowPx.Add(px);
+            }
+
+            var styles = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+            var used = ws0.RangeUsed() ?? ws0.Range("A1");
+            var defaultStyle = ws0.Style;
+
+            foreach (var cell in used.Cells())
+            {
+                var addr = cell.Address;
+                int r = addr.RowNumber;
+                int c = addr.ColumnNumber;
+                if (r < 1 || c < 1 || r > rows || c > cols) continue;
+
+                var st = cell.Style;
+
+                bool hasAny =
+                    !cell.IsEmpty() ||
+                    st.Font.Bold || st.Font.Italic ||
+                    st.Font.FontSize != defaultStyle.Font.FontSize ||
+                    st.Font.FontName != defaultStyle.Font.FontName ||
+                    st.Fill.BackgroundColor.ColorType != defaultStyle.Fill.BackgroundColor.ColorType ||
+                    st.Border.LeftBorder != defaultStyle.Border.LeftBorder ||
+                    st.Border.RightBorder != defaultStyle.Border.RightBorder ||
+                    st.Border.TopBorder != defaultStyle.Border.TopBorder ||
+                    st.Border.BottomBorder != defaultStyle.Border.BottomBorder ||
+                    st.Alignment.Horizontal != defaultStyle.Alignment.Horizontal ||
+                    st.Alignment.Vertical != defaultStyle.Alignment.Vertical ||
+                    st.Alignment.WrapText != defaultStyle.Alignment.WrapText;
+
+                if (!hasAny) continue;
+
+                string a1 = addr.ToStringRelative();
+
+                var fontColor = ToHex(st.Font.FontColor);
+                var bgColor = ToHex(st.Fill.BackgroundColor);
+                var borderColor =
+                    ToHex(st.Border.TopBorderColor) ??
+                    ToHex(st.Border.LeftBorderColor) ??
+                    ToHex(st.Border.RightBorderColor) ??
+                    ToHex(st.Border.BottomBorderColor);
+
+                var font = new
+                {
+                    name = st.Font.FontName,
+                    size = st.Font.FontSize,
+                    bold = st.Font.Bold,
+                    italic = st.Font.Italic,
+                    color = fontColor
+                };
+
+                var alignment = new
+                {
+                    horizontal = st.Alignment.Horizontal.ToString(),
+                    vertical = st.Alignment.Vertical.ToString(),
+                    wrapText = st.Alignment.WrapText
+                };
+
+                var border = new
+                {
+                    left = st.Border.LeftBorder.ToString(),
+                    right = st.Border.RightBorder.ToString(),
+                    top = st.Border.TopBorder.ToString(),
+                    bottom = st.Border.BottomBorder.ToString(),
+                    color = borderColor
+                };
+
+                styles[a1] = new
+                {
+                    font,
+                    alignment,
+                    border,
+                    backgroundColor = bgColor
+                };
+            }
+
+            var preview = new
+            {
+                sheet = ws0.Name,
+                rows,
+                cols,
+                cells,
+                merges,
+                colW,
+                colPx,
+                rowPx,
+                styles
+            };
+
+            return JsonSerializer.Serialize(preview);
+        }
+
         private static string BuildBlankPreviewJson(int rows = 50, int cols = 26)
         {
             var cells = new List<List<string>>(rows);
@@ -1292,6 +1426,22 @@ namespace WebApplication1.Controllers
             {
                 using var doc = JsonDocument.Parse(previewJson);
                 var root = doc.RootElement;
+
+                // ★ 이미 styles/colPx/rowPx 같은 스타일 정보가 있는 "새 포맷"이면 그대로 사용
+                foreach (var p in root.EnumerateObject())
+                {
+                    var name = p.Name;
+                    if (string.Equals(name, "styles", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "cellStyles", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "styleGrid", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "colPx", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "rowPx", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "rowH", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 이미 우리가 쓰는 새 구조니까 더 만지지 않고 그대로 리턴
+                        return previewJson;
+                    }
+                }
 
                 bool TryGetProp(string name, out JsonElement value)
                 {
@@ -1441,6 +1591,26 @@ namespace WebApplication1.Controllers
             }
 
             var descriptorJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = false });
+
+            // ★ previewJson 이 비어 있으면 서버에서 엑셀 다시 열어 프리뷰 JSON 생성
+            if (string.IsNullOrWhiteSpace(previewJson) &&
+                !string.IsNullOrWhiteSpace(excelPath) &&
+                System.IO.File.Exists(excelPath))
+            {
+                try
+                {
+                    using var wbPrev = new XLWorkbook(excelPath);
+                    var wsPrev = wbPrev.Worksheets.FirstOrDefault();
+                    if (wsPrev != null)
+                    {
+                        previewJson = BuildPreviewJsonWithStyles(wsPrev, 50, 26);
+                    }
+                }
+                catch
+                {
+                    // 실패 시 그냥 null 유지 → 아래에서 DBNull.Value 로 저장
+                }
+            }
 
             // ★ Excel 파일명/사이즈는 넘어온 경로 기준으로 유지
             var excelFileName = string.IsNullOrWhiteSpace(excelPath) ? "unknown.xlsx" : Path.GetFileName(excelPath);

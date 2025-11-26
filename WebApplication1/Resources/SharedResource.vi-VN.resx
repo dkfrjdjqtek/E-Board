@@ -1104,4 +1104,7 @@
   <data name="DOC_Btn_CommentPost" xml:space="preserve">
     <value>Đăng bình luận</value>
   </data>
+  <data name="DOC_Btn_Recall" xml:space="preserve">
+    <value>Thu hồi</value>
+  </data>
 </root>

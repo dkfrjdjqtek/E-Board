@@ -1,4 +1,4 @@
-﻿@* 2025.10.01 Changed: 미리보기 컴포넌트 자산 동적 로더 추가, mount 순서 보장, 실패 시 폴백 유지 *@
+﻿﻿@* 2025.10.01 Changed: 미리보기 컴포넌트 자산 동적 로더 추가, mount 순서 보장, 실패 시 폴백 유지 *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -192,7 +192,7 @@
                 DTL_Alert_KindNameRequire: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_KindNameRequire"].Value)),
                 DTL_Alert_EnterCurrentLang: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["DTL_Alert_EnterCurrentLang"].Value)),
                 ERROR: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(S["_CM_Error"].Value))
-                    };
+                            };
             window.CUR_LANG = '@System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName';
             window.MSG = {
                 DEPT: window.L.DTL_Alert_DeptRequired,
@@ -348,7 +348,7 @@
                 if (p.compCd) qs.append('compCd', p.compCd);
                 //if (p.departmentId) qs.append('departmentId', p.departmentId);
                 if (p.departmentId !== undefined && p.departmentId !== '')
-                   qs.append('departmentId', p.departmentId);  // '0'도 포함 공용
+                    qs.append('departmentId', p.departmentId);  // '0'도 포함 공용
                 if (p.kind) qs.append('kind', p.kind);
                 qs.append('docCode', p.docCode);
                 location.href = `${BASE}/load-template?${qs.toString()}`;

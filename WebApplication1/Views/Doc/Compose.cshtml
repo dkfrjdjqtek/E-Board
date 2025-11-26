@@ -1,4 +1,5 @@
-﻿@* 2025.11.15 Changed: 프리뷰 Excel 폰트 무시하고 공통 웹 폰트 사용 옵션 B 적용 및 스타일 중복 정리 *@
+﻿@* 2025.11.20 Changed: Compose 스크롤 컨테이너 위치를 Board와 동일 CSS 변수(--header-h,--footer-h,--sidebar-w) 기준으로 고정하고
+   placeContainer() 인라인 스타일을 덮기 위해 top/right/bottom/left 에 !important 적용 (세로 스크롤바가 헤더/푸터 사이에만 표시되도록 정렬) *@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
@@ -10,23 +11,34 @@
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
 }
 <style>
-    html, body {
+    /* === 전역: 브라우저 기본 스크롤은 막고, 작업 영역(#doc-scroll)만 스크롤 허용 === */
+    html,
+    body {
         height: 100%;
         overflow: hidden !important;
         background: #fff;
         margin: 0;
     }
 
+    /* === 작업 영역 컨테이너
+           - Board 와 동일하게 레이아웃 CSS 변수(--header-h, --footer-h, --sidebar-w)를 기준으로 위치 고정
+           - eb.doc.preview.common.js 의 placeContainer() 가 inline 으로 top/left/right/bottom 을 덮어써도
+             아래 !important 로 항상 이 값이 우선하도록 처리
+           - 이 컨테이너 하나만 세로 스크롤 담당, 가로 스크롤은 프리뷰 내부 컨테이너에서만 표시 === */
     #doc-scroll {
         position: fixed;
-        inset: 0;
-        overflow-y: auto !important;
-        overflow-x: auto !important;
+        top: var(--header-h, 56px) !important;
+        right: 0 !important;
+        bottom: var(--footer-h, 32px) !important;
+        left: var(--sidebar-w, 270px) !important;
+
         box-sizing: border-box;
+        padding: 16px 24px;
         background: #fff;
-        z-index: 1;
-        scrollbar-gutter: stable both-edges;
-        padding-bottom: 0;
+
+        overflow-y: auto;      /* 세로 스크롤 전용 (우측 벽에 붙음) */
+        overflow-x: auto;    /* 가로 스크롤은 프리뷰 내부 컨테이너에서 처리 */
+        overscroll-behavior: contain;
     }
 
     .page-header {
@@ -56,7 +68,8 @@
         white-space: nowrap;
     }
 
-    @Html.Raw("@media print{#doc-scroll{overflow:visible;position:static;inset:auto;height:auto;padding:0}.form-actions{display:none}}")
+    /* 인쇄 시에는 전체 페이지가 자연스럽게 흐르도록 제한 해제 */
+    @Html.Raw("@media print{#doc-scroll{overflow:visible;position:static;top:auto!important;right:auto!important;bottom:auto!important;left:auto!important;height:auto;padding:0}.form-actions{display:none}}")
 
     .btn {
         display: inline-flex;

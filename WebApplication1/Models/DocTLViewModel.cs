@@ -9,5 +9,6 @@ namespace WebApplication1.Models
         public List<SelectListItem> CompOptions { get; set; } = new();
         public List<SelectListItem> DepartmentOptions { get; set; } = new();
         public List<SelectListItem> DocumentOptions { get; set; } = new();
+        public string TemplateCode { get; set; } = string.Empty;
     }
 }

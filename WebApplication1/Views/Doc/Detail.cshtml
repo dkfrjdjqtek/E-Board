@@ -1,4 +1,8 @@
-﻿@* 2025.11.14 Changed: Compose와 동일한 #doc-scroll / #xlPreview 구조 적용, 엑셀 폰트 무시하고 웹 공통 프리뷰 폰트만 사용 *@
+﻿@* 2025.11.19 Changed: Detail 레이아웃을 Compose/Board 공통 scroll host 방식으로 통일
+   - html/body 전역 스크롤 hidden + #doc-scroll fixed inset:0 한 곳만 세로 스크롤 담당
+   - 가로 스크롤은 eb.doc.preview.common.js / eb.doc.preview.css 에서 관리하는 프리뷰 전용 컨테이너에 맡기고
+     Detail 쪽에서는 #xlPreview/#xhost overflow 를 더 이상 덮어쓰지 않음(전역 가로 스크롤/문서 가림 현상 방지)
+   - 헤더/사이드바/푸터는 레이아웃 고정 상태 유지, Detail 타이틀/문서가 헤더 밑에 가려지지 않도록 placeContainer() 사용 *@
 @using System.Text.Json
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
@@ -6,7 +10,6 @@
 @{
     ViewData["Title"] = S["DOC_Title_Detail"];
 
-    // ★ docId를 실제 DocumentComments.DocId 와 동일하게 맞춰서 가져오도록 정리
     var docId =
         (string?)ViewBag.DocId
         ?? (string?)ViewBag.DocumentId
@@ -47,42 +50,48 @@
     var canBackToNew = (bool?)ViewBag.CanBackToNew ?? true;
     var canPrint = (bool?)ViewBag.CanPrint ?? true;
     var canExport = (bool?)ViewBag.CanExportPdf ?? true;
-    var canApprove = (bool?)ViewBag.CanApprove ?? false;
-    var canHold = (bool?)ViewBag.CanHold ?? false;
-    var canReject = (bool?)ViewBag.CanReject ?? false;
+
+    bool canRecall = ViewBag.CanRecall is bool b1 && b1;
+    bool canApprove = ViewBag.CanApprove is bool b2 && b2;
+    bool canHold = ViewBag.CanHold is bool b3 && b3;
+    bool canReject = ViewBag.CanReject is bool b4 && b4;
 }
 
 <style>
-    /* ================== Compose와 동일한 스크롤 컨테이너 ================== */
-    html, body {
+    /* ===== 전역 스크롤 차단: 작업 영역(#doc-scroll)만 스크롤 허용 ===== */
+    html,
+    body {
         height: 100%;
         overflow: hidden !important;
         background: #fff;
         margin: 0;
     }
 
+    /* ===== Detail 작업 영역 컨테이너
+           - Compose 와 동일하게 레이아웃 CSS 변수 기준 고정
+           - placeContainer() 가 inline 으로 top/left/right/bottom 을 써도
+             아래 !important 가 항상 우선 ===== */
     #doc-scroll {
         position: fixed;
-        inset: 0;
-        overflow-y: auto !important;
-        overflow-x: auto !important;
+        top: var(--header-h, 56px) !important;
+        right: 0 !important;
+        bottom: var(--footer-h, 32px) !important;
+        left: var(--sidebar-w, 270px) !important;
         box-sizing: border-box;
+        padding: 16px 24px;
         background: #fff;
-        z-index: 1;
-        scrollbar-gutter: stable both-edges;
-        padding-bottom: 0;
+        overflow-y: auto; /* 세로 스크롤만 사용 */
+        overflow-x: hidden; /* 가로 스크롤은 프리뷰 내부 컨테이너에서 처리 */
+        overscroll-behavior: contain;
     }
 
     .doc-detail-root {
-        padding-top: 1.25rem;
-        padding-bottom: 2rem;
+        padding-top: .5rem;
+        padding-bottom: 1.5rem;
     }
 
     .doc-detail-header {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: .5rem 1rem;
+        padding-top: .75rem;
         margin-bottom: 1rem;
     }
 
@@ -95,15 +104,16 @@
         display: flex;
         flex-wrap: wrap;
         gap: .4rem .9rem;
+        margin-top: .35rem;
         font-size: .85rem;
         color: #6b7280;
     }
 
     .doc-detail-actions {
-        margin-left: auto;
         display: flex;
         flex-wrap: wrap;
         gap: .25rem;
+        margin-top: .5rem;
     }
 
     .badge.status-Draft {
@@ -154,7 +164,6 @@
         margin-left: .15rem;
     }
 
-    /* ===== 프리뷰 래퍼 (폰트/라인은 eb.doc.preview.css에서 통일 관리) ===== */
     .doc-preview-full {
         padding: 0;
         margin: 0 0 1rem 0;
@@ -162,7 +171,6 @@
         background: transparent;
     }
 
-    /* ===== 댓글/로그/승인 ===== */
     .doc-comments-list {
         max-height: 260px;
         overflow-y: auto;
@@ -246,33 +254,28 @@
             margin: 0;
         }
 
-        html, body {
+        html,
+        body {
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
         }
-            /* 기본적으로 다 숨김 */
+
             body * {
                 visibility: hidden !important;
             }
 
-        .doc-preview-full,
-        .doc-preview-full * {
-            visibility: visible !important;
-        }
-
-        .doc-detail-header,
-        .doc-section,
-        #detail-alert {
-            display: none !important;
-        }
-        /* 프린트용 래퍼만 보이게 */
         #print-xhost-wrapper,
         #print-xhost-wrapper * {
             visibility: visible !important;
         }
 
         #print-xhost-wrapper {
+            position: fixed !important;
+            inset: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             width: 100% !important;
@@ -281,13 +284,12 @@
         }
 
             #print-xhost-wrapper #xhost {
-                margin: 0 !important;
+                margin: 0 0 0 12px !important;
                 padding: 0 !important;
-                border: none !important;
                 width: 100% !important;
                 max-width: none !important;
-                background: #fff !important;
                 overflow: visible !important;
+                background: #fff !important;
             }
 
                 #print-xhost-wrapper #xhost .xlfb {
@@ -297,7 +299,7 @@
                     width: 100% !important;
                     margin: 0 !important;
                     padding: 0 !important;
-                    background: #fff !important;
+                    outline: none !important;
                 }
 
                     #print-xhost-wrapper #xhost .xlfb tr {
@@ -308,51 +310,28 @@
                     #print-xhost-wrapper #xhost .xlfb th {
                         display: table-cell !important;
                         vertical-align: middle !important;
+                        page-break-inside: auto !important;
+                        break-inside: auto !important;
                     }
-
-                    #print-xhost-wrapper #xhost .xlfb,
-                    #print-xhost-wrapper #xhost .xlfb * {
-                        max-height: none !important;
-                        overflow: visible !important;
-                    }
-
-        #xhost {
-            display: block !important;
-            position: static !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
+        /* ★ Compose 와 동일: 인쇄 시에는 doc-scroll 고정 해제 */
+        #doc-scroll {
             overflow: visible !important;
-            background: #fff !important;
+            position: static !important;
+            top: auto !important;
+            right: auto !important;
+            bottom: auto !important;
+            left: auto !important;
+            height: auto !important;
+            padding: 0 !important;
         }
-
-            #xhost .xlfb,
-            #xhost .xlfb tr,
-            #xhost .xlfb td,
-            #xhost .xlfb th {
-                page-break-inside: auto !important;
-                break-inside: auto !important;
-            }
     }
 </style>
 
 <div id="doc-scroll">
     <div class="container-xxl doc-detail-root" data-doc-id="@docId">
-        <!-- 상단 타이틀 + 메타 + 액션 -->
         <header class="doc-detail-header">
-            <div>
-                <div class="doc-detail-title">@S["DOC_Title_Detail"]</div>
-                <div class="doc-detail-meta">
-                    <span><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
-                    <span>
-                        <strong>@S["_CM_Label_Template"]</strong> :
-                        <code>@templateCode</code>
-                        <span class="ms-1">@templateTitle</span>
-                    </span>
-                    <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
-                </div>
-            </div>
+            <div class="doc-detail-title">@S["DOC_Title_Detail"]</div>
+
             <div class="doc-detail-actions">
                 @if (canBackToNew)
                 {
@@ -379,11 +358,20 @@
                     </button>
                 }
             </div>
+
+            <div class="doc-detail-meta">
+                <span><strong>@S["DOC_Label_DocId"]</strong> : <code>@docId</code></span>
+                <span>
+                    <strong>@S["_CM_Label_Template"]</strong> :
+                    <code>@templateCode</code>
+                    <span class="ms-1">@templateTitle</span>
+                </span>
+                <span class="badge status-@status">@S[$"DOC_Status_{status}"]</span>
+            </div>
         </header>
 
         <div id="detail-alert" class="mb-2" aria-live="polite"></div>
 
-        <!-- 1. 문서 프리뷰 -->
         <section class="doc-preview-full" aria-label="Document preview">
             <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
             <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
@@ -391,13 +379,11 @@
             <script type="application/json" id="ViewLogsJson">@Html.Raw(viewLogsJson)</script>
             <script type="application/json" id="ApprovalsJson">@Html.Raw(approvalsJson)</script>
 
-            <!-- Compose와 완전히 동일한 래퍼 구조 -->
             <div id="xlPreview">
                 <div id="xhost"></div>
             </div>
         </section>
 
-        <!-- 2. 코멘트 리스트 -->
         <section class="doc-section" aria-labelledby="doc-comments-list-title">
             <div id="doc-comments-list-title" class="doc-section-title">
                 @S["_CM_Comment_Label"]
@@ -407,7 +393,6 @@
             <div id="cmt-list" class="doc-comments-list"></div>
         </section>
 
-        <!-- 3. 코멘트 입력 -->
         <section class="doc-section" aria-labelledby="doc-comment-form-title">
             <div id="doc-comment-form-title" class="doc-section-title">
                 @S["DOC_Label_AddComment"]
@@ -432,7 +417,6 @@
             </div>
         </section>
 
-        <!-- 4. 조회 로그 -->
         <section class="doc-section" aria-labelledby="doc-viewlog-title">
             <div id="doc-viewlog-title" class="doc-section-title">
                 @S["DOC_Title_ViewLog"]
@@ -440,7 +424,6 @@
             <div id="viewlog-list" class="doc-viewlog-list"></div>
         </section>
 
-        <!-- 5. 승인 정보 -->
         <section class="doc-section" aria-labelledby="doc-approvals-title">
             <div id="doc-approvals-title" class="doc-section-title">
                 @S["DOC_Label_Approvals"]
@@ -460,27 +443,35 @@
             </table>
 
             <div class="doc-approvals-actions">
-                <button type="button"
-                        class="btn btn-sm btn-success"
-                        data-approve
-                @(canApprove ? "" : "disabled")>
+                <button id="btnRecall"
+                        type="button"
+                        class="btn btn-secondary"
+                        data-can="@(canRecall ? "True" : "False")">
+                    @S["DOC_Btn_Recall"]
+                </button>
+                <button id="btnApprove"
+                        type="button"
+                        class="btn btn-success"
+                        data-can="@(canApprove ? "True" : "False")">
                     @S["DOC_Btn_Approve"]
                 </button>
-                <button type="button"
+                <button id="btnHold"
+                        type="button"
                         class="btn btn-sm btn-warning"
-                        data-hold
-                @(canHold ? "" : "disabled")>
+                        data-can="@(canHold ? "True" : "False")">
                     @S["DOC_Btn_Hold"]
                 </button>
-                <button type="button"
+                <button id="btnReject"
+                        type="button"
                         class="btn btn-sm btn-danger"
-                        data-reject
-                @(canReject ? "" : "disabled")>
+                        data-can="@(canReject ? "True" : "False")">
                     @S["DOC_Btn_Reject"]
                 </button>
             </div>
         </section>
     </div>
+
+    <div id="print-xhost-wrapper"></div>
 </div>
 
 @section Styles {
@@ -491,7 +482,6 @@
     <script src="~/js/eb.csrf.js"></script>
 
     <script>
-        // ================== 공통 리소스/유틸 ==================
         function decodeHtmlEntities(str) {
             if (str == null) return '';
             let s = String(str);
@@ -550,14 +540,13 @@
     </script>
 
     <script>
-        // Detail 화면은 항상 읽기 전용 (공통 프리뷰가 이 플래그를 읽음)
         window.__DOC_IS_WRITE__ = false;
     </script>
 
     <script src="~/js/eb.doc.preview.common.js"></script>
+    <script src="~/js/html2pdf.bundle.min.js"></script>
 
     <script>
-        // ================== 댓글 & 파일 업로드 ==================
         (function initComments() {
             const EBV = window.EBValidate || {};
             const rawFetch = (window.fetch || function () { }).bind(window);
@@ -687,7 +676,7 @@
                         docId: docIdAttr,
                         parentCommentId: null,
                         body: body,
-                        files: [] // 파일 업로드 후 키 매핑 예정
+                        files: []
                     };
 
                     await EBC.json('/Doc/Comments', payload, 'POST');
@@ -727,14 +716,25 @@
             loadComments();
         })();
 
-        // ================== 조회 로그 ==================
         (function renderViewLogs() {
             const host = document.getElementById('viewlog-list');
             if (!host) return;
 
-            const logs = readJsonFromScript('ViewLogsJson', []);
+            // ViewLogsJson 안에 배열 또는 { items: [...] } 둘 다 지원
+            const raw = readJsonFromScript('ViewLogsJson', []);
+            let logs = [];
 
-            if (!Array.isArray(logs) || !logs.length) {
+            if (Array.isArray(raw)) {
+                logs = raw;
+            } else if (raw && Array.isArray(raw.items)) {
+                logs = raw.items;
+            }
+
+            // ★ 여기 두 줄을 console.log 로 변경
+            console.log('[DOC DEBUG] viewlogs raw', raw);
+            console.log('[DOC DEBUG] viewlogs parsed logs', logs);
+
+            if (!logs.length) {
                 host.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoViewLogs')}</div>`;
                 return;
             }
@@ -742,17 +742,23 @@
             host.innerHTML = '';
             logs
                 .slice()
-                .sort((a, b) => (b.viewedAt || '').localeCompare(a.viewedAt || ''))
+                .sort((a, b) =>
+                    (b.viewedAt || b.ViewedAt || '').localeCompare(a.viewedAt || a.ViewedAt || '')
+                )
                 .forEach(v => {
+                    const when =
+                        v.viewedAtText || v.ViewedAtText ||
+                        v.viewedAt || v.ViewedAt || '';
+                    const who =
+                        v.userName || v.UserName ||
+                        v.userId || v.UserId || '';
+
                     const row = document.createElement('div');
-                    const when = v.viewedAtText || v.viewedAt || '';
-                    const who = v.userName || v.userId || '';
                     row.textContent = `${when} - ${who}`;
                     host.append(row);
                 });
         })();
 
-        // ================== 승인 정보 ==================
         (function renderApprovals() {
             const tbody = document.getElementById('tbody-approvals');
             if (!tbody) return;
@@ -787,104 +793,236 @@
                 });
         })();
 
-        // ================== 인쇄/Export ==================
         document.getElementById('btnPrint')?.addEventListener('click', () => { window.print(); });
         document.getElementById('btnExport')?.addEventListener('click', () => {
-            if (!docId) return;
-            const url = '/Doc/ExportPdf?id=' + encodeURIComponent(docId);
-            window.location.href = url;
+            const host = document.getElementById('xhost');
+            if (!host) {
+                alert('미리보기 영역(#xhost)을 찾을 수 없습니다.');
+                return;
+            }
+
+            if (typeof window.html2pdf === 'undefined') {
+                console.error('html2pdf 모듈이 로드되지 않았습니다.');
+                alert('PDF 모듈이 로드되지 않아 내보내기를 할 수 없습니다.\nhtml2pdf.bundle.min.js 경로를 확인해 주세요.');
+                return;
+            }
+
+            // ★ 현재 렌더링된 서식의 실제 픽셀 크기 측정 (브라우저에 보이는 그대로)
+            const rect = host.getBoundingClientRect();
+            const w = Math.max(rect.width, 1);   // px
+            const h = Math.max(rect.height, 1);  // px
+
+            // ★ A4 고정 대신, 화면 렌더링된 크기 그대로 PDF 한 페이지로 만들기
+            const opt = {
+                margin: 0,
+                filename: (docId ? docId : 'document') + '.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: {
+                    scale: 2,
+                    useCORS: true,
+                    scrollY: 0
+                },
+                jsPDF: {
+                    unit: 'px',          // px 단위 그대로 사용
+                    format: [w, h],      // 한 페이지 크기를 서식 크기와 동일하게
+                    orientation: 'portrait'
+                },
+                pagebreak: { mode: ['css', 'legacy'] } // 혹시 모를 자동 분할 최소화
+            };
+
+            // #xhost 에 렌더링된 모양 그대로 한 장짜리 PDF 생성
+            window.html2pdf()
+                .set(opt)
+                .from(host)
+                .save();
         });
 
-        // ================== 승인 버튼 처리 ==================
-        (function initApproveButtons() {
-            const EBC = window.EBCSRF || window.EBCsrf || {};
-            const alertHost = document.getElementById('detail-alert');
-            if (!alertHost || !docId) return;
-
-            function show(msg, cls) {
-                alertHost.innerHTML = `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
-            }
-
-            async function call(action) {
-                try {
-                    const res = await (EBC.json
-                        ? EBC.json('/Doc/ApproveOrHold', { docId, action }, 'POST')
-                        : fetch('/Doc/ApproveOrHold', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                            body: JSON.stringify({ docId, action })
-                        }).then(r => r.json()));
-
-                    if (!res || res.ok === false) throw { payload: res };
-                    show(T('DOC_Msg_Approve_Success'), 'alert-success');
-                    location.reload();
-                } catch (e) {
-                    const p = e && e.payload;
-                    const msgs = p?.messages || [T('DOC_Err_SaveFailed')];
-                    show(msgs.join('<br>'), 'alert-danger');
-                }
-            }
-
-            function bind(selector, action) {
-                document.querySelectorAll(selector).forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        if (btn.disabled) return;
-                        call(action);
-                    });
-                });
-            }
-
-            bind('[data-approve]', 'Approve');
-            bind('[data-hold]', 'Hold');
-            bind('[data-reject]', 'Reject');
-        })();
-
-        // ================== 인쇄용 xhost 이동/복원 ==================
         (function () {
             const xhost = document.getElementById('xhost');
             if (!xhost) return;
 
             const originalParent = xhost.parentNode;
             const originalNext = xhost.nextSibling;
-            const printWrapper = document.createElement('div');
-            printWrapper.id = 'print-xhost-wrapper';
+
+            let printWrapper = document.getElementById('print-xhost-wrapper');
+            if (!printWrapper) {
+                printWrapper = document.createElement('div');
+                printWrapper.id = 'print-xhost-wrapper';
+            }
 
             function moveToPrintWrapper() {
-                if (xhost.parentNode === printWrapper) return;
-
-                if (!printWrapper.parentNode) {
+                if (printWrapper.parentNode !== document.body) {
                     document.body.appendChild(printWrapper);
                 }
-
-                printWrapper.appendChild(xhost);
+                if (xhost.parentNode !== printWrapper) {
+                    printWrapper.appendChild(xhost);
+                }
             }
 
             function restoreFromPrintWrapper() {
                 if (!originalParent) return;
+
+                xhost.style.transform = '';
+                xhost.style.transformOrigin = '';
 
                 if (originalNext && originalNext.parentNode === originalParent) {
                     originalParent.insertBefore(xhost, originalNext);
                 } else {
                     originalParent.appendChild(xhost);
                 }
+            }
 
-                if (printWrapper.parentNode) {
-                    printWrapper.parentNode.removeChild(printWrapper);
+            function applyPrintScale() {
+                try {
+                    xhost.style.transform = '';
+                    xhost.style.transformOrigin = 'top center';
+
+                    const rect = xhost.getBoundingClientRect();
+                    const pageW = window.innerWidth || rect.width || 1;
+                    const pageH = window.innerHeight || rect.height || 1;
+
+                    if (!rect.width || !rect.height) return;
+
+                    const sx = pageW / rect.width;
+                    const sy = pageH / rect.height;
+                    const s = Math.min(sx, sy, 1);
+
+                    xhost.style.transform = 'scale(' + s + ')';
+                } catch (e) {
+                    console.warn('applyPrintScale error', e);
                 }
             }
 
-            function handleBeforePrint() { moveToPrintWrapper(); }
-            function handleAfterPrint() { restoreFromPrintWrapper(); }
+            function handleBeforePrint() {
+                moveToPrintWrapper();
+                applyPrintScale();
+            }
+
+            function handleAfterPrint() {
+                restoreFromPrintWrapper();
+            }
 
             if (window.matchMedia) {
                 const mq = window.matchMedia('print');
                 mq.addEventListener('change', function (e) {
-                    if (e.matches) handleBeforePrint(); else handleAfterPrint();
+                    if (e.matches) handleBeforePrint();
+                    else handleAfterPrint();
                 });
             }
 
             window.addEventListener('beforeprint', handleBeforePrint);
             window.addEventListener('afterprint', handleAfterPrint);
+        })();
+
+        /* ===== Detail 프리뷰 초기화 ===== */
+        (function () {
+            function initPreview() {
+                const api = window.EBDocPreview || {};
+
+                if (typeof api.setWriteMode === 'function') {
+                    api.setWriteMode(false);
+                }
+
+                if (typeof api.mount === 'function') {
+                    try {
+                        const raw = document.getElementById('PreviewJson')?.textContent || '{}';
+                        const preview = JSON.parse(raw || '{}');
+                        api.mount('#xlPreview', preview, { isWrite: false });
+                    } catch (e) {
+                        console.error('Detail preview init failed', e);
+                        const host = document.getElementById('xhost');
+                        if (host) {
+                            const msg = (window.__RESX && window.__RESX.DOC_Err_PreviewFailed) || 'Preview error';
+                            host.innerHTML =
+                                '<div class="alert alert-danger mb-0 py-1">' + msg + '</div>';
+                        }
+                    }
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initPreview, { once: true });
+            } else {
+                initPreview();
+            }
+        })();
+
+        (function () {
+            const docId = '@docId';
+            const url = '@Url.Action("ApproveOrHold", "Doc")';
+
+            function send(action) {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ docId, action })
+                })
+                    .then(r => {
+                        if (!r.ok) throw new Error();
+                        return r.json();
+                    })
+                    .then(() => location.reload())
+                    .catch(() => alert('처리 중 오류가 발생했습니다.'));
+            }
+
+            function bind(btnId, action) {
+                const btn = document.getElementById(btnId);
+                if (!btn) return;
+                const can = btn.dataset.can === 'True' || btn.dataset.can === 'true';
+                btn.disabled = !can;
+                if (!can) return;
+                btn.addEventListener('click', () => send(action));
+            }
+
+            bind('btnRecall', 'Recall');
+            bind('btnApprove', 'Approve');
+            bind('btnHold', 'Hold');
+            bind('btnReject', 'Reject');
+        })();
+
+        (function () {
+            const docId = '@docId';
+            const url = '@Url.Action("ApproveOrHold", "Doc")';
+
+            function send(action) {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ docId, action })
+                })
+                    .then(r => {
+                        if (!r.ok) throw new Error();
+                        return r.json();
+                    })
+                    .then(() => location.reload())
+                    .catch(() => alert('처리 중 오류가 발생했습니다.'));
+            }
+
+            function bind(btnId, action) {
+                const btn = document.getElementById(btnId);
+                if (!btn) return;
+                const can = btn.dataset.can === 'True' || btn.dataset.can === 'true';
+                btn.disabled = !can;
+                if (!can) return;
+                btn.addEventListener('click', () => send(action));
+            }
+
+            bind('btnRecall', 'Recall');
+            bind('btnApprove', 'Approve');
+            bind('btnHold', 'Hold');
+            bind('btnReject', 'Reject');
         })();
     </script>
 }

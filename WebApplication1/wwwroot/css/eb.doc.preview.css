@@ -1,6 +1,5 @@
-﻿/* 2025.11.14 Changed: 엑셀 폰트 완전히 무시, 웹 기준 공통 폰트/사이즈/자간 통일 + Compose/Detail 공통 프리뷰 스타일 적용 */
-/* 2025.11.14 Changed: 프리뷰 폰트 패밀리/자간 고정 및 box-sizing 통일, 상위 CSS 누수 차단 */
-/* 공통 폰트/자간 변수 (엑셀 스타일은 사용하지 않음) */
+﻿File: wwwroot/css/eb.doc.preview.css
+/* 2025.11.26 Changed: 공통 프리뷰(Map/Compose/Detail)에서 테이블/셀 레이아웃 안정화 및 기본 보더/폰트 스타일 보완 */
 :root {
     --vscroll-w: 0px;
     --eb-group-bg: rgb(240 248 255 / 55%);
@@ -10,12 +9,12 @@
     --eb-ring-w: 2px;
     --eb-ring-pad: 2px;
     --eb-ring-glow-w: 4px;
-    --eb-font: 'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',Arial,sans-serif; /* 여기 두 줄이 핵심: 폰트 패밀리 고정 + 기본 크기 16px */
-    --eb-font-size: 16px; /* 프리뷰 기본 폰트 크기(px) */
-    --eb-line-height: 1.2; /* 기본 라인 높이 배수 – 실제 셀/오버레이는 JS에서 rowH(px)로 덮어씌움 */
-    --eb-letter-spacing: normal; /* 자간/어간은 항상 normal 로 고정해서 줄바꿈 계산을 안정화 */
-    --eb-word-spacing: normal; /* 셀 좌우 패딩 */
-    --eb-cell-pad-x: 6px; /* .45rem → 6px */
+    --eb-font: 'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',Arial,sans-serif;
+    --eb-font-size: 16px;
+    --eb-line-height: 1.2;
+    --eb-letter-spacing: normal;
+    --eb-word-spacing: normal;
+    --eb-cell-pad-x: 6px;
 }
 
 /* 상위 전역 규칙 침투 차단 + box-sizing 통일 */
@@ -24,7 +23,7 @@
     box-sizing: border-box;
 }
 
-/* 프리뷰 전체: "웹 기준" 공통 폰트/사이즈/자간만 사용 (엑셀 폰트/크기 무시) */
+/* 프리뷰 전체: 웹 기준 공통 폰트/사이즈/자간만 사용 (엑셀 폰트/크기 무시) */
 #xlPreview,
 #xlPreview .xlfb {
     font-family: var(--eb-font);
@@ -36,7 +35,7 @@
     text-size-adjust: 100%;
 }
 
-    /* 셀/편집 영역은 자간·어간만 normal 로 고정(줄바꿈 계산 일치 목적) */
+    /* 셀/편집 영역 자간·어간 고정 */
     #xlPreview .xlfb td,
     #xlPreview .xlfb th,
     #xlPreview .xlfb .cellc,
@@ -70,24 +69,24 @@
     position: relative;
 }
 
+    /* 셀/헤더 공통 */
     .xlfb td,
     .xlfb th {
         box-sizing: border-box;
         position: relative;
-    }
-
-    .xlfb thead,
-    .xlfb tbody th {
-        display: none;
-    }
-
-    /* 셀 */
-    .xlfb td {
         padding: 0;
         vertical-align: middle;
         overflow: hidden;
         word-break: break-word;
-        white-space: pre-wrap; /* 기본은 줄바꿈 허용 */
+        white-space: pre-wrap;
+        /* JS 가 별도 보더를 안 주는 경우에도 레이아웃이 무너지지 않도록 기본값만 투명 보더로 부여 */
+        border: 1px solid transparent;
+    }
+
+    /* EBPreview 시절 thead/th 숨김 유지 */
+    .xlfb thead,
+    .xlfb tbody th {
+        display: none;
     }
 
 /* 텍스트 입력 대상 셀: 자동 줄바꿈 금지, 우리가 넣은 \n 만 사용 */
@@ -208,14 +207,14 @@ input[type="date"]::-moz-focus-inner {
     outline: none;
     z-index: 4;
     pointer-events: auto;
-    font: inherit; /* 폰트 패밀리/사이즈는 위 공통값 사용 */
+    font: inherit;
     color: inherit;
-    line-height: inherit; /* JS에서 rowH(px)로 다시 덮어씀 */
+    line-height: inherit;
     padding: 0 var(--eb-cell-pad-x);
     margin: 0;
     resize: none;
     overflow: hidden;
-    white-space: pre; /* 측정/클램프 로직과 일치 */
+    white-space: pre;
     -webkit-user-modify: read-write-plaintext-only;
 }
 

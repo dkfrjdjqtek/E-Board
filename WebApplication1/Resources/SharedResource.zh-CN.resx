@@ -1104,4 +1104,7 @@
   <data name="DOC_Btn_CommentPost" xml:space="preserve">
     <value>提交评论</value>
   </data>
+  <data name="DOC_Btn_Recall" xml:space="preserve">
+    <value>撤回</value>
+  </data>
 </root>
