@@ -80,8 +80,8 @@
         word-break: break-word;
         white-space: pre-wrap;
         /* JS 가 별도 보더를 안 주는 경우에도 레이아웃이 무너지지 않도록 기본값만 투명 보더로 부여 */
-        border: 1px solid transparent;
-    }
+
+            }
 
     /* EBPreview 시절 thead/th 숨김 유지 */
     .xlfb thead,

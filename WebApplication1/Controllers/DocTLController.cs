@@ -1,10 +1,5 @@
-﻿// 2025.11.24 Changed: DocTLMap 미리보기 JSON에 스타일 정보 포함 및 EnsurePreviewJson에서 styles 보존
-// 2025.10.13 Changed: LoadTemplate() 미리보기 생성 시 latest.ExcelFilePath 직접 참조 제거, ADO로 Version.ExcelFilePath 조회하여 사용
-// 2025.10.13 Added: LoadTemplate()에서 기존 Excel 경로를 excelPathForPost 변수로 유지하여 ViewBag.ExcelPath에 전달(업데이트 저장 시 경로 유지)
-// 2025.10.13 Changed: 경고(CS8619) 억제를 위해 null 안전 연산자 일부 보완
-// 2025.10.13 Fixed: MapSave()가 기존 DocCode를 받아 같은 마스터에 새 버전으로 저장되도록 수정
-// 2025.10.13 Fixed: docCodeToSave 계산 후 실제 파라미터에 일관되게 사용
-
+﻿// 2025.11.28 Changed: DocTLMap previewJson 디버그 로그 추가(styles/styleGrid 존재 여부 확인용)
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -25,6 +20,7 @@ using Microsoft.Data.SqlClient;
 // 2025.10.13 Added: ADO 직접조회용 using
 using System.Data.Common;
 
+
 namespace WebApplication1.Controllers
 {
     [Authorize]
@@ -34,7 +30,30 @@ namespace WebApplication1.Controllers
         private readonly ApplicationDbContext _db;
         private readonly IStringLocalizer<SharedResource> _S;
         private readonly IWebHostEnvironment _env;
+        private static bool PreviewJsonHasStyles(string? previewJson)
+        {
+            if (string.IsNullOrWhiteSpace(previewJson)) return false;
 
+            try
+            {
+                using var doc = JsonDocument.Parse(previewJson);
+                var root = doc.RootElement;
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "styles", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prop.Name, "styleGrid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // 파싱 실패하면 false 로 간주
+            }
+
+            return false;
+        }
         [HttpGet("SearchUser")]
         public async Task<IActionResult> SearchUser(string? q, int take = 20, string? id = null, string? compCd = null)
         {
@@ -496,7 +515,7 @@ namespace WebApplication1.Controllers
             }
 
             var descriptorJsonRaw = ReadFileByRole("DescriptorJson", "DescriptorJSON", "Descriptor");
-            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview"); // ← DB 값은 일단 읽어오되, 아래에서 덮어씀
+            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview"); // DB 값(옛 포맷일 수 있음)
 
             if (string.IsNullOrWhiteSpace(descriptorJsonRaw))
             {
@@ -518,11 +537,11 @@ namespace WebApplication1.Controllers
             }
             var descriptorJsonForUi = JsonSerializer.Serialize(desc, new JsonSerializerOptions { WriteIndented = true });
 
-            // ★ 기존 엑셀 경로 찾기: Files → 없으면 Version.ExcelFilePath(ADO)
+            // ★ 기존 엑셀 경로 찾기: Files → 없으면 최신 버전 엔티티(latest)의 ExcelFilePath 사용
             string? excelPathForPost = null;
             try
             {
-                // Files 우선
+                // 1순위: DocTemplateFiles 에서 ExcelFile / Excel 역할 찾기
                 var excelMeta2 = files.FirstOrDefault(f =>
                     string.Equals(f.FileRole ?? "", "ExcelFile", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(f.FileRole ?? "", "Excel", StringComparison.OrdinalIgnoreCase));
@@ -535,17 +554,21 @@ namespace WebApplication1.Controllers
                     excelPathForPost = excelMeta2.FilePath;
                 }
 
-                // 없으면 Version.ExcelFilePath
+                // 2순위: EF 엔티티 프로퍼티 대신 ADO 로 DocTemplateVersion.ExcelFilePath 직접 조회
                 if (string.IsNullOrWhiteSpace(excelPathForPost))
                 {
-                    using var conn = _db.Database.GetDbConnection();
+                    await using var conn = _db.Database.GetDbConnection();
                     if (conn.State != ConnectionState.Open) await conn.OpenAsync();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "SELECT TOP 1 ExcelFilePath FROM DocTemplateVersion WHERE Id = @vid";
+
+                    await using var cmd = conn.CreateCommand();
+                    // 2025.11.28 Fixed: 실제 테이블명 DocTemplateVersions 로 수정
+                    cmd.CommandText = "SELECT TOP 1 ExcelFilePath FROM DocTemplateVersions WHERE Id = @vid";
+
                     var pVid = cmd.CreateParameter();
                     pVid.ParameterName = "@vid";
                     pVid.Value = latest.Id;
                     cmd.Parameters.Add(pVid);
+
                     var scalar = await cmd.ExecuteScalarAsync();
                     if (scalar != null && scalar != DBNull.Value)
                         excelPathForPost = Convert.ToString(scalar);
@@ -553,10 +576,10 @@ namespace WebApplication1.Controllers
             }
             catch
             {
-                // 경로 조회 실패 시 무시
+                // 경로 조회 실패 시는 무시하고, 아래 EnsurePreviewJson 쪽에서 최소 프리뷰만 유지
             }
 
-            // ★ DocTLMap에서는 DB previewJson 이 있더라도, 엑셀 파일이 있으면 항상 엑셀 기준으로 미리보기 다시 생성
+            // ★ DocTLMap에서는 엑셀 파일이 있으면 항상 엑셀 기준으로 미리보기 다시 생성(스타일 포함)
             if (!string.IsNullOrWhiteSpace(excelPathForPost) &&
                 System.IO.File.Exists(excelPathForPost))
             {
@@ -566,7 +589,7 @@ namespace WebApplication1.Controllers
                     var ws0 = wb.Worksheets.FirstOrDefault();
                     if (ws0 != null)
                     {
-                        // 여기서 Compose/Detail 과 동일한 BuildPreviewJsonWithStyles 사용
+                        // Compose/Detail 과 동일한 스타일 포함 프리뷰 생성
                         previewJson = BuildPreviewJsonWithStyles(ws0, 50, 26);
                     }
                 }
@@ -576,8 +599,11 @@ namespace WebApplication1.Controllers
                 }
             }
 
-            // 최종 안전망
+            // 최종 안전망(스타일 정보가 없으면 옛 포맷 → 새 포맷으로 최소 변환)
             previewJson = EnsurePreviewJson(previewJson);
+
+            // ★ 서버쪽에서 previewJson 구조 디버깅
+            DebugPreviewJson("LoadTemplate", previewJson);
 
             // ★ 기존 Excel 파일 경로 hidden 전달(업데이트 시 유지)
             ViewBag.ExcelPath = excelPathForPost;
@@ -591,7 +617,7 @@ namespace WebApplication1.Controllers
             ViewBag.Preview = previewJson;
 
             ViewBag.TemplateTitle = master.DocName;
-            ViewBag.DocCode = master.DocCode; // ★ 기존 DocCode 내려보냄
+            ViewBag.DocCode = master.DocCode; // 기존 DocCode 내려보냄
 
             if (embed || string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
                 return PartialView("DocTLMap");
@@ -877,6 +903,9 @@ namespace WebApplication1.Controllers
                         colW
                     });
                 }
+
+                // ★ 서버 디버그 출력
+                DebugPreviewJson("NewTemplatePost", previewJson);
 
                 ViewBag.PreviewJson = previewJson;
                 ViewData["PreviewJson"] = previewJson;
@@ -1255,12 +1284,48 @@ namespace WebApplication1.Controllers
             }
         }
 
-        // DocTLMap 미리보기용 스타일 포함 프리뷰 JSON 생성
+        private static (int w, string sty) ToBorderCss(ClosedXML.Excel.XLBorderStyleValues style)
+        {
+            switch (style)
+            {
+                case ClosedXML.Excel.XLBorderStyleValues.None:
+                    return (0, "none");
+
+                case ClosedXML.Excel.XLBorderStyleValues.Thin:
+                case ClosedXML.Excel.XLBorderStyleValues.Hair:
+                case ClosedXML.Excel.XLBorderStyleValues.Dotted:
+                case ClosedXML.Excel.XLBorderStyleValues.DashDotDot:
+                case ClosedXML.Excel.XLBorderStyleValues.Dashed:
+                    return (1, "solid");
+
+                case ClosedXML.Excel.XLBorderStyleValues.Medium:
+                case ClosedXML.Excel.XLBorderStyleValues.MediumDashed:
+                case ClosedXML.Excel.XLBorderStyleValues.MediumDashDot:
+                case ClosedXML.Excel.XLBorderStyleValues.MediumDashDotDot:
+                    return (2, "solid");
+
+                case ClosedXML.Excel.XLBorderStyleValues.Thick:
+                case ClosedXML.Excel.XLBorderStyleValues.Double:
+                    return (3, "solid");
+
+                default:
+                    return (1, "solid");
+            }
+        }
+
+        // DocTLMap/Compose 공통: 스타일 포함 프리뷰 JSON 생성 (EBDocPreview 기대 포맷: styleGrid)
+
+        /// ///////////
+
         private static string BuildPreviewJsonWithStyles(IXLWorksheet ws0, int maxRows = 50, int maxCols = 26)
         {
+            // 디버그 시작 로그
+            Debug.WriteLine($"[DocTL][BuildPreviewJsonWithStyles] start sheet={ws0.Name}, maxRows={maxRows}, maxCols={maxCols}");
+
             int rows = maxRows;
             int cols = maxCols;
 
+            // 1) 셀 값
             var cells = new List<List<string>>(rows);
             for (int r = 1; r <= rows; r++)
             {
@@ -1272,6 +1337,7 @@ namespace WebApplication1.Controllers
                 cells.Add(row);
             }
 
+            // 2) 병합 정보
             var merges = new List<int[]>();
             foreach (var mr in ws0.MergedRanges)
             {
@@ -1284,6 +1350,7 @@ namespace WebApplication1.Controllers
                 if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
             }
 
+            // 3) 열폭(엑셀 단위 + px), 행높이(px)
             var colW = new List<double>(cols);
             var colPx = new List<int>(cols);
             for (int c = 1; c <= cols; c++)
@@ -1304,78 +1371,104 @@ namespace WebApplication1.Controllers
                 rowPx.Add(px);
             }
 
+            // 4) 스타일: styleGrid[r][c] = "A5" 같은 키, styles["A5"] = 실제 스타일 객체
+            var styleGrid = new List<List<string?>>(rows);
+            for (int r = 0; r < rows; r++)
+            {
+                var line = new List<string?>(cols);
+                for (int c = 0; c < cols; c++) line.Add(null);
+                styleGrid.Add(line);
+            }
+
             var styles = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
-            var used = ws0.RangeUsed() ?? ws0.Range("A1");
             var defaultStyle = ws0.Style;
 
-            foreach (var cell in used.Cells())
+            for (int r = 1; r <= rows; r++)
             {
-                var addr = cell.Address;
-                int r = addr.RowNumber;
-                int c = addr.ColumnNumber;
-                if (r < 1 || c < 1 || r > rows || c > cols) continue;
-
-                var st = cell.Style;
-
-                bool hasAny =
-                    !cell.IsEmpty() ||
-                    st.Font.Bold || st.Font.Italic ||
-                    st.Font.FontSize != defaultStyle.Font.FontSize ||
-                    st.Font.FontName != defaultStyle.Font.FontName ||
-                    st.Fill.BackgroundColor.ColorType != defaultStyle.Fill.BackgroundColor.ColorType ||
-                    st.Border.LeftBorder != defaultStyle.Border.LeftBorder ||
-                    st.Border.RightBorder != defaultStyle.Border.RightBorder ||
-                    st.Border.TopBorder != defaultStyle.Border.TopBorder ||
-                    st.Border.BottomBorder != defaultStyle.Border.BottomBorder ||
-                    st.Alignment.Horizontal != defaultStyle.Alignment.Horizontal ||
-                    st.Alignment.Vertical != defaultStyle.Alignment.Vertical ||
-                    st.Alignment.WrapText != defaultStyle.Alignment.WrapText;
-
-                if (!hasAny) continue;
-
-                string a1 = addr.ToStringRelative();
-
-                var fontColor = ToHex(st.Font.FontColor);
-                var bgColor = ToHex(st.Fill.BackgroundColor);
-                var borderColor =
-                    ToHex(st.Border.TopBorderColor) ??
-                    ToHex(st.Border.LeftBorderColor) ??
-                    ToHex(st.Border.RightBorderColor) ??
-                    ToHex(st.Border.BottomBorderColor);
-
-                var font = new
+                for (int c = 1; c <= cols; c++)
                 {
-                    name = st.Font.FontName,
-                    size = st.Font.FontSize,
-                    bold = st.Font.Bold,
-                    italic = st.Font.Italic,
-                    color = fontColor
-                };
+                    var cell = ws0.Cell(r, c);
+                    var st = cell.Style;
 
-                var alignment = new
-                {
-                    horizontal = st.Alignment.Horizontal.ToString(),
-                    vertical = st.Alignment.Vertical.ToString(),
-                    wrapText = st.Alignment.WrapText
-                };
+                    bool hasAny =
+                        !cell.IsEmpty() ||
+                        st.Font.Bold || st.Font.Italic ||
+                        st.Font.FontSize != defaultStyle.Font.FontSize ||
+                        st.Font.FontName != defaultStyle.Font.FontName ||
+                        st.Fill.BackgroundColor.ColorType != defaultStyle.Fill.BackgroundColor.ColorType ||
+                        st.Border.LeftBorder != defaultStyle.Border.LeftBorder ||
+                        st.Border.RightBorder != defaultStyle.Border.RightBorder ||
+                        st.Border.TopBorder != defaultStyle.Border.TopBorder ||
+                        st.Border.BottomBorder != defaultStyle.Border.BottomBorder ||
+                        st.Alignment.Horizontal != defaultStyle.Alignment.Horizontal ||
+                        st.Alignment.Vertical != defaultStyle.Alignment.Vertical ||
+                        st.Alignment.WrapText != defaultStyle.Alignment.WrapText;
 
-                var border = new
-                {
-                    left = st.Border.LeftBorder.ToString(),
-                    right = st.Border.RightBorder.ToString(),
-                    top = st.Border.TopBorder.ToString(),
-                    bottom = st.Border.BottomBorder.ToString(),
-                    color = borderColor
-                };
+                    if (!hasAny) continue;
 
-                styles[a1] = new
-                {
-                    font,
-                    alignment,
-                    border,
-                    backgroundColor = bgColor
-                };
+                    string a1 = cell.Address.ToStringRelative(); // 예: "B7"
+
+                    var fontColor = ToHex(st.Font.FontColor);
+                    var bgColor = ToHex(st.Fill.BackgroundColor);
+
+                    var borderColor =
+                        ToHex(st.Border.TopBorderColor) ??
+                        ToHex(st.Border.LeftBorderColor) ??
+                        ToHex(st.Border.RightBorderColor) ??
+                        ToHex(st.Border.BottomBorderColor) ??
+                        "#000000";
+
+                    var (wl, stylL) = ToBorderCss(st.Border.LeftBorder);
+                    var (wr, stylR) = ToBorderCss(st.Border.RightBorder);
+                    var (wt, stylT) = ToBorderCss(st.Border.TopBorder);
+                    var (wb, stylB) = ToBorderCss(st.Border.BottomBorder);
+
+                    // ★ EBPreview JS에서 사용하는 flat 구조 + (혹시 모를 향후용 nested 구조도 같이 넣어 줌)
+                    var styleObj = new
+                    {
+                        // flat 필드 (JS에서 직접 읽어가는 용도)
+                        fontName = st.Font.FontName,
+                        fontSize = st.Font.FontSize,
+                        bold = st.Font.Bold,
+                        italic = st.Font.Italic,
+                        color = fontColor,
+                        bgColor = bgColor,
+                        hAlign = st.Alignment.Horizontal.ToString(),
+                        vAlign = st.Alignment.Vertical.ToString(),
+                        wrap = st.Alignment.WrapText,
+                        borderLeft = new { w = wl, sty = stylL, color = borderColor },
+                        borderRight = new { w = wr, sty = stylR, color = borderColor },
+                        borderTop = new { w = wt, sty = stylT, color = borderColor },
+                        borderBottom = new { w = wb, sty = stylB, color = borderColor },
+
+                        // 참고/백업용 nested 구조(나중에 JS 고칠 때 써도 되도록 유지)
+                        font = new
+                        {
+                            name = st.Font.FontName,
+                            size = st.Font.FontSize,
+                            bold = st.Font.Bold,
+                            italic = st.Font.Italic,
+                            color = fontColor
+                        },
+                        align = new
+                        {
+                            h = st.Alignment.Horizontal.ToString(),
+                            v = st.Alignment.Vertical.ToString(),
+                            wrap = st.Alignment.WrapText
+                        },
+                        border = new
+                        {
+                            l = new { w = wl, sty = stylL, color = borderColor },
+                            r = new { w = wr, sty = stylR, color = borderColor },
+                            t = new { w = wt, sty = stylT, color = borderColor },
+                            b = new { w = wb, sty = stylB, color = borderColor }
+                        }
+                    };
+
+                    styles[a1] = styleObj;
+                    styleGrid[r - 1][c - 1] = a1;
+                }
             }
 
             var preview = new
@@ -1388,7 +1481,8 @@ namespace WebApplication1.Controllers
                 colW,
                 colPx,
                 rowPx,
-                styles
+                styles,
+                styleGrid
             };
 
             return JsonSerializer.Serialize(preview);
@@ -1533,6 +1627,57 @@ namespace WebApplication1.Controllers
             }
         }
 
+        // ★ previewJson 내용을 서버 Output 창에 덤프하는 공용 디버그 함수
+        private static void DebugPreviewJson(string tag, string? previewJson)
+        {
+            if (string.IsNullOrWhiteSpace(previewJson))
+            {
+                Debug.WriteLine($"[DocTLMap DEBUG] {tag}: previewJson is null/empty");
+                return;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(previewJson);
+                var root = doc.RootElement;
+
+                var keys = new List<string>();
+                foreach (var p in root.EnumerateObject())
+                    keys.Add(p.Name);
+
+                bool hasStyles = false, hasStyleGrid = false, hasColPx = false, hasRowPx = false;
+                foreach (var k in keys)
+                {
+                    if (string.Equals(k, "styles", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(k, "cellStyles", StringComparison.OrdinalIgnoreCase))
+                        hasStyles = true;
+                    if (string.Equals(k, "styleGrid", StringComparison.OrdinalIgnoreCase))
+                        hasStyleGrid = true;
+                    if (string.Equals(k, "colPx", StringComparison.OrdinalIgnoreCase))
+                        hasColPx = true;
+                    if (string.Equals(k, "rowPx", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(k, "rowH", StringComparison.OrdinalIgnoreCase))
+                        hasRowPx = true;
+                }
+
+                Debug.WriteLine($"[DocTLMap DEBUG] {tag}: len={previewJson.Length}, keys=[{string.Join(",", keys)}], hasStyles={hasStyles}, hasStyleGrid={hasStyleGrid}, hasColPx={hasColPx}, hasRowPx={hasRowPx}");
+
+                if (root.TryGetProperty("styles", out var styles) && styles.ValueKind == JsonValueKind.Object)
+                {
+                    int cnt = 0;
+                    foreach (var s in styles.EnumerateObject())
+                    {
+                        Debug.WriteLine($"[DocTLMap DEBUG] {tag}: styles sample {s.Name} -> {s.Value}");
+                        if (++cnt >= 2) break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DocTLMap DEBUG] {tag}: previewJson parse error - {ex.Message}");
+            }
+        }
+
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
         public IActionResult MapSave(
@@ -1611,6 +1756,11 @@ namespace WebApplication1.Controllers
                     // 실패 시 그냥 null 유지 → 아래에서 DBNull.Value 로 저장
                 }
             }
+
+            // ★ 저장 직전 previewJson 구조 디버깅
+            DebugPreviewJson("MapSave", previewJson);
+
+            Debug.WriteLine($"[DocTL][MapSave] previewJson length={(previewJson?.Length ?? 0)}, hasStyles={PreviewJsonHasStyles(previewJson)}");
 
             // ★ Excel 파일명/사이즈는 넘어온 경로 기준으로 유지
             var excelFileName = string.IsNullOrWhiteSpace(excelPath) ? "unknown.xlsx" : Path.GetFileName(excelPath);
@@ -1704,5 +1854,5 @@ namespace WebApplication1.Controllers
             var fileName = Path.GetFileName(path);
             return File(bytes, "application/json", fileName);
         }
-    }
+    }    
 }

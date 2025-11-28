@@ -1,4 +1,4 @@
-﻿@* 2025.11.19 Changed: Detail 레이아웃을 Compose/Board 공통 scroll host 방식으로 통일
+﻿﻿@* 2025.11.19 Changed: Detail 레이아웃을 Compose/Board 공통 scroll host 방식으로 통일
    - html/body 전역 스크롤 hidden + #doc-scroll fixed inset:0 한 곳만 세로 스크롤 담당
    - 가로 스크롤은 eb.doc.preview.common.js / eb.doc.preview.css 에서 관리하는 프리뷰 전용 컨테이너에 맡기고
      Detail 쪽에서는 #xlPreview/#xhost overflow 를 더 이상 덮어쓰지 않음(전역 가로 스크롤/문서 가림 현상 방지)
@@ -68,9 +68,9 @@
     }
 
     /* ===== Detail 작업 영역 컨테이너
-           - Compose 와 동일하게 레이아웃 CSS 변수 기준 고정
-           - placeContainer() 가 inline 으로 top/left/right/bottom 을 써도
-             아래 !important 가 항상 우선 ===== */
+               - Compose 와 동일하게 레이아웃 CSS 변수 기준 고정
+               - placeContainer() 가 inline 으로 top/left/right/bottom 을 써도
+                 아래 !important 가 항상 우선 ===== */
     #doc-scroll {
         position: fixed;
         top: var(--header-h, 56px) !important;
@@ -614,8 +614,8 @@
                     const li = document.createElement('li');
                     li.innerHTML =
                         `<span>${escapeHtml(f.name)}</span>
-                                 <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
-                                 <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
+                                         <span class="text-muted">(${Number(f.size || 0).toLocaleString()})</span>
+                                         <button type="button" class="btn btn-outline-secondary btn-sm" data-remove="${i}">&times;</button>`;
                     $fileList.append(li);
                 });
             }
@@ -653,12 +653,12 @@
                     if (depth > 0) wrap.style.marginLeft = (depth * 16) + 'px';
 
                     wrap.innerHTML = `
-                                <div class="doc-comment-meta">
-                                    <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
-                                    <span>${escapeHtml(c.createdAt || '')}</span>
-                                </div>
-                                <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
-                            `;
+                                        <div class="doc-comment-meta">
+                                            <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
+                                            <span>${escapeHtml(c.createdAt || '')}</span>
+                                        </div>
+                                        <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
+                                    `;
 
                     $list.append(wrap);
                 });
@@ -785,10 +785,10 @@
                     const st = a.status || a.Action || 'Pending';
                     const when = a.actedAtText || a.actedAt || '';
                     tr.innerHTML = `
-                                <td>${esc(role)}</td>
-                                <td>${esc(val)}</td>
-                                <td>${esc(st)}</td>
-                                <td>${esc(when)}</td>`;
+                                        <td>${esc(role)}</td>
+                                        <td>${esc(val)}</td>
+                                        <td>${esc(st)}</td>
+                                        <td>${esc(when)}</td>`;
                     tbody.append(tr);
                 });
         })();

@@ -1,12 +1,27 @@
-﻿@* 2025.11.26 Changed DocTLMap EBPreview 공통 스크립트 기반 엑셀 미리보기 마운트 복원 및 A1 선택 연동 DescriptorPreview JSON ID 통일 프리뷰 mount 호출 추가 *@
+﻿@* 2025.11.28 Changed: DocTLMap 프리뷰 셀 테두리·폰트·정렬을 Detail 화면과 동일하게 보이도록 #xlPreview .xlfb td/th 기본 서식 강제 적용 *@
+@* 2025.11.28 Changed: DocTLMap 프리뷰 HTML 구조와 EBPreview 마운트 방식을 Detail 화면과 동일하게 정렬
+   - 미리보기 영역: #xlPreview 안에 #xhost 를 두는 구조로 단순화 (#doc-scroll 는 맵 전용 id 로 분리)
+   - 프리뷰 마운트: window.EBDocPreview.mount("#xlPreview", preview, { isWrite:false }) 로 Detail 과 동일하게 호출
+   - 나머지 입력필드/결재 매핑/저장 로직은 이전 버전 그대로 유지 *@
+@* 2025.11.27 Changed: DocTLMap 엑셀 테두리 및 서식 EBPreview 공통 스타일 사용으로 정리 *@
+@* 2025.11.27 Changed: DocTLMap 미리보기 영역을 EBPreview 공통 렌더링과 완전히 동일하게 사용하도록 정리
+   - eb.doc.preview.css 에서 내려오는 셀 스타일(폰트 정렬 테두리)을 그대로 쓰도록 td 기본 border 강제 지정 제거
+   - Map 화면에서는 isWrite:false 로 마운트(편집 불가), 나머지 필드 결재 매핑 UI 및 A1 연동 로직은 기존 그대로 유지 *@
 @using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 
 @{
-    // 2025.09.30 Changed: AJAX 로 진입한 경우 레이아웃 미사용으로 헤더 사라짐 방지
+    // AJAX 로 진입한 경우 레이아웃 미사용
     var isAjax = string.Equals(Context.Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
     Layout = isAjax ? null : "~/Views/Shared/_Layout.cshtml";
     ViewData["Title"] = ViewBag.TemplateTitle ?? "템플릿";
+}
+
+@section Styles {
+    <!-- Compose / Detail에서 이미 쓰고 있는 프리뷰 전용 CSS와 동일한 경로 -->
+    <link rel="stylesheet"
+          href="~/css/eb.doc.preview.css"
+          asp-append-version="true" />
 }
 
 <style>
@@ -54,26 +69,31 @@
         background: #fff;
     }
 
-    /* Map 전용: Compose/Detail 의 #doc-scroll 를 카드 내부 스크롤로 사용
-       공통 스크립트의 fixed 레이아웃 강제(top/left/right/bottom)를 막기 위해 !important 추가 */
-    #doc-scroll {
-        position: relative;
+    /* 맵 화면 전용 스크롤 컨테이너 */
+    #map-preview-scroll {
         max-height: 480px;
         overflow: auto;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
     }
 
     #xhost .xlfb {
         border-collapse: collapse;
     }
 
-        #xhost .xlfb td {
-            border: 1px solid #e5e7eb; /* 아주 연한 기본 격자 */
-            box-sizing: border-box;
-        }
+    /* ★ 핵심: Detail 화면과 동일한 프리뷰 셀 기본 서식을 Map 화면에도 강제 적용
+           - getComputedStyle 로 확인된 값과 동일하게 지정
+           - eb.doc.preview.css 의 규칙이 상위 셀렉터(예: #doc-scroll ...)에 묶여 있어서
+             DocTLMap 구조에서는 적용되지 않는 부분을 #xlPreview 아래에서 다시 한 번 선언해 줌 */
+    #xlPreview .xlfb td,
+    #xlPreview .xlfb th {
+        padding: 0;
+        border-style: solid;
+        border-width: 1px;
+        border-color: rgb(212, 212, 212);
+        font-family: "Malgun Gothic", "맑은 고딕", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 11px;
+        line-height: 1.2;
+        vertical-align: middle;
+    }
 </style>
 
 <div class="container-fluid py-3">
@@ -87,7 +107,7 @@
         <div class="alert alert-danger mb-3">@alertMsg</div>
     }
 
-    <!-- Descriptor / Preview JSON (EBDocPreview 와 Map 양쪽에서 공통 사용) -->
+    <!-- Descriptor / Preview JSON (EBDocPreview 공통 사용) -->
     <script id="DescriptorJson" type="application/json">
         @Html.Raw((ViewData["DescriptorJson"] as string) ?? (ViewBag.DescriptorJson ?? "{}"))
     </script>
@@ -97,9 +117,9 @@
 
     <form id="mapForm" method="post" action="/DocumentTemplates/map-save">
         @Html.AntiForgeryToken()
-        <input type="hidden" name="descriptor" id="descriptor">
-        <input type="hidden" name="excelPath" value="@ViewBag.ExcelPath">
-        <input type="hidden" name="previewJson" id="previewJson">
+        <input type="hidden" name="descriptor" id="descriptor" />
+        <input type="hidden" name="excelPath" value="@ViewBag.ExcelPath" />
+        <input type="hidden" name="previewJson" id="previewJson" />
         <input type="hidden" name="docCode" value="@ViewBag.DocCode" />
 
         <div class="row g-3">
@@ -162,9 +182,8 @@
                     <div class="card-body">
                         <div class="text-muted small mb-2">@S["DTL_Info_ClickToFill"]</div>
 
-                        <!-- EBDocPreview 가 #xhost 안에 실제 엑셀 프리뷰를 렌더링 -->
                         <div id="xlPreview" class="mt-2">
-                            <div id="doc-scroll">
+                            <div id="map-preview-scroll">
                                 <div id="xhost"></div>
                             </div>
                         </div>
@@ -183,19 +202,17 @@
     </form>
 </div>
 
-@* ===== 프리뷰 공통 자산(css/js) ===== *@
-<link rel="stylesheet" href="~/css/eb.doc.preview.css" asp-append-version="true" />
+@* 프리뷰 공통 자산 *@
 <script src="~/js/eb.doc.preview.common.js" asp-append-version="true"></script>
 
-@* ===== Map 전용: A1 선택 연동(프리뷰 셀 → A1 입력) ===== *@
+@* A1 선택 연동: 프리뷰 셀 클릭 → window.__a1.set *@
 <script>
     (function () {
         function rcToA1(row, col) {
             row = parseInt(row || "0", 10);
             col = parseInt(col || "0", 10);
             if (!row || !col) return "";
-            var c = col;
-            var letters = "";
+            var c = col, letters = "";
             while (c > 0) {
                 var rem = (c - 1) % 26;
                 letters = String.fromCharCode(65 + rem) + letters;
@@ -211,16 +228,11 @@
             host.addEventListener("click", function (ev) {
                 var td = ev.target.closest && ev.target.closest("td");
                 if (!td) return;
-
                 var a1 = rcToA1(td.getAttribute("data-r"), td.getAttribute("data-c"));
                 if (!a1) return;
-
                 if (window.__a1 && typeof window.__a1.set === "function") {
-                    try {
-                        window.__a1.set(a1);
-                    } catch (e) {
-                        console.error("[DocTLMap] __a1.set error", e);
-                    }
+                    try { window.__a1.set(a1); }
+                    catch (e) { console.error("[DocTLMap] __a1.set error", e); }
                 }
             }, { passive: true });
 
@@ -235,381 +247,57 @@
     })();
 </script>
 
-@* ===== Map 전용: 프리뷰 마운트 호출(EBDocPreview → #xhost) ===== *@
+@* 프리뷰 마운트: Detail 과 동일하게 EBPreview 사용 *@
 <script>
     (function () {
-        var mounted = false;
-
-        function mountPreview() {
-            if (mounted) return;
-            mounted = true;
-
-            if (!window.EBDocPreview || !window.EBDocPreview.preview) {
-                console.warn("[DocTLMap] EBDocPreview or preview not ready");
+        function initPreview() {
+            if (!window.EBDocPreview || typeof window.EBDocPreview.mount !== "function") {
+                console.warn("[DocTLMap] EBDocPreview.mount not ready");
                 return;
             }
-            var p = window.EBDocPreview.preview;
-            if (!p || !p.cells || !p.cells.length) {
-                console.warn("[DocTLMap] preview.cells empty");
+
+            var el = document.getElementById("PreviewJson");
+            if (!el) {
+                console.warn("[DocTLMap] PreviewJson script not found");
+                return;
+            }
+
+            var raw = (el.textContent || "").trim();
+            if (!raw) {
+                console.warn("[DocTLMap] preview data empty");
                 return;
             }
 
             try {
+                var preview = JSON.parse(raw);
+                console.log("[DocTLMap] preview keys:", Object.keys(preview || {}));
+                console.log("[DocTLMap] has styles? true styleGrid?", !!(preview && preview.styles && preview.styleGrid));
+
                 // Map 화면은 편집 오버레이 필요 없으므로 isWrite:false
-                window.EBDocPreview.mount("#xhost", p, { isWrite: false });
+                window.EBDocPreview.mount("#xlPreview", preview, { isWrite: false });
+
+                console.log("[DocTLMap] preview mounted");
             } catch (e) {
                 console.error("[DocTLMap] preview mount error", e);
             }
         }
 
         if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", mountPreview);
+            document.addEventListener("DOMContentLoaded", initPreview, { once: true });
         } else {
-            mountPreview();
+            initPreview();
         }
     })();
 </script>
 
-@* ===== Map 본체 JS (AJAX / 비 AJAX 공통 구조 유지, DescriptorJson/PreviewJson 기준으로만 수정) ===== *@
+@* 본체 JS: 필드/결재 매핑 렌더 & 저장 (기존 로직 그대로) *@
 @if (isAjax)
 {
     <script>
         (function (run) {
             if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
             else run();
-        })(function () {
-            const L = {
-                PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
-                NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
-                NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
-                Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
-                MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
-                MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
-                UserSearchPH: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_SearchPH"].Value)),
-                UserNoResult: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_NoResult"].Value)),
-                UserLoading: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Loading"].Value)),
-                UserClear: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Clear"].Value))
-            };
-            const T = {
-                TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
-                TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
-                TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
-            };
-            const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTL")));
-
-            function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-            async function fetchUsers(q, take = 20) {
-                const url = new URL(USER_API, location.origin);
-                if (q && q.trim()) url.searchParams.set("q", q.trim());
-                url.searchParams.set("take", take);
-                const r = await fetch(url.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
-                if (!r.ok) return [];
-                return await r.json();
-            }
-            async function fetchUserById(id) {
-                if (!id) return null;
-                const url = new URL(USER_API, location.origin);
-                url.searchParams.set("id", id);
-                const r = await fetch(url.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
-                if (!r.ok) return null;
-                const arr = await r.json();
-                return Array.isArray(arr) && arr.length ? arr[0] : null;
-            }
-
-            (function () {
-                const raw = (document.getElementById("DescriptorJson")?.textContent || "{}").trim();
-                let desc = {}; try { desc = JSON.parse(raw); } catch { desc = {}; }
-                if (!Array.isArray(desc.Fields)) desc.Fields = [];
-                if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
-
-                const fieldsBody = document.getElementById("tblFieldsBody");
-                const apprBody = document.getElementById("tblApprBody");
-
-                function opt(val, text, sel) { const o = document.createElement("option"); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
-                window.__a1 = window.__a1 || {};
-
-                async function buildUserSelect(selectedId) {
-                    const sel = document.createElement("select");
-                    sel.className = "form-select form-select-sm";
-                    sel.append(opt("", "—", false));
-                    let list = [];
-                    try { list = await fetchUsers("", 50); } catch { list = []; }
-                    list.forEach(x => sel.append(opt(x.id, x.text, x.id == selectedId)));
-                    return sel;
-                }
-
-                function render() {
-                    fieldsBody.innerHTML = "";
-                    if (desc.Fields.length === 0) {
-                        const tr = document.createElement("tr"); const td = document.createElement("td");
-                        td.colSpan = 4; td.className = "text-muted"; td.textContent = L.NoRows; tr.appendChild(td); fieldsBody.appendChild(tr);
-                    } else {
-                        desc.Fields.forEach((f, i) => {
-                            const tr = document.createElement("tr");
-
-                            const tdKey = document.createElement("td");
-                            const inpKey = document.createElement("input");
-                            inpKey.className = "form-control form-control-sm key-input";
-                            inpKey.placeholder = "예: Item_{n} 또는 Item_{row}";
-                            inpKey.value = f.Key || "";
-                            inpKey.addEventListener("input", e => { desc.Fields[i].Key = e.target.value; });
-                            tdKey.appendChild(inpKey);
-
-                            const tdType = document.createElement("td");
-                            const sel = document.createElement("select");
-                            sel.className = "form-select form-select-sm";
-                            sel.append(opt("Text", T.TypeText, (f.Type || "Text") === "Text"));
-                            sel.append(opt("Date", T.TypeDate, (f.Type || "Text") === "Date"));
-                            sel.append(opt("Num", T.TypeNum, (f.Type || "Text") === "Num"));
-                            sel.addEventListener("change", e => { desc.Fields[i].Type = e.target.value; });
-                            tdType.appendChild(sel);
-
-                            const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
-                            const grp = document.createElement("div"); grp.className = "input-group input-group-sm";
-
-                            const inputA1 = document.createElement("input");
-                            inputA1.className = "form-control"; inputA1.placeholder = "예: C9 또는 C9:C35";
-                            inputA1.value = (f.Cell && f.Cell.A1) || "";
-                            inputA1.addEventListener("input", e => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = e.target.value; });
-                            inputA1.addEventListener("focus", () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                    desc.Fields[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add("a1-active");
-                                    setTimeout(() => inputA1.classList.remove("a1-active"), 800);
-                                };
-                            });
-
-                            const pickBtn = document.createElement("button");
-                            pickBtn.type = "button"; pickBtn.className = "btn btn-outline-secondary d-none";
-                            pickBtn.textContent = L.PickCell;
-                            pickBtn.addEventListener("click", () => {
-                                inputA1.focus();
-                                document.getElementById("xlPreview").scrollIntoView({ behavior: "smooth", block: "start" });
-                            });
-
-                            grp.append(inputA1, pickBtn);
-                            tdA1.appendChild(grp);
-
-                            const tdAct = document.createElement("td");
-                            const delBtn = document.createElement("button");
-                            delBtn.type = "button";
-                            delBtn.className = "btn btn-outline-danger btn-sm";
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener("click", () => { desc.Fields.splice(i, 1); render(); });
-                            tdAct.appendChild(delBtn);
-
-                            tr.append(tdKey, tdType, tdA1, tdAct);
-                            fieldsBody.appendChild(tr);
-                        });
-                    }
-
-                    apprBody.innerHTML = "";
-                    if (desc.Approvals.length === 0) {
-                        const tr = document.createElement("tr"); const td = document.createElement("td");
-                        td.colSpan = 6; td.className = "text-muted"; td.textContent = L.NoRows; tr.appendChild(td); apprBody.appendChild(tr);
-                    } else {
-                        desc.Approvals.forEach((a, i) => {
-                            a = a || {}; if (!a.Cell) a.Cell = {}; if (!a.ApproverType) a.ApproverType = "Person"; if (a.ApproverValue == null) a.ApproverValue = "";
-
-                            const tr = document.createElement("tr");
-
-                            const tdS = document.createElement("td");
-                            const inpS = document.createElement("input");
-                            inpS.type = "number"; inpS.min = "1"; inpS.className = "form-control form-control-sm";
-                            inpS.value = a.Slot ?? 1; inpS.addEventListener("input", e => { desc.Approvals[i].Slot = parseInt(e.target.value || "1", 10); });
-                            tdS.appendChild(inpS);
-
-                            const tdP = document.createElement("td");
-                            const inpP = document.createElement("input");
-                            inpP.className = "form-control form-control-sm";
-                            inpP.value = a.Part || ""; inpP.addEventListener("input", e => { desc.Approvals[i].Part = e.target.value; });
-                            tdP.appendChild(inpP);
-
-                            const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
-                            const grpA1 = document.createElement("div"); grpA1.className = "input-group input-group-sm";
-                            const inputA1 = document.createElement("input");
-                            inputA1.className = "form-control"; inputA1.placeholder = "예: H4";
-                            inputA1.value = a.Cell.A1 || "";
-                            inputA1.addEventListener("input", e => {
-                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                desc.Approvals[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener("focus", () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                    desc.Approvals[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add("a1-active");
-                                    setTimeout(() => inputA1.classList.remove("a1-active"), 800);
-                                };
-                            });
-                            grpA1.append(inputA1);
-                            tdA1.appendChild(grpA1);
-
-                            const tdType = document.createElement("td");
-                            const selType = document.createElement("select");
-                            selType.className = "form-select form-select-sm";
-                            [["Person", "개인(사용자)"], ["Role", "역할 코드"], ["Rule", "규칙(조건)"]].forEach(([v, l]) => {
-                                const o = document.createElement("option");
-                                o.value = v;
-                                o.text = l;
-                                if ((a.ApproverType || "Person") === v) o.selected = true;
-                                selType.appendChild(o);
-                            });
-                            selType.addEventListener("change", e => {
-                                const t = e.target.value;
-                                desc.Approvals[i].ApproverType = t;
-                                render();
-                            });
-                            tdType.appendChild(selType);
-
-                            const tdVal = document.createElement("td");
-                            if ((a.ApproverType || "Person") === "Person") {
-                                const holder = document.createElement("div");
-                                tdVal.appendChild(holder);
-                                (async () => {
-                                    const sel = await buildUserSelect(a.ApproverValue || "");
-                                    sel.addEventListener("change", ev => {
-                                        desc.Approvals[i].ApproverValue = ev.target.value || "";
-                                    });
-                                    holder.replaceChildren(sel);
-                                })();
-                            } else {
-                                const inpVal = document.createElement("input");
-                                inpVal.className = "form-control form-control-sm";
-                                if ((a.ApproverType || "Person") === "Role") inpVal.placeholder = "역할 코드";
-                                else inpVal.placeholder = "규칙 JSON";
-                                inpVal.value = a.ApproverValue || "";
-                                inpVal.addEventListener("input", e => {
-                                    desc.Approvals[i].ApproverValue = e.target.value;
-                                });
-                                tdVal.appendChild(inpVal);
-                            }
-
-                            const tdAct = document.createElement("td");
-                            const delBtn = document.createElement("button");
-                            delBtn.type = "button";
-                            delBtn.className = "btn btn-outline-danger btn-sm";
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener("click", () => {
-                                desc.Approvals.splice(i, 1);
-                                render();
-                            });
-                            tdAct.appendChild(delBtn);
-
-                            tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
-                            apprBody.appendChild(tr);
-                        });
-                    }
-                } // render
-
-                function tryParseRange(a1) {
-                    const m = String(a1 || "").trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-                    if (!m || m[1] !== m[3]) return null;
-                    let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10);
-                    if (r2 < r1) [r1, r2] = [r2, r1];
-                    return { col: m[1], r1, r2 };
-                }
-
-                function expandFieldsForSave(fields) {
-                    const out = [];
-                    for (const f of fields) {
-                        const a1 = f?.Cell?.A1 || "";
-                        const rg = tryParseRange(a1);
-                        if (!rg) { out.push(f); continue; }
-
-                        const tpl = (f.Key || "").trim();
-                        let idx = 1;
-                        for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                            let keyBase = (tpl || "Field");
-                            let key = keyBase;
-                            if (key.includes("{n}")) key = key.replaceAll("{n}", String(idx));
-                            if (key.includes("{row}")) key = key.replaceAll("{row}", String(r));
-                            if (key === keyBase) key = `${keyBase}_${r}`;
-                            out.push({ Key: key, Type: f.Type || "Text", Cell: { A1: `${rg.col}${r}` } });
-                        }
-                    }
-                    return out;
-                }
-
-                function hasDuplicateKeys(items) {
-                    const seen = new Set();
-                    for (const it of items) {
-                        const k = (it.Key || "").trim();
-                        if (!k) return { ok: false, reason: "empty" };
-                        if (seen.has(k)) return { ok: false, reason: "dup", key: k };
-                        seen.add(k);
-                    }
-                    return { ok: true };
-                }
-
-                function validateApprovals(apprs) {
-                    for (let i = 0; i < apprs.length; i++) {
-                        const a = apprs[i] || {};
-                        const slot = parseInt(a.Slot ?? 1, 10);
-                        if (!Number.isFinite(slot) || slot < 1) {
-                            return { ok: false, msg: `결재란 #${i + 1}: Slot은 1 이상 정수여야 합니다.` };
-                        }
-                        const t = (a.ApproverType || "Person");
-                        if (!["Person", "Role", "Rule"].includes(t)) {
-                            return { ok: false, msg: "결재권자 유형이 올바르지 않습니다." };
-                        }
-                        const v = (a.ApproverValue || "").trim();
-                        if (t === "Person" || t === "Role") {
-                            if (!v) {
-                                return {
-                                    ok: false,
-                                    msg: `결재란 #${i + 1}: ${t === "Person" ? "사용자 ID" : "역할 코드"}를 입력해 주세요.`
-                                };
-                            }
-                        } else if (t === "Rule") {
-                            if (!v) return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON을 입력해 주세요.` };
-                            try {
-                                const obj = JSON.parse(v);
-                                if (obj == null || typeof obj !== "object") throw 0;
-                            } catch {
-                                return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` };
-                            }
-                        }
-                    }
-                    return { ok: true };
-                }
-
-                document.getElementById("btnAddField").addEventListener("click", () => {
-                    desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
-                    render();
-                });
-                document.getElementById("btnAddAppr").addEventListener("click", () => {
-                    desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: "Person", ApproverValue: "" });
-                    render();
-                });
-
-                document.getElementById("btnSave").addEventListener("click", () => {
-                    const payload = JSON.parse(JSON.stringify(desc));
-                    payload.Fields = expandFieldsForSave(desc.Fields);
-
-                    const ck = hasDuplicateKeys(payload.Fields);
-                    if (!ck.ok) {
-                        if (ck.reason === "empty") alert(L.MsgKeyEmpty);
-                        else if (ck.reason === "dup") alert(L.MsgKeyDup + " " + (ck.key || ""));
-                        return;
-                    }
-                    const v2 = validateApprovals(payload.Approvals || []);
-                    if (!v2.ok) { alert(v2.msg); return; }
-
-                    document.getElementById("descriptor").value = JSON.stringify(payload);
-
-                    const prevRaw = (document.getElementById("PreviewJson")?.textContent || "").trim();
-                    document.getElementById("previewJson").value = prevRaw || "";
-
-                    document.getElementById("mapForm").submit();
-                });
-
-                render();
-            })();
-        });
+        })(initDocTLMap);
     </script>
 }
 else
@@ -619,338 +307,347 @@ else
         (function (run) {
             if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
             else run();
-        })(function () {
-            const L = {
-                PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
-                NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
-                NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
-                Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
-                MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
-                MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
-                UserSearchPH: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_SearchPH"].Value)),
-                UserNoResult: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_NoResult"].Value)),
-                UserLoading: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Loading"].Value)),
-                UserClear: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Clear"].Value))
-            };
-            const T = {
-                TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
-                TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
-                TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
-            };
-            const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTL")));
-
-            function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-            async function fetchUsers(q, take = 20) {
-                const url = new URL(USER_API, location.origin);
-                if (q && q.trim()) url.searchParams.set("q", q.trim());
-                url.searchParams.set("take", take);
-                const r = await fetch(url.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
-                if (!r.ok) return [];
-                return await r.json();
-            }
-            async function fetchUserById(id) {
-                if (!id) return null;
-                const url = new URL(USER_API, location.origin);
-                url.searchParams.set("id", id);
-                const r = await fetch(url.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
-                if (!r.ok) return null;
-                const arr = await r.json();
-                return Array.isArray(arr) && arr.length ? arr[0] : null;
-            }
-
-            (function () {
-                const raw = (document.getElementById("DescriptorJson")?.textContent || "{}").trim();
-                let desc = {}; try { desc = JSON.parse(raw); } catch { desc = {}; }
-                if (!Array.isArray(desc.Fields)) desc.Fields = [];
-                if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
-
-                const fieldsBody = document.getElementById("tblFieldsBody");
-                const apprBody = document.getElementById("tblApprBody");
-
-                function opt(val, text, sel) { const o = document.createElement("option"); o.value = val; o.text = text; if (sel) o.selected = true; return o; }
-                window.__a1 = window.__a1 || {};
-
-                async function buildUserSelect(selectedId) {
-                    const sel = document.createElement("select");
-                    sel.className = "form-select form-select-sm";
-                    sel.append(opt("", "—", false));
-                    let list = [];
-                    try { list = await fetchUsers("", 50); } catch { list = []; }
-                    list.forEach(x => sel.append(opt(x.id, x.text, x.id == selectedId)));
-                    return sel;
-                }
-
-                function render() {
-                    fieldsBody.innerHTML = "";
-                    if (desc.Fields.length === 0) {
-                        const tr = document.createElement("tr"); const td = document.createElement("td");
-                        td.colSpan = 4; td.className = "text-muted"; td.textContent = L.NoRows; tr.appendChild(td); fieldsBody.appendChild(tr);
-                    } else {
-                        desc.Fields.forEach((f, i) => {
-                            const tr = document.createElement("tr");
-
-                            const tdKey = document.createElement("td");
-                            const inpKey = document.createElement("input");
-                            inpKey.className = "form-control form-control-sm key-input";
-                            inpKey.placeholder = "예: Item_{n} 또는 Item_{row}";
-                            inpKey.value = f.Key || "";
-                            inpKey.addEventListener("input", e => { desc.Fields[i].Key = e.target.value; });
-                            tdKey.appendChild(inpKey);
-
-                            const tdType = document.createElement("td");
-                            const sel = document.createElement("select");
-                            sel.className = "form-select form-select-sm";
-                            sel.append(opt("Text", T.TypeText, (f.Type || "Text") === "Text"));
-                            sel.append(opt("Date", T.TypeDate, (f.Type || "Text") === "Date"));
-                            sel.append(opt("Num", T.TypeNum, (f.Type || "Text") === "Num"));
-                            sel.addEventListener("change", e => { desc.Fields[i].Type = e.target.value; });
-                            tdType.appendChild(sel);
-
-                            const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
-                            const grp = document.createElement("div"); grp.className = "input-group input-group-sm";
-
-                            const inputA1 = document.createElement("input");
-                            inputA1.className = "form-control"; inputA1.placeholder = "예: C9 또는 C9:C35";
-                            inputA1.value = (f.Cell && f.Cell.A1) || "";
-                            inputA1.addEventListener("input", e => { desc.Fields[i].Cell = desc.Fields[i].Cell || {}; desc.Fields[i].Cell.A1 = e.target.value; });
-                            inputA1.addEventListener("focus", () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Fields[i].Cell = desc.Fields[i].Cell || {};
-                                    desc.Fields[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add("a1-active");
-                                    setTimeout(() => inputA1.classList.remove("a1-active"), 800);
-                                };
-                            });
-
-                            const pickBtn = document.createElement("button");
-                            pickBtn.type = "button"; pickBtn.className = "btn btn-outline-secondary d-none";
-                            pickBtn.textContent = L.PickCell;
-                            pickBtn.addEventListener("click", () => {
-                                inputA1.focus();
-                                document.getElementById("xlPreview").scrollIntoView({ behavior: "smooth", block: "start" });
-                            });
-
-                            grp.append(inputA1, pickBtn);
-                            tdA1.appendChild(grp);
-
-                            const tdAct = document.createElement("td");
-                            const delBtn = document.createElement("button");
-                            delBtn.type = "button";
-                            delBtn.className = "btn btn-outline-danger btn-sm"; delBtn.textContent = L.Delete;
-                            delBtn.addEventListener("click", () => { desc.Fields.splice(i, 1); render(); });
-                            tdAct.appendChild(delBtn);
-
-                            tr.append(tdKey, tdType, tdA1, tdAct);
-                            fieldsBody.appendChild(tr);
-                        });
-                    }
-
-                    apprBody.innerHTML = "";
-                    if (desc.Approvals.length === 0) {
-                        const tr = document.createElement("tr"); const td = document.createElement("td");
-                        td.colSpan = 6; td.className = "text-muted"; td.textContent = L.NoRows; tr.appendChild(td); apprBody.appendChild(tr);
-                    } else {
-                        desc.Approvals.forEach((a, i) => {
-                            a = a || {}; if (!a.Cell) a.Cell = {}; if (!a.ApproverType) a.ApproverType = "Person"; if (a.ApproverValue == null) a.ApproverValue = "";
-
-                            const tr = document.createElement("tr");
-
-                            const tdS = document.createElement("td");
-                            const inpS = document.createElement("input");
-                            inpS.type = "number"; inpS.min = "1"; inpS.className = "form-control form-control-sm";
-                            inpS.value = a.Slot ?? 1; inpS.addEventListener("input", e => { desc.Approvals[i].Slot = parseInt(e.target.value || "1", 10); });
-                            tdS.appendChild(inpS);
-
-                            const tdP = document.createElement("td");
-                            const inpP = document.createElement("input");
-                            inpP.className = "form-control form-control-sm";
-                            inpP.value = a.Part || ""; inpP.addEventListener("input", e => { desc.Approvals[i].Part = e.target.value; });
-                            tdP.appendChild(inpP);
-
-                            const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
-                            const grpA1 = document.createElement("div"); grpA1.className = "input-group input-group-sm";
-                            const inputA1 = document.createElement("input");
-                            inputA1.className = "form-control"; inputA1.placeholder = "예: H4";
-                            inputA1.value = a.Cell.A1 || "";
-                            inputA1.addEventListener("input", e => {
-                                desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                desc.Approvals[i].Cell.A1 = e.target.value;
-                            });
-                            inputA1.addEventListener("focus", () => {
-                                window.__a1.set = (a1) => {
-                                    desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
-                                    desc.Approvals[i].Cell.A1 = a1;
-                                    inputA1.value = a1;
-                                    inputA1.classList.add("a1-active");
-                                    setTimeout(() => inputA1.classList.remove("a1-active"), 800);
-                                };
-                            });
-                            grpA1.append(inputA1);
-                            tdA1.appendChild(grpA1);
-
-                            const tdType = document.createElement("td");
-                            const selType = document.createElement("select");
-                            selType.className = "form-select form-select-sm";
-                            [["Person", "개인(사용자)"], ["Role", "역할 코드"], ["Rule", "규칙(조건)"]].forEach(([v, l]) => {
-                                const o = document.createElement("option");
-                                o.value = v;
-                                o.text = l;
-                                if ((a.ApproverType || "Person") === v) o.selected = true;
-                                selType.appendChild(o);
-                            });
-                            selType.addEventListener("change", e => {
-                                const t = e.target.value;
-                                desc.Approvals[i].ApproverType = t;
-                                render();
-                            });
-                            tdType.appendChild(selType);
-
-                            const tdVal = document.createElement("td");
-                            if ((a.ApproverType || "Person") === "Person") {
-                                const holder = document.createElement("div");
-                                tdVal.appendChild(holder);
-                                (async () => {
-                                    const sel = await buildUserSelect(a.ApproverValue || "");
-                                    sel.addEventListener("change", ev => {
-                                        desc.Approvals[i].ApproverValue = ev.target.value || "";
-                                    });
-                                    holder.replaceChildren(sel);
-                                })();
-                            } else {
-                                const inpVal = document.createElement("input");
-                                inpVal.className = "form-control form-control-sm";
-                                if ((a.ApproverType || "Person") === "Role") inpVal.placeholder = "역할 코드";
-                                else inpVal.placeholder = "규칙 JSON";
-                                inpVal.value = a.ApproverValue || "";
-                                inpVal.addEventListener("input", e => {
-                                    desc.Approvals[i].ApproverValue = e.target.value;
-                                });
-                                tdVal.appendChild(inpVal);
-                            }
-
-                            const tdAct = document.createElement("td");
-                            const delBtn = document.createElement("button");
-                            delBtn.type = "button";
-                            delBtn.className = "btn btn-outline-danger btn-sm";
-                            delBtn.textContent = L.Delete;
-                            delBtn.addEventListener("click", () => {
-                                desc.Approvals.splice(i, 1);
-                                render();
-                            });
-                            tdAct.appendChild(delBtn);
-
-                            tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
-                            apprBody.appendChild(tr);
-                        });
-                    }
-                } // render
-
-                function tryParseRange(a1) {
-                    const m = String(a1 || "").trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-                    if (!m || m[1] !== m[3]) return null;
-                    let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10);
-                    if (r2 < r1) [r1, r2] = [r2, r1];
-                    return { col: m[1], r1, r2 };
-                }
-
-                function expandFieldsForSave(fields) {
-                    const out = [];
-                    for (const f of fields) {
-                        const a1 = f?.Cell?.A1 || "";
-                        const rg = tryParseRange(a1);
-                        if (!rg) { out.push(f); continue; }
-
-                        const tpl = (f.Key || "").trim();
-                        let idx = 1;
-                        for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                            let keyBase = (tpl || "Field");
-                            let key = keyBase;
-                            if (key.includes("{n}")) key = key.replaceAll("{n}", String(idx));
-                            if (key.includes("{row}")) key = key.replaceAll("{row}", String(r));
-                            if (key === keyBase) key = `${keyBase}_${r}`;
-                            out.push({ Key: key, Type: f.Type || "Text", Cell: { A1: `${rg.col}${r}` } });
-                        }
-                    }
-                    return out;
-                }
-
-                function hasDuplicateKeys(items) {
-                    const seen = new Set();
-                    for (const it of items) {
-                        const k = (it.Key || "").trim();
-                        if (!k) return { ok: false, reason: "empty" };
-                        if (seen.has(k)) return { ok: false, reason: "dup", key: k };
-                        seen.add(k);
-                    }
-                    return { ok: true };
-                }
-
-                function validateApprovals(apprs) {
-                    for (let i = 0; i < apprs.length; i++) {
-                        const a = apprs[i] || {};
-                        const slot = parseInt(a.Slot ?? 1, 10);
-                        if (!Number.isFinite(slot) || slot < 1) {
-                            return { ok: false, msg: `결재란 #${i + 1}: Slot은 1 이상 정수여야 합니다.` };
-                        }
-                        const t = (a.ApproverType || "Person");
-                        if (!["Person", "Role", "Rule"].includes(t)) {
-                            return { ok: false, msg: "결재권자 유형이 올바르지 않습니다." };
-                        }
-                        const v = (a.ApproverValue || "").trim();
-                        if (t === "Person" || t === "Role") {
-                            if (!v) {
-                                return {
-                                    ok: false,
-                                    msg: `결재란 #${i + 1}: ${t === "Person" ? "사용자 ID" : "역할 코드"}를 입력해 주세요.`
-                                };
-                            }
-                        } else if (t === "Rule") {
-                            if (!v) return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON을 입력해 주세요.` };
-                            try {
-                                const obj = JSON.parse(v);
-                                if (obj == null || typeof obj !== "object") throw 0;
-                            } catch {
-                                return { ok: false, msg: `결재란 #${i + 1}: 규칙 JSON 구문이 올바르지 않습니다.` };
-                            }
-                        }
-                    }
-                    return { ok: true };
-                }
-
-                document.getElementById("btnAddField").addEventListener("click", () => {
-                    desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
-                    render();
-                });
-                document.getElementById("btnAddAppr").addEventListener("click", () => {
-                    desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: "Person", ApproverValue: "" });
-                    render();
-                });
-
-                document.getElementById("btnSave").addEventListener("click", () => {
-                    const payload = JSON.parse(JSON.stringify(desc));
-                    payload.Fields = expandFieldsForSave(desc.Fields);
-
-                    const ck = hasDuplicateKeys(payload.Fields);
-                    if (!ck.ok) {
-                        if (ck.reason === "empty") alert(L.MsgKeyEmpty);
-                        else if (ck.reason === "dup") alert(L.MsgKeyDup + " " + (ck.key || ""));
-                        return;
-                    }
-                    const v2 = validateApprovals(payload.Approvals || []);
-                    if (!v2.ok) { alert(v2.msg); return; }
-
-                    document.getElementById("descriptor").value = JSON.stringify(payload);
-
-                    const prevRaw = (document.getElementById("PreviewJson")?.textContent || "").trim();
-                    document.getElementById("previewJson").value = prevRaw || "";
-
-                    document.getElementById("mapForm").submit();
-                });
-
-                render();
-            })();
-        });
+        })(initDocTLMap);
     </script>
     }
 }
+
+<script>
+    function initDocTLMap() {
+        const L = {
+            PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
+            NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
+            NoPreview: @Html.Raw(JsonSerializer.Serialize(S["DTL_NoPreview"].Value)),
+            Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
+            MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
+            MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
+            UserSearchPH: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_SearchPH"].Value)),
+            UserNoResult: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_NoResult"].Value)),
+            UserLoading: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Loading"].Value)),
+            UserClear: @Html.Raw(JsonSerializer.Serialize(S["DTL_User_Clear"].Value))
+                };
+        const T = {
+            TypeText: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Text"].Value)),
+            TypeDate: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Date"].Value)),
+            TypeNum: @Html.Raw(JsonSerializer.Serialize(S["DTL_Type_Num"].Value))
+                };
+        const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTL")));
+
+        async function fetchUsers(q, take = 20) {
+            const url = new URL(USER_API, location.origin);
+            if (q && q.trim()) url.searchParams.set("q", q.trim());
+            url.searchParams.set("take", take);
+            const r = await fetch(url.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
+            if (!r.ok) return [];
+            return await r.json();
+        }
+
+        const raw = (document.getElementById("DescriptorJson")?.textContent || "{}").trim();
+        let desc;
+        try { desc = JSON.parse(raw); } catch { desc = {}; }
+        if (!Array.isArray(desc.Fields)) desc.Fields = [];
+        if (!Array.isArray(desc.Approvals)) desc.Approvals = [];
+
+        const fieldsBody = document.getElementById("tblFieldsBody");
+        const apprBody = document.getElementById("tblApprBody");
+
+        function opt(val, text, sel) {
+            const o = document.createElement("option");
+            o.value = val; o.text = text;
+            if (sel) o.selected = true;
+            return o;
+        }
+
+        window.__a1 = window.__a1 || {};
+
+        async function buildUserSelect(selectedId) {
+            const sel = document.createElement("select");
+            sel.className = "form-select form-select-sm";
+            sel.append(opt("", "—", false));
+            let list = [];
+            try { list = await fetchUsers("", 50); } catch { list = []; }
+            list.forEach(x => sel.append(opt(x.id, x.text, x.id == selectedId)));
+            return sel;
+        }
+
+        function render() {
+            // Fields
+            fieldsBody.innerHTML = "";
+            if (desc.Fields.length === 0) {
+                const tr = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 4; td.className = "text-muted"; td.textContent = L.NoRows;
+                tr.appendChild(td); fieldsBody.appendChild(tr);
+            } else {
+                desc.Fields.forEach((f, i) => {
+                    const tr = document.createElement("tr");
+
+                    const tdKey = document.createElement("td");
+                    const inpKey = document.createElement("input");
+                    inpKey.className = "form-control form-control-sm key-input";
+                    inpKey.placeholder = "예: Item_{n} 또는 Item_{row}";
+                    inpKey.value = f.Key || "";
+                    inpKey.addEventListener("input", e => { desc.Fields[i].Key = e.target.value; });
+                    tdKey.appendChild(inpKey);
+
+                    const tdType = document.createElement("td");
+                    const sel = document.createElement("select");
+                    sel.className = "form-select form-select-sm";
+                    sel.append(opt("Text", T.TypeText, (f.Type || "Text") === "Text"));
+                    sel.append(opt("Date", T.TypeDate, (f.Type || "Text") === "Date"));
+                    sel.append(opt("Num", T.TypeNum, (f.Type || "Text") === "Num"));
+                    sel.addEventListener("change", e => { desc.Fields[i].Type = e.target.value; });
+                    tdType.appendChild(sel);
+
+                    const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
+                    const grp = document.createElement("div"); grp.className = "input-group input-group-sm";
+                    const inputA1 = document.createElement("input");
+                    inputA1.className = "form-control";
+                    inputA1.placeholder = "예: C9 또는 C9:C35";
+                    inputA1.value = (f.Cell && f.Cell.A1) || "";
+                    inputA1.addEventListener("input", e => {
+                        desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                        desc.Fields[i].Cell.A1 = e.target.value;
+                    });
+                    inputA1.addEventListener("focus", () => {
+                        window.__a1.set = (a1) => {
+                            desc.Fields[i].Cell = desc.Fields[i].Cell || {};
+                            desc.Fields[i].Cell.A1 = a1;
+                            inputA1.value = a1;
+                            inputA1.classList.add("a1-active");
+                            setTimeout(() => inputA1.classList.remove("a1-active"), 800);
+                        };
+                    });
+                    grp.appendChild(inputA1);
+                    tdA1.appendChild(grp);
+
+                    const tdAct = document.createElement("td");
+                    const delBtn = document.createElement("button");
+                    delBtn.type = "button";
+                    delBtn.className = "btn btn-outline-danger btn-sm";
+                    delBtn.textContent = L.Delete;
+                    delBtn.addEventListener("click", () => { desc.Fields.splice(i, 1); render(); });
+                    tdAct.appendChild(delBtn);
+
+                    tr.append(tdKey, tdType, tdA1, tdAct);
+                    fieldsBody.appendChild(tr);
+                });
+            }
+
+            // Approvals
+            apprBody.innerHTML = "";
+            if (desc.Approvals.length === 0) {
+                const tr = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 6; td.className = "text-muted"; td.textContent = L.NoRows;
+                tr.appendChild(td); apprBody.appendChild(tr);
+            } else {
+                desc.Approvals.forEach((a, i) => {
+                    a = a || {};
+                    if (!a.Cell) a.Cell = {};
+                    if (!a.ApproverType) a.ApproverType = "Person";
+                    if (a.ApproverValue == null) a.ApproverValue = "";
+
+                    const tr = document.createElement("tr");
+
+                    const tdS = document.createElement("td");
+                    const inpS = document.createElement("input");
+                    inpS.type = "number"; inpS.min = "1";
+                    inpS.className = "form-control form-control-sm";
+                    inpS.value = a.Slot ?? 1;
+                    inpS.addEventListener("input", e => {
+                        desc.Approvals[i].Slot = parseInt(e.target.value || "1", 10);
+                    });
+                    tdS.appendChild(inpS);
+
+                    const tdP = document.createElement("td");
+                    const inpP = document.createElement("input");
+                    inpP.className = "form-control form-control-sm";
+                    inpP.value = a.Part || "";
+                    inpP.addEventListener("input", e => { desc.Approvals[i].Part = e.target.value; });
+                    tdP.appendChild(inpP);
+
+                    const tdA1 = document.createElement("td"); tdA1.className = "cell-a1";
+                    const grpA1 = document.createElement("div"); grpA1.className = "input-group input-group-sm";
+                    const inputA1 = document.createElement("input");
+                    inputA1.className = "form-control";
+                    inputA1.placeholder = "예: H4";
+                    inputA1.value = a.Cell.A1 || "";
+                    inputA1.addEventListener("input", e => {
+                        desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                        desc.Approvals[i].Cell.A1 = e.target.value;
+                    });
+                    inputA1.addEventListener("focus", () => {
+                        window.__a1.set = (a1) => {
+                            desc.Approvals[i].Cell = desc.Approvals[i].Cell || {};
+                            desc.Approvals[i].Cell.A1 = a1;
+                            inputA1.value = a1;
+                            inputA1.classList.add("a1-active");
+                            setTimeout(() => inputA1.classList.remove("a1-active"), 800);
+                        };
+                    });
+                    grpA1.appendChild(inputA1);
+                    tdA1.appendChild(grpA1);
+
+                    const tdType = document.createElement("td");
+                    const selType = document.createElement("select");
+                    selType.className = "form-select form-select-sm";
+                    [["Person", "개인(사용자)"], ["Role", "역할 코드"], ["Rule", "규칙(조건)"]].forEach(function (pair) {
+                        const v = pair[0], l = pair[1];
+                        const o = document.createElement("option");
+                        o.value = v; o.text = l;
+                        if ((a.ApproverType || "Person") === v) o.selected = true;
+                        selType.appendChild(o);
+                    });
+                    selType.addEventListener("change", e => {
+                        const t = e.target.value;
+                        desc.Approvals[i].ApproverType = t;
+                        render();
+                    });
+                    tdType.appendChild(selType);
+
+                    const tdVal = document.createElement("td");
+                    if ((a.ApproverType || "Person") === "Person") {
+                        const holder = document.createElement("div");
+                        tdVal.appendChild(holder);
+                        (async function () {
+                            const sel = await buildUserSelect(a.ApproverValue || "");
+                            sel.addEventListener("change", ev => {
+                                desc.Approvals[i].ApproverValue = ev.target.value || "";
+                            });
+                            holder.replaceChildren(sel);
+                        })();
+                    } else {
+                        const inpVal = document.createElement("input");
+                        inpVal.className = "form-control form-control-sm";
+                        inpVal.placeholder = (a.ApproverType || "Person") === "Role" ? "역할 코드" : "규칙 JSON";
+                        inpVal.value = a.ApproverValue || "";
+                        inpVal.addEventListener("input", e => {
+                            desc.Approvals[i].ApproverValue = e.target.value;
+                        });
+                        tdVal.appendChild(inpVal);
+                    }
+
+                    const tdAct = document.createElement("td");
+                    const delBtn = document.createElement("button");
+                    delBtn.type = "button";
+                    delBtn.className = "btn btn-outline-danger btn-sm";
+                    delBtn.textContent = L.Delete;
+                    delBtn.addEventListener("click", () => {
+                        desc.Approvals.splice(i, 1);
+                        render();
+                    });
+                    tdAct.appendChild(delBtn);
+
+                    tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
+                    apprBody.appendChild(tr);
+                });
+            }
+        } // render
+
+        function tryParseRange(a1) {
+            const m = String(a1 || "").trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+            if (!m || m[1] !== m[3]) return null;
+            let r1 = parseInt(m[2], 10), r2 = parseInt(m[4], 10);
+            if (r2 < r1) { const t = r1; r1 = r2; r2 = t; }
+            return { col: m[1], r1: r1, r2: r2 };
+        }
+
+        function expandFieldsForSave(fields) {
+            const out = [];
+            for (const f of fields) {
+                const a1 = f && f.Cell ? (f.Cell.A1 || "") : "";
+                const rg = tryParseRange(a1);
+                if (!rg) { out.push(f); continue; }
+
+                const tpl = (f.Key || "").trim();
+                let idx = 1;
+                for (let r = rg.r1; r <= rg.r2; r++, idx++) {
+                    let keyBase = (tpl || "Field");
+                    let key = keyBase;
+                    if (key.indexOf("{n}") >= 0) key = key.replace("{n}", String(idx));
+                    if (key.indexOf("{row}") >= 0) key = key.replace("{row}", String(r));
+                    if (key === keyBase) key = keyBase + "_" + r;
+                    out.push({ Key: key, Type: f.Type || "Text", Cell: { A1: rg.col + String(r) } });
+                }
+            }
+            return out;
+        }
+
+        function hasDuplicateKeys(items) {
+            const seen = new Set();
+            for (const it of items) {
+                const k = (it.Key || "").trim();
+                if (!k) return { ok: false, reason: "empty" };
+                if (seen.has(k)) return { ok: false, reason: "dup", key: k };
+                seen.add(k);
+            }
+            return { ok: true };
+        }
+
+        function validateApprovals(apprs) {
+            for (let i = 0; i < apprs.length; i++) {
+                const a = apprs[i] || {};
+                const slot = parseInt(a.Slot ?? 1, 10);
+                if (!Number.isFinite(slot) || slot < 1) {
+                    return { ok: false, msg: "결재란 #" + (i + 1) + ": Slot은 1 이상 정수여야 합니다." };
+                }
+                const t = (a.ApproverType || "Person");
+                if (["Person", "Role", "Rule"].indexOf(t) < 0) {
+                    return { ok: false, msg: "결재권자 유형이 올바르지 않습니다." };
+                }
+                const v = (a.ApproverValue || "").trim();
+                if (t === "Person" || t === "Role") {
+                    if (!v) {
+                        return { ok: false, msg: "결재란 #" + (i + 1) + ": " + (t === "Person" ? "사용자 ID" : "역할 코드") + "를 입력해 주세요." };
+                    }
+                } else if (t === "Rule") {
+                    if (!v) return { ok: false, msg: "결재란 #" + (i + 1) + ": 규칙 JSON을 입력해 주세요." };
+                    try {
+                        const obj = JSON.parse(v);
+                        if (obj == null || typeof obj !== "object") throw 0;
+                    } catch {
+                        return { ok: false, msg: "결재란 #" + (i + 1) + ": 규칙 JSON 구문이 올바르지 않습니다." };
+                    }
+                }
+            }
+            return { ok: true };
+        }
+
+        document.getElementById("btnAddField").addEventListener("click", () => {
+            desc.Fields.push({ Key: "", Type: "Text", Cell: { A1: "" } });
+            render();
+        });
+        document.getElementById("btnAddAppr").addEventListener("click", () => {
+            desc.Approvals.push({ Slot: 1, Part: "", Cell: { A1: "" }, ApproverType: "Person", ApproverValue: "" });
+            render();
+        });
+
+        document.getElementById("btnSave").addEventListener("click", () => {
+            const payload = JSON.parse(JSON.stringify(desc));
+            payload.Fields = expandFieldsForSave(desc.Fields);
+
+            const ck = hasDuplicateKeys(payload.Fields);
+            if (!ck.ok) {
+                if (ck.reason === "empty") alert(L.MsgKeyEmpty);
+                else if (ck.reason === "dup") alert(L.MsgKeyDup + " " + (ck.key || ""));
+                return;
+            }
+
+            const v2 = validateApprovals(payload.Approvals || []);
+            if (!v2.ok) {
+                alert(v2.msg);
+                return;
+            }
+
+            document.getElementById("descriptor").value = JSON.stringify(payload);
+
+            const prevRaw = (document.getElementById("PreviewJson")?.textContent || "").trim();
+            document.getElementById("previewJson").value = prevRaw || "";
+
+            document.getElementById("mapForm").submit();
+        });
+
+        render();
+    }
+</script>
