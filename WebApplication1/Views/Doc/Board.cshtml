@@ -1,4 +1,6 @@
-﻿@* 2025.11.20 Changed: Board 화면 가로 스크롤을 내부 컨테이너(.doc-board)에서만 처리하도록 수정
+﻿@* 2025.12.04 Changed: Board 필터 콤보박스 정리 및 회수 필터를 상신 문서함 전용으로 적용 *@
+@* 2025.12.03 Changed: 상태 다국어 표시 및 진행률(완료/총 결재 인원) 표시 추가 *@
+@* 2025.11.20 Changed: Board 화면 가로 스크롤을 내부 컨테이너(.doc-board)에서만 처리하도록 수정
    - .doc-board-wrap 은 세로 스크롤만 담당(overflow-y:auto, overflow-x:visible)
    - .doc-board 가 overflow-x:auto 를 가지며, 가로 스크롤바가 실제 콘텐츠 폭에만 맞춰 표시됨
    - 스크립트 및 기타 레이아웃/기능은 변경 없음 *@
@@ -119,12 +121,6 @@
         min-width: 900px;
     }
 
-        .doc-list td {
-            padding: .5rem .625rem;
-            border-bottom: 1px solid #e5e7eb;
-            text-align: left;
-        }
-
         .doc-list th {
             padding: .6rem .625rem;
             font-weight: 600;
@@ -134,9 +130,27 @@
             border-bottom: 2px solid #d1d5db;
         }
 
-        .doc-list td:nth-child(2) {
-            text-align: center;
+        .doc-list td {
+            padding: .5rem .625rem;
+            border-bottom: 1px solid #e5e7eb;
         }
+
+            /* 번호 컬럼(본문) 가운데 정렬 */
+            .doc-list td:nth-child(1) {
+                text-align: center;
+            }
+
+            /* 문서 제목, 작성자(본문) 왼쪽 정렬 */
+            .doc-list td:nth-child(2),
+            .doc-list td:nth-child(3) {
+                text-align: left;
+            }
+
+            /* 작성일시, 상태(본문) 가운데 정렬 */
+            .doc-list td:nth-child(4),
+            .doc-list td:nth-child(5) {
+                text-align: center;
+            }
 
         .doc-list thead th + th {
             position: relative;
@@ -235,13 +249,8 @@
                 <option value="rejected">@S["DOC_Filter_Title_Rejected"]</option>
                 <option value="pending">@S["DOC_Filter_Title_Pending"]</option>
                 <option value="onhold">@S["DOC_Filter_Title_OnHold"]</option>
-            </select>
-
-            <label class="sr-only" for="filterApprovalView">@S["DOC_Filter_ApprovalView_Label"]</label>
-            <select id="filterApprovalView" style="display:none">
-                <option value="all">@S["DOC_Filter_ApprovalView_All"]</option>
-                <option value="pending">@S["DOC_Filter_ApprovalView_Pending"]</option>
-                <option value="approved">@S["DOC_Filter_ApprovalView_Approved"]</option>
+                <!-- 회수는 상신 문서함 전용 필터 -->
+                <option value="recalled" data-created-only="true">@S["DOC_Filter_Title_Recalled"]</option>
             </select>
 
             <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
@@ -294,8 +303,9 @@
         const filterTitle = document.getElementById('filterTitle') || { value: 'all' };
         const filterSort = document.getElementById('filterSort');
         const filterQuery = document.getElementById('filterQuery');
-        const filterApprovalView = document.getElementById('filterApprovalView');
         const btnApply = document.getElementById('filterApply');
+
+        const optRecalled = filterTitle.querySelector('option[value="recalled"]');
 
         const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
@@ -305,9 +315,76 @@
             pageSize: 20,
             titleFilter: 'all',
             sort: 'created_desc',
-            q: '',
-            approvalView: 'all'
+            q: ''
         };
+
+        // HTML 엔티티 디코더
+        function decodeHtmlEntities(encoded) {
+            if (!encoded) return '';
+            const txt = document.createElement('textarea');
+            txt.innerHTML = encoded;
+            return txt.value;
+        }
+
+        // ★ 상태 다국어 라벨 매핑 (엔티티 → 실제 문자열로 디코딩)
+        const STATUS_LABELS = {
+            Pending: decodeHtmlEntities('@S["DOC_Status_Pending"]'),
+            Approved: decodeHtmlEntities('@S["DOC_Status_Approved"]'),
+            Rejected: decodeHtmlEntities('@S["DOC_Status_Rejected"]'),
+            OnHold: decodeHtmlEntities('@S["DOC_Status_OnHold"]'),
+            Recalled: decodeHtmlEntities('@S["DOC_Status_Recalled"]')
+        };
+
+        function getStatusBase(raw) {
+            if (!raw) return 'Pending';
+            const s = String(raw).trim().toUpperCase();
+
+            // 공통 Pending (Pending, PendingA1 ...)
+            if (s.startsWith('PENDING')) return 'Pending';
+
+            // ★ 결재 문서함에서 a.Action 으로 들어오는 값 처리
+            //   - approve / approved / APPROVED...
+            if (s === 'APPROVE' || s.startsWith('APPROVED')) return 'Approved';
+
+            //   - reject / rejected / REJECTED...
+            if (s === 'REJECT' || s.startsWith('REJECTED')) return 'Rejected';
+
+            //   - hold / onhold / ONHOLD...
+            if (s === 'HOLD' || s.startsWith('ONHOLD') || s.startsWith('ON HOLD'))
+                return 'OnHold';
+
+            // 회수 (Recalled / recall)
+            if (s === 'RECALL' || s.startsWith('RECALLED')) return 'Recalled';
+
+            // 그 외에는 원본 그대로 사용
+            return raw;
+        }
+
+        function formatStatus(raw, done, total) {
+            const base = getStatusBase(raw);
+            const label = STATUS_LABELS[base] || String(raw || '');
+            if (typeof total === 'number' && total > 0) {
+                const d = (typeof done === 'number' && done >= 0) ? done : 0;
+                return label + ' (' + d + '/' + total + ')';
+            }
+            return label;
+        }
+
+        // 탭 전환 시 UI 정리: 회수 필터는 상신 문서함에서만 사용
+        function applyTabUi() {
+            if (!optRecalled) return;
+
+            if (state.tab === 'created') {
+                optRecalled.hidden = false;
+            } else {
+                // 다른 탭으로 갈 때 회수 선택 상태라면 전체로 돌려준다
+                if (filterTitle.value === 'recalled') {
+                    filterTitle.value = 'all';
+                    state.titleFilter = 'all';
+                }
+                optRecalled.hidden = true;
+            }
+        }
 
         // 탭 클릭
         tabs.forEach(t => {
@@ -317,13 +394,7 @@
                 state.tab = t.dataset.tab;
                 state.page = 1;
 
-                if (state.tab === 'approval') {
-                    filterApprovalView.style.display = '';
-                } else {
-                    filterApprovalView.style.display = 'none';
-                    state.approvalView = 'all';
-                    if (filterApprovalView) filterApprovalView.value = 'all';
-                }
+                applyTabUi();
                 refreshBadges();
                 loadList();
             });
@@ -339,8 +410,6 @@
             state.titleFilter = filterTitle.value;
             state.sort = filterSort.value;
             state.q = filterQuery.value || '';
-            if (state.tab === 'approval')
-                state.approvalView = (filterApprovalView && filterApprovalView.value) || 'all';
             state.pageSize = clamp(state.pageSize, 1, 100);
             state.page = 1;
             loadList();
@@ -352,26 +421,26 @@
             const tdNo = document.createElement('td');
             tdNo.textContent = String(displayNo);
 
+            // 제목 + 댓글 수
             const tdTitle = document.createElement('td');
+            const wrapper = document.createElement('span');
+            wrapper.className = 'doc-title';
+
             const link = document.createElement('a');
             link.href = detailUrl.replace('{docId}', item.docId);
-            link.className = 'doc-title';
-            link.title = item.templateTitle;
-            link.textContent = item.templateTitle;
-            tdTitle.appendChild(link);
+            link.title = item.templateTitle || '';
+            link.textContent = item.templateTitle || '';
+            wrapper.appendChild(link);
 
-            if (typeof item.commentCount === 'number' && item.commentCount > 0) {
+            const commentCount = Number(item.commentCount || 0);
+            if (commentCount > 0) {
                 const meta = document.createElement('span');
                 meta.className = 'meta';
-                meta.textContent = '(' + item.commentCount + ')';
-                tdTitle.appendChild(meta);
+                meta.textContent = ' (' + commentCount + ')';
+                wrapper.appendChild(meta);
             }
-            if (item.hasAttachment) {
-                const clip = document.createElement('i');
-                clip.className = 'doc-clip';
-                clip.setAttribute('aria-label', '@S["DOC_Attach_Aria"]');
-                tdTitle.appendChild(clip);
-            }
+
+            tdTitle.appendChild(wrapper);
 
             const tdAuthor = document.createElement('td');
             tdAuthor.textContent = item.authorName || '';
@@ -380,7 +449,9 @@
             tdDate.textContent = item.createdAt || '';
 
             const tdStatus = document.createElement('td');
-            tdStatus.textContent = item.status || '';
+            const total = typeof item.totalApprovers === 'number' ? item.totalApprovers : 0;
+            const done = typeof item.completedApprovers === 'number' ? item.completedApprovers : 0;
+            tdStatus.textContent = formatStatus(item.statusCode || item.status, done, total);
 
             tr.append(tdNo, tdTitle, tdAuthor, tdDate, tdStatus);
             return tr;
@@ -393,14 +464,13 @@
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
                 td.colSpan = 5;
-                td.textContent = '@S["DOC_List_Empty"]';
+                td.textContent = decodeHtmlEntities('@S["DOC_List_Empty"]');
                 tr.appendChild(td);
                 body.appendChild(tr);
                 paging.innerHTML = '';
                 return;
             }
 
-            // 번호 역순
             const total = Number(res.total ?? 0) ||
                 (res.page - 1) * res.pageSize + res.items.length;
             const startIndex = (res.page - 1) * res.pageSize;
@@ -449,8 +519,7 @@
                 pageSize: state.pageSize,
                 titleFilter: state.titleFilter,
                 sort: state.sort,
-                q: state.q,
-                approvalView: state.approvalView
+                q: state.q
             });
 
             const r = await fetch(apiList + '?' + params.toString(), {
@@ -486,6 +555,14 @@
             }
         }
 
-        loadList();
+        // 초기 로드
+        applyTabUi();
+        if (btnApply && typeof btnApply.click === 'function') {
+            btnApply.click();
+        } else {
+            loadList();
+            refreshBadges();
+        }
+
     })();
 </script>

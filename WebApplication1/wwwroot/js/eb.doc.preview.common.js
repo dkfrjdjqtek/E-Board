@@ -1,1494 +1,941 @@
-﻿// 2025.11.20 Changed: Compose 쓰기 모드에서 xhost 폭을 테이블 scrollWidth 기준으로 고정해 가로 스크롤 끝에서 잘리지 않도록 수정 및 가로 클램프 롤백 완전 제거
-// 2025.11.21 Changed: EBPreview 구 스키마(border/align) 호환 추가 및 '없는 보더'는 건드리지 않도록 수정, 폰트 크기 적용 제거(공통 CSS 기준 유지)
+﻿
 // 2025.11.14 Changed: Excel 폰트 무시하고 eb.doc.preview.css 기준 폰트 통일(applyStyleToCell 폰트 적용 제거)
 // 2025.11.14 Changed: colorizeInputGroups 폴백 추가 및 mount 안전화 프리뷰 실패 방지
 // 2025.11.14 Changed: Compose Detail 폰트 px 고정과 동일 줄바꿈 일치 위해 측정폭 계산에 border 포함 cellc lineHeight=rowPx 강제 copyStyle 자간 normal 고정 hideRingIfIdle 안정화
 // 2025.11.14 Added: DOC Compose Detail 공통 프리뷰 렌더링 스크립트 분리
-// 2025.11.26 Changed DocTLMap 미리보기 구동 오류 수정 const 사용 구문 에러 제거 및 ES5 호환 재작성
-
 (function () {
-    // colorizeInputGroups 폴백
-    if (typeof window.colorizeInputGroups !== "function") {
-        window.colorizeInputGroups = function () { };
+    // 전역 폴백 colorizeInputGroups 미정의 시 no-op 제공
+    if (typeof window.colorizeInputGroups !== 'function') {
+        window.colorizeInputGroups = function () { /* no-op */ };
     }
 
-    // 쓰기 모드 플래그 (기본 true)
-    var __EB_IS_WRITE__ = (typeof window.__DOC_IS_WRITE__ === "boolean") ? !!window.__DOC_IS_WRITE__ : true;
+    try {
+        var els = document.querySelectorAll('.doc-unclip');
+        for (var i = 0; i < els.length; i++) {
+            els[i].style.setProperty('contain', 'none', 'important');
+        }
+    } catch (e) { /* no-op */ }
+
+    // 쓰기모드 플래그
+    let __EB_IS_WRITE__ = (typeof window.__DOC_IS_WRITE__ === 'boolean') ? !!window.__DOC_IS_WRITE__ : true;
     window.__DOC_IS_WRITE__ = __EB_IS_WRITE__;
 
-    /* ================= 공통 유틸 ================= */
-
-    function $(q, root) {
-        return (root || document).querySelector(q);
-    }
-    function $all(q, root) {
-        return Array.prototype.slice.call((root || document).querySelectorAll(q));
-    }
-    function $alert() {
-        return document.getElementById("doc-alert");
-    }
+    /* ===== 공통 유틸 ===== */
+    const $ = (q, r = document) => r.querySelector(q);
+    const $$ = (q, r = document) => Array.from(r.querySelectorAll(q));
+    const $alert = () => document.getElementById('doc-alert');
 
     function decodeHtmlEntities(str) {
-        if (str == null) return "";
-        var s = String(str);
-        s = s.replace(/&#x([0-9a-fA-F]+);/g, function (_, h) { return String.fromCodePoint(parseInt(h, 16)); });
-        s = s.replace(/&#(\d+);/g, function (_, d) { return String.fromCodePoint(parseInt(d, 10)); });
-        s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+        if (str == null) return '';
+        let s = String(str);
+        s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+        s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+        s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
         return s;
     }
 
-    function T(m) {
-        if (m == null) return "";
-        if (Object.prototype.toString.call(m) === "[object Array]") {
-            var arr = [];
-            for (var i = 0; i < m.length; i++) arr.push(T(m[i]));
-            return arr.join("\n");
-        }
-        var s = String(m);
-        if (window.__RESX && Object.prototype.hasOwnProperty.call(window.__RESX, s)) {
-            return decodeHtmlEntities(window.__RESX[s]);
-        }
-        return decodeHtmlEntities(s);
-    }
+    const T = (m) => {
+        if (m == null) return '';
+        if (Array.isArray(m)) return m.map(T).join('\n');
+        const s = String(m);
+        const mapped = (window.__RESX && Object.prototype.hasOwnProperty.call(window.__RESX, s)) ? window.__RESX[s] : s;
+        return decodeHtmlEntities(mapped);
+    };
 
-    function info(m) {
-        var host = $alert();
-        if (!host) return;
-        host.innerHTML = "";
-        var div = document.createElement("div");
-        div.className = "alert alert-info";
-        div.textContent = T(m);
-        host.appendChild(div);
-    }
-    function ok(m) {
-        var host = $alert();
-        if (!host) return;
-        host.innerHTML = "";
-        var div = document.createElement("div");
-        div.className = "alert alert-success";
-        div.textContent = T(m);
-        host.appendChild(div);
-    }
-    function err(m) {
-        var host = $alert();
-        if (!host) return;
-        host.innerHTML = "";
-        var div = document.createElement("div");
-        div.className = "alert alert-danger";
-        div.textContent = T(m || "DOC_Err_PreviewFailed");
-        host.appendChild(div);
-    }
+    const info = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-info', textContent: T(m) })); };
+    const ok = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-success', textContent: T(m) })); };
+    const err = m => { $alert()?.replaceChildren(Object.assign(document.createElement('div'), { className: 'alert alert-danger', textContent: T(m || 'DOC_Err_PreviewFailed') })); };
 
-    /* ================= 레이아웃(스크롤 호스트) ================= */
-
-    function escapeFixedTraps(el, maxHops, maxApply) {
-        maxHops = maxHops || 10;
-        maxApply = maxApply || 4;
-        var n = el.parentElement;
-        var hops = 0;
-        var applied = 0;
-        while (n && hops < maxHops && applied < maxApply) {
-            var cs = window.getComputedStyle(n);
-            var hasTrap =
-                (cs.transform && cs.transform !== "none") ||
-                (cs.willChange && cs.willChange.indexOf("transform") >= 0) ||
-                (cs.filter && cs.filter !== "none") ||
-                (cs.contain && cs.contain !== "none");
-            var clips =
-                /(auto|scroll|hidden|clip)/.test(cs.overflowX) ||
-                /(auto|scroll|hidden|clip)/.test(cs.overflowY);
-
-            if (hasTrap || clips) {
-                if (!n.classList.contains("doc-unclip")) {
-                    n.classList.add("doc-unclip");
-                }
-                applied++;
-            }
-
-            n = n.parentElement;
-            hops++;
+    /* ===== 레이아웃 고정 ===== */
+    function escapeFixedTraps(el, maxHops = 10, maxApply = 4) {
+        let n = el.parentElement, h = 0, a = 0;
+        while (n && h < maxHops && a < maxApply) {
+            const cs = getComputedStyle(n);
+            const hasTrap = (cs.transform && cs.transform !== 'none') || (cs.willChange && cs.willChange.includes('transform')) || (cs.filter && cs.filter !== 'none') || (cs.contain && cs.contain !== 'none');
+            const clips = /(auto|scroll|hidden|clip)/.test(cs.overflowX) || /(auto|scroll|hidden|clip)/.test(cs.overflowY);
+            if (hasTrap || clips) { n.classList.add('doc-unclip'); a++; }
+            n = n.parentElement; h++;
         }
     }
 
     function computeInsets() {
-        var vw = Math.max(320, window.innerWidth || 0);
-        var vh = Math.max(320, window.innerHeight || 0);
-        var top = 0, left = 0, right = 0, bottom = 0;
-
-        var hdr = document.querySelector("[data-app-header]");
-        var sdr = document.querySelector("[data-app-sidebar]");
-        var ftr = document.querySelector("footer,[data-app-footer]");
-
-        if (hdr) {
-            var r1 = hdr.getBoundingClientRect();
-            if (r1.height > 0) top = Math.max(top, Math.round(r1.bottom));
-        }
-        if (sdr) {
-            var r2 = sdr.getBoundingClientRect();
-            if (r2.width > 0 && r2.left <= 1) left = Math.max(left, Math.round(r2.right));
-        }
-        if (ftr) {
-            var r3 = ftr.getBoundingClientRect();
-            if (r3.height > 0) bottom = Math.max(bottom, Math.round(vh - r3.top));
-        }
-
-        var sdr2 = document.querySelector("aside,.sidebar,[class*='sidebar'],[class*='SideBar']");
-        if (sdr2) {
-            var r4 = sdr2.getBoundingClientRect();
-            if (r4.width > 0 && r4.left <= 1) left = Math.max(left, Math.round(r4.right));
-        }
-
-        top = Math.min(top, Math.floor(vh * 0.5));
-        left = Math.min(left, Math.floor(vw * 0.6));
-        right = Math.min(right, Math.floor(vw * 0.4));
-        bottom = Math.min(bottom, Math.floor(vh * 0.5));
-
-        return { top: top, left: left, right: right, bottom: bottom };
+        const vw = Math.max(320, innerWidth), vh = Math.max(320, innerHeight);
+        let top = 0, left = 0, right = 0, bottom = 0;
+        const hdr = $('[data-app-header]'); const sdr = $('[data-app-sidebar]'); const ftr = $('footer,[data-app-footer]');
+        if (hdr) { const r = hdr.getBoundingClientRect(); if (r.height > 0) top = Math.max(top, Math.round(r.bottom)); }
+        if (sdr) { const r = sdr.getBoundingClientRect(); if (r.width > 0 && r.left <= 1) left = Math.max(left, Math.round(r.right)); }
+        if (ftr) { const r = ftr.getBoundingClientRect(); if (r.height > 0) bottom = Math.max(bottom, Math.round(vh - r.top)); }
+        const sdr2 = document.querySelector('aside,.sidebar,[class*="sidebar"],[class*="SideBar"]');
+        if (sdr2) { const r = sdr2.getBoundingClientRect(); if (r.width > 0 && r.left <= 1) left = Math.max(left, Math.round(r.right)); }
+        top = Math.min(top, Math.floor(vh * 0.5)); left = Math.min(left, Math.floor(vw * 0.6)); right = Math.min(right, Math.floor(vw * 0.4)); bottom = Math.min(bottom, Math.floor(vh * 0.5));
+        return { top, left, right, bottom };
     }
 
     function placeContainer() {
-        var host = document.getElementById("doc-scroll");
+        const host = document.getElementById('doc-scroll');
         if (!host) return;
-
-        var insets = computeInsets();
-        host.style.position = host.style.position || "relative";
-        host.style.top = insets.top + "px";
-        host.style.left = insets.left + "px";
-        host.style.right = insets.right + "px";
-        host.style.bottom = insets.bottom + "px";
-        host.style.overflowX = "auto";
-        host.style.overflowY = "auto";
-        host.style.paddingInlineEnd = "0px";
+        const { top, left, right, bottom } = computeInsets();
+        host.style.top = top + 'px'; host.style.left = left + 'px'; host.style.right = right + 'px'; host.style.bottom = bottom + 'px';
+        host.style.setProperty('overflow-x', 'auto', 'important');
+        host.style.setProperty('overflow-y', 'auto', 'important');
+        const vInner = host.offsetWidth - host.clientWidth;
+        host.style.paddingInlineEnd = (vInner > 0 ? vInner + 'px' : '0');
     }
 
-    /* ================= JSON 로딩 ================= */
-
+    /* ===== 프리뷰/스타일 보조 ===== */
     function readJson(id) {
         try {
-            var el = document.getElementById(id);
+            const el = document.getElementById(id);
             if (!el) return {};
-            var raw = el.textContent || "";
-            var v = JSON.parse(raw);
-            if (typeof v === "string") return JSON.parse(v);
-            return v || {};
-        } catch (e) {
-            return {};
-        }
+            const raw = el.textContent || '';
+            const v = JSON.parse(raw);
+            return typeof v === 'string' ? JSON.parse(v) : v;
+        } catch { return {}; }
     }
 
-    var descriptor = readJson("DescriptorJson");
-    var preview = readJson("PreviewJson");
+    const descriptor = readJson('DescriptorJson');
+    const preview = readJson('PreviewJson');
     window.descriptor = descriptor;
 
-    /* ================= 좌표/A1 유틸 ================= */
-
-    function a1ToRC(a1) {
-        if (!a1) return null;
-        var m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
-        if (!m) return null;
-        var letters = m[1];
-        var row = parseInt(m[2], 10);
-        var col = 0;
-        for (var i = 0; i < letters.length; i++) {
-            col = col * 26 + (letters.charCodeAt(i) - 64);
-        }
-        return { r: row, c: col };
-    }
-
-    var posToMeta = new window.Map ? new Map() : null;
-    var payloadInputs = {};
-    window.payloadInputs = payloadInputs;
-
-    (function buildPosMeta() {
-        if (!posToMeta) return;
-        var list = (descriptor && descriptor.inputs && descriptor.inputs.length) ? descriptor.inputs : [];
-        for (var i = 0; i < list.length; i++) {
-            var f = list[i];
-            if (!f || !f.key) continue;
-            var rc = a1ToRC(f.a1 || "");
-            if (!rc) continue;
-            posToMeta.set(rc.r + "," + rc.c, {
-                key: String(f.key),
-                type: String(f.type || "Text"),
-                rc: rc
-            });
-        }
-    })();
-
-    /* ================= 치수 변환 ================= */
-
-    function excelColWidthToPx(W) {
-        var w = Number(W);
+    const excelColWidthToPx = W => {
+        const w = Number(W);
         if (!isFinite(w) || w < 0) return 0;
         return Math.max(0, Math.floor(w * 7 + 5));
-    }
-    function ptToPx(pt) {
-        var n = Number(pt) || 0;
-        return n * 96 / 72;
-    }
-
-    /* ================= 스타일/보더 적용 ================= */
+    };
+    const ptToPx = pt => ((Number(pt) || 0) * 96 / 72);
 
     function hasVisibleStyle(st) {
         if (!st) return false;
         if (st.fill && st.fill.bg) return true;
         if (st.font && (st.font.bold || st.font.italic || st.font.underline || st.font.size || st.font.name)) return true;
-        var b = st.border || {};
-        return !!((b.l && b.l !== "None") || (b.r && b.r !== "None") || (b.t && b.t !== "None") || (b.b && b.b !== "None"));
+        const b = st.border || {};
+        return !!((b.l && b.l !== 'None') || (b.r && b.r !== 'None') || (b.t && b.t !== 'None') || (b.b && b.b !== 'None'));
     }
+
+    function a1ToRC(a1) {
+        if (!a1) return null;
+        const m = String(a1).toUpperCase().match(/^([A-Z]+)(\d+)$/);
+        if (!m) return null;
+        const letters = m[1]; const row = parseInt(m[2], 10);
+        let col = 0; for (let i = 0; i < letters.length; i++) col = col * 26 + (letters.charCodeAt(i) - 64);
+        return { r: row, c: col };
+    }
+
+    const posToMeta = new Map();
+    (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => {
+        if (!f?.key) return;
+        const rc = a1ToRC(f.a1 || '');
+        if (!rc) return;
+        posToMeta.set(`${rc.r},${rc.c}`, { key: String(f.key), type: String(f.type || 'Text'), rc });
+    });
+
+    const payloadInputs = {};
+    window.payloadInputs = payloadInputs;
 
     function applyStyleToCell(td, cell, st) {
-        if (!st || typeof st !== "object") return;
+        if (!st || typeof st !== 'object') return;
 
         if (st.font) {
-            var f = st.font;
-            var fSize = f.size || f.FontSize || f.fontSize || f.sz || f.height;
+            const f = st.font;
+
+            // 서버 JSON 어떤 이름이 와도 다 받도록 통합
+            const fSize =
+                f.size ??
+                f.FontSize ??
+                f.fontSize ??
+                f.sz ??
+                f.height;
+
+            // 폰트 패밀리는 웹 공통 폰트로 통일하고 싶으면 name은 무시
+            // if (f.name) cell.style.fontFamily = f.name;  // ← 필요 없으면 주석 그대로 두셔도 됩니다.
+
             if (fSize) {
-                cell.style.fontSize = ptToPx(fSize) + "px";
+                cell.style.fontSize = ptToPx(fSize) + 'px';
             }
-            if (f.bold) cell.style.fontWeight = "700";
-            if (f.italic) cell.style.fontStyle = "italic";
-            if (f.underline) cell.style.textDecoration = "underline";
+
+            if (f.bold) cell.style.fontWeight = '700';
+            if (f.italic) cell.style.fontStyle = 'italic';
+            if (f.underline) cell.style.textDecoration = 'underline';
         }
+        // Excel 폰트(st.font)는 무시하고, eb.doc.preview.css에서 지정한 웹 폰트만 사용
+        // (굵기/기울임/크기 모두 CSS 기준 유지)
 
         if (st.align) {
-            var h = String(st.align.h || "").toLowerCase();
-            cell.classList.remove("ta-left", "ta-center", "ta-right");
-            if (h === "center") cell.classList.add("ta-center");
-            else if (h === "right") cell.classList.add("ta-right");
-            else cell.classList.add("ta-left");
+            const h = String(st.align.h || '').toLowerCase();
+            cell.classList.remove('ta-left', 'ta-center', 'ta-right');
+            if (h === 'center') cell.classList.add('ta-center');
+            else if (h === 'right') cell.classList.add('ta-right');
+            else cell.classList.add('ta-left');
 
-            var v = String(st.align.v || "").toLowerCase();
-            td.classList.remove("va-top", "va-middle", "va-bottom");
-            if (v === "top") td.classList.add("va-top");
-            else if (v === "center" || v === "middle") td.classList.add("va-middle");
-            else td.classList.add("va-bottom");
+            const v = String(st.align.v || '').toLowerCase();
+            td.classList.remove('va-top', 'va-middle', 'va-bottom');
+            if (v === 'top') td.classList.add('va-top');
+            else if (v === 'center' || v === 'middle') td.classList.add('va-middle');
+            else td.classList.add('va-bottom');
 
-            if (st.align.wrap) cell.classList.add("wrap");
+            if (st.align.wrap) cell.classList.add('wrap');
         }
 
-        function cssOf(s) {
-            s = String(s || "").toLowerCase();
-            if (!s || s === "none") return { w: 0, sty: "none" };
-            if (s.indexOf("double") >= 0) return { w: 3, sty: "double" };
-            if (s.indexOf("mediumdashdotdot") >= 0 || s.indexOf("mediumdashdot") >= 0 || s.indexOf("mediumdashed") >= 0) return { w: 2, sty: "dashed" };
-            if (s.indexOf("dashdotdot") >= 0 || s.indexOf("dashdot") >= 0 || s.indexOf("dashed") >= 0) return { w: 1, sty: "dashed" };
-            if (s.indexOf("dotted") >= 0 || s.indexOf("hair") >= 0) return { w: 1, sty: "dotted" };
-            if (s.indexOf("thick") >= 0) return { w: 3, sty: "solid" };
-            if (s.indexOf("medium") >= 0) return { w: 2, sty: "solid" };
-            return { w: 1, sty: "solid" };
-        }
+        const cssOf = s => {
+            s = String(s || '').toLowerCase();
+            if (!s || s === 'none') return { w: 0, sty: 'none' };
+            if (s.includes('double')) return { w: 3, sty: 'double' };
+            if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed')) return { w: 2, sty: 'dashed' };
+            if (s.includes('dashdotdot') || s.includes('dashdot') || s.includes('dashed')) return { w: 1, sty: 'dashed' };
+            if (s.includes('dotted') || s.includes('hair')) return { w: 1, sty: 'dotted' };
+            if (s.includes('thick')) return { w: 3, sty: 'solid' };
+            if (s.includes('medium')) return { w: 2, sty: 'solid' };
+            return { w: 1, sty: 'solid' };
+        };
 
-        //var color = "#000";
-        //if (st.border) {
-        //    var L = cssOf(st.border.l);
-        //    var R = cssOf(st.border.r);
-        //    var T2 = cssOf(st.border.t);
-        //    var B = cssOf(st.border.b);
-
-        //    td.style.borderLeft = L.w ? (L.w + "px " + L.sty + " " + color) : "none";
-        //    td.style.borderRight = R.w ? (R.w + "px " + R.sty + " " + color) : "none";
-        //    td.style.borderTop = T2.w ? (T2.w + "px " + T2.sty + " " + color) : "none";
-        //    td.style.borderBottom = B.w ? (B.w + "px " + B.sty + " " + color) : "none";
-        //}
         const color = '#000';
         if (st.border) {
-            const L = cssOf(st.border.l);
-            const R = cssOf(st.border.r);
-            const T = cssOf(st.border.t);
-            const B = cssOf(st.border.b);
-
-            // ★ w>0 인 경우에만 인라인 스타일로 덮어쓴다.
-            if (L.w) td.style.borderLeft = `${L.w}px ${L.sty} ${color}`;
-            if (R.w) td.style.borderRight = `${R.w}px ${R.sty} ${color}`;
-            if (T.w) td.style.borderTop = `${T.w}px ${T.sty} ${color}`;
-            if (B.w) td.style.borderBottom = `${B.w}px ${B.sty} ${color}`;
+            const L = cssOf(st.border.l), R = cssOf(st.border.r), T = cssOf(st.border.t), B = cssOf(st.border.b);
+            td.style.borderLeft = L.w ? `${L.w}px ${L.sty} ${color}` : 'none';
+            td.style.borderRight = R.w ? `${R.w}px ${R.sty} ${color}` : 'none';
+            td.style.borderTop = T.w ? `${T.w}px ${T.sty} ${color}` : 'none';
+            td.style.borderBottom = B.w ? `${B.w}px ${B.sty} ${color}` : 'none';
         }
     }
-
-    /* ================= 폭 계산 (문서 끝) ================= */
 
     function measureEffectiveContentWidth(tbl) {
         if (!tbl) return 0;
-        var rectBase = tbl.getBoundingClientRect();
-        var baseLeft = rectBase.left;
-        var maxRight = 0;
-
-        var tds = tbl.querySelectorAll("td");
-        for (var i = 0; i < tds.length; i++) {
-            var td = tds[i];
-            var cs = window.getComputedStyle(td);
-            var hasBorder =
-                ((parseFloat(cs.borderLeftWidth) || 0) > 0) ||
-                ((parseFloat(cs.borderRightWidth) || 0) > 0) ||
-                ((parseFloat(cs.borderTopWidth) || 0) > 0) ||
-                ((parseFloat(cs.borderBottomWidth) || 0) > 0);
-            var hasText = (td.textContent || "").replace(/\s+/g, "").length > 0;
-            var isEditable = td.classList.contains("eb-editable");
-
+        const baseLeft = tbl.getBoundingClientRect().left;
+        let maxRight = 0;
+        for (const td of tbl.querySelectorAll('td')) {
+            const cs = getComputedStyle(td);
+            const hasBorder = ((parseFloat(cs.borderLeftWidth) || 0) > 0) || ((parseFloat(cs.borderRightWidth) || 0) > 0) || ((parseFloat(cs.borderTopWidth) || 0) > 0) || ((parseFloat(cs.borderBottomWidth) || 0) > 0);
+            const hasText = (td.textContent || '').trim().length > 0;
+            const isEditable = td.classList.contains('eb-editable');
             if (hasBorder || hasText || isEditable) {
-                var r = td.getBoundingClientRect();
-                if (r.right > maxRight) maxRight = r.right;
+                const r = td.getBoundingClientRect().right;
+                if (r > maxRight) maxRight = r;
             }
         }
-
-        var eff = Math.ceil(maxRight - baseLeft);
-        if (!isFinite(eff) || eff <= 0) return 0;
-        return eff;
+        const eff = Math.ceil(maxRight - baseLeft);
+        return (isFinite(eff) && eff > 0) ? eff : 0;
     }
 
-    var HMAX = 0;
-    var H_MARGIN = 12;
-
     function computeFinalDocW() {
-        var tbl = document.querySelector("#xhost table");
+        const tbl = document.querySelector('#xhost table');
         if (!tbl) return 0;
-
-        var eff = Math.max(
-            1,
-            Number(window.__DOC_EFFW__ || 0) || 0,
-            measureEffectiveContentWidth(tbl) | 0
-        );
-
-        var margin = 12;
-        return eff + margin;
+        const eff = Math.max(1, Number(window.__DOC_EFFW__) || 0, measureEffectiveContentWidth(tbl) | 0);
+        const tblW = Math.max(1, Number(window.__DOC_TOTALW__) || 0, tbl.scrollWidth | 0, tbl.offsetWidth | 0);
+        return Math.min(eff, tblW);
     }
 
     function applyFinalWidth() {
-        var tbl = document.querySelector("#xhost table");
-        if (!tbl) return;
-
-        var w = computeFinalDocW();
-        var xhost = document.getElementById("xhost");
-        if (xhost) {
-            xhost.style.width = (w > 0 ? w.toFixed(2) : "1") + "px";
-        }
+        const w = computeFinalDocW();
+        const xhost = document.getElementById('xhost');
+        if (xhost) xhost.style.width = (w > 0 ? w.toFixed(2) : '1') + 'px';
         window.__DOC_FINALW__ = w;
-        setTimeout(function () { debugHorizontalBounds("after applyFinalWidth"); }, 0);
     }
 
+    let HMAX = 0;
     function updateClampBounds() {
-        var host = document.getElementById("doc-scroll");
-        if (!host) {
-            HMAX = 0;
-            window.__DOC_HMAX__ = 0;
-            return;
-        }
-
-        var finalW = Number(window.__DOC_FINALW__ || 0) || 0;
-        var clientW = host.clientWidth || 0;
-
-        if (!finalW || finalW <= clientW) {
-            HMAX = 0;
-            window.__DOC_HMAX__ = 0;
-        } else {
-            HMAX = finalW - clientW + H_MARGIN;
-            if (HMAX < 0) HMAX = 0;
-            window.__DOC_HMAX__ = HMAX;
-        }
-
-        setTimeout(function () { debugHorizontalBounds("after updateClampBounds"); }, 0);
+        const sc = document.getElementById('doc-scroll');
+        const finalW = computeFinalDocW();
+        if (!sc || !finalW) return;
+        const viewW = sc.clientWidth | 0;
+        const EPS = 6;
+        HMAX = Math.max(0, (finalW - viewW - EPS) | 0);
+        if (sc.scrollLeft > HMAX) sc.scrollLeft = HMAX;
+        if (sc.scrollLeft < 0) sc.scrollLeft = 0;
+        window.__DOC_FINALW__ = finalW;
     }
 
-    /* ================= 포커스 링 / 블록 편집 (Compose용) ================= */
+    /* ===== 포커스 링 ===== */
+    const cellDivByKey = k => document.querySelector(`#xhost td[data-key="${CSS.escape(k)}"] .cellc`);
+    const tdByKey = k => document.querySelector(`#xhost td[data-key="${CSS.escape(k)}"]`);
 
-    function getRingHost() {
-        return document.getElementById("xhost");
-    }
+    function getRingHost() { return document.getElementById('xhost'); }
     function getOrCreateRing() {
-        var host = getRingHost();
-        if (!host) return null;
-        var el = host.querySelector(":scope > .eb-group-ring");
-        if (!el) {
-            el = document.createElement("div");
-            el.className = "eb-group-ring";
-            host.appendChild(el);
-        }
+        const host = getRingHost(); if (!host) return null;
+        let el = host.querySelector(':scope > .eb-group-ring');
+        if (!el) { el = document.createElement('div'); el.className = 'eb-group-ring'; host.appendChild(el); }
         return el;
     }
-
     function showRingForRect(rect) {
-        var ring = getOrCreateRing();
-        if (!ring || !rect) return;
-
-        var pad = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--eb-ring-pad")) || 2;
-        ring.style.left = Math.round(rect.left - pad) + "px";
-        ring.style.top = Math.round(rect.top - pad) + "px";
-        ring.style.width = Math.max(0, Math.round(rect.width + pad * 2)) + "px";
-        ring.style.height = Math.max(0, Math.round(rect.height + pad * 2)) + "px";
-        ring.style.display = "block";
+        const ring = getOrCreateRing(); if (!ring || !rect) return;
+        const pad = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--eb-ring-pad')) || 2;
+        ring.style.left = Math.round(rect.left - pad) + 'px';
+        ring.style.top = Math.round(rect.top - pad) + 'px';
+        ring.style.width = Math.max(0, Math.round(rect.width + pad * 2)) + 'px';
+        ring.style.height = Math.max(0, Math.round(rect.height + pad * 2)) + 'px';
+        ring.style.display = 'block';
     }
-
     function hideRingIfIdle() {
-        var host = getRingHost();
-        if (!host) return;
-        var hasBlock = host.querySelector(".eb-block[data-active='1']");
-        var hasInput = host.querySelector("td.eb-group input:focus, td.eb-group textarea:focus");
-        if (!hasBlock && !hasInput) {
-            var ring = getOrCreateRing();
-            if (ring) ring.style.display = "none";
+        const host = getRingHost(); if (!host) return;
+        const hasActiveBlock = host.querySelector('.eb-block[data-active="1"]');
+        const hasActiveInput = host.querySelector('td.eb-group input:focus, td.eb-group textarea:focus');
+        if (!hasActiveBlock && !hasActiveInput) {
+            const ring = getOrCreateRing(); if (ring) ring.style.display = 'none';
         }
     }
 
-    function cellDivByKey(k) {
-        try {
-            return document.querySelector('#xhost td[data-key="' + CSS.escape(k) + '"] .cellc');
-        } catch (e) {
-            // CSS.escape 미지원 브라우저 대비
-            return document.querySelector('#xhost td[data-key="' + k + '"] .cellc');
-        }
-    }
-    function tdByKey(k) {
-        try {
-            return document.querySelector('#xhost td[data-key="' + CSS.escape(k) + '"]');
-        } catch (e) {
-            return document.querySelector('#xhost td[data-key="' + k + '"]');
-        }
-    }
-
-    function blockRectOfKeys(keys) {
-        var host = document.getElementById("xhost");
-        if (!host) return null;
-
-        var tds = [];
-        for (var i = 0; i < keys.length; i++) {
-            var td = tdByKey(keys[i]);
-            if (td) tds.push(td);
-        }
-        if (!tds.length) return null;
-
-        var hostRect = host.getBoundingClientRect();
-        var l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-
-        for (var j = 0; j < tds.length; j++) {
-            var rc = tds[j].getBoundingClientRect();
-            if (rc.left < l) l = rc.left;
-            if (rc.top < t) t = rc.top;
-            if (rc.right > r) r = rc.right;
-            if (rc.bottom > b) b = rc.bottom + 1;
-        }
-
-        var left = Math.floor(l - hostRect.left);
-        var top = Math.floor(t - hostRect.top);
-        var right = Math.ceil(r - hostRect.left);
-        var bottom = Math.ceil(b - hostRect.top);
-
-        return {
-            left: left,
-            top: top,
-            width: Math.max(0, right - left),
-            height: Math.max(0, bottom - top)
-        };
-    }
-
-    function clampToTable(rect) {
-        var finalW = Number(window.__DOC_FINALW__ || 0) || computeFinalDocW();
-        var left = Math.max(0, Math.min(rect.left, finalW));
-        var right = Math.max(left, Math.min(rect.left + rect.width, finalW));
-        return {
-            left: left,
-            top: rect.top,
-            width: (right - left),
-            height: rect.height
-        };
-    }
-
-    var blocks = [];
-
-    function copyStyleFromFirstCell(el, fc) {
-        var td = fc.closest ? fc.closest("td") : fc.parentNode;
-        var cs = window.getComputedStyle(fc);
-        var rowPx = parseFloat(td && td.getAttribute("data-rowpx")) || parseFloat(cs.lineHeight) || 16;
-
-        el.style.lineHeight = rowPx + "px";
-        el.style.fontFamily = cs.fontFamily;
-        el.style.fontSize = cs.fontSize;
-        el.style.fontWeight = cs.fontWeight;
-        el.style.fontStyle = cs.fontStyle;
-        el.style.letterSpacing = "normal";
-        el.style.wordSpacing = "normal";
-        el.style.textAlign = cs.textAlign;
-        el.style.paddingTop = "0px";
-        el.style.paddingBottom = "0px";
-        el.style.paddingLeft = cs.paddingLeft;
-        el.style.paddingRight = cs.paddingRight;
-    }
-
-    /* ===== textarea 폭/줄수 제한 (Compose) ===== */
-
-    var __eb_canvas = document.createElement("canvas");
-    var __eb_ctx = __eb_canvas.getContext("2d");
+    /* ===== 텍스트 폭 클램프 ===== */
+    const __eb_canvas = document.createElement('canvas');
+    const __eb_ctx = __eb_canvas.getContext('2d');
 
     function __eb_getAvailWidth(ta) {
-        var cs = window.getComputedStyle(ta);
-        var pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-        var brd = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+        const cs = getComputedStyle(ta);
+        const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+        const brd = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
         return ta.clientWidth - pad - brd;
     }
     function __eb_ctxFontFrom(ta) {
-        var cs = window.getComputedStyle(ta);
-        return [cs.fontStyle, cs.fontVariant, cs.fontWeight, cs.fontSize, cs.fontFamily].join(" ");
+        const cs = getComputedStyle(ta);
+        // letter-spacing 은 canvas 측정에 직접 반영 불가 → CSS에서 normal 고정
+        return `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
     }
 
     function __eb_normalizeClamp(ta, maxLines) {
-        function norm(s) {
-            return String(s || "").replace(/\r\n?/g, "\n");
-        }
-        var original = norm(ta.value);
-        var availW = __eb_getAvailWidth(ta);
+        const norm = s => String(s || '').replace(/\r\n?/g, '\n');
+        const original = norm(ta.value);
+        const availW = __eb_getAvailWidth(ta);
         __eb_ctx.font = __eb_ctxFontFrom(ta);
 
-        var tokens = [];
-        var i, j, ch;
-        for (i = 0; i < original.length;) {
-            ch = original[i];
-            if (ch === "\n") {
-                tokens.push("\n"); i++; continue;
-            }
-            if (ch === " ") {
-                j = i + 1;
-                while (j < original.length && original[j] === " ") j++;
-                tokens.push(original.slice(i, j));
-                i = j; continue;
-            }
-            j = i + 1;
-            while (j < original.length && original[j] !== "\n" && original[j] !== " ") j++;
-            tokens.push(original.slice(i, j));
-            i = j;
+        const tokens = [];
+        for (let i = 0; i < original.length;) {
+            const ch = original[i];
+            if (ch === '\n') { tokens.push('\n'); i++; continue; }
+            if (ch === ' ') { let j = i + 1; while (j < original.length && original[j] === ' ') j++; tokens.push(original.slice(i, j)); i = j; continue; }
+            let j = i + 1; while (j < original.length && original[j] !== '\n' && original[j] !== ' ') j++; tokens.push(original.slice(i, j)); i = j;
         }
 
-        var lines = [""];
-        var li = 0;
-
+        const lines = ['']; let li = 0;
         function put(tok) {
-            if (tok === "\n") {
-                if (lines.length < maxLines) {
-                    lines.push("");
-                    li++;
-                    return true;
-                }
-                return false;
-            }
-            var cur = lines[li] || "";
-            var cand = cur + tok;
-            if (__eb_ctx.measureText(cand).width <= availW) {
-                lines[li] = cand;
-                return true;
-            }
+            if (tok === '\n') { if (lines.length < maxLines) { lines.push(''); li++; return true; } return false; }
+            const cand = (lines[li] || '') + tok;
+            if (__eb_ctx.measureText(cand).width <= availW) { lines[li] = cand; return true; }
             if (lines.length >= maxLines) return false;
-
-            lines.push("");
-            li++;
-            if (__eb_ctx.measureText(tok).width <= availW) {
-                lines[li] = tok;
-                return true;
-            }
-            var acc = "";
-            for (var k = 0; k < tok.length; k++) {
-                var c = tok.charAt(k);
-                var t = acc + c;
+            lines.push(''); li++;
+            if (__eb_ctx.measureText(tok).width <= availW) { lines[li] = tok; return true; }
+            let acc = '';
+            for (const c of tok) {
+                const t = acc + c;
                 if (__eb_ctx.measureText(t).width > availW) {
                     if (lines.length >= maxLines) break;
-                    lines[li] = acc;
-                    lines.push("");
-                    li++;
-                    acc = __eb_ctx.measureText(c).width > availW ? "" : c;
-                } else {
-                    acc = t;
-                }
+                    lines[li] = acc; lines.push(''); li++; acc = __eb_ctx.measureText(c).width > availW ? '' : c;
+                } else { acc = t; }
             }
             if (acc) lines[li] = acc;
             return lines.length <= maxLines;
         }
+        for (const t of tokens) { if (!put(t)) break; }
 
-        for (i = 0; i < tokens.length; i++) {
-            if (!put(tokens[i])) break;
-        }
-
-        if (lines.length > maxLines) lines = lines.slice(0, maxLines);
-        while (lines.length < maxLines) lines.push("");
-
-        var out = lines.join("\n");
-        var pos = Math.min(out.length, (typeof ta.selectionStart === "number" ? ta.selectionStart : out.length));
-        ta.value = out;
-        ta.setSelectionRange(pos, pos);
+        const out = (lines.length >= maxLines ? lines.slice(0, maxLines) : lines.concat(Array(maxLines - lines.length).fill(''))).join('\n');
+        const pos = Math.min(out.length, (ta.selectionStart ?? out.length));
+        ta.value = out; ta.setSelectionRange(pos, pos);
     }
 
     function __eb_bindBeforeInputWidthClamp(ta, maxLines) {
-        function norm(s) { return String(s || "").replace(/\r\n?/g, "\n"); }
-
-        function blink(el) {
-            if (!el) return;
-            el.classList.add("eb-limit-blink");
-            setTimeout(function () { el.classList.remove("eb-limit-blink"); }, 260);
-        }
+        const norm = v => String(v || '').replace(/\r\n?/g, '\n');
+        const blink = el => { el.classList.add('eb-limit-blink'); setTimeout(() => el.classList.remove('eb-limit-blink'), 260); };
 
         function tailHasFree(fromLineExclusive) {
-            var arr = norm(ta.value).split("\n");
-            for (var i = fromLineExclusive + 1; i < maxLines; i++) {
-                var s = arr[i] || "";
-                if (s.replace(/\s+/g, "").length === 0) return true;
+            const arr = norm(ta.value).split('\n');
+            for (let i = fromLineExclusive + 1; i < maxLines; i++) {
+                const s = (arr[i] ?? '');
+                if (s.trim().length === 0) return true;
             }
             return false;
         }
-
         function caretMeta() {
-            var raw = ta.value;
-            var s = typeof ta.selectionStart === "number" ? ta.selectionStart : 0;
-            var e = typeof ta.selectionEnd === "number" ? ta.selectionEnd : s;
-            var up = norm(raw.slice(0, s));
-            var curLine = (up.match(/\n/g) || []).length;
-            var colInLine = up.length - (up.lastIndexOf("\n") + 1);
-            return { raw: raw, s: s, e: e, curLine: curLine, colInLine: colInLine };
+            const raw = ta.value; const s = ta.selectionStart ?? 0; const e = ta.selectionEnd ?? s;
+            const up = norm(raw.slice(0, s)); const curLine = (up.match(/\n/g) || []).length;
+            const colInLine = up.length - (up.lastIndexOf('\n') + 1);
+            return { raw, s, e, curLine, colInLine };
         }
+        const canEnterAt = lineIdx => (lineIdx < maxLines - 1) && tailHasFree(lineIdx);
 
-        function canEnterAt(lineIdx) {
-            return (lineIdx < maxLines - 1) && tailHasFree(lineIdx);
-        }
+        if (ta.dataset.ebBind === '1') return;
+        ta.dataset.ebBind = '1';
 
-        if (ta.getAttribute("data-eb-bind") === "1") return;
-        ta.setAttribute("data-eb-bind", "1");
+        ta.addEventListener('beforeinput', ev => {
+            const type = ev.inputType || '';
+            if (type.startsWith('delete')) return;
+            if (type === 'insertFromPaste') return;
 
-        ta.addEventListener("beforeinput", function (ev) {
-            var type = ev.inputType || "";
-            if (type.indexOf("delete") === 0) return;
-            if (type === "insertFromPaste") return;
-
-            var isEnter = (type === "insertParagraph" || type === "insertLineBreak");
-            var data = isEnter ? "\n" : (ev.data || "");
+            const isEnter = (type === 'insertParagraph' || type === 'insertLineBreak');
+            const data = isEnter ? '\n' : (ev.data || '');
             if (!data && !/insert|composition/i.test(type)) return;
 
-            var meta = caretMeta();
-            var raw = meta.raw, s = meta.s, e = meta.e, curLine = meta.curLine, colInLine = meta.colInLine;
+            const { raw, s, e, curLine, colInLine } = caretMeta();
 
             if (isEnter) {
                 ev.preventDefault();
                 if (!canEnterAt(curLine)) { blink(ta); return; }
-                ta.value = raw.slice(0, s) + "\n" + raw.slice(e);
-                var pos = s + 1;
-                ta.setSelectionRange(pos, pos);
-                window.queueMicrotask ? queueMicrotask(function () { __eb_normalizeClamp(ta, maxLines); }) :
-                    setTimeout(function () { __eb_normalizeClamp(ta, maxLines); }, 0);
+                ta.value = raw.slice(0, s) + '\n' + raw.slice(e);
+                const pos = s + 1; ta.setSelectionRange(pos, pos);
+                queueMicrotask(() => __eb_normalizeClamp(ta, maxLines));
                 return;
             }
 
-            var lines = norm(raw).split("\n");
-            var curLineText = lines[curLine] || "";
+            const lines = norm(raw).split('\n');
+            const curLineText = lines[curLine] ?? '';
+            const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); const cs = getComputedStyle(ta);
+            ctx.font = `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
-            var canvas = document.createElement("canvas");
-            var ctx = canvas.getContext("2d");
-            var cs = window.getComputedStyle(ta);
-            ctx.font = [cs.fontStyle, cs.fontVariant, cs.fontWeight, cs.fontSize, cs.fontFamily].join(" ");
+            const candidate = curLineText.slice(0, colInLine) + (ev.data || '') + curLineText.slice(colInLine + (e - s));
+            const tooWide = ctx.measureText(candidate).width > __eb_getAvailWidth(ta);
 
-            var before = curLineText.slice(0, colInLine);
-            var after = curLineText.slice(colInLine + (e - s));
-            var candidate = before + (ev.data || "") + after;
-
-            var tooWide = ctx.measureText(candidate).width > __eb_getAvailWidth(ta);
             if (tooWide) {
-                if (!canEnterAt(curLine)) {
-                    ev.preventDefault();
-                    blink(ta);
-                    return;
-                }
+                if (!canEnterAt(curLine)) { ev.preventDefault(); blink(ta); return; }
                 ev.preventDefault();
-                ta.value = raw.slice(0, s) + "\n" + (ev.data || "") + raw.slice(e);
-                var pos2 = s + 1 + (ev.data || "").length;
-                ta.setSelectionRange(pos2, pos2);
-                window.queueMicrotask ? queueMicrotask(function () { __eb_normalizeClamp(ta, maxLines); }) :
-                    setTimeout(function () { __eb_normalizeClamp(ta, maxLines); }, 0);
+                ta.value = raw.slice(0, s) + '\n' + (ev.data || '') + raw.slice(e);
+                const pos = s + 1 + (ev.data || '').length; ta.setSelectionRange(pos, pos);
+                queueMicrotask(() => __eb_normalizeClamp(ta, maxLines));
                 return;
             }
 
-            var simulated = norm(raw.slice(0, s) + (ev.data || "") + raw.slice(e));
-            var lineCount = (simulated.match(/\n/g) || []).length + 1;
-            if (lineCount > maxLines) {
-                ev.preventDefault();
-                blink(ta);
-            }
+            const simulated = norm(raw.slice(0, s) + (ev.data || '') + raw.slice(e));
+            const lineCount = (simulated.match(/\n/g) || []).length + 1;
+            if (lineCount > maxLines) { ev.preventDefault(); blink(ta); }
         }, true);
 
-        ta.addEventListener("keydown", function (e) {
-            if (e.key !== "Enter") return;
-            var raw = ta.value;
-            var s = typeof ta.selectionStart === "number" ? ta.selectionStart : 0;
-            var up = raw.slice(0, s).replace(/\r\n?/g, "\n");
-            var curLine = (up.match(/\n/g) || []).length;
-            if (!canEnterAt(curLine)) {
-                e.preventDefault();
-                blink(ta);
-            }
+        ta.addEventListener('keydown', e => {
+            if (e.key !== 'Enter') return;
+            const raw = ta.value; const s = ta.selectionStart ?? 0;
+            const up = raw.slice(0, s).replace(/\r\n?/g, '\n');
+            const curLine = (up.match(/\n/g) || []).length;
+            if (!canEnterAt(curLine)) { e.preventDefault(); blink(ta); }
         }, true);
     }
 
-    var TAB_SIZE = 4;
-    var TAB_SPACES = (new Array(TAB_SIZE + 1)).join(" ");
+    const TAB_SIZE = 4, TAB_SPACES = ' '.repeat(TAB_SIZE);
 
     function __eb_insertSmart_fromStart(ta, text, maxLines) {
-        function norm(s) { return String(s || "").replace(/\r\n?/g, "\n"); }
-
-        var raw = norm(ta.value);
-        var s = typeof ta.selectionStart === "number" ? ta.selectionStart : 0;
-        var startLine = (norm(raw.slice(0, s)).match(/\n/g) || []).length;
-
-        var parts = raw.split("\n").slice(0, startLine);
-        ta.value = parts.join("\n");
-        if (ta.value && ta.value.slice(-1) !== "\n") ta.value += "\n";
+        const norm = s => String(s || '').replace(/\r\n?/g, '\n');
+        const raw = norm(ta.value);
+        const s = ta.selectionStart ?? 0;
+        const startLine = (norm(raw.slice(0, s)).match(/\n/g) || []).length;
+        const head = raw.split('\n').slice(0, startLine);
+        ta.value = head.join('\n'); if (ta.value && !ta.value.endsWith('\n')) ta.value += '\n';
         ta.setSelectionRange(ta.value.length, ta.value.length);
 
         text = norm(text).replace(/\t/g, TAB_SPACES);
 
-        var availW = __eb_getAvailWidth(ta);
+        const availW = __eb_getAvailWidth(ta);
         __eb_ctx.font = __eb_ctxFontFrom(ta);
 
-        var tokens = [];
-        var i, j, ch;
-        for (i = 0; i < text.length;) {
-            ch = text[i];
-            if (ch === "\n") { tokens.push("\n"); i++; continue; }
-            if (ch === " ") {
-                j = i + 1;
-                while (j < text.length && text[j] === " ") j++;
-                tokens.push(text.slice(i, j));
-                i = j; continue;
-            }
-            j = i + 1;
-            while (j < text.length && text[j] !== "\n" && text[j] !== " ") j++;
-            tokens.push(text.slice(i, j));
-            i = j;
+        const tokens = [];
+        for (let i = 0; i < text.length;) {
+            const ch = text[i];
+            if (ch === '\n') { tokens.push('\n'); i++; continue; }
+            if (ch === ' ') { let j = i + 1; while (j < text.length && text[j] === ' ') j++; tokens.push(text.slice(i, j)); i = j; continue; }
+            let j = i + 1; while (j < text.length && text[j] !== '\n' && text[j] !== ' ') j++; tokens.push(text.slice(i, j)); i = j;
         }
 
-        var lines = [""];
-        var li = 0;
-
+        const lines = ['']; let li = 0;
         function push(tok) {
-            if (tok === "\n") {
-                if (lines.length >= maxLines) return false;
-                lines.push("");
-                li++;
-                return true;
-            }
-            var cur = lines[li] || "";
-            var cand = cur + tok;
-            if (__eb_ctx.measureText(cand).width <= availW) {
-                lines[li] = cand;
-                return true;
-            }
+            if (tok === '\n') { if (lines.length >= maxLines) return false; lines.push(''); li++; return true; }
+            const cand = (lines[li] || '') + tok;
+            if (__eb_ctx.measureText(cand).width <= availW) { lines[li] = cand; return true; }
             if (lines.length >= maxLines) return false;
-
-            lines.push("");
-            li++;
-            if (__eb_ctx.measureText(tok).width <= availW) {
-                lines[li] = tok;
-                return true;
-            }
-            var k, c, t;
-            for (k = 0; k < tok.length; k++) {
-                c = tok.charAt(k);
-                t = (lines[li] || "") + c;
+            lines.push(''); li++;
+            if (__eb_ctx.measureText(tok).width <= availW) { lines[li] = tok; return true; }
+            for (const c of tok) {
+                const t = (lines[li] || '') + c;
                 if (__eb_ctx.measureText(t).width > availW) {
                     if (lines.length >= maxLines) return false;
-                    lines.push("");
-                    li++;
+                    lines.push(''); li++;
                     if (__eb_ctx.measureText(c).width > availW) return false;
                     lines[li] = c;
-                } else {
-                    lines[li] = t;
-                }
+                } else { lines[li] = t; }
             }
             return true;
         }
+        for (const t of tokens) { if (!push(t)) break; }
 
-        for (i = 0; i < tokens.length; i++) {
-            if (!push(tokens[i])) break;
-        }
-
-        lines = lines.slice(0, maxLines);
-        var body = lines.join("\n");
-        var glue = (ta.value && body) ? "\n" : "";
+        const body = lines.slice(0, maxLines).join('\n');
+        const glue = (ta.value && body) ? '\n' : '';
         ta.value = ta.value + glue + body;
         __eb_normalizeClamp(ta, maxLines);
     }
 
     function bindTabAsSpaces(ta) {
-        ta.addEventListener("keydown", function (e) {
-            if (e.key !== "Tab") return;
+        ta.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab') return;
             e.preventDefault();
-            var s = typeof ta.selectionStart === "number" ? ta.selectionStart : 0;
-            var ePos = typeof ta.selectionEnd === "number" ? ta.selectionEnd : s;
-            var before = ta.value.slice(0, s);
-            var after = ta.value.slice(ePos);
-            var spaces = TAB_SPACES;
-            ta.value = before + spaces + after;
-            var pos = s + spaces.length;
+            const s = ta.selectionStart || 0;
+            const selEnd = ta.selectionEnd || s;
+            const before = ta.value.slice(0, s);
+            const after = ta.value.slice(selEnd);
+            ta.value = before + ' '.repeat(4) + after;
+            const pos = s + 4;
             ta.setSelectionRange(pos, pos);
-            ta.dispatchEvent(new Event("input"));
+            ta.dispatchEvent(new Event('input'));
         });
     }
 
     function yToLineIdx(relY, lineH, maxLines) {
-        var h = Math.max(1, lineH | 0);
-        var idx = Math.floor(Math.max(0, Math.min(relY, maxLines * h - 1)) / h);
-        if (idx < 0) idx = 0;
-        if (idx > maxLines - 1) idx = maxLines - 1;
-        return idx;
+        const h = Math.max(1, lineH | 0);
+        const idx = Math.floor(Math.max(0, Math.min(relY, maxLines * h - 1)) / h);
+        return Math.max(0, Math.min(maxLines - 1, idx));
+    }
+    function moveCaretToLineEnd(ta, lineIdx) {
+        const lines = ta.value.replace(/\r\n?/g, '\n').split('\n');
+        const i = Math.max(0, Math.min(lineIdx, Math.max(0, lines.length - 1)));
+        let pos = 0; for (let k = 0; k < i; k++) pos += (lines[k] || '').length + 1;
+        pos += (lines[i] || '').length;
+        ta.setSelectionRange(pos, pos);
     }
 
-    function moveCaretToLineEnd(ta, lineIdx) {
-        var lines = ta.value.replace(/\r\n?/g, "\n").split("\n");
-        var i = Math.max(0, Math.min(lineIdx, Math.max(0, lines.length - 1)));
-        var pos = 0;
-        var k;
-        for (k = 0; k < i; k++) pos += (lines[k] || "").length + 1;
-        pos += (lines[i] || "").length;
-        ta.setSelectionRange(pos, pos);
+    /* ===== 오버레이 그룹 ===== */
+    let blocks = [];
+
+    function copyStyleFromFirstCell(el, fc) {
+        const td = fc.closest('td');
+        const cs = getComputedStyle(fc);
+        const rowPx = parseFloat(td?.dataset.rowpx || '') || parseFloat(cs.lineHeight) || 16;
+        el.style.lineHeight = rowPx + 'px';
+        el.style.fontFamily = cs.fontFamily;
+        el.style.fontSize = cs.fontSize;
+        el.style.fontWeight = cs.fontWeight;
+        el.style.fontStyle = cs.fontStyle;
+        el.style.letterSpacing = 'normal';
+        el.style.wordSpacing = 'normal';
+        el.style.textAlign = cs.textAlign;
+        el.style.paddingTop = '0px';
+        el.style.paddingBottom = '0px';
+        el.style.paddingLeft = cs.paddingLeft;
+        el.style.paddingRight = cs.paddingRight;
+    }
+
+    function blockRectOfKeys(keys) {
+        const tds = keys.map(tdByKey).filter(Boolean);
+        if (!tds.length) return null;
+        const host = document.getElementById('xhost').getBoundingClientRect();
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        for (const td of tds) {
+            const rc = td.getBoundingClientRect();
+            l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom + 1);
+        }
+        const left = Math.floor(l - host.left);
+        const top = Math.floor(t - host.top);
+        const right = Math.ceil(r - host.left);
+        const bottom = Math.ceil(b - host.top);
+        return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    }
+
+    function clampToTable(rect) {
+        const finalW = Number(window.__DOC_FINALW__) || computeFinalDocW();
+        const left = Math.max(0, Math.min(rect.left, finalW));
+        const right = Math.max(left, Math.min(rect.left + rect.width, finalW));
+        return { left, top: rect.top, width: (right - left), height: rect.height };
     }
 
     function createGroupsWithEditorOverlay(isWrite) {
         if (!isWrite) {
-            for (var i = 0; i < blocks.length; i++) {
-                if (blocks[i].block && blocks[i].block.parentNode) blocks[i].block.parentNode.removeChild(blocks[i].block);
-                if (blocks[i].ta && blocks[i].ta.parentNode) blocks[i].ta.parentNode.removeChild(blocks[i].ta);
-            }
+            blocks.forEach(b => { b.block?.remove(); b.ta?.remove(); });
             blocks = [];
             window.__eb_blocks__ = blocks;
             return;
         }
 
-        var inputs = (descriptor && descriptor.inputs && descriptor.inputs.length) ? descriptor.inputs : [];
-        var by = {};
+        const groups = (function (inputs) {
+            const by = new Map();
+            (inputs || []).forEach(f => {
+                if (!f?.key || !f?.a1) return;
+                const type = String(f.type || 'Text').toLowerCase();
+                if (type !== 'text') return;
+                const m = String(f.key).match(/^(.*)_(\d+)$/);
+                const rc = a1ToRC(f.a1);
+                if (!rc) return;
+                const base = m ? m[1] : f.key;
+                const sig = `${base}:${rc.c}`;
+                if (!by.has(sig)) by.set(sig, []);
+                by.get(sig).push({ key: f.key, rc });
+            });
 
-        for (var idx = 0; idx < inputs.length; idx++) {
-            var f = inputs[idx];
-            if (!f || !f.key || !f.a1) continue;
-            var type = String(f.type || "Text").toLowerCase();
-            if (type !== "text") continue;
+            const gs = [];
+            by.forEach(list => {
+                list.sort((a, b) => a.rc.r - b.rc.r);
+                let run = [];
+                for (let i = 0; i < list.length; i++) {
+                    if (i === 0) { run = [list[i]]; continue; }
+                    const prev = list[i - 1].rc.r; const cur = list[i].rc.r;
+                    if (cur === prev + 1) run.push(list[i]);
+                    else { if (run.length) gs.push({ keys: run.map(x => x.key) }); run = [list[i]]; }
+                }
+                if (run.length) gs.push({ keys: run.map(x => x.key) });
+            });
+            return gs;
+        })(Array.isArray(descriptor?.inputs) ? descriptor.inputs : []);
 
-            var m = String(f.key).match(/^(.*)_(\d+)$/);
-            var rc = a1ToRC(f.a1);
-            if (!rc) continue;
-
-            var base = m ? m[1] : f.key;
-            var sig = base + ":" + rc.c;
-            if (!by[sig]) by[sig] = [];
-            by[sig].push({ key: f.key, rc: rc });
-        }
-
-        for (var b = 0; b < blocks.length; b++) {
-            if (blocks[b].block && blocks[b].block.parentNode) blocks[b].block.parentNode.removeChild(blocks[b].block);
-            if (blocks[b].ta && blocks[b].ta.parentNode) blocks[b].ta.parentNode.removeChild(blocks[b].ta);
-        }
+        blocks.forEach(b => { b.block?.remove(); b.ta?.remove(); });
         blocks = [];
 
-        var host = document.getElementById("xhost");
-        if (!host) {
-            window.__eb_blocks__ = blocks;
-            return;
-        }
+        const host = document.getElementById('xhost');
 
-        var sig;
-        for (sig in by) {
-            if (!by.hasOwnProperty(sig)) continue;
-            var list = by[sig];
-            list.sort(function (a, b2) { return a.rc.r - b2.rc.r; });
+        for (const g of groups) {
+            const keys = g.keys.filter(k => !!tdByKey(k));
+            if (!keys.length) continue;
 
-            var runs = [];
-            var run = [];
-            for (var ii = 0; ii < list.length; ii++) {
-                if (ii === 0) {
-                    run = [list[ii]];
-                } else {
-                    var prev = list[ii - 1].rc.r;
-                    var cur = list[ii].rc.r;
-                    if (cur === prev + 1) run.push(list[ii]);
-                    else {
-                        if (run.length) runs.push({ keys: run.map(function (x) { return x.key; }) });
-                        run = [list[ii]];
-                    }
-                }
+            for (const k of keys) {
+                const td = tdByKey(k);
+                if (td) td.classList.add('eb-group');
             }
-            if (run.length) runs.push({ keys: run.map(function (x) { return x.key; }) });
 
-            for (var rgi = 0; rgi < runs.length; rgi++) {
-                var keys = runs[rgi].keys.slice();
-                var filtered = [];
-                for (var k2 = 0; k2 < keys.length; k2++) {
-                    if (tdByKey(keys[k2])) filtered.push(keys[k2]);
-                }
-                keys = filtered;
-                if (!keys.length) continue;
+            const firstCell = cellDivByKey(keys[0]);
+            if (!firstCell) continue;
 
-                for (var k3 = 0; k3 < keys.length; k3++) {
-                    var td = tdByKey(keys[k3]);
-                    if (td) td.classList.add("eb-group");
-                }
+            const initLines = keys.map(k => (cellDivByKey(k)?.textContent || ''));
+            keys.forEach(k => { const c = cellDivByKey(k); if (c) c.textContent = ''; });
 
-                var firstCell = cellDivByKey(keys[0]);
-                if (!firstCell) continue;
+            const block = document.createElement('div');
+            block.className = 'eb-block'; block.setAttribute('tabindex', '-1');
 
-                var initLines = [];
-                for (var k4 = 0; k4 < keys.length; k4++) {
-                    var cdiv = cellDivByKey(keys[k4]);
-                    initLines.push(cdiv ? (cdiv.textContent || "") : "");
-                }
-                for (var k5 = 0; k5 < keys.length; k5++) {
-                    var cdiv2 = cellDivByKey(keys[k5]);
-                    if (cdiv2) cdiv2.textContent = "";
-                }
+            const ta = document.createElement('textarea');
+            ta.className = 'eb-ta'; ta.setAttribute('rows', String(keys.length)); ta.setAttribute('wrap', 'off');
 
-                var block = document.createElement("div");
-                block.className = "eb-block";
-                block.setAttribute("tabindex", "-1");
+            copyStyleFromFirstCell(block, firstCell);
+            copyStyleFromFirstCell(ta, firstCell);
 
-                var ta = document.createElement("textarea");
-                ta.className = "eb-ta";
-                ta.setAttribute("rows", String(keys.length));
-                ta.setAttribute("wrap", "off");
+            const placeRect = () => {
+                const r = blockRectOfKeys(keys) || { left: 0, top: 0, width: 0, height: 0 };
+                const rect = clampToTable({ left: Math.floor(r.left), top: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height + 2) });
+                block.style.left = rect.left + 'px'; block.style.top = rect.top + 'px'; block.style.width = rect.width + 'px'; block.style.height = rect.height + 'px';
+                ta.style.left = rect.left + 'px'; ta.style.top = rect.top + 'px'; ta.style.width = rect.width + 'px'; ta.style.height = rect.height + 'px';
+            };
+            placeRect();
 
-                copyStyleFromFirstCell(block, firstCell);
-                copyStyleFromFirstCell(ta, firstCell);
+            ta.value = initLines.some(t => t && t.length) ? initLines.join('\n') : '';
 
-                var placeRect = (function (keysCopy, blockEl, taEl) {
-                    return function () {
-                        var rct = blockRectOfKeys(keysCopy) || { left: 0, top: 0, width: 0, height: 0 };
-                        var cRect = clampToTable({
-                            left: Math.floor(rct.left),
-                            top: Math.floor(rct.top),
-                            width: Math.ceil(rct.width),
-                            height: Math.ceil(rct.height + 2)
-                        });
-                        blockEl.style.left = cRect.left + "px";
-                        blockEl.style.top = cRect.top + "px";
-                        blockEl.style.width = cRect.width + "px";
-                        blockEl.style.height = cRect.height + "px";
+            const lineH = parseFloat(getComputedStyle(ta).lineHeight) || 16;
+            __eb_bindBeforeInputWidthClamp(ta, keys.length);
 
-                        taEl.style.left = cRect.left + "px";
-                        taEl.style.top = cRect.top + "px";
-                        taEl.style.width = cRect.width + "px";
-                        taEl.style.height = cRect.height + "px";
-                    };
-                })(keys, block, ta);
+            function syncPayload() {
+                let vis = ta.value.replace(/\r\n?/g, '\n').split('\n');
+                if (vis.length < keys.length) vis = vis.concat(Array(keys.length - vis.length).fill(''));
+                vis = vis.slice(0, keys.length);
+                for (let i = 0; i < keys.length; i++) payloadInputs[keys[i]] = vis[i] ?? '';
+            }
+            syncPayload();
 
-                placeRect();
+            ta.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const text = (e.clipboardData?.getData('text/plain') || '').replace(/\u200B/g, '');
+                __eb_insertSmart_fromStart(ta, text, keys.length);
+                __eb_normalizeClamp(ta, keys.length);
+                syncPayload();
+            });
+            bindTabAsSpaces(ta);
+            ta.addEventListener('input', () => { __eb_normalizeClamp(ta, keys.length); syncPayload(); });
+            ta.addEventListener('compositionend', () => { ta.dispatchEvent(new Event('input')); });
 
-                var hasText = false;
-                for (var il = 0; il < initLines.length; il++) {
-                    if (initLines[il] && initLines[il].length) { hasText = true; break; }
-                }
-                ta.value = hasText ? initLines.join("\n") : "";
-
-                var lineH = parseFloat(window.getComputedStyle(ta).lineHeight) || 16;
-                __eb_bindBeforeInputWidthClamp(ta, keys.length);
-
-                (function (keysCopy, taEl) {
-                    function syncPayload() {
-                        var vis = taEl.value.replace(/\r\n?/g, "\n").split("\n");
-                        if (vis.length < keysCopy.length) {
-                            while (vis.length < keysCopy.length) vis.push("");
-                        }
-                        vis = vis.slice(0, keysCopy.length);
-                        for (var i = 0; i < keysCopy.length; i++) {
-                            payloadInputs[keysCopy[i]] = vis[i] || "";
-                        }
-                    }
-                    syncPayload();
-
-                    taEl.addEventListener("paste", function (e) {
-                        e.preventDefault();
-                        var text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
-                        text = text.replace(/\u200B/g, "");
-                        __eb_insertSmart_fromStart(taEl, text, keysCopy.length);
-                        __eb_normalizeClamp(taEl, keysCopy.length);
-                        syncPayload();
-                    });
-
-                    bindTabAsSpaces(taEl);
-                    taEl.addEventListener("input", function () {
-                        __eb_normalizeClamp(taEl, keysCopy.length);
-                        syncPayload();
-                    });
-                    taEl.addEventListener("compositionend", function () {
-                        taEl.dispatchEvent(new Event("input"));
-                    });
-                })(keys, ta);
-
-                (function (keysCopy, taEl) {
-                    function onCellMouseDown(e) {
-                        e.preventDefault();
-                        taEl.focus({ preventScroll: true });
-                        var rect = taEl.getBoundingClientRect();
-                        var relY = Math.max(0, Math.min(rect.height - 1, e.clientY - rect.top));
-                        var li = yToLineIdx(relY, lineH, keysCopy.length);
-                        moveCaretToLineEnd(taEl, li);
-                    }
-                    for (var ki = 0; ki < keysCopy.length; ki++) {
-                        var cellTd = tdByKey(keysCopy[ki]);
-                        if (cellTd) cellTd.addEventListener("mousedown", onCellMouseDown);
-                    }
-                })(keys, ta);
-
-                (function (keysCopy, blockEl, taEl) {
-                    taEl.addEventListener("focus", function () {
-                        var rct = blockRectOfKeys(keysCopy);
-                        if (!rct) return;
-                        blockEl.setAttribute("data-active", "1");
-                        var cRect = clampToTable({
-                            left: Math.floor(rct.left),
-                            top: Math.floor(rct.top),
-                            width: Math.ceil(rct.width),
-                            height: Math.ceil(rct.height)
-                        });
-                        showRingForRect(cRect);
-                    }, true);
-                    taEl.addEventListener("blur", function () {
-                        blockEl.setAttribute("data-active", "0");
-                        hideRingIfIdle();
-                    }, true);
-                })(keys, block, ta);
-
-                host.appendChild(block);
-                host.appendChild(ta);
-
-                blocks.push({
-                    block: block,
-                    ta: ta,
-                    keys: keys,
-                    placeRect: placeRect,
-                    refreshRing: (function (keysCopy) {
-                        return function () {
-                            if (block.getAttribute("data-active") !== "1") return;
-                            var rct = blockRectOfKeys(keysCopy);
-                            if (!rct) return;
-                            var cRect = clampToTable({
-                                left: Math.floor(rct.left),
-                                top: Math.floor(rct.top),
-                                width: Math.ceil(rct.width),
-                                height: Math.ceil(rct.height)
-                            });
-                            showRingForRect(cRect);
-                        };
-                    })(keys)
+            for (const k of keys) {
+                const td = tdByKey(k); if (!td) continue;
+                td.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    ta.focus({ preventScroll: true });
+                    const rect = ta.getBoundingClientRect();
+                    const relY = Math.max(0, Math.min(rect.height - 1, e.clientY - rect.top));
+                    const li = yToLineIdx(relY, lineH, keys.length);
+                    moveCaretToLineEnd(ta, li);
                 });
             }
+
+            ta.addEventListener('focus', () => {
+                const r = blockRectOfKeys(keys); if (!r) return;
+                block.dataset.active = '1';
+                const rect = clampToTable({ left: Math.floor(r.left), top: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) });
+                showRingForRect(rect);
+            }, true);
+            ta.addEventListener('blur', () => { block.dataset.active = '0'; hideRingIfIdle(); }, true);
+
+            host.appendChild(block);
+            host.appendChild(ta);
+
+            blocks.push({
+                block, ta, keys, placeRect, refreshRing: () => {
+                    if (block.dataset.active === '1') {
+                        const r = blockRectOfKeys(keys); if (!r) return;
+                        const rect = clampToTable({ left: Math.floor(r.left), top: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) });
+                        showRingForRect(rect);
+                    }
+                }
+            });
         }
 
         window.__eb_blocks__ = blocks;
-        window.dispatchEvent(new CustomEvent("eb-editor-mounted"));
-
-        window.addEventListener("resize", function () {
-            for (var i = 0; i < blocks.length; i++) {
-                blocks[i].placeRect();
-                blocks[i].refreshRing();
-            }
-        });
+        window.dispatchEvent(new CustomEvent('eb-editor-mounted'));
+        addEventListener('resize', () => { blocks.forEach(b => { b.placeRect(); b.refreshRing(); }); });
     }
 
-    /* ================= 프리뷰 마운트 ================= */
+    /* ===== 프리뷰 마운트 ===== */
+    function toIsoDateOrEmpty(text) {
+        if (!text) return '';
+        const s = String(text).trim();
+        let m = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+        if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+        return '';
+    }
 
-    function mount(hostSel, p, options) {
-        options = options || {};
-        var isWrite = (typeof options.isWrite === "boolean") ? options.isWrite : __EB_IS_WRITE__;
-        var xhost = document.getElementById("xhost");
-        if (!xhost || !p || !p.cells || !p.cells.length) {
+    function mount(_, p, options) {
+        const opts = options || {};
+        const isWrite = (typeof opts.isWrite === 'boolean') ? opts.isWrite : __EB_IS_WRITE__;
+        const xhost = document.getElementById('xhost');
+        if (!xhost || !p || !Array.isArray(p.cells) || !p.cells.length) {
             if (xhost) xhost.innerHTML = '<div class="alert alert-danger">DOC_Err_PreviewFailed</div>';
             return;
         }
 
-        var xlPrev = document.getElementById("xlPreview");
+        // CSS 변수 미로드/순서 문제 대비: 런타임에서도 폰트 기준을 강제
+        //const xlPrev = document.getElementById('xlPreview');
+        //if (xlPrev) {
+        //    xlPrev.style.fontFamily = `var(--eb-font)`;
+        //    xlPrev.style.fontSize = `var(--eb-font-size)`;
+        //    xlPrev.style.lineHeight = `var(--eb-line-height)`;
+        //    xlPrev.style.letterSpacing = 'normal';
+        //    xlPrev.style.wordSpacing = 'normal';
+        //}
+        const xlPrev = document.getElementById('xlPreview');
         if (xlPrev) {
-            xlPrev.style.fontFamily = "var(--eb-font)";
-            xlPrev.style.letterSpacing = "normal";
-            xlPrev.style.wordSpacing = "normal";
+            xlPrev.style.fontFamily = `var(--eb-font)`;
+            xlPrev.style.letterSpacing = 'normal';
+            xlPrev.style.wordSpacing = 'normal';
         }
 
-        var styles = p.styles || {};
-        var allRows = p.cells.length;
-        var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+        const styles = p.styles || {};
+        const allRows = p.cells.length;
+        let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+        const mark = (r, c) => { minR = Math.min(minR, r); maxR = Math.max(maxR, r); minC = Math.min(minC, c); maxC = Math.max(maxC, c); };
 
-        function mark(r, c) {
-            if (r < minR) minR = r;
-            if (r > maxR) maxR = r;
-            if (c < minC) minC = c;
-            if (c > maxC) maxC = c;
-        }
-
-        var r, c;
-        for (r = 1; r <= allRows; r++) {
-            var row = p.cells[r - 1] || [];
-            for (c = 1; c <= row.length; c++) {
-                var v = row[c - 1];
-                if (v !== "" && v != null) mark(r, c);
-                var st = styles[r + "," + c];
+        for (let r = 1; r <= allRows; r++) {
+            const row = p.cells[r - 1] || [];
+            for (let c = 1; c <= row.length; c++) {
+                const v = row[c - 1];
+                if (v !== '' && v != null) mark(r, c);
+                const st = styles[`${r},${c}`];
                 if (hasVisibleStyle(st)) mark(r, c);
             }
         }
+        (p.merges || []).forEach(m => { const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10) || 0); mark(r1, c1); mark(r2, c2); });
+        (Array.isArray(descriptor?.inputs) ? descriptor.inputs : []).forEach(f => { const rc = a1ToRC(f?.a1); if (rc) mark(rc.r, rc.c); });
 
-        var merges = p.merges || [];
-        for (var mi = 0; mi < merges.length; mi++) {
-            var m = merges[mi];
-            var r1 = parseInt(m[0], 10) || 0;
-            var c1 = parseInt(m[1], 10) || 0;
-            var r2 = parseInt(m[2], 10) || 0;
-            var c2 = parseInt(m[3], 10) || 0;
-            mark(r1, c1); mark(r2, c2);
-        }
+        if (!isFinite(minR) || !isFinite(minC)) { minR = 1; maxR = 1; minC = 1; maxC = 1; }
 
-        var inInputs = (descriptor && descriptor.inputs && descriptor.inputs.length) ? descriptor.inputs : [];
-        for (var ii = 0; ii < inInputs.length; ii++) {
-            var f = inInputs[ii];
-            var rc = a1ToRC(f && f.a1);
-            if (rc) mark(rc.r, rc.c);
-        }
+        const maxColsFromCells = Math.max(...p.cells.map(r => r.length), 1);
+        maxC = Math.min(maxC, maxColsFromCells); minC = Math.max(minC, 1);
 
-        if (!isFinite(minR) || !isFinite(minC)) {
-            minR = 1; maxR = 1; minC = 1; maxC = 1;
-        }
+        const mergeMap = new Map();
+        (p.merges || []).forEach(m => {
+            let [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
+            r1 = Math.max(r1, minR); c1 = Math.max(c1, minC);
+            r2 = Math.min(r2, maxR); c2 = Math.min(c2, maxC);
+            if (r1 > r2 || c1 > c2) return;
+            const master = `${r1}-${c1}`;
+            mergeMap.set(master, { master: true, rs: r2 - r1 + 1, cs: c2 - c1 + 1 });
+            for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+                const k = `${r}-${c}`; if (k !== master) mergeMap.set(k, { covered: true });
+            }
+        });
 
-        var maxColsFromCells = 1;
-        for (r = 0; r < p.cells.length; r++) {
-            if (p.cells[r].length > maxColsFromCells) maxColsFromCells = p.cells[r].length;
-        }
-        if (maxC > maxColsFromCells) maxC = maxColsFromCells;
-        if (minC < 1) minC = 1;
-
-        // 머지맵
-        var mergeMap = new (window.Map || function () { this._ = {}; this.set = function (k, v) { this._[k] = v; }; this.get = function (k) { return this._[k]; }; })();
-        for (mi = 0; mi < merges.length; mi++) {
-            m = merges[mi];
-            var rr1 = Math.max(parseInt(m[0], 10) || 0, minR);
-            var cc1 = Math.max(parseInt(m[1], 10) || 0, minC);
-            var rr2 = Math.min(parseInt(m[2], 10) || 0, maxR);
-            var cc2 = Math.min(parseInt(m[3], 10) || 0, maxC);
-            if (rr1 > rr2 || cc1 > cc2) continue;
-            var masterKey = rr1 + "-" + cc1;
-            mergeMap.set(masterKey, { master: true, rs: rr2 - rr1 + 1, cs: cc2 - cc1 + 1 });
-            for (r = rr1; r <= rr2; r++) {
-                for (c = cc1; c <= cc2; c++) {
-                    var k = r + "-" + c;
-                    if (k !== masterKey) mergeMap.set(k, { covered: true });
-                }
+        const styleGrid = Array.from({ length: maxR + 1 }, () => Array(maxC + 1).fill(null));
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const key = `${r},${c}`;
+                const st = styles[key] || {};
+                const border = Object.assign({ l: 'None', r: 'None', t: 'None', b: 'None' }, st.border || {});
+                styleGrid[r][c] = { font: st.font || null, align: st.align || null, fill: st.fill || null, border };
             }
         }
 
-        var styleGrid = [];
-        for (r = 0; r <= maxR; r++) {
-            styleGrid[r] = [];
-            for (c = 0; c <= maxC; c++) styleGrid[r][c] = null;
-        }
-
-        for (r = minR; r <= maxR; r++) {
-            for (c = minC; c <= maxC; c++) {
-                var key = r + "," + c;
-                var stRaw = styles[key] || {};
-                var border = stRaw.border || {};
-                styleGrid[r][c] = {
-                    font: stRaw.font || null,
-                    align: stRaw.align || null,
-                    fill: stRaw.fill || null,
-                    border: {
-                        l: border.l || "None",
-                        r: border.r || "None",
-                        t: border.t || "None",
-                        b: border.b || "None"
-                    }
-                };
-            }
-        }
-
-        function weight(s) {
-            s = String(s || "").toLowerCase();
-            if (!s || s === "none") return 0;
-            if (s.indexOf("double") >= 0) return 6;
-            if (s.indexOf("thick") >= 0) return 5;
-            if (s.indexOf("mediumdashdotdot") >= 0 ||
-                s.indexOf("mediumdashdot") >= 0 ||
-                s.indexOf("mediumdashed") >= 0 ||
-                s.indexOf("medium") >= 0) return 4;
-            if (s.indexOf("dashed") >= 0 || s.indexOf("dashdot") >= 0 || s.indexOf("dashdotdot") >= 0) return 3;
-            if (s.indexOf("dotted") >= 0 || s.indexOf("hair") >= 0) return 2;
+        const weight = s => {
+            s = String(s || '').toLowerCase();
+            if (!s || s === 'none') return 0;
+            if (s.includes('double')) return 6;
+            if (s.includes('thick')) return 5;
+            if (s.includes('mediumdashdotdot') || s.includes('mediumdashdot') || s.includes('mediumdashed') || s.includes('medium')) return 4;
+            if (s.includes('dashed') || s.includes('dashdot') || s.includes('dashdotdot')) return 3;
+            if (s.includes('dotted') || s.includes('hair')) return 2;
             return 1;
-        }
-        function stronger(a, b) {
-            return (weight(a) >= weight(b)) ? a : b;
-        }
-
-        for (r = minR; r <= maxR; r++) {
-            for (c = minC; c <= maxC; c++) {
-                var cur = styleGrid[r][c];
-                if (!cur) continue;
-                if (c < maxC) {
-                    var right = styleGrid[r][c + 1];
-                    if (right) {
-                        var pick = stronger(cur.border.r, right.border.l);
-                        cur.border.r = pick;
-                        right.border.l = pick;
-                    }
-                }
-                if (r < maxR) {
-                    var down = styleGrid[r + 1][c];
-                    if (down) {
-                        var pick2 = stronger(cur.border.b, down.border.t);
-                        cur.border.b = pick2;
-                        down.border.t = pick2;
-                    }
-                }
+        };
+        const stronger = (a, b) => (weight(a) >= weight(b) ? a : b);
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const cur = styleGrid[r][c]; if (!cur) continue;
+                if (c < maxC) { const right = styleGrid[r][c + 1]; if (right) { const pick = stronger(cur.border.r, right.border.l); cur.border.r = pick; right.border.l = pick; } }
+                if (r < maxR) { const down = styleGrid[r + 1][c]; if (down) { const pick = stronger(cur.border.b, down.border.t); cur.border.b = pick; down.border.t = pick; } }
             }
         }
 
-        function colPxAt(cidx) {
-            var arr = p.colW || [];
-            var wChar = arr[cidx - 1];
-            return excelColWidthToPx(typeof wChar === "undefined" ? 8.43 : wChar);
-        }
-        function sumColPx(c1, c2) {
-            var s = 0;
-            for (var i = c1; i <= c2; i++) s += colPxAt(i);
-            return s;
-        }
+        const colPxAt = c => { const wChar = (p.colW || [])[c - 1]; return excelColWidthToPx(wChar ?? 8.43); };
+        const sumColPx = (c1, c2) => { let s = 0; for (let i = c1; i <= c2; i++) s += colPxAt(i); return s; };
 
-        var tbl = document.createElement("table");
-        tbl.className = "xlfb";
-
-        var colgroup = document.createElement("colgroup");
-        for (c = minC; c <= maxC; c++) {
-            var cg = document.createElement("col");
-            cg.style.width = colPxAt(c).toFixed(2) + "px";
-            colgroup.appendChild(cg);
-        }
+        const tbl = document.createElement('table'); tbl.className = 'xlfb';
+        const colgroup = document.createElement('colgroup');
+        for (let c = minC; c <= maxC; c++) { const cg = document.createElement('col'); cg.style.width = colPxAt(c).toFixed(2) + 'px'; colgroup.appendChild(cg); }
         tbl.appendChild(colgroup);
 
-        var tbody = document.createElement("tbody");
-        var rowHeights = p.rowH || [];
-        var DEFAULT_ROW_PT = 15;
+        const tbody = document.createElement('tbody');
+        const rowHeights = Array.isArray(p.rowH) ? p.rowH : [];
+        const DEFAULT_ROW_PT = 15;
 
-        for (r = minR; r <= maxR; r++) {
-            var tr = document.createElement("tr");
-            var pt = (typeof rowHeights[r - 1] !== "undefined") ? rowHeights[r - 1] : DEFAULT_ROW_PT;
-            var rowPx = ptToPx(pt);
-            tr.style.height = rowPx + "px";
+        for (let r = minR; r <= maxR; r++) {
+            const tr = document.createElement('tr');
+            const pt = (rowHeights[r - 1] != null) ? rowHeights[r - 1] : DEFAULT_ROW_PT;
+            const rowPx = ptToPx(pt);
+            tr.style.height = rowPx + 'px';
 
-            for (c = minC; c <= maxC; c++) {
-                var key2 = r + "-" + c;
-                var mm = mergeMap.get ? mergeMap.get(key2) : mergeMap._ && mergeMap._[key2];
+            for (let c = minC; c <= maxC; c++) {
+                const key = `${r}-${c}`;
+                const mm = mergeMap.get(key);
                 if (mm && mm.covered) continue;
 
-                var td = document.createElement("td");
-                td.setAttribute("data-rowpx", String(rowPx));
-                td.setAttribute("data-r", String(r));
-                td.setAttribute("data-c", String(c));
+                const td = document.createElement('td');
+                td.dataset.rowpx = String(rowPx);
 
-                if (mm && mm.master) {
-                    if (mm.rs > 1) td.setAttribute("rowspan", String(mm.rs));
-                    if (mm.cs > 1) td.setAttribute("colspan", String(mm.cs));
-                }
-                if (!(mm && mm.master && mm.cs > 1)) {
-                    td.style.width = colPxAt(c) + "px";
-                }
+                if (mm && mm.master) { if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs)); if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs)); }
+                if (!(mm && mm.master && mm.cs > 1)) td.style.width = colPxAt(c) + 'px';
 
-                var cellDiv = document.createElement("div");
-                cellDiv.className = "cellc";
-                cellDiv.style.lineHeight = rowPx + "px";
-                if (!mm) cellDiv.style.maxHeight = rowPx + "px";
+                const cell = document.createElement('div');
+                cell.className = 'cellc';
+                // 셀 표시도 textarea와 동일 라인 기준을 강제
+                cell.style.lineHeight = rowPx + 'px';
+                if (!mm) cell.style.maxHeight = rowPx + 'px';
 
-                var v2 = (preview && preview.cells && preview.cells[r - 1] && typeof preview.cells[r - 1][c - 1] !== "undefined")
-                    ? preview.cells[r - 1][c - 1] : "";
-                if (v2 !== "") cellDiv.appendChild(document.createTextNode(String(v2)));
+                const v = (preview.cells[r - 1]?.[c - 1] ?? '');
+                cell.appendChild(document.createTextNode(v === '' ? '' : String(v)));
 
-                applyStyleToCell(td, cellDiv, styleGrid[r][c]);
+                applyStyleToCell(td, cell, styleGrid[r][c]);
 
-                var meta = posToMeta && posToMeta.get ? posToMeta.get(r + "," + c) : null;
-                var fieldKey = meta && meta.key;
-                var fieldType = (meta && meta.type ? meta.type : "Text").toLowerCase();
-                var editable = !!fieldKey && !(mm && !mm.master) && isWrite;
+                const m = posToMeta.get(`${r},${c}`);
+                const fieldKey = m?.key;
+                const fieldType = (m?.type || 'Text').toLowerCase();
+                const editable = !!fieldKey && !(mm && !mm.master) && isWrite;
 
                 if (editable) {
-                    td.setAttribute("data-key", fieldKey);
-                    td.classList.add("eb-editable");
+                    td.setAttribute('data-key', fieldKey);
+                    td.classList.add('eb-editable');
 
-                    if (fieldType === "date") {
-                        td.setAttribute("data-type", "date");
-                        td.classList.add("eb-group");
+                    if (fieldType === 'date') {
+                        td.dataset.type = 'date';
+                        td.classList.add('eb-group');
 
-                        var input = document.createElement("input");
-                        input.type = "date";
-                        input.className = "eb-input-date";
+                        const input = document.createElement('input');
+                        input.type = 'date';
+                        input.className = 'eb-input-date';
 
-                        var today = new Date();
-                        var yyyy = today.getFullYear();
-                        var mm2 = ("0" + (today.getMonth() + 1)).slice(-2);
-                        var dd = ("0" + today.getDate()).slice(-2);
-                        input.value = yyyy + "-" + mm2 + "-" + dd;
+                        // 2025.11.14 Changed: 항상 폼 여는 시점의 "오늘 날짜(로컬 기준)"로 기본 값 설정
+                        const today = new Date();
+                        const yyyy = today.getFullYear();
+                        const mm = String(today.getMonth() + 1).padStart(2, '0');
+                        const dd = String(today.getDate()).padStart(2, '0');
+                        input.value = `${yyyy}-${mm}-${dd}`;
 
-                        cellDiv.textContent = "";
-                        cellDiv.appendChild(input);
+                        // 셀의 기존 텍스트(엑셀 값)는 무시
+                        cell.textContent = '';
+                        cell.appendChild(input);
 
-                        (function (fieldKeyCopy, inputEl) {
-                            function sync() {
-                                payloadInputs[fieldKeyCopy] = inputEl.value || "";
+                        const sync = () => { payloadInputs[fieldKey] = input.value || ''; };
+                        input.addEventListener('change', sync);
+                        input.addEventListener('blur', sync);
+                        if (!(fieldKey in payloadInputs)) sync();
+
+                        td.addEventListener('mousedown', (e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            input.focus({ preventScroll: true });
+                            if (typeof input.showPicker === 'function') {
+                                try { input.showPicker(); } catch { /* no-op */ }
                             }
-                            inputEl.addEventListener("change", sync);
-                            inputEl.addEventListener("blur", sync);
-                            if (!(fieldKeyCopy in payloadInputs)) sync();
-
-                            td.addEventListener("mousedown", function (e) {
-                                if (e.button !== 0) return;
-                                e.preventDefault();
-                                inputEl.focus({ preventScroll: true });
-                                if (typeof inputEl.showPicker === "function") {
-                                    try { inputEl.showPicker(); } catch (e2) { }
-                                }
-                            });
-                        })(fieldKey, input);
+                        });
                     }
                 }
 
-                td.appendChild(cellDiv);
+                td.appendChild(cell);
                 tr.appendChild(td);
             }
             tbody.appendChild(tr);
         }
         tbl.appendChild(tbody);
 
-        var totalW = sumColPx(minC, maxC);
-        tbl.style.width = totalW + "px";
+        const totalW = sumColPx(minC, maxC);
+        tbl.style.width = totalW + 'px';
 
-        var xhostEl = document.getElementById("xhost");
-        xhostEl.innerHTML = "";
+        const xhostEl = document.getElementById('xhost');
+        xhostEl.innerHTML = '';
         xhostEl.appendChild(tbl);
 
         window.__DOC_TOTALW__ = Math.max(1, totalW | 0);
         window.__DOC_EFFW__ = Math.max(1, measureEffectiveContentWidth(tbl) | 0);
 
         applyFinalWidth();
-        window.requestAnimationFrame ?
-            window.requestAnimationFrame(function () { updateClampBounds(); }) :
-            setTimeout(updateClampBounds, 0);
+        requestAnimationFrame(() => requestAnimationFrame(updateClampBounds));
 
-        try {
-            if (typeof window.colorizeInputGroups === "function") window.colorizeInputGroups(isWrite);
-        } catch (e) { }
-
+        // Detail 모드에서는 그룹 표시/편집 오버레이 생성 안 함
+        try { if (typeof colorizeInputGroups === 'function') colorizeInputGroups(isWrite); } catch (e) { console.warn('colorizeInputGroups skipped', e); }
         createGroupsWithEditorOverlay(isWrite);
     }
 
-    /* ================= 초기화 / 레이아웃 ================= */
-
-    (function initHost() {
-        var host = document.getElementById("doc-scroll");
-        if (!host) return;
+    /* ===== 초기화/관찰 ===== */
+    const host = document.getElementById('doc-scroll');
+    if (host) {
         escapeFixedTraps(host);
         placeContainer();
-    })();
+        host.addEventListener('scroll', () => {
+            if (host.scrollLeft > HMAX) host.scrollLeft = HMAX;
+            if (host.scrollLeft < 0) host.scrollLeft = 0;
+        }, { passive: true });
+    }
 
     function rerenderAll() {
         placeContainer();
         applyFinalWidth();
         updateClampBounds();
         if (window.__eb_blocks__) {
-            var arr = window.__eb_blocks__;
-            for (var i = 0; i < arr.length; i++) {
-                if (arr[i].placeRect) arr[i].placeRect();
-                if (arr[i].refreshRing) arr[i].refreshRing();
-            }
+            window.__eb_blocks__.forEach(b => { b.placeRect?.(); b.refreshRing?.(); });
         }
     }
 
-    function firstReflow() {
-        try {
-            if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
-                document.fonts.ready.then(function () {
-                    setTimeout(rerenderAll, 0);
-                });
-            } else {
-                setTimeout(rerenderAll, 0);
-            }
-        } catch (e) {
-            setTimeout(rerenderAll, 0);
-        }
+    async function firstReflow() {
+        try { await (document.fonts?.ready || Promise.resolve()); } catch { }
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        rerenderAll();
+        setTimeout(rerenderAll, 0);
     }
 
-    window.addEventListener("load", firstReflow, { once: true });
+    try {
+        if (preview && preview.cells) {
+            mount('#xlPreview', preview, { isWrite: __EB_IS_WRITE__ });
+        }
+    } catch (e) {
+        console.error(e);
+        err('DOC_Err_PreviewFailed');
+    }
+
+    addEventListener('load', firstReflow, { once: true });
     firstReflow();
-    window.addEventListener("resize", rerenderAll);
+    addEventListener('resize', rerenderAll);
 
-    var xhostObsTarget = document.getElementById("xhost");
-    if (xhostObsTarget && window.MutationObserver) {
-        var moQueued = false;
-        var mo = new MutationObserver(function () {
+    const xhostObsTarget = document.getElementById('xhost');
+    if (xhostObsTarget) {
+        let moQueued = false;
+        new MutationObserver(() => {
             if (moQueued) return;
             moQueued = true;
-            (window.requestAnimationFrame || setTimeout)(function () {
-                var tbl = document.querySelector("#xhost table");
+            requestAnimationFrame(() => {
+                const tbl = document.querySelector('#xhost table');
                 if (tbl) {
-                    window.__DOC_EFFW__ = Math.max(Number(window.__DOC_EFFW__ || 0) || 0, measureEffectiveContentWidth(tbl) | 0);
+                    window.__DOC_EFFW__ = Math.max(Number(window.__DOC_EFFW__) || 0, measureEffectiveContentWidth(tbl) | 0);
                 }
                 rerenderAll();
                 moQueued = false;
-            }, 0);
-        });
-        mo.observe(xhostObsTarget, { attributes: true, childList: true, subtree: true });
-    }
-
-    /* ================= 전역 API ================= */
-
-    window.EBDocPreview = {
-        T: T,
-        info: info,
-        ok: ok,
-        err: err,
-        descriptor: descriptor,
-        preview: preview,
-        get payloadInputs() { return payloadInputs; },
-        mount: mount,
-        rerenderAll: rerenderAll,
-        firstReflow: firstReflow,
-        escapeFixedTraps: escapeFixedTraps,
-        placeContainer: placeContainer,
-        readJson: readJson,
-        setWriteMode: function (flag) {
-            __EB_IS_WRITE__ = !!flag;
-            window.__DOC_IS_WRITE__ = __EB_IS_WRITE__;
-        },
-        get isWrite() { return __EB_IS_WRITE__; },
-        getMetrics: function () {
-            return {
-                totalW: window.__DOC_TOTALW__ || 0,
-                effW: window.__DOC_EFFW__ || 0,
-                finalW: window.__DOC_FINALW__ || 0,
-                hMax: HMAX
-            };
-        }
-    };
-
-    function debugHorizontalBounds(tag) {
-        try {
-            var host = document.getElementById("doc-scroll");
-            var xhost = document.getElementById("xhost");
-            if (!host || !xhost) {
-                console.log("[DOC DEBUG]", tag, "host/xhost not found");
-                return;
-            }
-            var table = xhost.querySelector("table");
-            var scrollWidth = host.scrollWidth;
-            var clientWidth = host.clientWidth;
-            var maxScroll = scrollWidth - clientWidth;
-            var xhostW = xhost.offsetWidth;
-            var tableW = table ? table.offsetWidth : null;
-
-            console.log("[DOC DEBUG]", tag, {
-                DOC_HMAX: window.__DOC_HMAX__,
-                HMAX: HMAX,
-                totalW: window.__DOC_TOTALW__,
-                effW: window.__DOC_EFFW__,
-                finalW: window.__DOC_FINALW__,
-                scrollWidth: scrollWidth,
-                clientWidth: clientWidth,
-                maxScroll: maxScroll,
-                xhostW: xhostW,
-                tableW: tableW
             });
-        } catch (e) {
-            console.log("[DOC DEBUG] error in debugHorizontalBounds", e);
-        }
+        }).observe(xhostObsTarget, { attributes: true, childList: true, subtree: true });
     }
+
+    /* ===== 전역 노출 ===== */
+    window.EBDocPreview = {
+        T, info, ok, err,
+        descriptor, preview,
+        get payloadInputs() { return payloadInputs; },
+        mount, rerenderAll, firstReflow, escapeFixedTraps, placeContainer, readJson,
+        setWriteMode: function (flag) { __EB_IS_WRITE__ = !!flag; window.__DOC_IS_WRITE__ = __EB_IS_WRITE__; },
+        get isWrite() { return __EB_IS_WRITE__; },
+        getMetrics: () => ({ totalW: window.__DOC_TOTALW__ || 0, effW: window.__DOC_EFFW__ || 0, finalW: window.__DOC_FINALW__ || 0, hMax: HMAX })
+    };
 })();

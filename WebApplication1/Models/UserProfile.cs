@@ -25,7 +25,7 @@ namespace WebApplication1.Models   // ← ApplicationUser 와 동일 네임스�
 
         public int? DepartmentId { get; set; }
         public int? PositionId { get; set; }
-
+        public string? SignatureRelativePath { get; set; }
         [ForeignKey(nameof(DepartmentId))] public DepartmentMaster? Department { get; set; }
         [ForeignKey(nameof(PositionId))] public PositionMaster? Position { get; set; }
 

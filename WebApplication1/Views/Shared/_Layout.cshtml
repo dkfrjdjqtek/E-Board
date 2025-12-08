@@ -1,4 +1,4 @@
-﻿@* 2025.11.13 Changed: Scripts 섹션 중복 렌더링 제거 *@
+﻿﻿@* 2025.11.13 Changed: Scripts 섹션 중복 렌더링 제거 *@
 @* 2025.09.16 Changed: EBValidate 경로는 eb-validate.js로 유지 실제 배포 파일명이 이 이름임 언더스코어 경로 사용 시 스크립트 미로딩으로 invalid 표시가 사라짐 *@
 @* 2025.09.16 Added: eb-validate.js에 asp-append-version 추가 캐시 문제로 구버전이 남는 현상 방지 *@
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
@@ -31,7 +31,7 @@
 
     <!-- 본문 래퍼 -->
     <div id="layout-body" class="d-flex">
-        <!-- 사이드바: 기존 동작 유지 (폭/반응형은 site.css/_custom.css 에서만 제어) -->
+        <!-- 사이드바 -->
         <aside class="sidebar-host flex-shrink-0">
             @await Html.PartialAsync("_Sidebar")
         </aside>
@@ -42,6 +42,13 @@
         </main>
     </div>
 
+    <!--
+    <footer class="border-top footer text-muted small py-2">
+        <div class="container">
+            &copy; 2025 - WebApplication1 - <a asp-controller="Home" asp-action="Privacy">Privacy</a>
+        </div>
+    </footer>
+    -->
     <footer class="border-top footer app-footer text-muted small">
         <div class="container-fluid px-3">
             <div class="d-flex align-items-center justify-content-between flex-nowrap">
@@ -72,7 +79,6 @@
     @await RenderSectionAsync("Scripts", required: false)
 
     <script>
-        // 헤더/푸터 실제 높이를 CSS 변수(--header-h, --footer-h)에 반영
         (() => {
             const root = document.documentElement;
             function sync() {

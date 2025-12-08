@@ -15,6 +15,14 @@ using WebApplication1.Data;
 using WebApplication1.Models;
 using NuGet.Protocol.Plugins;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Hosting;    // 2025.12.02 Added: 서명 이미지 저장용 웹 루트 사용
+using Microsoft.AspNetCore.Http;       // 2025.12.02 Added: 서명 파일 바인딩용
+using System.IO;                       // 2025.12.02 Added: 파일 저장 IO 사용
+using System.Drawing;                  // 2025.12.02 Added: 서명 이미지 리사이즈
+using System.Drawing.Drawing2D;        // 2025.12.02 Added: 고품질 리사이즈 옵션
+using System.Drawing.Imaging;          // 2025.12.02 Added: PNG 저장 포맷
+
+
 
 namespace WebApplication1.Areas.Identity.Pages.Account
 {
@@ -27,6 +35,17 @@ namespace WebApplication1.Areas.Identity.Pages.Account
         private readonly IEmailSender _emailSender;
         private readonly IStringLocalizer<SharedResource> _S;
         private readonly IOptionsMonitor<DataProtectionTokenProviderOptions> _tokenOpts;
+        // 2025.12.02 Added: 서명 이미지 저장을 위한 웹 루트 환경 주입
+        private readonly IWebHostEnvironment _env;
+
+        // 2025.12.02 Added: 서명 이미지 기본 경로 상수
+        private const string SignatureRequestBasePath = "/images/signatures";
+        private const string SignatureRootRelativeFolder = "images/signatures";
+
+        // 2025.12.02 Added: 서명 이미지 미리보기 URL 바인딩용
+        public string? SignatureImageUrl { get; set; }
+
+
 
         private static string Ui2() => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
@@ -36,7 +55,8 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             ApplicationDbContext db,
             IEmailSender emailSender,
             IStringLocalizer<SharedResource> s,
-            IOptionsMonitor<DataProtectionTokenProviderOptions> tokenOpts)
+            IOptionsMonitor<DataProtectionTokenProviderOptions> tokenOpts, 
+            IWebHostEnvironment env) // 2025.12.02 Added: 서명 저장용 환경 주입)
         {
             _userManager = userManager;
             _signInManager = signInManager;
@@ -44,6 +64,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             _emailSender = emailSender;
             _S = s;
             _tokenOpts = tokenOpts;
+            _env = env; // 2025.12.02 Added
         }
 
         public class InputModel
@@ -85,6 +106,10 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             [DataType(DataType.Password), Display(Name = "CP_NewPwdConfirm_Label")]
             [Compare("NewPassword", ErrorMessage = "CP_NewPwd_NotMatch")]
             public string? ConfirmNewPassword { get; set; }
+
+            // 2025.12.02 Added: 프로필 서명 이미지 업로드 파일
+            [Display(Name = "CP_Signature_Label")]
+            public IFormFile? SignatureFile { get; set; }
         }
 
         public class EmailChangeInput
@@ -125,6 +150,15 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 PositionId = profile?.PositionId,
                 CompCd = profile?.CompCd
             };
+            // 2025.12.02 Added: 사용자 서명 이미지 미리보기 경로 설정
+            if (!string.IsNullOrEmpty(profile?.SignatureRelativePath))
+            {
+                SignatureImageUrl = SignatureRequestBasePath + "/" + profile.SignatureRelativePath;
+            }
+            else
+            {
+                SignatureImageUrl = null;
+            }
         }
 
         public async Task<IActionResult> OnGetAsync()
@@ -148,6 +182,16 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 CompCd = profile?.CompCd
             };
 
+            // 2025.12.02 Added: 첫 진입 시 서명 이미지 미리보기 경로 설정
+            if (!string.IsNullOrEmpty(profile?.SignatureRelativePath))
+            {
+                SignatureImageUrl = SignatureRequestBasePath + "/" + profile.SignatureRelativePath;
+            }
+            else
+            {
+                SignatureImageUrl = null;
+            }
+
             EmailChange = new EmailChangeInput();
             return Page();
         }
@@ -168,6 +212,16 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             if (user is null) return RedirectToPage("/Account/Login");
 
             await LoadOptionsAsync();
+
+            // 2025.12.02 Added: 기존 서명 경로 로드하여 오류 시에도 미리보기 유지
+            var existingProfile = await _db.UserProfiles
+                .AsNoTracking()
+                .SingleOrDefaultAsync(p => p.UserId == user.Id);
+            if (!string.IsNullOrEmpty(existingProfile?.SignatureRelativePath))
+            {
+                SignatureImageUrl = SignatureRequestBasePath + "/" + existingProfile.SignatureRelativePath;
+            }
+
 
             Input.NewPassword = (Input.NewPassword ?? "").Trim();
             Input.ConfirmNewPassword = (Input.ConfirmNewPassword ?? "").Trim();
@@ -249,6 +303,62 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             profile.DepartmentId = Input.DepartmentId;
             profile.PositionId = Input.PositionId;
 
+            // 2025.12.02 Added: 서명 이미지 파일 저장 및 경로 업데이트
+            if (Input.SignatureFile != null && Input.SignatureFile.Length > 0)
+            {
+                var compCd = (profile.CompCd ?? Input.CompCd ?? string.Empty).Trim().ToUpperInvariant();
+                if (!string.IsNullOrEmpty(compCd))
+                {
+                    var root = Path.Combine(
+                        _env.WebRootPath,
+                        SignatureRootRelativeFolder.Replace('/', Path.DirectorySeparatorChar));
+
+                    var compDir = Path.Combine(root, compCd);
+                    Directory.CreateDirectory(compDir); 
+
+                    const int maxSize = 300;
+                    using (var srcStream = Input.SignatureFile.OpenReadStream())
+                    using (var image = Image.FromStream(srcStream))
+                    {
+                        int targetWidth = image.Width;
+                        int targetHeight = image.Height;
+
+                        // 가로/세로가 모두 300 이내면 그대로, 하나라도 300 초과면 비율 유지 스케일링
+                        if (image.Width > maxSize || image.Height > maxSize)
+                        {
+                            var scale = Math.Min(
+                                (float)maxSize / image.Width,
+                                (float)maxSize / image.Height);
+
+                            targetWidth = (int)Math.Round(image.Width * scale);
+                            targetHeight = (int)Math.Round(image.Height * scale);
+                        }
+
+                        // 항상 PNG로 저장 (투명 배경·품질 고려)
+                        var fileName = $"{user.Id}.png";
+                        var physicalPath = Path.Combine(compDir, fileName);
+
+                        using (var dest = new Bitmap(targetWidth, targetHeight))
+                        using (var g = Graphics.FromImage(dest))
+                        {
+                            g.SmoothingMode = SmoothingMode.HighQuality;
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.CompositingQuality = CompositingQuality.HighQuality;
+
+                            g.Clear(Color.Transparent);
+                            g.DrawImage(image, 0, 0, targetWidth, targetHeight);
+
+                            dest.Save(physicalPath, ImageFormat.Png);
+                        }
+
+                        var relativePath = $"{compCd}/{fileName}";
+                        profile.SignatureRelativePath = relativePath;
+                        SignatureImageUrl = SignatureRequestBasePath + "/" + relativePath;
+                    }
+                }
+            }
+
             // 이메일/전화는 변경된 경우에만 호출
             if (!string.Equals(user.Email, Input.Email, StringComparison.OrdinalIgnoreCase))
             {
@@ -284,6 +394,55 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             await _signInManager.RefreshSignInAsync(user);
 
             TempData["StatusMessage"] = _S["_CM_Save_Success"].Value;
+            return RedirectToPage();
+        }
+
+        // 2025.12.02 Added: 서명 이미지 삭제 전용 핸들러
+        public async Task<IActionResult> OnPostDeleteSignatureAsync()
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null) return RedirectToPage("/Account/Login");
+
+            // UserProfile 로드
+            var profile = await _db.UserProfiles
+                .SingleOrDefaultAsync(p => p.UserId == user.Id);
+
+            if (profile != null && !string.IsNullOrEmpty(profile.SignatureRelativePath))
+            {
+                // 물리 파일 경로 계산
+                var root = Path.Combine(
+                    _env.WebRootPath,
+                    SignatureRootRelativeFolder.Replace('/', Path.DirectorySeparatorChar));
+
+                var physicalPath = Path.Combine(
+                    root,
+                    profile.SignatureRelativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                try
+                {
+                    if (System.IO.File.Exists(physicalPath))
+                    {
+                        System.IO.File.Delete(physicalPath);
+                    }
+                }
+                catch
+                {
+                    // 여기서는 UI에 에러를 띄우지 않고, 필요 시 나중에 로깅/EB-VALIDATE 연계 가능
+                }
+
+                // DB 경로 초기화
+                profile.SignatureRelativePath = null;
+                await _db.SaveChangesAsync();
+            }
+
+            // 폼/미리보기 재로딩
+            await LoadParentFormAsync(user);
+            SignatureImageUrl = null;
+
+            // 토스트/상태 메시지
+            TempData["StatusMessage"] = _S["CP_Signature_Delete_Done"].Value;
+
+            // 사용 패턴에 맞게 RedirectToPage 사용 (OnGet 재호출 → 미리보기 갱신)
             return RedirectToPage();
         }
 

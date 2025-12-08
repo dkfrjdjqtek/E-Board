@@ -38,9 +38,11 @@ builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
     {
         options.SignIn.RequireConfirmedAccount = false;
-        options.Password.RequireNonAlphanumeric = true;
-        options.Password.RequireUppercase = true;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireLowercase = false;         // 소문자 필수
         options.Password.RequiredLength = 4;
+        //options.Password.RequiredUniqueChars = 3;         
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders()

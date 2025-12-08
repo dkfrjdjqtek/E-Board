@@ -19,6 +19,7 @@ using System.Data;
 using Microsoft.Data.SqlClient;
 // 2025.10.13 Added: ADO 직접조회용 using
 using System.Data.Common;
+using System.Text;
 
 
 namespace WebApplication1.Controllers
@@ -1513,117 +1514,107 @@ namespace WebApplication1.Controllers
 
         private static string EnsurePreviewJson(string? previewJson)
         {
+            // 1) 아무 값도 없으면 최소 골격 반환
             if (string.IsNullOrWhiteSpace(previewJson))
-                return BuildBlankPreviewJson();
+            {
+                return "{\"cells\":[],\"colW\":[],\"rowH\":[],\"merges\":[],\"styles\":{}}";
+            }
 
             try
             {
                 using var doc = JsonDocument.Parse(previewJson);
                 var root = doc.RootElement;
 
-                // ★ 이미 styles/colPx/rowPx 같은 스타일 정보가 있는 "새 포맷"이면 그대로 사용
-                foreach (var p in root.EnumerateObject())
+                // 이미 styles 가 있고, 안에 뭔가 들어 있으면 그대로 사용
+                if (root.TryGetProperty("styles", out var stylesEl) &&
+                    stylesEl.ValueKind == JsonValueKind.Object &&
+                    stylesEl.EnumerateObject().Any())
                 {
-                    var name = p.Name;
-                    if (string.Equals(name, "styles", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(name, "cellStyles", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(name, "styleGrid", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(name, "colPx", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(name, "rowPx", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(name, "rowH", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // 이미 우리가 쓰는 새 구조니까 더 만지지 않고 그대로 리턴
-                        return previewJson;
-                    }
+                    // 그대로 반환
+                    return previewJson;
                 }
 
-                bool TryGetProp(string name, out JsonElement value)
+                // styleGrid 가 없으면 더 손댈 게 없음
+                if (!root.TryGetProperty("styleGrid", out var gridEl) ||
+                    gridEl.ValueKind != JsonValueKind.Array)
                 {
-                    foreach (var p in root.EnumerateObject())
+                    return previewJson;
+                }
+
+                // 여기까지 왔다는 것은:
+                // - styles 는 비어 있거나 없고
+                // - styleGrid(행/열 2차원 배열) 안에 스타일 정보가 들어 있는 상황
+
+                using var ms = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false }))
+                {
+                    writer.WriteStartObject();
+
+                    // 기본 필드들 그대로 복사
+                    void CopyIfExists(string name)
                     {
-                        if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                        if (root.TryGetProperty(name, out var el))
                         {
-                            value = p.Value;
-                            return true;
+                            writer.WritePropertyName(name);
+                            el.WriteTo(writer);
                         }
                     }
-                    value = default;
-                    return false;
-                }
 
-                int rows = 0, cols = 0;
-                if (TryGetProp("rows", out var jeRows) && jeRows.TryGetInt32(out var r)) rows = r;
-                if (rows <= 0 && TryGetProp("rowCount", out var jeRowCnt) && jeRowCnt.TryGetInt32(out r)) rows = r;
+                    CopyIfExists("cells");
+                    CopyIfExists("colW");
+                    CopyIfExists("rowH");
+                    CopyIfExists("merges");
 
-                if (TryGetProp("cols", out var jeCols) && jeCols.TryGetInt32(out var c)) cols = c;
-                if (cols <= 0 && TryGetProp("colCount", out var jeColCnt) && jeColCnt.TryGetInt32(out c)) cols = c;
+                    // 2) styleGrid → styles("r,c") 사전으로 변환
+                    writer.WritePropertyName("styles");
+                    writer.WriteStartObject();
 
-                List<List<string>> cells = new();
-                if (TryGetProp("cells", out var jeCells) && jeCells.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var row in jeCells.EnumerateArray())
+                    // styleGrid 는 [ [ {border:{...},font:{...},align:{...},fill:{...}}, ... ], ... ] 형식이라고 가정
+                    int rowIndex = 0;
+                    foreach (var rowEl in gridEl.EnumerateArray())
                     {
-                        var line = new List<string>();
-                        if (row.ValueKind == JsonValueKind.Array)
+                        if (rowEl.ValueKind != JsonValueKind.Array)
                         {
-                            foreach (var cell in row.EnumerateArray())
-                                line.Add(cell.ValueKind == JsonValueKind.String ? cell.GetString() ?? "" : cell.ToString());
+                            rowIndex++;
+                            continue;
                         }
-                        cells.Add(line);
-                    }
-                }
-                else if (TryGetProp("Cells", out var jeCellsLegacy) && jeCellsLegacy.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var row in jeCellsLegacy.EnumerateArray())
-                    {
-                        var line = new List<string>();
-                        if (row.ValueKind == JsonValueKind.Array)
+
+                        int colIndex = 0;
+                        foreach (var cellStyleEl in rowEl.EnumerateArray())
                         {
-                            foreach (var cell in row.EnumerateArray())
-                                line.Add(cell.ValueKind == JsonValueKind.String ? cell.GetString() ?? "" : cell.ToString());
+                            colIndex++;
+
+                            if (cellStyleEl.ValueKind != JsonValueKind.Object)
+                                continue;
+
+                            // 완전히 빈 객체면 넘어감
+                            if (!cellStyleEl.EnumerateObject().Any())
+                                continue;
+
+                            var key = $"{rowIndex + 1},{colIndex + 1}";
+                            writer.WritePropertyName(key);
+                            cellStyleEl.WriteTo(writer);
                         }
-                        cells.Add(line);
+
+                        rowIndex++;
                     }
+
+                    writer.WriteEndObject(); // styles
+
+                    // styleGrid 도 그대로 남겨 두고 싶으면 다시 써 준다.
+                    // (기존 JSON 구조와의 호환성을 위해 유지)
+                    writer.WritePropertyName("styleGrid");
+                    gridEl.WriteTo(writer);
+
+                    writer.WriteEndObject(); // root
                 }
 
-                if (rows <= 0) rows = cells.Count;
-                if (cols <= 0) cols = cells.Count > 0 ? cells.Max(line => line.Count) : 0;
-
-                List<int[]> merges = new();
-                if (TryGetProp("merges", out var jeMerges) && jeMerges.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var m in jeMerges.EnumerateArray())
-                    {
-                        if (m.ValueKind == JsonValueKind.Array)
-                        {
-                            var arr = m.EnumerateArray().Select(x => x.TryGetInt32(out var n) ? n : 0).Take(4).ToArray();
-                            if (arr.Length == 4) merges.Add(arr);
-                        }
-                    }
-                }
-
-                List<double> colW = new();
-                if (TryGetProp("colW", out var jeColW) && jeColW.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var w in jeColW.EnumerateArray())
-                    {
-                        if (w.ValueKind == JsonValueKind.Number && w.TryGetDouble(out var dv)) colW.Add(dv);
-                        else colW.Add(12.0);
-                    }
-                }
-
-                string sheet = "Sheet1";
-                if (TryGetProp("sheet", out var jeSheet) && jeSheet.ValueKind == JsonValueKind.String)
-                    sheet = jeSheet.GetString() ?? sheet;
-
-                if (rows <= 0 || cols <= 0 || cells.Count == 0)
-                    return BuildBlankPreviewJson();
-
-                return JsonSerializer.Serialize(new { sheet, rows, cols, cells, merges, colW });
+                return Encoding.UTF8.GetString(ms.ToArray());
             }
             catch
             {
-                return BuildBlankPreviewJson();
+                // JSON 파싱/변환 실패 시 원본 그대로 사용
+                return previewJson!;
             }
         }
 

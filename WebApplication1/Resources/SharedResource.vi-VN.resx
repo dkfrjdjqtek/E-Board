@@ -1107,4 +1107,31 @@
   <data name="DOC_Btn_Recall" xml:space="preserve">
     <value>Thu hồi</value>
   </data>
+  <data name="DOC_Status_Recalled" xml:space="preserve">
+    <value>Đã thu hồi</value>
+  </data>
+  <data name="DOC_Label_Approvals" xml:space="preserve">
+    <value>Thông tin phê duyệt</value>
+  </data>
+  <data name="DOC_Col_ApproverValue" xml:space="preserve">
+    <value>Người phê duyệt</value>
+  </data>
+  <data name="DOC_Col_ApprovalTime" xml:space="preserve">
+    <value>Thời gian xử lý</value>
+  </data>
+  <data name="DOC_Filter_Title_Recalled" xml:space="preserve">
+    <value>Đã thu hồi</value>
+  </data>
+  <data name="DOC_Btn_Reply" xml:space="preserve">
+    <value>Viết trả lời</value>
+  </data>
+  <data name="DOC_Placeholder_Reply" xml:space="preserve">
+    <value>Nhập trả lời tại đây</value>
+  </data>
+  <data name="DOC_Btn_ReplyPost" xml:space="preserve">
+    <value>Đăng trả lời</value>
+  </data>
+  <data name="_CM_Edit" xml:space="preserve">
+    <value>Chỉnh sửa</value>
+  </data>
 </root>

@@ -1107,4 +1107,31 @@
   <data name="DOC_Btn_Recall" xml:space="preserve">
     <value>Recall</value>
   </data>
+  <data name="DOC_Status_Recalled" xml:space="preserve">
+    <value>Recalled</value>
+  </data>
+  <data name="DOC_Label_Approvals" xml:space="preserve">
+    <value>Approval info</value>
+  </data>
+  <data name="DOC_Col_ApproverValue" xml:space="preserve">
+    <value>Approver</value>
+  </data>
+  <data name="DOC_Col_ApprovalTime" xml:space="preserve">
+    <value>Processed at</value>
+  </data>
+  <data name="DOC_Filter_Title_Recalled" xml:space="preserve">
+    <value>Recalled</value>
+  </data>
+  <data name="DOC_Btn_Reply" xml:space="preserve">
+    <value>Write reply</value>
+  </data>
+  <data name="DOC_Placeholder_Reply" xml:space="preserve">
+    <value>Enter your reply here.</value>
+  </data>
+  <data name="DOC_Btn_ReplyPost" xml:space="preserve">
+    <value>Post reply</value>
+  </data>
+  <data name="_CM_Edit" xml:space="preserve">
+    <value>Edit</value>
+  </data>
 </root>
