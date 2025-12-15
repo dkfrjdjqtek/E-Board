@@ -14,6 +14,7 @@ using Microsoft.Extensions.Options;
 using WebApplication1;
 using Microsoft.AspNetCore.WebUtilities; // QueryHelpers
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -140,6 +141,7 @@ builder.Services.AddSingleton(provider =>
 {
     var cfg = new Fido2Configuration
     {
+        //ServerDomain = "localhost",
         ServerDomain = "localhost",
         ServerName = "Han Young E-Board",
         Origins = new HashSet<string> { "https://localhost:7242" },
@@ -210,10 +212,18 @@ else
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
-    app.UseHttpsRedirection(); // 운영에서만 HTTPS 강제
+    //app.UseHttpsRedirection(); // 운영에서만 HTTPS 강제
 }
 
-app.UseStaticFiles();
+// 10-1) wwwroot 정적 파일 제공 (★ 추가)
+app.UseStaticFiles();   // /css, /js, /lib, /images 등 wwwroot 하위 전체
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(
+        Path.Combine(app.Environment.ContentRootPath, "App_Data", "Signatures")),
+    RequestPath = "/images/signatures"
+});
 
 // /Identity/Account/Login -> /Account/Login 영구 리다이렉트
 app.Use(async (ctx, next) =>

@@ -1126,12 +1126,24 @@
     <value>Viết trả lời</value>
   </data>
   <data name="DOC_Placeholder_Reply" xml:space="preserve">
-    <value>Nhập trả lời tại đây</value>
+    <value>Nhập trả lời tại đây.</value>
   </data>
   <data name="DOC_Btn_ReplyPost" xml:space="preserve">
     <value>Đăng trả lời</value>
   </data>
   <data name="_CM_Edit" xml:space="preserve">
     <value>Chỉnh sửa</value>
+  </data>
+  <data name="DOC_Label_Recipients" xml:space="preserve">
+    <value>Chia sẻ tài liệu</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Search" xml:space="preserve">
+    <value>Nhập người cần tìm tại đây.</value>
+  </data>
+  <data name="ORG_MS_Label_SelectedCount" xml:space="preserve">
+    <value>Đã chọn {0} người</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
+    <value>hưa chọn người nào.</value>
   </data>
 </root>

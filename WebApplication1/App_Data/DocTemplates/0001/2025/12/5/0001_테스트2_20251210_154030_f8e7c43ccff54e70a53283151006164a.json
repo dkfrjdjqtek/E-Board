@@ -1,0 +1,38 @@
+{
+  "CompCd": "0001",
+  "DepartmentId": 5,
+  "Kind": "T0008",
+  "DocName": "\uD14C\uC2A4\uD2B82",
+  "Title": null,
+  "ApprovalCount": 1,
+  "Fields": [
+    {
+      "Key": "Comment1",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "F2"
+      }
+    }
+  ],
+  "Approvals": [
+    {
+      "Slot": 1,
+      "Part": "\uC2B9\uC778",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "F2"
+      },
+      "ApproverType": "Person",
+      "ApproverValue": "9a7ffeec-c2ca-48dd-aa88-d0a51ebdd0c9"
+    }
+  ]
+}

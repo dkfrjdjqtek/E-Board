@@ -1126,12 +1126,24 @@
     <value>写回复</value>
   </data>
   <data name="DOC_Placeholder_Reply" xml:space="preserve">
-    <value>在此输入回复</value>
+    <value>在此输入回复。</value>
   </data>
   <data name="DOC_Btn_ReplyPost" xml:space="preserve">
     <value>提交回复</value>
   </data>
   <data name="_CM_Edit" xml:space="preserve">
     <value>编辑</value>
+  </data>
+  <data name="DOC_Label_Recipients" xml:space="preserve">
+    <value>文档共享</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Search" xml:space="preserve">
+    <value>在此输入要搜。</value>
+  </data>
+  <data name="ORG_MS_Label_SelectedCount" xml:space="preserve">
+    <value>已选择 {0} 人</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
+    <value>未选择任何人员。</value>
   </data>
 </root>

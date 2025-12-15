@@ -309,8 +309,42 @@
 
         const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
+        // 2025.12.09 Changed: 초기 탭을 URL(tab) → sessionStorage(docBoardTab) → 기본값(created) 순으로 결정
+        // 변경 전:
+        // const state = {
+        //     tab: 'created',
+        //     page: 1,
+        //     pageSize: 20,
+        //     titleFilter: 'all',
+        //     sort: 'created_desc',
+        //     q: ''
+        // };
+        const allowedTabs = ['created', 'approval', 'shared'];
+        let initialTab = 'created';
+        (function resolveInitialTab() {
+            try {
+                const qs = new URLSearchParams(window.location.search || '');
+                const fromQuery = qs.get('tab');
+                if (fromQuery && allowedTabs.indexOf(fromQuery) >= 0) {
+                    initialTab = fromQuery;
+                    // URL 에 이미 tab 이 있으면 sessionStorage 에도 동기화
+                    window.sessionStorage.setItem('docBoardTab', initialTab);
+                    return;
+                }
+
+                const stored = window.sessionStorage.getItem('docBoardTab');
+                if (stored && allowedTabs.indexOf(stored) >= 0) {
+                    initialTab = stored;
+                    qs.set('tab', initialTab);
+                    window.history.replaceState(null, '', window.location.pathname + '?' + qs.toString());
+                }
+            } catch {
+                initialTab = 'created';
+            }
+        })();
+
         const state = {
-            tab: 'created',
+            tab: initialTab,
             page: 1,
             pageSize: 20,
             titleFilter: 'all',
@@ -342,21 +376,12 @@
             // 공통 Pending (Pending, PendingA1 ...)
             if (s.startsWith('PENDING')) return 'Pending';
 
-            // ★ 결재 문서함에서 a.Action 으로 들어오는 값 처리
-            //   - approve / approved / APPROVED...
+            // 결재 문서함에서 a.Action 으로 들어오는 값 처리
             if (s === 'APPROVE' || s.startsWith('APPROVED')) return 'Approved';
-
-            //   - reject / rejected / REJECTED...
             if (s === 'REJECT' || s.startsWith('REJECTED')) return 'Rejected';
-
-            //   - hold / onhold / ONHOLD...
-            if (s === 'HOLD' || s.startsWith('ONHOLD') || s.startsWith('ON HOLD'))
-                return 'OnHold';
-
-            // 회수 (Recalled / recall)
+            if (s === 'HOLD' || s.startsWith('ONHOLD') || s.startsWith('ON HOLD')) return 'OnHold';
             if (s === 'RECALL' || s.startsWith('RECALLED')) return 'Recalled';
 
-            // 그 외에는 원본 그대로 사용
             return raw;
         }
 
@@ -377,13 +402,17 @@
             if (state.tab === 'created') {
                 optRecalled.hidden = false;
             } else {
-                // 다른 탭으로 갈 때 회수 선택 상태라면 전체로 돌려준다
                 if (filterTitle.value === 'recalled') {
                     filterTitle.value = 'all';
                     state.titleFilter = 'all';
                 }
                 optRecalled.hidden = true;
             }
+
+            // 2025.12.09 Added: 현재 탭에 맞게 aria-selected 동기화
+            tabs.forEach(x => {
+                x.setAttribute('aria-selected', x.dataset.tab === state.tab ? 'true' : 'false');
+            });
         }
 
         // 탭 클릭
@@ -393,6 +422,14 @@
                 t.setAttribute('aria-selected', 'true');
                 state.tab = t.dataset.tab;
                 state.page = 1;
+
+                // 2025.12.09 Added: 선택된 탭을 sessionStorage와 URL 쿼리에 저장
+                try {
+                    window.sessionStorage.setItem('docBoardTab', state.tab);
+                    const qs = new URLSearchParams(window.location.search || '');
+                    qs.set('tab', state.tab);
+                    window.history.replaceState(null, '', window.location.pathname + '?' + qs.toString());
+                } catch { }
 
                 applyTabUi();
                 refreshBadges();
@@ -421,7 +458,6 @@
             const tdNo = document.createElement('td');
             tdNo.textContent = String(displayNo);
 
-            // 제목 + 댓글 수
             const tdTitle = document.createElement('td');
             const wrapper = document.createElement('span');
             wrapper.className = 'doc-title';
@@ -480,7 +516,6 @@
                 body.appendChild(buildRow(item, displayNo));
             });
 
-            // 페이징
             const totalPages = Math.max(1,
                 Math.ceil((res.total || 0) / res.pageSize));
             paging.innerHTML = '';
@@ -555,7 +590,7 @@
             }
         }
 
-        // 초기 로드
+        // 2025.12.09 Changed: 초기 로드 시 선택된 탭(state.tab)에 맞게 UI 정리 후 리스트 로드
         applyTabUi();
         if (btnApply && typeof btnApply.click === 'function') {
             btnApply.click();

@@ -553,15 +553,50 @@
                 function expandFieldsForSave(fields) {
                     const out = [];
                     for (const f of fields) {
-                        const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1);
-                        if (!rg) { out.push(f); continue; }
-                        const tpl = (f.Key || '').trim(); let idx = 1;
+                        if (!f) continue;
+
+                        const keyRaw = (f.Key || '').trim();
+                        const a1Raw = (f.Cell && f.Cell.A1 ? String(f.Cell.A1) : '').trim();
+
+                        // ★ 필드 키와 A1이 둘 다 비어 있는 완전 빈 행은 저장 대상에서 제외
+                        if (!keyRaw && !a1Raw) {
+                            continue;
+                        }
+
+                        // A1 이 범위가 아니면 그대로 넘기고(키만 그대로 사용),
+                        // 범위이면 기존 로직대로 풀어서 넘깁니다.
+                        const rg = tryParseRange(a1Raw);
+                        if (!rg) {
+                            // 단일 셀: 키는 그대로 사용 (서버에서 중복/공백 다시 검사)
+                            out.push({
+                                Key: keyRaw,
+                                Type: f.Type || 'Text',
+                                Cell: { A1: a1Raw }
+                            });
+                            continue;
+                        }
+
+                        const tpl = keyRaw;
+                        let idx = 1;
                         for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                            let keyBase = (tpl || 'Field'); let key = keyBase;
-                            if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx));
-                            if (key.includes('{row}')) key = key.replaceAll('{row}', String(r));
-                            if (key === keyBase) key = `${keyBase}_${r}`;
-                            out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } });
+                            let keyBase = (tpl || 'Field');
+                            let key = keyBase;
+
+                            if (key.includes('{n}')) {
+                                key = key.replaceAll('{n}', String(idx));
+                            }
+                            if (key.includes('{row}')) {
+                                key = key.replaceAll('{row}', String(r));
+                            }
+                            if (key === keyBase) {
+                                key = `${keyBase}_${r}`;
+                            }
+
+                            out.push({
+                                Key: key,
+                                Type: f.Type || 'Text',
+                                Cell: { A1: `${rg.col}${r}` }
+                            });
                         }
                     }
                     return out;
@@ -920,15 +955,50 @@ else
                 function expandFieldsForSave(fields) {
                     const out = [];
                     for (const f of fields) {
-                        const a1 = f?.Cell?.A1 || ''; const rg = tryParseRange(a1);
-                        if (!rg) { out.push(f); continue; }
-                        const tpl = (f.Key || '').trim(); let idx = 1;
+                        if (!f) continue;
+
+                        const keyRaw = (f.Key || '').trim();
+                        const a1Raw = (f.Cell && f.Cell.A1 ? String(f.Cell.A1) : '').trim();
+
+                        // ★ 필드 키와 A1이 둘 다 비어 있는 완전 빈 행은 저장 대상에서 제외
+                        if (!keyRaw && !a1Raw) {
+                            continue;
+                        }
+
+                        // A1 이 범위가 아니면 그대로 넘기고(키만 그대로 사용),
+                        // 범위이면 기존 로직대로 풀어서 넘깁니다.
+                        const rg = tryParseRange(a1Raw);
+                        if (!rg) {
+                            // 단일 셀: 키는 그대로 사용 (서버에서 중복/공백 다시 검사)
+                            out.push({
+                                Key: keyRaw,
+                                Type: f.Type || 'Text',
+                                Cell: { A1: a1Raw }
+                            });
+                            continue;
+                        }
+
+                        const tpl = keyRaw;
+                        let idx = 1;
                         for (let r = rg.r1; r <= rg.r2; r++, idx++) {
-                            let keyBase = (tpl || 'Field'); let key = keyBase;
-                            if (key.includes('{n}')) key = key.replaceAll('{n}', String(idx));
-                            if (key.includes('{row}')) key = key.replaceAll('{row}', String(r));
-                            if (key === keyBase) key = `${keyBase}_${r}`;
-                            out.push({ Key: key, Type: f.Type || 'Text', Cell: { A1: `${rg.col}${r}` } });
+                            let keyBase = (tpl || 'Field');
+                            let key = keyBase;
+
+                            if (key.includes('{n}')) {
+                                key = key.replaceAll('{n}', String(idx));
+                            }
+                            if (key.includes('{row}')) {
+                                key = key.replaceAll('{row}', String(r));
+                            }
+                            if (key === keyBase) {
+                                key = `${keyBase}_${r}`;
+                            }
+
+                            out.push({
+                                Key: key,
+                                Type: f.Type || 'Text',
+                                Cell: { A1: `${rg.col}${r}` }
+                            });
                         }
                     }
                     return out;

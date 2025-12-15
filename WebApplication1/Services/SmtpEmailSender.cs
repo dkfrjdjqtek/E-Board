@@ -1,7 +1,9 @@
-﻿using System.Net;
+﻿// 2025.12.11 Changed: 메일 본문 URL을 App PublicUrl 값으로 치환하고 제목 본문을 UTF8 인코딩으로 고정
+using System.Net;
 using System.Net.Mail;
-using System.Text;                    // ← 추가
+using System.Text;
 using Microsoft.AspNetCore.Identity.UI.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace WebApplication1.Services
@@ -17,12 +19,27 @@ namespace WebApplication1.Services
         public string FromName { get; set; } = "Han Young E-Board";
     }
 
-    public class SmtpEmailSender(IOptions<SmtpOptions> opt) : IEmailSender
+    public class SmtpEmailSender : IEmailSender
     {
-        private readonly SmtpOptions _o = opt.Value;
+        private readonly SmtpOptions _o;
+        private readonly string? _publicBaseUrl;
+
+        public SmtpEmailSender(IOptions<SmtpOptions> opt, IConfiguration cfg)
+        {
+            _o = opt.Value;
+            _publicBaseUrl = cfg["App:PublicUrl"]?.TrimEnd('/');
+        }
 
         public async Task SendEmailAsync(string email, string subject, string htmlMessage)
         {
+            // 메일 본문 내 localhost 기반 URL을 App PublicUrl 값으로 치환
+            if (!string.IsNullOrWhiteSpace(_publicBaseUrl) &&
+                !string.IsNullOrEmpty(htmlMessage))
+            {
+                htmlMessage = htmlMessage.Replace("http://localhost:5000", _publicBaseUrl);
+                htmlMessage = htmlMessage.Replace("https://localhost:5001", _publicBaseUrl);
+            }
+
             using var client = new SmtpClient(_o.Host, _o.Port)
             {
                 EnableSsl = _o.EnableSsl,
@@ -40,8 +57,8 @@ namespace WebApplication1.Services
                 Body = htmlMessage,
                 BodyEncoding = Encoding.UTF8,      // 본문 인코딩
                 IsBodyHtml = true
-                // HeadersEncoding = Encoding.UTF8  // (선택) 헤더 인코딩까지 강제하고 싶다면
             };
+
             msg.To.Add(email);
 
             await client.SendMailAsync(msg);

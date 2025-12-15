@@ -1,4 +1,5 @@
-﻿@* 2025.10.16 Changed: 작성하기 클릭 시 폼 submit 대신 선택된 templateCode로 명시적 이동 처리
+﻿@* 2025.12.15 Changed: 초기 로딩 시 로그인 사용자 회사/부서 자동 로드 + 관리자 아닐 경우 사업장 콤보 고정 및 disable 처리 DocTLMap 동작과 일치 *@
+@* 2025.10.16 Changed: 작성하기 클릭 시 폼 submit 대신 선택된 templateCode로 명시적 이동 처리
    2025.10.16 Added: sessionStorage 상태 저장/복원 + 초기 버튼 비활성화 + fetch(credentials:'same-origin')
    Note: /DocumentTemplates/* API는 { items:[{id,text}], selectedValue? } 포맷을 반환 *@
 
@@ -14,6 +15,21 @@
 
     var txtSelect = S["_CM_Select"].Value;
     var txtTplPh = S["DOC_Opt_SelectTemplate"].Value;
+
+    // DocTLMap 과 동일하게 AdminLevel / IsAdmin 기준으로 관리자 여부 판정
+    var adminLevel = 0;
+    try
+    {
+        if (ViewBag.AdminLevel != null)
+        {
+            adminLevel = Convert.ToInt32(ViewBag.AdminLevel);
+        }
+    }
+    catch { adminLevel = 0; }
+
+    bool isAdmin = false;
+    if (ViewBag.IsAdmin is bool vb && vb) isAdmin = true;
+    if (adminLevel > 0) isAdmin = true;
 }
 
 <div class="container-xxl">
@@ -24,7 +40,7 @@
 
                     <div class="col-12 col-lg-2">
                         <label class="form-label mb-1" for="compCd">@S["_CM_Site_Label"]</label>
-                        <select id="compCd" name="compCd" class="form-select form-select-sm">
+                        <select id="compCd" name="compCd" class="form-select form-select-sm" @(isAdmin ? "" : "disabled=\"disabled\"")>
                             @foreach (var it in compOptions)
                             {
                                 if (it.Selected)
@@ -93,12 +109,18 @@
                     };
             const BASE = "/DocumentTemplates";
             const SS_KEY = "EB_DOC_NEW_STATE";
+            const IS_ADMIN = @((isAdmin ? "true" : "false")); // DocTLMap 과 동일한 관리자 플래그
 
             const compSel = document.getElementById('compCd');
             const deptSel = document.getElementById('departmentId');
             const kindSel = document.getElementById('kindCode');
             const tplSel = document.getElementById('templateCode');
             const btn = document.getElementById('btn-compose');
+
+            // 관리자 아니라면 JS 레벨에서도 확실히 잠금
+            if (!IS_ADMIN && compSel) {
+                compSel.setAttribute('disabled', 'disabled');
+            }
 
             // 초기 버튼 비활성화
             btn.disabled = true;
@@ -124,6 +146,7 @@
 
             function saveState() {
                 const st = {
+                    // 관리자만 compCd 변경 가능하므로, 비관리자면 현재 값 그대로 저장만 함
                     compCd: compSel.value || '',
                     departmentId: deptSel.value || '',
                     kind: kindSel.value || '',
@@ -149,7 +172,7 @@
                 const data = await fx(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 clear(deptSel); add(deptSel, data.items || []);
 
-                if (preset && preset.departmentId !== undefined) {
+                if (preset && preset.departmentId !== undefined && preset.departmentId !== null && preset.departmentId !== "") {
                     const want = String(preset.departmentId);
                     const has = Array.from(deptSel.options).some(o => o.value === want);
                     deptSel.value = has ? want : "__SELECT__";
@@ -193,17 +216,38 @@
                 const qs = new URLSearchParams({ compCd, departmentId: deptParam, kind: kindV });
                 const data = await fx(`${BASE}/get-documents?${qs.toString()}`);
 
-                add(tplSel, data.items || []);
+                const items = data.items || [];
+                add(tplSel, items);
+
                 if (preset && preset.templateCode) {
                     const has = Array.from(tplSel.options).some(o => o.value === preset.templateCode);
                     tplSel.value = has ? preset.templateCode : '';
+                } else if (items.length === 1) {
+                    // DocTLMap 과 동일: 해당 범주의 템플릿이 1개면 자동 선택
+                    tplSel.value = String(items[0].id ?? '');
                 }
                 en();
             }
 
-            compSel.addEventListener('change', async () => { await loadDepts(); await loadKinds(); await loadDocs(); saveState(); });
-            deptSel.addEventListener('change', async () => { await loadKinds(); await loadDocs(); saveState(); });
-            kindSel.addEventListener('change', async () => { await loadDocs(); saveState(); });
+            // 관리자만 사업장 변경 가능
+            if (IS_ADMIN) {
+                compSel.addEventListener('change', async () => {
+                    await loadDepts();
+                    await loadKinds();
+                    await loadDocs();
+                    saveState();
+                });
+            }
+
+            deptSel.addEventListener('change', async () => {
+                await loadKinds();
+                await loadDocs();
+                saveState();
+            });
+            kindSel.addEventListener('change', async () => {
+                await loadDocs();
+                saveState();
+            });
             tplSel.addEventListener('change', () => { en(); saveState(); });
 
             btn.addEventListener('click', () => {
@@ -218,16 +262,25 @@
                 try { history.back(); } catch { location.href = '/'; }
             });
 
+            // 초기 로딩 시: DocTLMap 과 동일하게 현재 compCd 기준으로 자동 로드
             (async function init() {
                 en();
                 const preset = loadState();
-                if (preset && preset.compCd) {
+
+                if (IS_ADMIN && preset && preset.compCd) {
                     if (Array.from(compSel.options).some(o => o.value === preset.compCd)) {
                         compSel.value = preset.compCd;
                     }
                     await loadDepts(preset);
                     await loadKinds(preset);
                     await loadDocs(preset);
+                } else {
+                    // 비관리자 또는 저장 상태 없음: 서버에서 내려준 기본 compCd 고정 사용
+                    if (compSel.value) {
+                        await loadDepts(preset);
+                        await loadKinds(preset);
+                        await loadDocs(preset);
+                    }
                 }
             })();
         })();

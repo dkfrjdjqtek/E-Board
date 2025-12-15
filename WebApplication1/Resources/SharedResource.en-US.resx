@@ -1134,4 +1134,16 @@
   <data name="_CM_Edit" xml:space="preserve">
     <value>Edit</value>
   </data>
+  <data name="DOC_Label_Recipients" xml:space="preserve">
+    <value>Share document</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Search" xml:space="preserve">
+    <value>Type here person to search.</value>
+  </data>
+  <data name="ORG_MS_Label_SelectedCount" xml:space="preserve">
+    <value>{0} selected</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
+    <value>No person selected.</value>
+  </data>
 </root>

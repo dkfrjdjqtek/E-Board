@@ -1,0 +1,218 @@
+{
+  "CompCd": "0001",
+  "DepartmentId": 5,
+  "Kind": "T0008",
+  "DocName": "\uD14C\uC2A4\uD2B84",
+  "Title": null,
+  "ApprovalCount": 1,
+  "Fields": [
+    {
+      "Key": "Key_2",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E2"
+      }
+    },
+    {
+      "Key": "Key_3",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E3"
+      }
+    },
+    {
+      "Key": "Key_4",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E4"
+      }
+    },
+    {
+      "Key": "Key_5",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E5"
+      }
+    },
+    {
+      "Key": "Key_6",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E6"
+      }
+    },
+    {
+      "Key": "Key_7",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E7"
+      }
+    },
+    {
+      "Key": "Key_8",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E8"
+      }
+    },
+    {
+      "Key": "Key_9",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E9"
+      }
+    },
+    {
+      "Key": "Key_10",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E10"
+      }
+    },
+    {
+      "Key": "Key_11",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E11"
+      }
+    },
+    {
+      "Key": "Key_12",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E12"
+      }
+    },
+    {
+      "Key": "Key_13",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E13"
+      }
+    },
+    {
+      "Key": "Key_14",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E14"
+      }
+    },
+    {
+      "Key": "Key_15",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E15"
+      }
+    },
+    {
+      "Key": "Key_16",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E16"
+      }
+    },
+    {
+      "Key": "Key_17",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E17"
+      }
+    }
+  ],
+  "Approvals": [
+    {
+      "Slot": 1,
+      "Part": "e",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "E2"
+      },
+      "ApproverType": "Person",
+      "ApproverValue": "9a7ffeec-c2ca-48dd-aa88-d0a51ebdd0c9"
+    }
+  ]
+}

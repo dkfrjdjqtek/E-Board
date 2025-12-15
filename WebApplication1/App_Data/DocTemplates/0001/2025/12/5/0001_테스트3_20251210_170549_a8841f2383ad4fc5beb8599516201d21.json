@@ -1,0 +1,242 @@
+{
+  "CompCd": "0001",
+  "DepartmentId": 5,
+  "Kind": "T0008",
+  "DocName": "\uD14C\uC2A4\uD2B83",
+  "Title": null,
+  "ApprovalCount": 1,
+  "Fields": [
+    {
+      "Key": "C_2",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D2"
+      }
+    },
+    {
+      "Key": "C_3",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D3"
+      }
+    },
+    {
+      "Key": "C_4",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D4"
+      }
+    },
+    {
+      "Key": "C_5",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D5"
+      }
+    },
+    {
+      "Key": "C_6",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D6"
+      }
+    },
+    {
+      "Key": "C_7",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D7"
+      }
+    },
+    {
+      "Key": "C_8",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D8"
+      }
+    },
+    {
+      "Key": "C_9",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D9"
+      }
+    },
+    {
+      "Key": "C_10",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D10"
+      }
+    },
+    {
+      "Key": "C_11",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D11"
+      }
+    },
+    {
+      "Key": "C_12",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D12"
+      }
+    },
+    {
+      "Key": "C_13",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D13"
+      }
+    },
+    {
+      "Key": "C_14",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D14"
+      }
+    },
+    {
+      "Key": "C_15",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D15"
+      }
+    },
+    {
+      "Key": "C_16",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D16"
+      }
+    },
+    {
+      "Key": "C_17",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D17"
+      }
+    },
+    {
+      "Key": "C_18",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D18"
+      }
+    },
+    {
+      "Key": "C_19",
+      "Type": "Text",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "D19"
+      }
+    }
+  ],
+  "Approvals": [
+    {
+      "Slot": 1,
+      "Part": "\uC2B9\uB2CC",
+      "Cell": {
+        "Sheet": null,
+        "Row": 0,
+        "Column": 0,
+        "RowSpan": 1,
+        "ColSpan": 1,
+        "A1": "F3"
+      },
+      "ApproverType": "Person",
+      "ApproverValue": "48ba5e92-a2cd-4d99-9138-91e8106d12fb"
+    }
+  ]
+}

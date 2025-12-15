@@ -1,0 +1,375 @@
+﻿@* 2025.12.12 Changed: OrgMultiSelect 개별 인스턴스용 스크립트로 단순화  드롭다운 표시 오류 및 문자열 깨짐 방지  폭 420px 제한 *@
+@using System.Text.Json
+@using WebApplication1.Models
+@model IEnumerable<OrgTreeNode>
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
+
+@{
+    var controlId = (string?)(ViewData["ControlId"] ?? "OrgMultiSelect1");
+    var fieldName = (string?)(ViewData["FieldName"] ?? "SelectedUserIds");
+
+    var placeholderSearch = _S["ORG_MS_Placeholder_Search"].Value;
+    var placeholderEmpty = _S["ORG_MS_Placeholder_Empty"].Value;
+    var labelSelectedCount = _S["ORG_MS_Label_SelectedCount"].Value;
+
+    // JS 문자열 리터럴용 JSON (나중에 Html.Raw 로 그대로 넣음)
+    var jsPlaceholderEmpty = JsonSerializer.Serialize(placeholderEmpty ?? string.Empty);
+    var jsLabelSelectedCount = JsonSerializer.Serialize(labelSelectedCount ?? string.Empty);
+}
+
+<div class="org-ms-wrapper" id="@controlId" data-org-ms-root="true">
+    <div class="org-ms-trigger-wrap">
+        <input type="text"
+               class="form-control org-ms-caption org-ms-summary"
+               readonly="readonly"
+               value=""
+               placeholder="@placeholderEmpty" />
+        <span class="org-ms-trigger-icon">&#9662;</span>
+    </div>
+
+    <input type="hidden"
+           name="@fieldName"
+           data-role="org-ms-value"
+           value="" />
+
+    <div class="org-ms-panel" data-open="false" style="display:none;">
+        <div class="org-ms-search-wrap">
+            <input type="text"
+                   class="form-control org-ms-search"
+                   placeholder="@placeholderSearch" />
+        </div>
+
+        <div class="org-ms-tree-wrap">
+            <ul class="org-ms-tree">
+                @{
+                    void RenderNodes(IEnumerable<OrgTreeNode> nodes)
+                    {
+                        foreach (var n in nodes)
+                        {
+                            var nodeId = n.NodeId ?? "";
+                            var name = n.Name ?? "";
+                            var type = n.NodeType ?? "";
+                            var parentId = n.ParentId ?? "";
+
+                            var cssNodeClass = type switch
+                            {
+                                "Branch" => "org-ms-node-branch",
+                                "Dept" => "org-ms-node-dept",
+                                "User" => "org-ms-node-user",
+                                _ => "org-ms-node-etc"
+                            };
+
+                            <li class="org-ms-node @cssNodeClass"
+                                data-node-id="@nodeId"
+                                data-node-type="@type"
+                                data-parent-id="@parentId">
+                                <label class="org-ms-label">
+                                    <input type="checkbox"
+                                           class="org-ms-checkbox"
+                                           data-node-id="@nodeId"
+                                           data-node-type="@type"
+                                           data-parent-id="@parentId" />
+                                    <span class="org-ms-text">@name</span>
+                                </label>
+
+                                @if (n.Children != null && n.Children.Count > 0)
+                                {
+                                    <ul class="org-ms-children">
+                                        @{
+                                            RenderNodes(n.Children);
+                                        }
+                                    </ul>
+                                }
+                            </li>
+                        }
+                    }
+
+                    RenderNodes(Model ?? Array.Empty<OrgTreeNode>());
+                }
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+    .org-ms-wrapper {
+        position: relative;
+        display: inline-block;
+        width: 100%;
+        max-width: 420px; /* 폼 전체의 절반 정도 */
+    }
+
+    .org-ms-trigger-wrap {
+        position: relative;
+        width: 100%;
+        cursor: pointer;
+    }
+
+        .org-ms-trigger-wrap .org-ms-summary {
+            padding-right: 32px;
+            cursor: pointer;
+            background-color: #fff;
+        }
+
+    .org-ms-trigger-icon {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        font-size: 0.8rem;
+    }
+
+    .org-ms-panel {
+        position: absolute;
+        z-index: 9999;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        max-height: 360px;
+        flex-direction: column;
+    }
+
+    .org-ms-search-wrap {
+        padding: 6px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .org-ms-tree-wrap {
+        padding: 4px 8px;
+        overflow-y: auto;
+        max-height: 320px;
+    }
+
+    .org-ms-tree {
+        list-style: none;
+        margin: 0;
+        padding-left: 0;
+    }
+
+    .org-ms-node {
+        margin: 2px 0;
+    }
+
+    .org-ms-node-branch > .org-ms-label {
+        font-weight: 700;
+    }
+
+    .org-ms-node-dept > .org-ms-label {
+        font-weight: 600;
+        padding-left: 8px;
+    }
+
+    .org-ms-node-user > .org-ms-label {
+        font-weight: 400;
+        padding-left: 16px;
+    }
+
+    .org-ms-children {
+        list-style: none;
+        margin: 0;
+        padding-left: 12px;
+    }
+
+    .org-ms-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+        .org-ms-label input[type="checkbox"] {
+            margin: 0;
+        }
+
+    .org-ms-text {
+        white-space: nowrap;
+    }
+
+    .org-ms-node[data-filter-hidden="true"] {
+        display: none;
+    }
+</style>
+
+<script>
+    (function () {
+        // ★ 이 인스턴스 한 개만 초기화
+        var root = document.getElementById('@controlId');
+        if (!root) return;
+
+        // 서버에서 온 문자열 (HTML 엔티티 없이 그대로)
+        var placeholderEmpty = @Html.Raw(jsPlaceholderEmpty);       // "선택된 인원이 없습니다."
+        var labelSelectedCount = @Html.Raw(jsLabelSelectedCount);   // "{0}명 선택됨"
+
+        var triggerWrap = root.querySelector('.org-ms-trigger-wrap');
+        var summaryInput = root.querySelector('.org-ms-summary');
+        var panel = root.querySelector('.org-ms-panel');
+        var hiddenField = root.querySelector('[data-role="org-ms-value"]');
+        var searchInput = root.querySelector('.org-ms-search');
+
+        if (!triggerWrap || !summaryInput || !panel || !hiddenField) {
+            return;
+        }
+
+        // 드롭다운 열기/닫기 (inline style)
+        triggerWrap.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var isOpen = panel.getAttribute('data-open') === 'true';
+            var nextOpen = !isOpen;
+            panel.setAttribute('data-open', nextOpen ? 'true' : 'false');
+            panel.style.display = nextOpen ? 'flex' : 'none';
+        });
+
+        // 바깥 클릭 시 닫기
+        document.addEventListener('click', function (e) {
+            if (!root.contains(e.target)) {
+                panel.setAttribute('data-open', 'false');
+                panel.style.display = 'none';
+            }
+        });
+
+        // 체크박스 변경
+        root.addEventListener('change', function (e) {
+            var target = e.target;
+            if (!target.classList.contains('org-ms-checkbox')) return;
+
+            var nodeId = target.getAttribute('data-node-id');
+            var nodeType = target.getAttribute('data-node-type');
+            var parentId = target.getAttribute('data-parent-id');
+            var checked = target.checked;
+
+            if (nodeType === 'Branch' || nodeType === 'Dept') {
+                syncChildren(root, nodeId, checked);
+            }
+
+            syncParents(root, parentId);
+            updateValueAndSummary(root, hiddenField, summaryInput, placeholderEmpty, labelSelectedCount);
+        });
+
+        // 검색
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                filterTree(root, this.value || '');
+            });
+        }
+
+        // 초기 상태
+        updateValueAndSummary(root, hiddenField, summaryInput, placeholderEmpty, labelSelectedCount);
+
+        // ======== helper functions (이 안에서만 사용) ========
+
+        function syncChildren(root, nodeId, checked) {
+            if (!nodeId) return;
+            var boxes = root.querySelectorAll('.org-ms-checkbox[data-parent-id="' + cssEscape(nodeId) + '"]');
+            boxes.forEach(function (b) {
+                b.checked = checked;
+                b.indeterminate = false;
+                var childId = b.getAttribute('data-node-id');
+                var childType = b.getAttribute('data-node-type');
+                if (childType === 'Branch' || childType === 'Dept') {
+                    syncChildren(root, childId, checked);
+                }
+            });
+        }
+
+        function syncParents(root, parentId) {
+            if (!parentId) return;
+
+            var parentBox = root.querySelector('.org-ms-checkbox[data-node-id="' + cssEscape(parentId) + '"]');
+            if (!parentBox) return;
+
+            var siblings = root.querySelectorAll('.org-ms-checkbox[data-parent-id="' + cssEscape(parentId) + '"]');
+            var anyChecked = false;
+            var allChecked = true;
+
+            siblings.forEach(function (b) {
+                if (b.checked || b.indeterminate) {
+                    anyChecked = true;
+                }
+                if (!b.checked || b.indeterminate) {
+                    allChecked = false;
+                }
+            });
+
+            parentBox.checked = allChecked && anyChecked;
+            parentBox.indeterminate = anyChecked && !allChecked;
+
+            var upperParentId = parentBox.getAttribute('data-parent-id');
+            if (upperParentId) {
+                syncParents(root, upperParentId);
+            }
+        }
+
+        function updateValueAndSummary(root, hiddenField, summaryInput, placeholderEmpty, labelSelectedCount) {
+            var userBoxes = root.querySelectorAll('.org-ms-checkbox[data-node-type="User"]');
+            var selectedIds = [];
+            var selectedNames = [];
+
+            userBoxes.forEach(function (b) {
+                if (b.checked) {
+                    var nodeId = b.getAttribute('data-node-id') || '';
+                    var li = b.closest('.org-ms-node');
+                    var nameSpan = li ? li.querySelector('.org-ms-text') : null;
+                    var name = nameSpan ? (nameSpan.textContent || '').trim() : nodeId;
+                    selectedIds.push(nodeId);
+                    selectedNames.push(name);
+                }
+            });
+
+            hiddenField.value = selectedIds.join(',');
+
+            if (selectedIds.length === 0) {
+                summaryInput.value = '';
+                summaryInput.placeholder = placeholderEmpty;
+            } else {
+                var countLabel = labelSelectedCount.replace("{0}", selectedIds.length.toString());
+                var preview = selectedNames.slice(0, 3).join(", ");
+                if (selectedNames.length > 3) {
+                    preview += " ...";
+                }
+                summaryInput.value = preview + " (" + countLabel + ")";
+            }
+        }
+
+        function filterTree(root, keywordRaw) {
+            var keyword = (keywordRaw || '').toLowerCase().trim();
+            var nodes = root.querySelectorAll('.org-ms-node');
+
+            if (!keyword) {
+                nodes.forEach(function (li) {
+                    li.removeAttribute('data-filter-hidden');
+                });
+                return;
+            }
+
+            nodes.forEach(function (li) {
+                var textSpan = li.querySelector('.org-ms-text');
+                var txt = textSpan ? (textSpan.textContent || '').toLowerCase() : '';
+                var match = txt.indexOf(keyword) >= 0;
+                li.setAttribute('data-filter-hidden', match ? 'false' : 'true');
+            });
+
+            // 매칭된 노드의 상위는 강제로 표시
+            nodes.forEach(function (li) {
+                if (li.getAttribute('data-filter-hidden') === 'false') {
+                    var p = li.parentElement;
+                    while (p && p !== root) {
+                        if (p.classList.contains('org-ms-node')) {
+                            p.setAttribute('data-filter-hidden', 'false');
+                        }
+                        p = p.parentElement;
+                    }
+                }
+            });
+        }
+
+        function cssEscape(id) {
+            return id.replace(/(["'\\])/g, "\\$1");
+        }
+    })();
+</script>

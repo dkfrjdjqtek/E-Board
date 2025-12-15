@@ -1231,43 +1231,53 @@
                 return n;
             }
 
-            approvals.forEach(function (a) {
+            // ★ 공용/개인 모두 /images/signatures 가 루트 URL 이고
+            //   물리 경로는 Program.cs 에서 App_Data\Signature 로 매핑합니다.
+            var STAMP_BASE = '/images/signatures/';
+            var HOLDING_STAMP = STAMP_BASE + 'holding.png';
+            var REJECTED_STAMP = STAMP_BASE + 'rejected.png';
+            var APPROVED_STAMP = STAMP_BASE + 'approved.png';
+
+            approvals.forEach(function (a, idx) {
                 var actionRaw = (a.action || a.Action || '').toString().toUpperCase();
                 var statusRaw = (a.status || a.Status || '').toString().toUpperCase();
 
-                var step = a.step || a.stepOrder || a.Step || a.StepOrder;
+                // step 계산(기존 그대로)
+                var rawStep =
+                    a.step || a.stepOrder || a.Step || a.StepOrder;
+                var numericStep = parseInt(rawStep, 10);
+                if (!numericStep || !isFinite(numericStep)) {
+                    numericStep = idx + 1;
+                }
+                var step = numericStep;
+
                 var a1 = cellMap[step] || cellMap[String(step)];
                 if (!a1) {
-                    console.warn('DBG no A1 mapping for step', step, a);
+                    console.warn('DBG no A1 mapping for step', step, 'rawStep', rawStep, a);
                     return;
                 }
 
-                var STAMP_BASE = '/images/signatures/';
-                var HOLDING_STAMP = STAMP_BASE + 'holding.png';
-                var REJECTED_STAMP = STAMP_BASE + 'rejected.png';
+                // ★ DB 에서 넘어온 개인 서명 상대경로 (예: "0001/8bf4....png")
+                var sigPathRaw = (a.signaturePath || a.SignaturePath || '').toString().trim();
+
                 var stampUrl = null;
 
-                // ★ 승인 시: compCd / UserId 기반 실제 서명 이미지 사용
-                var userId =
-                    (a.userId || a.UserId || a.approverUserId || a.ApproverUserId || '').toString().trim();
-
                 if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
-                    if (!compCd || !userId) {
-                        console.warn('DBG no compCd or userId for approval stamp', { compCd: compCd, userId: userId, approval: a });
-                        return;
+                    if (sigPathRaw) {
+                        // "0001\abc.png" → "0001/abc.png", 선행 슬래시는 제거
+                        var normalized = sigPathRaw
+                            .replace(/^[\\/]+/, '')
+                            .replace(/\\/g, '/');
+                        stampUrl = STAMP_BASE + normalized;
+                    } else {
+                        // 개인 서명 경로가 없으면 공용 approved.png 사용
+                        stampUrl = APPROVED_STAMP;
                     }
-                    stampUrl = STAMP_BASE
-                        + encodeURIComponent(compCd)
-                        + '/'
-                        + encodeURIComponent(userId)
-                        + '.png';
-                }
-                else if (actionRaw === 'HOLD'
+                } else if (actionRaw === 'HOLD'
                     || statusRaw === 'HOLD'
                     || statusRaw === 'ONHOLD') {
                     stampUrl = HOLDING_STAMP;
-                }
-                else if (actionRaw === 'REJECT'
+                } else if (actionRaw === 'REJECT'
                     || statusRaw === 'REJECT'
                     || statusRaw === 'REJECTED') {
                     stampUrl = REJECTED_STAMP;
@@ -1310,16 +1320,25 @@
                 td.classList.add('doc-approval-cell');
 
                 var img = document.createElement('img');
+
+                // ★ 개인 서명 로딩 실패 시 공용 approved.png 로 1회 fallback
+                if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
+                    img.onerror = function () {
+                        if (this.dataset.fallbackTried === '1') return;
+                        this.dataset.fallbackTried = '1';
+                        console.warn('DBG personal stamp load failed, fallback to common approved', this.src);
+                        this.src = APPROVED_STAMP;
+                    };
+                }
+
                 img.src = stampUrl;
                 img.alt = 'approval-stamp';
                 img.className = 'doc-approval-cell-img';
                 td.appendChild(img);
 
                 var captionText = getApprovalDisplayName(a);
-
                 if (captionText) {
-                    var parts = captionText.split(/\s+/);   // 공백 기준 토큰 분리
-
+                    var parts = captionText.split(/\s+/);
                     if (parts.length >= 3) {
                         captionText = parts.slice(parts.length - 2).join(' ');
                     } else if (parts.length === 2) {
@@ -1335,7 +1354,9 @@
                 }
 
                 console.log('DBG placed signature image', {
+                    idx: idx,
                     step: step,
+                    rawStep: rawStep,
                     a1: a1,
                     url: stampUrl,
                     caption: captionText,

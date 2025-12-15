@@ -365,47 +365,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
         }
 
         // 2025.09.26 Added: 임시비밀번호 전용 핸들러 저장과 분리 레이아웃 변경 없음
-        public async Task<IActionResult> OnPostTempAsync()
-        {
-            if (string.IsNullOrWhiteSpace(VM?.SelectedUserId) || VM.SelectedUserId == NewUserId)
-            {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_SelectUser_Req"].Value);
-                ModelState.AddModelError(string.Empty, _S["ACP_SelectUser_Req"].Value);
-                await BindMastersAsync();
-                return Page();
-            }
-
-            var user = await _userManager.FindByIdAsync(VM.SelectedUserId);
-            if (user == null)
-            {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["ACP_Error_UserNotFound"].Value);
-                ModelState.AddModelError(string.Empty, _S["ACP_Error_UserNotFound"].Value);
-                await BindMastersAsync();
-                return Page();
-            }
-
-            if (!user.EmailConfirmed)
-            {
-                ModelState.AddModelError(nameof(VM.SelectedUserId), _S["_Alert_Unconfirm_Mail"].Value);
-                ModelState.AddModelError(string.Empty, _S["_Alert_Unconfirm_Mail"].Value);
-                await BindMastersAsync();
-                await LoadUserAsync(VM.SelectedUserId);
-                return Page();
-            }
-
-            var rpToken = await _userManager.GeneratePasswordResetTokenAsync(user);
-            var rpCode = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(rpToken));
-            var resetUrl = Url.Page("/Account/ResetPassword", null,
-                                    new { area = "Identity", code = rpCode, email = user.Email },
-                                    Request.Scheme)!;
-
-            var subject = _S["ACP_TempPw_Mail_Subject"].Value;
-            var body = string.Format(_S["ACP_TempPw_Mail_Body"].Value, HtmlEncoder.Default.Encode(resetUrl));
-            await _email.SendEmailAsync(user.Email!, subject, body);
-
-            TempData["StatusMessage"] = _S["ACP_TempPw_Sent"].Value;
-            return RedirectToPage(new { id = VM.SelectedUserId, q = VM.Q });
-        }
+         
 
         // 2025.09.26 Added: 재초대 전용 핸들러 저장과 분리 레이아웃 변경 없음
         public async Task<IActionResult> OnPostReinviteAsync()

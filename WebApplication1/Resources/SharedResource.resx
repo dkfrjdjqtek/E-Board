@@ -1134,4 +1134,16 @@
   <data name="_CM_Edit" xml:space="preserve">
     <value>수정</value>
   </data>
+  <data name="DOC_Label_Recipients" xml:space="preserve">
+    <value>문서 공유</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Search" xml:space="preserve">
+    <value>여기에 검색할 인원을 입력하세요.</value>
+  </data>
+  <data name="ORG_MS_Label_SelectedCount" xml:space="preserve">
+    <value>{0}명 선택됨</value>
+  </data>
+  <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
+    <value>선택된 인원이 없습니다.</value>
+  </data>
 </root>
