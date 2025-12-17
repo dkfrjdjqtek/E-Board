@@ -36,12 +36,20 @@
 
     #doc-scroll {
         position: fixed;
-        inset: 0;
+        /* 2025.12.15 Changed: Detail 과 동일하게 CSS 변수 기반으로 기본 inset 고정 */
+        top: var(--header-h, 0px);
+        left: var(--sidebar-w, 0px);
+        right: 0;
+        bottom: var(--footer-h, 0px);
+
         overflow-y: auto !important;
         overflow-x: auto !important;
         box-sizing: border-box;
         background: #fff;
-        z-index: 1;
+
+        /* 2025.12.15 Changed: 헤더/사이드바 위로 가리지 않도록 레이어 우선순위 상향 */
+        z-index: 10000;
+
         scrollbar-gutter: stable both-edges;
         padding-bottom: 0;
     }
@@ -357,7 +365,13 @@
 
     function computeInsets() {
         const vw = Math.max(320, innerWidth), vh = Math.max(320, innerHeight);
-        let top = 0, left = 0, right = 0, bottom = 0;
+
+        // 2025.12.15 Changed: 먼저 Detail 과 동일한 CSS 변수 값을 기본으로 사용 (헤더 탐지 실패 대비)
+        const rs = getComputedStyle(document.documentElement);
+        let top = parseInt(rs.getPropertyValue('--header-h')) || 0;
+        let left = parseInt(rs.getPropertyValue('--sidebar-w')) || 0;
+        let right = 0;
+        let bottom = parseInt(rs.getPropertyValue('--footer-h')) || 0;
 
         const hdr = $('[data-app-header]');
         const sdr = $('[data-app-sidebar]');

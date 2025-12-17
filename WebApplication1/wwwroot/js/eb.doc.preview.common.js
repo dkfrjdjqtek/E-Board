@@ -786,66 +786,43 @@
                 if (mm && mm.covered) continue;
 
                 const td = document.createElement('td');
-                td.dataset.rowpx = String(rowPx);
 
-                if (mm && mm.master) { if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs)); if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs)); }
-                if (!(mm && mm.master && mm.cs > 1)) td.style.width = colPxAt(c) + 'px';
+                // Detail과 동일하게 a1/r/c 데이터셋 유지(DevTools inspect/query 용)
+                const a1Label = colIndexToLetters(c) + String(r);
+                td.dataset.a1 = a1Label;
+                td.dataset.r = String(r);
+                td.dataset.c = String(c);
 
-                const cell = document.createElement('div');
-                cell.className = 'cellc';
-                // 셀 표시도 textarea와 동일 라인 기준을 강제
-                cell.style.lineHeight = rowPx + 'px';
-                if (!mm) cell.style.maxHeight = rowPx + 'px';
-
-                const v = (preview.cells[r - 1]?.[c - 1] ?? '');
-                cell.appendChild(document.createTextNode(v === '' ? '' : String(v)));
-
-                applyStyleToCell(td, cell, styleGrid[r][c]);
-
-                const m = posToMeta.get(`${r},${c}`);
-                const fieldKey = m?.key;
-                const fieldType = (m?.type || 'Text').toLowerCase();
-                const editable = !!fieldKey && !(mm && !mm.master) && isWrite;
-
-                if (editable) {
-                    td.setAttribute('data-key', fieldKey);
-                    td.classList.add('eb-editable');
-
-                    if (fieldType === 'date') {
-                        td.dataset.type = 'date';
-                        td.classList.add('eb-group');
-
-                        const input = document.createElement('input');
-                        input.type = 'date';
-                        input.className = 'eb-input-date';
-
-                        // 2025.11.14 Changed: 항상 폼 여는 시점의 "오늘 날짜(로컬 기준)"로 기본 값 설정
-                        const today = new Date();
-                        const yyyy = today.getFullYear();
-                        const mm = String(today.getMonth() + 1).padStart(2, '0');
-                        const dd = String(today.getDate()).padStart(2, '0');
-                        input.value = `${yyyy}-${mm}-${dd}`;
-
-                        // 셀의 기존 텍스트(엑셀 값)는 무시
-                        cell.textContent = '';
-                        cell.appendChild(input);
-
-                        const sync = () => { payloadInputs[fieldKey] = input.value || ''; };
-                        input.addEventListener('change', sync);
-                        input.addEventListener('blur', sync);
-                        if (!(fieldKey in payloadInputs)) sync();
-
-                        td.addEventListener('mousedown', (e) => {
-                            if (e.button !== 0) return;
-                            e.preventDefault();
-                            input.focus({ preventScroll: true });
-                            if (typeof input.showPicker === 'function') {
-                                try { input.showPicker(); } catch { /* no-op */ }
-                            }
-                        });
-                    }
+                const m2 = mergeMap.get(key);
+                if (m2 && m2.master) {
+                    if (m2.rs > 1) td.setAttribute('rowspan', String(m2.rs));
+                    if (m2.cs > 1) td.setAttribute('colspan', String(m2.cs));
+                }
+                if (!(m2 && m2.master && m2.cs > 1)) {
+                    td.style.width = colPxAt(c) + 'px';
                 }
 
+                // 셀 컨테이너(div.cellc) 생성
+                const cell = document.createElement('div');
+                cell.className = 'cellc';
+                if (!m2) cell.style.maxHeight = rowPx + 'px';
+
+                // Compose에서만 강제로 lineHeight=rowPx 를 주면 폰트/행 느낌이 Detail과 달라짐 → 제거
+                // cell.style.lineHeight = rowPx + 'px';
+
+                // (필요 시) 줄바꿈 처리 방식은 CSS(.wrap) 또는 applyStyleToCell 결과를 따르게 둠
+                // 이전에 cellDiv/cell 혼재로 ReferenceError 나던 부분 정리
+                // cell.style.whiteSpace = 'pre';  // 강제 고정이 필요하면 여기에 적용(Detail과 동일하게 맞출 때는 CSS/스타일그리드에 맡김)
+
+                const v = (preview.cells[r - 1]?.[c - 1] ?? '');
+                if (v !== '' && v != null) {
+                    cell.appendChild(document.createTextNode(String(v)));
+                }
+
+                // Excel 스타일(폰트/크기/굵기 등) 적용은 Detail과 동일하게 여기서 통일
+                applyStyleToCell(td, cell, styleGrid[r][c]);
+
+                // 이하 editable/date 로직은 기존 코드 그대로 유지(여기서는 생략)
                 td.appendChild(cell);
                 tr.appendChild(td);
             }

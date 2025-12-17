@@ -1146,4 +1146,10 @@
   <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
     <value>Tidak ada orang yang dipilih.</value>
   </data>
+  <data name="DOC_Status_Created" xml:space="preserve">
+    <value>Dibuat</value>
+  </data>
+  <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
+    <value>Apakah Anda ingin menghapus komentar ini?</value>
+  </data>
 </root>

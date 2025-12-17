@@ -455,27 +455,33 @@ namespace WebApplication1.Controllers
 
         [HttpGet("load-template")]
         public async Task<IActionResult> LoadTemplate(
-    [FromQuery] string compCd,
+    [FromQuery] string? compCd,
     [FromQuery] int? departmentId,
-    [FromQuery] string docCode,
+    [FromQuery] string? docCode,
     [FromQuery] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
 
             // --- compCd / docCode 기본값 정리 (GET 쿼리 기준) ---
-            var qComp1 = Request?.Query["compCd"].ToString();
-            var qComp2 = Request?.Query["CompCd"].ToString();
+            // Controller의 Request는 null이 아니므로 ?. 제거, Query는 TryGetValue로 안전하게 처리
+            string? qComp1 = Request.Query.TryGetValue("compCd", out var qcv1) ? qcv1.ToString() : null;
+            string? qComp2 = Request.Query.TryGetValue("CompCd", out var qcv2) ? qcv2.ToString() : null;
+
             if (string.IsNullOrWhiteSpace(compCd))
-                compCd = !string.IsNullOrWhiteSpace(qComp1) ? qComp1 : qComp2;
+                compCd = !string.IsNullOrWhiteSpace(qComp1) ? qComp1
+                      : (!string.IsNullOrWhiteSpace(qComp2) ? qComp2 : string.Empty);
 
-            var qDoc1 = Request?.Query["docCode"].ToString();
-            var qDoc2 = Request?.Query["DocCode"].ToString();
+            string? qDoc1 = Request.Query.TryGetValue("docCode", out var qdv1) ? qdv1.ToString() : null;
+            string? qDoc2 = Request.Query.TryGetValue("DocCode", out var qdv2) ? qdv2.ToString() : null;
+
             if (string.IsNullOrWhiteSpace(docCode))
-                docCode = !string.IsNullOrWhiteSpace(qDoc1) ? qDoc1 : qDoc2;
+                docCode = !string.IsNullOrWhiteSpace(qDoc1) ? qDoc1
+                      : (!string.IsNullOrWhiteSpace(qDoc2) ? qDoc2 : string.Empty);
 
-            // 일반 사용자는 항상 본인 회사 코드 강제
+            // 일반 사용자는 항상 본인 회사 코드 강제 (ctx.compCd가 null일 수 있으므로 방어)
             if (ctx.adminLevel == 0)
-                compCd = ctx.compCd;
+                compCd = ctx.compCd ?? string.Empty;
+
             compCd = (compCd ?? string.Empty).Trim();
             docCode = (docCode ?? string.Empty).Trim();
 
@@ -605,7 +611,7 @@ namespace WebApplication1.Controllers
             }
             catch
             {
-                // Excel 경로 조회 실패 시에는 기존 previewJson 을 그대로 사용(아래 EnsurePreviewJson 이 최소 구조 보장)
+                // Excel 경로 조회 실패 시에는 기존 previewJson 을 그대로 사용
             }
 
             // --- Excel 파일이 있으면 스타일 포함 프리뷰 다시 생성 ---
@@ -641,7 +647,13 @@ namespace WebApplication1.Controllers
             ViewBag.TemplateTitle = master.DocName;
             ViewBag.DocCode = master.DocCode;
 
-            if (embed || string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+            // Ajax 판별도 null-safe (Header 없으면 ""로 비교됨)
+            var isAjax = string.Equals(
+                Request.Headers["X-Requested-With"].ToString(),
+                "XMLHttpRequest",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (embed || isAjax)
                 return PartialView("DocTLMap");
 
             return View("DocTLMap");

@@ -983,6 +983,7 @@ WHERE DocId = @id
                 {
                     await conn.OpenAsync();
 
+                    // 1-1) 문서 상태를 Recalled 로 변경 (현재 Pending 단계에서만 허용)
                     await using (var cmd = conn.CreateCommand())
                     {
                         cmd.CommandText = @"
@@ -994,16 +995,16 @@ WHERE DocId = @DocId
                         await cmd.ExecuteNonQueryAsync();
                     }
 
+                    // 1-2) 승인선은 Status 를 그대로 유지하고, 회수 이력만 남김
                     await using (var ac = conn.CreateCommand())
                     {
                         ac.CommandText = @"
 UPDATE dbo.DocumentApprovals
-SET Status    = N'Recalled',
-    Action    = N'Recalled',
+SET Action    = N'Recalled',
     ActedAt   = SYSUTCDATETIME(),
     ActorName = @actor
 WHERE DocId = @DocId
-  AND ISNULL(Status,N'') = N'Pending';";
+  AND ISNULL(Status,N'Pending') LIKE N'Pending%';";
                         ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
                         ac.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200)
                         {
@@ -1013,6 +1014,7 @@ WHERE DocId = @DocId
                     }
                 }
 
+                // 클라이언트에는 문서 최종 상태만 전달
                 return Json(new { ok = true, docId = dto.docId, status = "Recalled" });
             }
 
@@ -1512,6 +1514,9 @@ ORDER BY a.StepOrder;";
             string? creatorUserId = null;
             string? creatorNameRaw = null;
 
+            DateTime? createdAtUtc = null;
+            DateTime? updatedAtUtc = null;
+
             await using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText = @"
@@ -1525,6 +1530,8 @@ SELECT TOP 1
        d.CompCd,
        d.CreatedBy,
        d.CreatedByName,
+       d.CreatedAt,
+       d.UpdatedAt,
        COALESCE(p.DisplayName, d.CreatedByName, u.UserName, u.Email) AS CreatorDisplayName
 FROM dbo.Documents d
 LEFT JOIN dbo.AspNetUsers  u ON u.Id     = d.CreatedBy
@@ -1550,6 +1557,9 @@ WHERE d.DocId = @DocId;";
 
                 creatorUserId = rd["CreatedBy"] as string ?? "";
                 creatorNameRaw = rd["CreatorDisplayName"] as string ?? "";
+
+                createdAtUtc = rd["CreatedAt"] is DateTime cdt ? cdt : (DateTime?)null;
+                updatedAtUtc = rd["UpdatedAt"] is DateTime udt ? udt : (DateTime?)null;
             }
 
             // 작성자 DisplayName 우선 해석
@@ -1569,6 +1579,50 @@ WHERE UserId = @UserId;";
                 {
                     creatorDisplayName = Convert.ToString(objName) ?? creatorDisplayName;
                 }
+            }
+
+            // ---------------- 1-0) 작성/회수 시각(표시용) ----------------
+            // 작성시각: Documents.CreatedAt
+            DateTime? createdAtForUi = null;
+            string createdAtText = string.Empty;
+
+            if (createdAtUtc.HasValue)
+            {
+                // 기존 코드(ActedAt 처리)와 동일하게 UTC 가정 후 로컬 변환
+                createdAtForUi = DateTime.SpecifyKind(createdAtUtc.Value, DateTimeKind.Utc);
+                createdAtText = ToLocalStringFromUtc(createdAtForUi.Value);
+            }
+
+            // 회수시각: DocumentApprovals에서 Recall(Action='Recalled')의 최신 ActedAt (없으면 빈 값)
+            DateTime? recalledAtForUi = null;
+            string recalledAtText = string.Empty;
+
+            try
+            {
+                await using var rcCmd = conn.CreateCommand();
+                rcCmd.CommandText = @"
+SELECT TOP 1 a.ActedAt
+FROM dbo.DocumentApprovals a
+WHERE a.DocId = @DocId
+  AND (
+        UPPER(ISNULL(a.Action,'')) = 'RECALLED'
+     OR UPPER(ISNULL(a.Status,'')) = 'RECALLED'
+  )
+  AND a.ActedAt IS NOT NULL
+ORDER BY a.ActedAt DESC;";
+                rcCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
+
+                var obj = await rcCmd.ExecuteScalarAsync();
+                if (obj != null && obj != DBNull.Value)
+                {
+                    var dt = (obj is DateTime dtx) ? dtx : Convert.ToDateTime(obj);
+                    recalledAtForUi = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                    recalledAtText = ToLocalStringFromUtc(recalledAtForUi.Value);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Detail: load recalled ActedAt failed for {DocId}", id);
             }
 
             // ---------------- 1-1) TemplateCode -> 템플릿 버전 Id ----------------
@@ -1752,6 +1806,12 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.ViewLogsJson = JsonSerializer.Serialize(viewLogs);
             ViewBag.ApprovalCellsJson = JsonSerializer.Serialize(approvalCells);
 
+            // ★ Detail.cshtml 의 data-created-at / data-recalled-at 에 매핑되는 값들(시간 표시용)
+            ViewBag.CreatedAt = createdAtForUi;
+            ViewBag.CreatedAtText = createdAtText;
+            ViewBag.RecalledAt = recalledAtForUi;
+            ViewBag.RecalledAtText = recalledAtText;
+
             var caps = await GetApprovalCapabilitiesAsync(id);
             ViewBag.CanRecall = caps.canRecall;
             ViewBag.CanApprove = caps.canApprove;
@@ -1838,7 +1898,10 @@ INSERT INTO dbo.DocumentViewLogs
 VALUES
     (@DocId, @ViewerId, @ViewerRole, SYSUTCDATETIME(), @ClientIp, @UserAgent);";
                 cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
-                cmd.Parameters.Add(new SqlParameter("@ViewerId", SqlDbType.NVarChar, 450) { Value = (object)userId ?? DBNull.Value });
+                cmd.Parameters.Add(new SqlParameter("@ViewerId", SqlDbType.NVarChar, 450)
+                {
+                    Value = userId ?? (object)DBNull.Value
+                });
                 cmd.Parameters.Add(new SqlParameter("@ViewerRole", SqlDbType.NVarChar, 50) { Value = (object)viewerRole ?? DBNull.Value });
                 cmd.Parameters.Add(new SqlParameter("@ClientIp", SqlDbType.NVarChar, 64) { Value = (object)clientIp ?? DBNull.Value });
                 cmd.Parameters.Add(new SqlParameter("@UserAgent", SqlDbType.NVarChar, 512) { Value = (object)userAgent ?? DBNull.Value });

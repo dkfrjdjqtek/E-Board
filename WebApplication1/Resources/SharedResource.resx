@@ -1146,4 +1146,10 @@
   <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
     <value>선택된 인원이 없습니다.</value>
   </data>
+  <data name="DOC_Status_Created" xml:space="preserve">
+    <value>작성</value>
+  </data>
+  <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
+    <value>해당 댓글을 삭제하시겠습니까?</value>
+  </data>
 </root>

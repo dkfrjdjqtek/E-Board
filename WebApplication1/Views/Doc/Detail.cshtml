@@ -1,5 +1,4 @@
-﻿File: Views/Doc/Detail.cshtml
-@* 2025.12.05 Changed: 승인 서명 스탬프 compCd UserId 기반 경로 적용 승인자 캡션 공통 함수 사용 상세 타이틀을 "작성자님의 문서명"으로 표시 상단 문서 메타 영역 숨김 댓글 파일 업로드 UI 비활성화 및 null 요소 이벤트 바인딩 오류 제거 *@
+﻿@* 2025.12.05 Changed: 승인 서명 스탬프 compCd UserId 기반 경로 적용 승인자 캡션 공통 함수 사용 상세 타이틀을 "작성자님의 문서명"으로 표시 상단 문서 메타 영역 숨김 댓글 파일 업로드 UI 비활성화 및 null 요소 이벤트 바인딩 오류 제거 *@
 @* 2025.12.03 Changed: 결재 정보 Role 컬럼 제거 이름 표시 및 상태 다국어 매핑 문서 확인 로그 최초 1회만 표시 *@
 @* 2025.12.01 Changed: Detail 레이아웃을 Compose 와 동일 scroll host(#doc-scroll) 방식으로 통일
    - html/body 전역 스크롤을 숨기고 #doc-scroll 고정 컨테이너 한 곳만 세로/가로 스크롤 담당
@@ -86,6 +85,7 @@
     var canApprove = (bool?)ViewBag.CanApprove ?? false;
     var canHold = (bool?)ViewBag.CanHold ?? false;
     var canReject = (bool?)ViewBag.CanReject ?? false;
+
 }
 
 <style>
@@ -248,6 +248,14 @@
             white-space: pre-wrap;
         }
 
+            .xlfb td.ta-left .cellc,
+            .xlfb td.eb-editable .cellc,
+            .xlfb td.eb-group .cellc,
+            .xlfb td[data-key] .cellc {
+                padding-left: 4px;
+                padding-right: 2px;
+                box-sizing: border-box;
+            }
     .ta-left {
         text-align: left;
     }
@@ -277,15 +285,6 @@
         white-space: pre-line;
     }
 
-    /* ▼ Compose 의 #xlPreview 대신 Detail 의 #xhost 에 맞게 폰트/크기 통일 */
-    .cellc {
-        padding: .0rem .45rem;
-        font-size: .925rem;
-        line-height: 1.2;
-        max-height: 100%;
-        overflow: hidden;
-        display: block;
-    }
 
     /* ===== 댓글/로그/승인 ===== */
 
@@ -429,6 +428,23 @@
         background: rgba(255,255,255,0.6); /* 필요 시 제거 가능 */
     }
 
+        /* ▼ Detail 의 #xhost 에 맞게 cell 컨테이너 성격만 유지 (폰트/크기는 공용 CSS 기준) */
+    .cellc {
+        max-height: 100%;
+        overflow: hidden;
+        display: block;
+    }
+
+    /* ★ 매핑/입력 셀(td.eb-editable)만 폰트 강제 (엑셀 서식은 유지하되 폰트만 예외) */
+    .xlfb td.eb-editable .cellc,
+    .xlfb td[data-key] .cellc,
+    .xlfb td.eb-group .cellc {
+        font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Segoe UI', Arial, system-ui, sans-serif !important;
+        font-size: 14.6667px !important;
+        letter-spacing: 0px !important;
+        word-spacing: 0px !important;
+    }
+
     /* ================== 문서 출력 전용 ================== */
     @@media print {
         @@page {
@@ -536,6 +552,21 @@
          data-doc-id="@docId"
          data-doc-title="@docTitle"
          data-creator-name="@creatorName"
+         data-status="@status"
+         data-created-at="@(
+        (ViewBag.CreatedAtText as string)
+        ?? (ViewBag.CreatedAt != null ? Convert.ToString(ViewBag.CreatedAt) : null)
+        ?? (ViewBag.UpdatedAtText as string)
+        ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
+        ?? string.Empty
+     )"
+         data-recalled-at="@(
+        (ViewBag.RecalledAtText as string)
+        ?? (ViewBag.RecalledAt != null ? Convert.ToString(ViewBag.RecalledAt) : null)
+        ?? (ViewBag.UpdatedAtText as string)
+        ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
+        ?? string.Empty
+     )"
          style="padding-left: 16px; padding-right: 24px; max-width: 100%;">
 
         <!-- 상단 타이틀 + 메타 + 액션 -->
@@ -658,7 +689,7 @@
         <section class="doc-section" aria-labelledby="doc-approvals-title">
             <div id="doc-approvals-title" class="doc-section-title">
                 @S["DOC_Label_Approvals"]
-                <span class="doc-section-sub">@S["DOC_Help_ApprovalsReadonly"]</span>
+                @* <span class="doc-section-sub">@S["DOC_Help_ApprovalsReadonly"]</span> *@
             </div>
 
             <table class="doc-approvals-table">
@@ -775,8 +806,10 @@
             DOC_Status_OnHold: "@S["DOC_Status_OnHold"]",
             DOC_Status_Recalled: "@S["DOC_Status_Recalled"]",
             DOC_Confirm_DeleteComment: "@S["DOC_Confirm_DeleteComment"]",
-            DOC_Msg_Recall_Success: "@S["DOC_Msg_Recall_Success"]"
-        }
+            DOC_Msg_Recall_Success: "@S["DOC_Msg_Recall_Success"]",
+            // ★ 작성 상태 텍스트(리소스가 없으면 '작성'으로 대체)
+            DOC_Status_Created: "@S["DOC_Status_Created"]"
+        };
 
         const T = (m) => {
             if (m == null) return '';
@@ -803,7 +836,6 @@
             if (!full) return '';
             const s = String(full).trim();
 
-            // 이메일이면 표시하지 않음
             if (s.includes('@@')) {
                 return '';
             }
@@ -811,17 +843,14 @@
             let parts = s.split(/\s+/).filter(Boolean);
             if (!parts.length) return '';
 
-            // "홍길동님" → "홍길동"
             parts = parts.map(p => p.replace(/님$/, ''));
 
             const hasHangul = t => /[가-힣]/.test(t);
 
-            // 뒤에서부터 한글 토큰 찾기
             for (let i = parts.length - 1; i >= 0; i--) {
                 if (hasHangul(parts[i])) return parts[i];
             }
 
-            // 그래도 못 찾으면 마지막 토큰
             return parts[parts.length - 1];
         }
 
@@ -856,21 +885,62 @@
         // ★ 승인자 표시 텍스트 공통 함수 (서명 캡션 + 결재 정보 표에 모두 사용)
         function getApprovalDisplayName(a) {
             if (!a) return '';
-            return (
+
+            var v =
                 a.approverDisplayText || a.ApproverDisplayText ||
                 a.approverName || a.ApproverName ||
                 a.actorName || a.ActorName ||
                 a.userName || a.UserName ||
-                a.approverValue || a.value || ''
-            )?.toString().trim();
+                a.approverValue || a.ApproverValue ||
+                a.value || a.Value || '';
+
+            return String(v || '').trim();
         }
 
         // ================== 프리뷰 렌더링 ==================
         (function () {
             const preview = readJsonFromScript('PreviewJson', {});
             const descriptor = readJsonFromScript('DescriptorJson', {});
+            const inputs = readJsonFromScript('InputsJson', {});
+
             window.descriptor = descriptor;
 
+            // ★ Detail에서 "매핑/입력 셀" A1 집합 구성 (InputsJson/DescriptorJson 둘 다에서 최대한 회수)
+            function buildEditableA1Set(desc, inp) {
+                const set = new Set();
+                const rxA1 = /^[A-Z]+\d+$/;
+
+                function addMaybeA1(v) {
+                    if (!v) return;
+                    const s = String(v).trim().toUpperCase();
+                    if (rxA1.test(s)) set.add(s);
+                }
+
+                function walk(obj) {
+                    if (!obj) return;
+                    if (Array.isArray(obj)) { obj.forEach(walk); return; }
+                    if (typeof obj !== 'object') { addMaybeA1(obj); return; }
+
+                    for (const k in obj) {
+                        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+                        const v = obj[k];
+
+                        // key 자체가 A1인 케이스도 흡수
+                        addMaybeA1(k);
+
+                        // 흔한 필드명 케이스 흡수
+                        if (k === 'a1' || k === 'A1' || k === 'cellA1' || k === 'CellA1') addMaybeA1(v);
+
+                        walk(v);
+                    }
+                }
+
+                walk(inp);
+                walk(desc);
+                return set;
+            }
+
+            const __editableA1 = buildEditableA1Set(descriptor, inputs);
             const excelColWidthToPx = W => {
                 const w = Number(W);
                 if (!isFinite(w) || w < 0) return 0;
@@ -1067,22 +1137,30 @@
                     function applyStyleToCell(td, cell, st) {
                         if (!st || typeof st !== 'object') return;
 
+                        const isEditable =
+                            !!(td && (
+                                (td.classList && (td.classList.contains('eb-editable') || td.classList.contains('eb-group')))
+                                || td.hasAttribute('data-key')
+                            ));
+
                         const font = st.font || null;
                         if (font) {
                             if (font.bold) cell.style.fontWeight = '700';
                             if (font.italic) cell.style.fontStyle = 'italic';
                             if (font.underline) cell.style.textDecoration = 'underline';
 
-                            if (font.size != null) {
-                                const pt = Number(font.size);
-                                if (isFinite(pt) && pt > 0) {
-                                    cell.style.fontSize = ptToPx(pt).toFixed(2) + 'px';
+                            // ★ 매핑/입력 셀은 폰트/크기만 고정 정책이므로 Excel font.size/name 적용을 스킵
+                            if (!isEditable) {
+                                if (font.size != null) {
+                                    const pt = Number(font.size);
+                                    if (isFinite(pt) && pt > 0) {
+                                        cell.style.fontSize = ptToPx(pt).toFixed(2) + 'px';
+                                    }
                                 }
-                            }
-
-                            if (font.name) {
-                                cell.style.fontFamily =
-                                    `"${font.name}", '맑은 고딕', 'Malgun Gothic', dotum, Arial, sans-serif`;
+                                if (font.name) {
+                                    cell.style.fontFamily =
+                                        `"${font.name}", '맑은 고딕', 'Malgun Gothic', dotum, Arial, sans-serif`;
+                                }
                             }
                         }
 
@@ -1144,6 +1222,12 @@
                             td.dataset.r = r;
                             td.dataset.c = c;
 
+                            // ★ 매핑/입력 셀 표시 (방법 A의 핵심)
+                            if (__editableA1.has(String(a1Label).toUpperCase())) {
+                                td.classList.add('eb-editable');
+                                td.setAttribute('data-key', a1Label); // key를 별도로 쓰면 여기만 교체
+                            }
+
                             if (mm && mm.master) {
                                 if (mm.rs > 1) td.setAttribute('rowspan', String(mm.rs));
                                 if (mm.cs > 1) td.setAttribute('colspan', String(mm.cs));
@@ -1155,6 +1239,15 @@
                             const cellDiv = document.createElement('div');
                             cellDiv.className = 'cellc';
                             if (!mm) cellDiv.style.maxHeight = rowPx + 'px';
+                            const isEditableCell = td.classList.contains('eb-editable')
+                                || td.classList.contains('eb-group')
+                                || td.hasAttribute('data-key');
+                            if (cellDiv.classList.contains('wrap')) {
+                                cellDiv.style.whiteSpace = 'pre-wrap';
+                            } else if (isEditableCell) {
+                                cellDiv.style.whiteSpace = 'pre';
+                                cellDiv.style.wordBreak = 'normal';
+                            }
 
                             const raw = p.cells[r - 1]?.[c - 1] ?? '';
                             if (raw !== '' && raw != null) {
@@ -1206,6 +1299,14 @@
 
         const docId = "@(docId ?? "")";
         const compCd = "@(compCd ?? "")";
+
+        // ★ 작성자/상태/시간 정보는 data-* 에서 읽어오도록 변경 (Razor Json 직렬화 에러 방지)
+        const __root = document.querySelector('.doc-detail-root');
+        const docStatus = (__root?.getAttribute('data-status') || '').toString();
+        const docCreatorNameRaw = (__root?.getAttribute('data-creator-name') || '').toString();
+        const docCreatedAtText = (__root?.getAttribute('data-created-at') || '').toString();
+        const docRecalledAtText = (__root?.getAttribute('data-recalled-at') || '').toString();
+
 
         // ===== UserId 기반 서명 스탬프 렌더링 =====
         function renderApprovalSignaturesOnCurrentPreview(tbl) {
@@ -1593,7 +1694,7 @@
                     if ($fileIn) $fileIn.value = '';
                     renderFileList();
 
-                    showInfo([T('DOC_Msg_CommentCreated')]);
+                    //showInfo([T('DOC_Msg_CommentCreated')]);
                     await loadComments();
                 } catch (e) {
                     console.error('post comment error', e);
@@ -1873,43 +1974,107 @@
             const tbody = document.getElementById('tbody-approvals');
             if (!tbody) return;
 
-            let list;
-            try { list = JSON.parse('@Html.Raw(approvalsJson)'); }
-            catch { list = null; }
-
-            if (!Array.isArray(list) || !list.length) {
-                const tr = document.createElement('tr');
-                tr.innerHTML =
-                    `<td colspan="3" class="text-muted">${T('DOC_Msg_NoApprovals')}</td>`;
-                tbody.append(tr);
-                return;
-            }
-
             const esc = s => String(s || '').replace(/[&<>"']/g,
                 m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
-            list
-                .slice()
-                .sort((a, b) => (a.step || a.stepOrder || 0) - (b.step || b.stepOrder || 0))
-                .forEach(a => {
-                    const tr = document.createElement('tr');
+            let approvals = [];
+            if (Array.isArray(window.approvalsData)) approvals = window.approvalsData.slice();
+            else {
+                try {
+                    const parsed = JSON.parse('@Html.Raw(approvalsJson)');
+                    if (Array.isArray(parsed)) approvals = parsed.slice();
+                } catch { approvals = []; }
+            }
 
-                    // ★ 결재 정보의 담당자 칸에는 "이름"만 표시
-                    const fullDisplayName = getApprovalDisplayName(a);
-                    const nameOnly = extractPersonName(fullDisplayName);
+            const __root = document.querySelector('.doc-detail-root');
 
-                    const stRaw = a.status || a.Status || a.Action || 'Pending';
-                    const stKey = mapStatusKey(stRaw);
-                    const stDisplay = T(stKey);
+            const docStatus = (__root?.getAttribute('data-status') || '').toString();
+            const isDocRecalled = String(docStatus || '').toUpperCase() === 'RECALLED';
 
-                    const when = a.actedAtText || a.actedAt || '';
+            // 작성자 이름(이름만)
+            const docCreatorNameRaw = (__root?.getAttribute('data-creator-name') || '').toString();
+            const authorFull = (docCreatorNameRaw || '').trim();
+            const authorNameOnly = (function () {
+                const n = extractPersonName(authorFull);
+                return n || authorFull;
+            })();
 
-                    tr.innerHTML = `
-            <td>${esc(nameOnly)}</td>
-            <td>${esc(stDisplay)}</td>
-            <td>${esc(when)}</td>`;
-                    tbody.append(tr);
+            // 작성/회수 시각 (서버에서 data-* 로 내려줘야 함)
+            let createdText = ((__root?.getAttribute('data-created-at') || '') + '').trim();
+            let recalledText = ((__root?.getAttribute('data-recalled-at') || '') + '').trim();
+
+            if (!createdText && __root) createdText = ((__root.dataset.createdAt || '') + '').trim();
+            if (!recalledText && __root) recalledText = ((__root.dataset.recalledAt || '') + '').trim();
+
+            // StepOrder 기준 정렬 (approvals가 비어있어도 작성자행은 렌더링해야 하므로, 정렬은 그냥 수행)
+            approvals.sort((a, b) =>
+                (a.step || a.stepOrder || a.Step || a.StepOrder || 0) -
+                (b.step || b.stepOrder || b.Step || b.StepOrder || 0));
+
+            const rows = [];
+
+            // 1) 작성자 1행 (항상)
+            let authorStatusText = '';
+            let authorWhenText = '';
+            if (isDocRecalled) {
+                authorStatusText = T('DOC_Status_Recalled');
+                authorWhenText = recalledText;
+            } else {
+                authorStatusText = T('DOC_Status_Created');
+                authorWhenText = createdText;
+            }
+
+            rows.push({
+                name: authorNameOnly || '',
+                statusText: authorStatusText || '',
+                whenText: authorWhenText || ''
+            });
+
+            // 2) 결재선 (있으면 추가, 없으면 작성자 1행만 표시)
+            approvals.forEach(a => {
+                const fullDisplayName = getApprovalDisplayName(a);
+                const nameOnly = extractPersonName(fullDisplayName) || fullDisplayName || '';
+                if (!nameOnly) return;
+
+                const statusRaw = (a.status || a.Status || '').toString();
+                const actionRaw = (a.action || a.Action || '').toString();
+
+                let stRaw = statusRaw || actionRaw || 'Pending';
+                let when = '';
+
+                if (isDocRecalled) {
+                    stRaw = 'Pending';
+                    when = '';
+                } else {
+                    const stUpper = String(stRaw || '').toUpperCase();
+                    const actedStates = ['APPROVED', 'APPROVE', 'REJECTED', 'REJECT', 'ONHOLD', 'HOLD'];
+                    if (actedStates.includes(stUpper)) {
+                        when = a.actedAtText || a.actedAt || a.ActedAtText || a.ActedAt || '';
+                    } else {
+                        when = '';
+                    }
+                }
+
+                const stKey = mapStatusKey(stRaw);
+                const stDisplay = T(stKey || 'DOC_Status_Pending');
+
+                rows.push({
+                    name: nameOnly,
+                    statusText: stDisplay,
+                    whenText: when
                 });
+            });
+
+            // 3) 렌더링
+            tbody.innerHTML = '';
+            rows.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${esc(r.name)}</td>
+                    <td>${esc(r.statusText)}</td>
+                    <td>${esc(r.whenText)}</td>`;
+                tbody.appendChild(tr);
+            });
         })();
 
         // ================== 인쇄/Export ==================

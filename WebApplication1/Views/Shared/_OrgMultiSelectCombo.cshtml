@@ -1,8 +1,122 @@
-﻿@* 2025.12.12 Changed: OrgMultiSelect 개별 인스턴스용 스크립트로 단순화  드롭다운 표시 오류 및 문자열 깨짐 방지  폭 420px 제한 *@
+﻿@* 2025.12.17 Changed: OrgMultiSelect 드롭다운이 하단에 걸리면 자동으로 위로(drop-up) 열리도록 CSS/JS 위치 전환 로직 추가 *@
 @using System.Text.Json
 @using WebApplication1.Models
 @model IEnumerable<OrgTreeNode>
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> _S
+
+<style>
+    .org-ms-wrapper {
+        position: relative;
+        display: inline-block;
+        width: 100%;
+        max-width: 420px; /* 폼 전체의 절반 정도 */
+    }
+
+    .org-ms-trigger-wrap {
+        position: relative;
+        width: 100%;
+        cursor: pointer;
+    }
+
+        .org-ms-trigger-wrap .org-ms-summary {
+            padding-right: 32px;
+            cursor: pointer;
+            background-color: #fff;
+        }
+
+    .org-ms-trigger-icon {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        font-size: 0.8rem;
+    }
+
+    .org-ms-panel {
+        position: absolute;
+        z-index: 9999;
+        left: 0;
+        right: 0;
+        /* 2025.12.17 Changed: 아래로 기본 표시(top)로 고정하고, drop-up일 땐 bottom으로 전환 */
+        top: calc(100% + 4px);
+        bottom: auto;
+        margin-top: 0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        max-height: 360px;
+        flex-direction: column;
+    }
+
+    /* 2025.12.17 Added: 위로(drop-up) */
+    .org-ms-wrapper.is-dropup .org-ms-panel {
+        top: auto;
+        bottom: calc(100% + 4px);
+    }
+
+    .org-ms-search-wrap {
+        padding: 6px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .org-ms-tree-wrap {
+        padding: 4px 8px;
+        overflow-y: auto;
+        max-height: 320px;
+    }
+
+    .org-ms-tree {
+        list-style: none;
+        margin: 0;
+        padding-left: 0;
+    }
+
+    .org-ms-node {
+        margin: 2px 0;
+    }
+
+    .org-ms-node-branch > .org-ms-label {
+        font-weight: 700;
+    }
+
+    .org-ms-node-dept > .org-ms-label {
+        font-weight: 600;
+        padding-left: 8px;
+    }
+
+    .org-ms-node-user > .org-ms-label {
+        font-weight: 400;
+        padding-left: 16px;
+    }
+
+    .org-ms-children {
+        list-style: none;
+        margin: 0;
+        padding-left: 12px;
+    }
+
+    .org-ms-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+        .org-ms-label input[type="checkbox"] {
+            margin: 0;
+        }
+
+    .org-ms-text {
+        white-space: nowrap;
+    }
+
+    .org-ms-node[data-filter-hidden="true"] {
+        display: none;
+    }
+</style>
 
 @{
     var controlId = (string?)(ViewData["ControlId"] ?? "OrgMultiSelect1");
@@ -91,111 +205,6 @@
     </div>
 </div>
 
-<style>
-    .org-ms-wrapper {
-        position: relative;
-        display: inline-block;
-        width: 100%;
-        max-width: 420px; /* 폼 전체의 절반 정도 */
-    }
-
-    .org-ms-trigger-wrap {
-        position: relative;
-        width: 100%;
-        cursor: pointer;
-    }
-
-        .org-ms-trigger-wrap .org-ms-summary {
-            padding-right: 32px;
-            cursor: pointer;
-            background-color: #fff;
-        }
-
-    .org-ms-trigger-icon {
-        position: absolute;
-        right: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        pointer-events: none;
-        font-size: 0.8rem;
-    }
-
-    .org-ms-panel {
-        position: absolute;
-        z-index: 9999;
-        left: 0;
-        right: 0;
-        margin-top: 4px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background-color: #fff;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        max-height: 360px;
-        flex-direction: column;
-    }
-
-    .org-ms-search-wrap {
-        padding: 6px;
-        border-bottom: 1px solid #eee;
-    }
-
-    .org-ms-tree-wrap {
-        padding: 4px 8px;
-        overflow-y: auto;
-        max-height: 320px;
-    }
-
-    .org-ms-tree {
-        list-style: none;
-        margin: 0;
-        padding-left: 0;
-    }
-
-    .org-ms-node {
-        margin: 2px 0;
-    }
-
-    .org-ms-node-branch > .org-ms-label {
-        font-weight: 700;
-    }
-
-    .org-ms-node-dept > .org-ms-label {
-        font-weight: 600;
-        padding-left: 8px;
-    }
-
-    .org-ms-node-user > .org-ms-label {
-        font-weight: 400;
-        padding-left: 16px;
-    }
-
-    .org-ms-children {
-        list-style: none;
-        margin: 0;
-        padding-left: 12px;
-    }
-
-    .org-ms-label {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        cursor: pointer;
-        user-select: none;
-    }
-
-        .org-ms-label input[type="checkbox"] {
-            margin: 0;
-        }
-
-    .org-ms-text {
-        white-space: nowrap;
-    }
-
-    .org-ms-node[data-filter-hidden="true"] {
-        display: none;
-    }
-</style>
-
 <script>
     (function () {
         // ★ 이 인스턴스 한 개만 초기화
@@ -216,22 +225,84 @@
             return;
         }
 
+        // 2025.12.17 Added: 스크롤 호스트 탐지(Compose/Detail: #doc-scroll 우선)
+        function findScrollHost() {
+            var ds = document.getElementById('doc-scroll');
+            if (ds) return ds;
+
+            var cur = root.parentElement;
+            while (cur) {
+                try {
+                    var st = window.getComputedStyle(cur);
+                    var oy = st.overflowY;
+                    if (oy === 'auto' || oy === 'scroll') return cur;
+                } catch { }
+                cur = cur.parentElement;
+            }
+            return null;
+        }
+
+        // 2025.12.17 Added: 열릴 때 위/아래 공간 비교 후 drop-up 적용
+        function applyDropDirection() {
+            root.classList.remove('is-dropup');
+
+            var isOpen = panel.getAttribute('data-open') === 'true';
+            if (!isOpen) return;
+
+            var host = findScrollHost();
+            var hostRect = host ? host.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+            var rootRect = root.getBoundingClientRect();
+
+            // panel이 display:flex인 상태에서 측정
+            var panelH = Math.max(panel.getBoundingClientRect().height || 0, panel.scrollHeight || 0, 240);
+
+            var spaceDown = hostRect.bottom - rootRect.bottom;
+            var spaceUp = rootRect.top - hostRect.top;
+
+            if (spaceDown < panelH && spaceUp > spaceDown) {
+                root.classList.add('is-dropup');
+            }
+        }
+
+        function closePanel() {
+            panel.setAttribute('data-open', 'false');
+            panel.style.display = 'none';
+            root.classList.remove('is-dropup');
+        }
+
         // 드롭다운 열기/닫기 (inline style)
         triggerWrap.addEventListener('click', function (e) {
             e.stopPropagation();
             var isOpen = panel.getAttribute('data-open') === 'true';
             var nextOpen = !isOpen;
+
             panel.setAttribute('data-open', nextOpen ? 'true' : 'false');
             panel.style.display = nextOpen ? 'flex' : 'none';
+
+            // 2025.12.17 Added: 열림 직후 위치 판단(레이아웃 반영 위해 rAF)
+            if (nextOpen) {
+                window.requestAnimationFrame(applyDropDirection);
+            } else {
+                root.classList.remove('is-dropup');
+            }
         });
 
         // 바깥 클릭 시 닫기
         document.addEventListener('click', function (e) {
             if (!root.contains(e.target)) {
-                panel.setAttribute('data-open', 'false');
-                panel.style.display = 'none';
+                closePanel();
             }
         });
+
+        // 2025.12.17 Added: 스크롤/리사이즈 시에도(열려있을 때만) 위치 재판단
+        var hostForEvents = findScrollHost();
+        function onMove() {
+            if (panel.getAttribute('data-open') === 'true') {
+                window.requestAnimationFrame(applyDropDirection);
+            }
+        }
+        window.addEventListener('resize', onMove);
+        if (hostForEvents) hostForEvents.addEventListener('scroll', onMove, { passive: true });
 
         // 체크박스 변경
         root.addEventListener('change', function (e) {

@@ -1146,4 +1146,10 @@
   <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
     <value>未选择任何人员。</value>
   </data>
+  <data name="DOC_Status_Created" xml:space="preserve">
+    <value>已创建</value>
+  </data>
+  <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
+    <value>要删除此评论吗？</value>
+  </data>
 </root>

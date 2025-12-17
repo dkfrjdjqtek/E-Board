@@ -18,9 +18,12 @@ using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Hosting;    // 2025.12.10 Changed: 서명 이미지 저장용 컨텐트 루트 사용
 using Microsoft.AspNetCore.Http;       // 2025.12.02 Added: 서명 파일 바인딩용
 using System.IO;                       // 2025.12.02 Added: 파일 저장 IO 사용
-using System.Drawing;                  // 2025.12.02 Added: 서명 이미지 리사이즈
-using System.Drawing.Drawing2D;        // 2025.12.02 Added: 고품질 리사이즈 옵션
-using System.Drawing.Imaging;          // 2025.12.02 Added: PNG 저장 포맷
+//using System.Drawing;                  // 2025.12.02 Added: 서명 이미지 리사이즈
+//using System.Drawing.Drawing2D;        // 2025.12.02 Added: 고품질 리사이즈 옵션
+//using System.Drawing.Imaging;          // 2025.12.02 Added: PNG 저장 포맷
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Formats.Png;
 
 namespace WebApplication1.Areas.Identity.Pages.Account
 {
@@ -317,38 +320,22 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                     Directory.CreateDirectory(compDir);
 
                     const int maxSize = 300;
-                    using (var srcStream = Input.SignatureFile.OpenReadStream())
-                    using (var image = Image.FromStream(srcStream))
+
+                    await using (var srcStream = Input.SignatureFile.OpenReadStream())
                     {
-                        int targetWidth = image.Width;
-                        int targetHeight = image.Height;
+                        using var image = Image.Load(srcStream);
 
-                        if (image.Width > maxSize || image.Height > maxSize)
+                        // 비율 유지 + 최대 300px로 축소(원본이 작으면 그대로)
+                        image.Mutate(ctx => ctx.Resize(new ResizeOptions
                         {
-                            var scale = Math.Min(
-                                (float)maxSize / image.Width,
-                                (float)maxSize / image.Height);
-
-                            targetWidth = (int)Math.Round(image.Width * scale);
-                            targetHeight = (int)Math.Round(image.Height * scale);
-                        }
+                            Mode = ResizeMode.Max,
+                            Size = new Size(maxSize, maxSize)
+                        }));
 
                         var fileName = $"{user.Id}.png";
                         var physicalPath = Path.Combine(compDir, fileName);
 
-                        using (var dest = new Bitmap(targetWidth, targetHeight))
-                        using (var g = Graphics.FromImage(dest))
-                        {
-                            g.SmoothingMode = SmoothingMode.HighQuality;
-                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                            g.CompositingQuality = CompositingQuality.HighQuality;
-
-                            g.Clear(Color.Transparent);
-                            g.DrawImage(image, 0, 0, targetWidth, targetHeight);
-
-                            dest.Save(physicalPath, ImageFormat.Png);
-                        }
+                        await image.SaveAsync(physicalPath, new PngEncoder());
 
                         var relativePath = $"{compCd}/{fileName}";
                         profile.SignatureRelativePath = relativePath;

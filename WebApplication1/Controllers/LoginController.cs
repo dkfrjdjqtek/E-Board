@@ -3,17 +3,16 @@
 // 2025.09.16 Changed: 로그인 실패 시 View 반환 전에 EBValidate 데이터 Stamp 호출
 // 2025.09.16 Added: StampEbValidateData 헬퍼 추가
 // 2025.09.16 Checked: 기존 AddErrorOnce MapAndAddRegisterError 유지
-
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
-using WebApplication1.Models; // ApplicationUser, LoginViewModel, RegisterViewModel
+using WebApplication1.Models;
 using Microsoft.Extensions.Localization;
-using System.Linq; // 2025.09.16 Added: Linq 사용
-using System.Collections.Generic; // 2025.09.16 Added: 사전과 목록 사용
-using System.Text.Json; // 2025.09.16 Added: Json 직렬화
+using System.Linq;
+using System.Collections.Generic;
+using System.Text.Json;
 
 namespace WebApplication1.Controllers
 {
@@ -33,20 +32,42 @@ namespace WebApplication1.Controllers
             _S = S;
         }
 
-        [HttpGet]
-        public IActionResult AccessDenied(string? returnUrl = null)
+        // 2025.12.15 Added: returnUrl 정규화 Login 자기자신 및 초대리셋 경유 URL 차단
+        private string NormalizeReturnUrl(string? returnUrl)
         {
-            Response.StatusCode = 403;                 // 상태코드 403
-            ViewData["ReturnUrl"] = returnUrl;
-            return View();
+            var fallback = "/Doc/Board";
+
+            if (string.IsNullOrWhiteSpace(returnUrl))
+                return fallback;
+
+            // 오픈 리다이렉트 방지
+            if (!Url.IsLocalUrl(returnUrl))
+                return fallback;
+
+            // 로그인 페이지로 되돌아오는 케이스 차단
+            if (returnUrl.Contains("/Identity/Account/Login", System.StringComparison.OrdinalIgnoreCase) ||
+                returnUrl.Contains("/Account/Login", System.StringComparison.OrdinalIgnoreCase))
+                return fallback;
+
+            // 초대 및 비밀번호 설정 관련 페이지로 되돌아오는 케이스 차단
+            if (returnUrl.Contains("/Identity/Account/InviteLanding", System.StringComparison.OrdinalIgnoreCase) ||
+                returnUrl.Contains("/Identity/Account/ResetPassword", System.StringComparison.OrdinalIgnoreCase) ||
+                returnUrl.Contains("/Identity/Account/SetPassword", System.StringComparison.OrdinalIgnoreCase))
+                return fallback;
+
+            return returnUrl;
         }
 
         [HttpGet]
         public IActionResult Login(string? returnUrl = null)
         {
-            ViewData["ReturnUrl"] = returnUrl ?? Url.Content("~/");
-            // 2025.09.16 Added: 초기 진입 시 에러 정보 초기화
-            StampEbValidateData(); // 비어있는 상태로 전달
+            // BEFORE:
+            // ViewData["ReturnUrl"] = returnUrl ?? Url.Content("~/");
+
+            // AFTER:
+            ViewData["ReturnUrl"] = NormalizeReturnUrl(returnUrl);
+
+            StampEbValidateData();
             return View(new LoginViewModel());
         }
 
@@ -54,10 +75,14 @@ namespace WebApplication1.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Login(LoginViewModel model, string? returnUrl = null)
         {
-            returnUrl ??= Url.Content("~/");
-            ViewData["ReturnUrl"] = returnUrl;
+            // BEFORE:
+            // returnUrl ??= Url.Content("~/");
+            // ViewData["ReturnUrl"] = returnUrl;
 
-            // 2025.09.17 Added: 서버측 Required 가드(클라이언트 검증 누락/비활성 대비)
+            // AFTER:
+            var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
+            ViewData["ReturnUrl"] = normalizedReturnUrl;
+
             if (string.IsNullOrWhiteSpace(model.UserName))
                 AddErrorOnce(nameof(LoginViewModel.UserName), _S["Req"]);
             if (string.IsNullOrWhiteSpace(model.Password))
@@ -65,26 +90,23 @@ namespace WebApplication1.Controllers
 
             if (!ModelState.IsValid)
             {
-                // 2025.09.16 Changed: 클라이언트 EBValidate와 요약에 동일 데이터 전달
                 StampEbValidateData();
                 return View(model);
             }
 
             var loginText = (model.UserName ?? string.Empty).Trim();
 
-            // 아이디 이메일 모두 허용
             ApplicationUser? user = loginText.Contains('@')
                 ? await _userManager.FindByEmailAsync(loginText)
                 : await _userManager.FindByNameAsync(loginText);
 
             if (user is null)
             {
-                // 2025.09.16 Changed: 빈 키 대신 UserName 키로 에러 매핑
                 AddErrorOnce(nameof(LoginViewModel.UserName), _S["Login_UserNotExist"]);
-                StampEbValidateData(); // 2025.09.16 Added: ViewData에 필드별 에러와 요약 Stamp
+                StampEbValidateData();
                 return View(model);
             }
-            // 2025.09.17 Added: 호출 직전 재가드 비밀번호 공란이면 WrongPassword 대신 Required를 우선 노출
+
             if (string.IsNullOrWhiteSpace(model.Password))
             {
                 AddErrorOnce(nameof(LoginViewModel.Password), _S["Req"]);
@@ -97,38 +119,36 @@ namespace WebApplication1.Controllers
 
             if (result.Succeeded)
             {
-                //return LocalRedirect(returnUrl ?? Url.Content("~/"));
-                var target = (returnUrl != null && Url.IsLocalUrl(returnUrl)) ? returnUrl : "/Doc/Board";
-                return Redirect(target);
+                // BEFORE:
+                // var target = (returnUrl != null && Url.IsLocalUrl(returnUrl)) ? returnUrl : "/Doc/Board";
+                // return Redirect(target);
+
+                // AFTER:
+                return LocalRedirect(normalizedReturnUrl);
             }
-                
 
             if (result.RequiresTwoFactor)
             {
-                var encodedReturnUrl = UrlEncoder.Default.Encode(returnUrl ?? "/");
+                var encodedReturnUrl = UrlEncoder.Default.Encode(normalizedReturnUrl);
                 return Redirect($"/Identity/Account/LoginWith2fa?ReturnUrl={encodedReturnUrl}&RememberMe={model.RememberMe}");
             }
 
             if (result.IsLockedOut)
             {
-                // 2025.09.16 Changed: 잠금은 UserName 키로 매핑
                 AddErrorOnce(nameof(LoginViewModel.UserName), _S["Login_LockedOut"]);
-                StampEbValidateData(); // 2025.09.16 Added
+                StampEbValidateData();
                 return View(model);
             }
 
             if (result.IsNotAllowed)
             {
-                // 2025.09.16 Changed: 허용 안됨도 UserName 키로 매핑
                 AddErrorOnce(nameof(LoginViewModel.UserName), _S["Login_NotAllowed"]);
-                StampEbValidateData(); // 2025.09.16 Added
+                StampEbValidateData();
                 return View(model);
             }
 
-            // 비밀번호 틀림
-            // 2025.09.16 Changed: Password 키로 명확히 매핑
             AddErrorOnce(nameof(LoginViewModel.Password), _S["Login_WrongPassword"]);
-            StampEbValidateData(); // 2025.09.16 Added
+            StampEbValidateData();
             return View(model);
         }
 

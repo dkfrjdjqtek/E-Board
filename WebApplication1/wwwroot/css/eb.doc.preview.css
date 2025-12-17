@@ -1,6 +1,4 @@
-﻿﻿ /* 2025.11.14 Changed: 엑셀 폰트 완전히 무시, 웹 기준 공통 폰트/사이즈/자간 통일 + Compose/Detail 공통 프리뷰 스타일 적용 */
-/* 2025.11.14 Changed: 프리뷰 폰트 패밀리/자간 고정 및 box-sizing 통일, 상위 CSS 누수 차단 */
-/* 공통 폰트/자간 변수 (엑셀 스타일은 사용하지 않음) */
+﻿/* 2025.12.16 Changed: 입력 셀 폰트 고정 규칙을 Compose Detail 공통으로 통일하고 line height 변수 누락을 보완하며 셀 좌우 패딩을 단일 변수로 통합하여 시작점 차이를 제거 */
 :root {
     --vscroll-w: 0px;
     --eb-group-bg: rgb(240 248 255 / 55%);
@@ -10,40 +8,65 @@
     --eb-ring-w: 2px;
     --eb-ring-pad: 2px;
     --eb-ring-glow-w: 4px;
-    --eb-font: 'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',Arial,sans-serif; /* 여기 두 줄이 핵심: 폰트 패밀리 고정 + 기본 크기 16px */
-    --eb-font-size: 16px; /* 프리뷰 기본 폰트 크기(px) */
-    --eb-line-height: 1.2; /* 기본 라인 높이 배수 – 실제 셀/오버레이는 JS에서 rowH(px)로 덮어씌움 */
-    --eb-letter-spacing: normal; /* 자간/어간은 항상 normal 로 고정해서 줄바꿈 계산을 안정화 */
-    --eb-word-spacing: normal; /* 셀 좌우 패딩 */
-    --eb-cell-pad-x: 6px; /* .45rem → 6px */
+    /* 공통 폰트 자간 변수 엑셀 스타일은 사용하지 않음 (입력용만 별도) */
+    --eb-input-font: 'Malgun Gothic','맑은 고딕',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    --eb-input-font-size: 14.67px;
+    /* 누락 보완 */
+    --eb-input-line-height: 1.2;
+    --eb-letter-spacing: normal;
+    --eb-word-spacing: normal;
+    /* 셀 좌우 텍스트 시작점 단일화(Compose/Detail 공통) */
+    --eb-cell-pad-x: 8px;
+}
+
+.eb-ta,
+.eb-input-date {
+    font-family: var(--eb-input-font) !important;
+    font-size: var(--eb-input-font-size) !important;
+    line-height: var(--eb-input-line-height) !important;
 }
 
 /* 상위 전역 규칙 침투 차단 + box-sizing 통일 */
-#doc-scroll,
-#doc-scroll * {
+#xlPreview,
+#xlPreview *,
+#xhost,
+#xhost * {
     box-sizing: border-box;
 }
 
-/* 프리뷰 전체: "웹 기준" 공통 폰트/사이즈/자간만 사용 (엑셀 폰트/크기 무시) */
-#xlPreview,
-#xlPreview .xlfb {
-    font-family: var(--eb-font);
-    font-size: var(--eb-font-size);
-    line-height: var(--eb-line-height);
-    letter-spacing: var(--eb-letter-spacing);
-    word-spacing: var(--eb-word-spacing);
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-}
-
-    /* 셀/편집 영역은 자간·어간만 normal 로 고정(줄바꿈 계산 일치 목적) */
-    #xlPreview .xlfb td,
-    #xlPreview .xlfb th,
-    #xlPreview .xlfb .cellc,
-    #xlPreview .eb-ta {
+    /* 프리뷰 전체: 웹 기준 공통 폰트 사이즈 자간만 사용 (비입력 셀은 기존 --eb-font 유지) */
+    #xlPreview,
+    #xlPreview .xlfb,
+    #xhost,
+    #xhost .xlfb {
+        font-family: var(--eb-font);
+        font-size: var(--eb-font-size);
+        line-height: var(--eb-line-height);
         letter-spacing: var(--eb-letter-spacing);
         word-spacing: var(--eb-word-spacing);
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
     }
+
+        /* 셀 편집 영역은 자간/어간만 공통 */
+        #xlPreview .xlfb td,
+        #xlPreview .xlfb th,
+        #xlPreview .xlfb .cellc,
+        #xlPreview .eb-ta,
+        #xhost .xlfb td,
+        #xhost .xlfb th,
+        #xhost .xlfb .cellc,
+        #xhost .eb-ta {
+            letter-spacing: var(--eb-letter-spacing);
+            word-spacing: var(--eb-word-spacing);
+        }
+
+/* 입력 대상 셀은 wrap 이 아닌 경우 자동 줄바꿈 금지 */
+td.eb-group .cellc:not(.wrap),
+td[data-key] .cellc:not(.wrap),
+td.eb-editable .cellc:not(.wrap) {
+    white-space: pre;
+}
 
 /* 프리뷰 컨테이너 */
 #xlPreview {
@@ -54,7 +77,7 @@
     overflow: visible;
 }
 
-/* 테이블/오버레이 호스트 */
+/* 테이블 오버레이 호스트 */
 #xhost {
     display: block;
     width: auto;
@@ -63,11 +86,12 @@
     position: relative;
 }
 
-/* Excel 스타일 테이블(레이아웃/보더만 사용, 폰트는 무시) */
+/* Excel 스타일 테이블 레이아웃 (보더/레이아웃만 사용, 폰트는 위에서 관리) */
 .xlfb {
     border-collapse: collapse;
     table-layout: fixed;
     position: relative;
+    background: #ffffff;
 }
 
     .xlfb td,
@@ -81,18 +105,19 @@
         display: none;
     }
 
-    /* 셀 */
+    /* 셀 기본 */
     .xlfb td {
         padding: 0;
         vertical-align: middle;
         overflow: hidden;
         word-break: break-word;
-        white-space: pre-wrap; /* 기본은 줄바꿈 허용 */
+        white-space: pre-wrap;
     }
 
-/* 텍스트 입력 대상 셀: 자동 줄바꿈 금지, 우리가 넣은 \n 만 사용 */
+/* 텍스트 입력 대상 셀: 자동 줄바꿈 금지, 우리가 넣은 줄바꿈만 사용 */
 td.eb-group .cellc,
-td[data-key] .cellc {
+td[data-key] .cellc,
+td.eb-editable .cellc {
     white-space: pre;
 }
 
@@ -129,7 +154,7 @@ td[data-key] .cellc {
     vertical-align: bottom;
 }
 
-/* wrap 셀: 공백/줄바꿈 유지 + 자동 줄바꿈 */
+/* wrap 셀 */
 .wrap {
     white-space: pre-wrap;
 }
@@ -208,15 +233,84 @@ input[type="date"]::-moz-focus-inner {
     outline: none;
     z-index: 4;
     pointer-events: auto;
-    font: inherit; /* 폰트 패밀리/사이즈는 위 공통값 사용 */
+    font: inherit;
     color: inherit;
-    line-height: inherit; /* JS에서 rowH(px)로 다시 덮어씀 */
+    line-height: inherit;
     padding: 0 var(--eb-cell-pad-x);
     margin: 0;
     resize: none;
     overflow: hidden;
-    white-space: pre; /* 측정/클램프 로직과 일치 */
+    white-space: pre;
     -webkit-user-modify: read-write-plaintext-only;
+}
+
+/* 입력 셀만(매핑 셀 + eb-editable) 맑은 고딕 우선 고정 - Compose/Detail 공통 적용 (#xhost + #xlPreview) */
+#xhost td.eb-editable .cellc,
+#xhost td.eb-editable .cellc.wrap,
+#xhost td[data-key] .cellc,
+#xhost td[data-key] .cellc.wrap,
+#xhost td.eb-group .cellc,
+#xhost td.eb-group .cellc.wrap,
+#xlPreview td.eb-editable .cellc,
+#xlPreview td.eb-editable .cellc.wrap,
+#xlPreview td[data-key] .cellc,
+#xlPreview td[data-key] .cellc.wrap,
+#xlPreview td.eb-group .cellc,
+#xlPreview td.eb-group .cellc.wrap {
+    font-family: var(--eb-input-font) !important;
+    font-size: var(--eb-input-font-size) !important;
+    font-weight: 400 !important;
+    font-style: normal !important;
+    letter-spacing: 0 !important;
+}
+
+/* 입력 요소도 동일 고정 - Compose/Detail 공통 적용 (#xhost + #xlPreview) */
+#xhost td.eb-editable input,
+#xhost td.eb-editable textarea,
+#xhost td.eb-editable [contenteditable="true"],
+#xhost td[data-key] input,
+#xhost td[data-key] textarea,
+#xhost td[data-key] [contenteditable="true"],
+#xhost td.eb-group input,
+#xhost td.eb-group textarea,
+#xhost td.eb-group [contenteditable="true"],
+#xlPreview td.eb-editable input,
+#xlPreview td.eb-editable textarea,
+#xlPreview td.eb-editable [contenteditable="true"],
+#xlPreview td[data-key] input,
+#xlPreview td[data-key] textarea,
+#xlPreview td[data-key] [contenteditable="true"],
+#xlPreview td.eb-group input,
+#xlPreview td.eb-group textarea,
+#xlPreview td.eb-group [contenteditable="true"] {
+    font-family: var(--eb-input-font) !important;
+    font-size: var(--eb-input-font-size) !important;
+    font-weight: 400 !important;
+    font-style: normal !important;
+    letter-spacing: 0 !important;
+}
+
+/* 인라인 스타일 유입 보조 */
+#xhost td.eb-editable input,
+#xhost td.eb-editable textarea,
+#xhost td[data-key] input,
+#xhost td[data-key] textarea,
+#xhost td.eb-group input,
+#xhost td.eb-group textarea,
+#xlPreview td.eb-editable input,
+#xlPreview td.eb-editable textarea,
+#xlPreview td[data-key] input,
+#xlPreview td[data-key] textarea,
+#xlPreview td.eb-group input,
+#xlPreview td.eb-group textarea {
+    text-rendering: auto !important;
+}
+
+#xhost td.eb-editable .eb-ta,
+#xlPreview td.eb-editable .eb-ta {
+    text-align-last: auto !important;
+    text-justify: auto !important;
+    text-shadow: none !important;
 }
 
 /* 입력 제한 피드백 */

@@ -1146,4 +1146,10 @@
   <data name="ORG_MS_Placeholder_Empty" xml:space="preserve">
     <value>hưa chọn người nào.</value>
   </data>
+  <data name="DOC_Status_Created" xml:space="preserve">
+    <value>Đã tạo</value>
+  </data>
+  <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
+    <value>Bạn có muốn xóa bình luận này không?</value>
+  </data>
 </root>
