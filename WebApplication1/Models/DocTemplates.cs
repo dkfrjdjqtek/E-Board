@@ -13,7 +13,7 @@ namespace WebApplication1.Models
         public string DocName { get; set; } = default!;
         public string? Title { get; set; }
         public int ApprovalCount { get; set; }
-        public bool IsActive { get; set; }
+        public int IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public string? CreatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }

@@ -1,0 +1,423 @@
+{
+  "docCode": "DOC_63111A6F084945449992FADDE18EEE60",
+  "outTemplateId": 32,
+  "outVersionId": 10055,
+  "outVersionNo": 1,
+  "excelPath": "D:\\Development\\Web\\Client\\E-Board\\WebApplication1\\App_Data\\DocTemplates\\files\\0001_\uC601\uC5C5\uC5C5\uBB34\uC77C\uC9C0_20251217_173734_7a80582db932449990e47d0e7d1a5020.xlsx",
+  "model": {
+    "CompCd": "0001",
+    "DepartmentId": 4,
+    "Kind": "T0006",
+    "DocName": "\uC601\uC5C5 \uC5C5\uBB34 \uC77C\uC9C0",
+    "Title": null,
+    "ApprovalCount": 4,
+    "Fields": [
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_6",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B6"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_7",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B7"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_8",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B8"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_9",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B9"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_10",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B10"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_11",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B11"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_12",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B12"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_13",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B13"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_14",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B14"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_15",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B15"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_16",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B16"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_17",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B17"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_18",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B18"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_19",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B19"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_20",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B20"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_21",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B21"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_22",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B22"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_23",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B23"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_24",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B24"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_25",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B25"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_26",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B26"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_27",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B27"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_28",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B28"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_29",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B29"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_30",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B30"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_31",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B31"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_32",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B32"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uB0B4\uC6A9_33",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B33"
+        }
+      },
+      {
+        "Key": "\uC5C5\uBB34\uC77C\uC790",
+        "Type": "Date",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B4"
+        }
+      }
+    ],
+    "Approvals": [
+      {
+        "Slot": 1,
+        "Part": "\uACB0\uC7AC1",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": ""
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "113a4248-036c-4b33-b767-42bb8f670dbc"
+      },
+      {
+        "Slot": 1,
+        "Part": "\uACB0\uC7AC2",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": ""
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "19129d0a-1d4a-4c91-88e2-cd43bdd29bc6"
+      },
+      {
+        "Slot": 1,
+        "Part": "\uACB0\uC7AC3",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": ""
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "de577f03-3581-4c3f-a5ef-18c5a739d505"
+      },
+      {
+        "Slot": 1,
+        "Part": "\uACB0\uC7AC4",
+        "Cell": {
+          "Sheet": null,
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": ""
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "358a2c27-0ab4-4c34-a1c0-70f0ac5837d0"
+      }
+    ]
+  }
+}

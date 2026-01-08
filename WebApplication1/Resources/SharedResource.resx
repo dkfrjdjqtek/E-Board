@@ -1152,4 +1152,28 @@
   <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
     <value>해당 댓글을 삭제하시겠습니까?</value>
   </data>
+  <data name="CP_Signature_Label" xml:space="preserve">
+    <value>서명</value>
+  </data>
+  <data name="CP_Signature_Delete" xml:space="preserve">
+    <value>서명 삭제</value>
+  </data>
+  <data name="DOC_Label_Attachments" xml:space="preserve">
+    <value>첨부파일</value>
+  </data>
+  <data name="DOC_Label_AttachmentsCount" xml:space="preserve">
+    <value>{0}개</value>
+  </data>
+  <data name="DOC_Btn_Download" xml:space="preserve">
+    <value>다운로드</value>
+  </data>
+  <data name="DOC_Help_AttachmentsEmpty" xml:space="preserve">
+    <value>첨부 파일이 없습니다.</value>
+  </data>
+  <data name="DOC_Btn_RecipientsChange" xml:space="preserve">
+    <value>공유자 변경</value>
+  </data>
+  <data name="DOC_Attach_Count_None" xml:space="preserve">
+    <value>선택된 첨부 파일이 없습니다.</value>
+  </data>
 </root>

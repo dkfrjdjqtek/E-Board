@@ -37,18 +37,28 @@
             <span>@S["Sidebar_Menu1Sub1"]</span>
         </a>
 
-        <a asp-area="" asp-controller="Approval" asp-action="Approve" class="nav-link d-flex align-items-center">
+        @* <a asp-area="" asp-controller="Approval" asp-action="Approve" class="nav-link d-flex align-items-center">
             <img src="~/images/sidebar2-approval.png" alt="@(S["Sidebar_Menu1Sub2"])" width="36" height="36" class="me-2" />
             <span>@S["Sidebar_Menu1Sub2"]</span>
         </a>
         <a asp-area="" asp-controller="Approval" asp-action="Shared" class="nav-link d-flex align-items-center">
             <img src="~/images/sidebar2-share.png" alt="@(S["Sidebar_Menu1Sub3"])" width="36" height="36" class="me-2" />
             <span>@S["Sidebar_Menu1Sub3"]</span>
+        </a> *@
+        <a href="/Doc/Board?tab=approval" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-approval.png" alt="@(S["Sidebar_Menu1Sub2"])" width="36" height="36" class="me-2" />
+            <span>@S["Sidebar_Menu1Sub2"]</span>
+        </a>
+
+        <a href="/Doc/Board?tab=shared" class="nav-link d-flex align-items-center">
+            <img src="~/images/sidebar2-share.png" alt="@(S["Sidebar_Menu1Sub3"])" width="36" height="36" class="me-2" />
+            <span>@S["Sidebar_Menu1Sub3"]</span>
         </a>
     </div>
 
     <!-- 게시판 -->
-    <a asp-area="" asp-controller="Board" asp-action="Index" class="nav-link d-flex align-items-center">
+    @*<a asp-area="" asp-controller="Board" asp-action="Index" class="nav-link d-flex align-items-center">*@
+    <a href="#" class="nav-link d-flex align-items-center" onclick="return false;" aria-disabled="true">
         <img src="~/images/sidebar1-bbs.png" alt="@(S["Sidebar_Menu2"])" width="36" height="36" class="me-2" />
         <span>@S["Sidebar_Menu2"]</span>
     </a>
@@ -113,7 +123,8 @@
         }
 
         <!-- 권한 설정 (루트 MVC 컨트롤러) -->
-        <a asp-area="" asp-controller="Role" asp-action="Index" class="nav-link d-flex align-items-center">
+        <a href="#" class="nav-link d-flex align-items-center" onclick="return false;" aria-disabled="true">
+            @*<a asp-area="" asp-controller="Role" asp-action="Index" class="nav-link d-flex align-items-center">*@
             <img src="~/images/sidebar2-authoritysetting.png" alt="@(S["Sidebar_Menu3Sub5"])" width="36" height="36" class="me-2" />
             <span>@S["Sidebar_Menu3Sub5"]</span>
         </a>

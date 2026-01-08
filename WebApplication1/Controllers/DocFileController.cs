@@ -1,6 +1,5 @@
-﻿// 2025.10.15 Changed: 업로드 Select 반환 형식 불일치로 인한 CS0411 해결(명시 DTO로 통일)
-// 2025.10.15 Changed: 파일 저장에 CopyToAsync 사용하여 async 경고(CS1998) 제거
-// 2025.10.15 Changed: Download 액션에서 불필요한 async 제거(경고 제거), 나머지 로직/라우팅/검증 불변
+﻿// 2025.12.26 Changed: 업로드 시 모든 이미지 확장자를 허용하도록 기본 허용 확장자에 이미지 계열을 추가하고 업로드 완료 후 dbo DocumentFiles 에 파일 메타를 즉시 저장하여 상신 후에도 첨부 정보가 누락되지 않도록 보완
+
 using System;
 using System.IO;
 using System.Linq;
@@ -11,6 +10,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Data.SqlClient;
+using System.Data;
+using System.Security.Cryptography;
 
 namespace WebApplication1.Controllers
 {
@@ -29,7 +31,6 @@ namespace WebApplication1.Controllers
             _antiforgery = antiforgery;
         }
 
-        // 2025.10.15 Added: 업로드 결과 통일 DTO (익명형 혼용으로 Select 타입 추론 실패했던 문제 해결)
         private sealed class UploadItemResult
         {
             public string? fileKey { get; init; }
@@ -39,8 +40,6 @@ namespace WebApplication1.Controllers
             public string? error { get; init; }
         }
 
-        // Form: Files[] (multiple), optional: DocID, CommentID
-        // Return: { items: [{ FileKey, OriginalName, ContentType, ByteSize }], errors: [...] }
         [HttpPost("Upload")]
         [ValidateAntiForgeryToken]
         [RequestSizeLimit(50_000_000)]
@@ -48,20 +47,38 @@ namespace WebApplication1.Controllers
         [Produces("application/json")]
         public async Task<IActionResult> Upload([FromQuery] string? docId, [FromQuery] long? commentId)
         {
+            return StatusCode(410, new
+            {
+                messages = new[] { "DOC_Err_UploadFailed" },
+                detail = "DocFile.Upload disabled. Use /Doc/Upload."
+            });
+
             if (Request.Form?.Files == null || Request.Form.Files.Count == 0)
                 return BadRequest(new { messages = new[] { "DOC_File_Err_NoFiles" } });
+             
+            // 정책: docId 없는 Upload 호출은 절대 허용하지 않음(파일 저장/DB 저장 전 차단)
+            if (string.IsNullOrWhiteSpace(docId))
+                return BadRequest(new { messages = new[] { "DOC_File_Err_DocIdRequired" } });
 
             var maxSize = _cfg.GetValue<long?>("Files:MaxBytes") ?? 50_000_000L;
-            var allowedExt = (_cfg.GetValue<string>("Files:AllowedExtensions") ?? ".pdf,.png,.jpg,.jpeg,.txt,.docx,.xlsx")
+
+            // 기본 허용 확장자: 기존 + 모든 이미지 확장자 계열 추가
+            var defaultAllowed = ".pdf,.txt,.docx,.xlsx"
+                               + ",.png,.jpg,.jpeg,.gif,.bmp,.webp,.tif,.tiff,.svg,.ico,.heic,.heif";
+
+            var allowedExt = (_cfg.GetValue<string>("Files:AllowedExtensions") ?? defaultAllowed)
                                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                                 .Select(x => x.StartsWith('.') ? x.ToLowerInvariant() : "." + x.ToLowerInvariant())
+                                .Distinct()
                                 .ToArray();
 
             var storeRoot = Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "uploads");
             Directory.CreateDirectory(storeRoot);
 
-            // 2025.10.15 Changed: 명시 DTO + foreach 로 통일
             var items = new System.Collections.Generic.List<UploadItemResult>();
+
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            var hasDb = !string.IsNullOrWhiteSpace(cs);
 
             foreach (var file in Request.Form.Files)
             {
@@ -85,21 +102,65 @@ namespace WebApplication1.Controllers
                 }
 
                 var fileKey = $"F_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}{ext}";
-                var safeFolder = Path.Combine(storeRoot, DateTime.UtcNow.ToString("yyyyMMdd"));
+                var dayFolderName = DateTime.UtcNow.ToString("yyyyMMdd");
+                var safeFolder = Path.Combine(storeRoot, dayFolderName);
                 Directory.CreateDirectory(safeFolder);
+
                 var savePath = Path.Combine(safeFolder, fileKey);
 
-                // 2025.10.15 Changed: 비동기 저장으로 경고 제거
                 using (var fs = new FileStream(savePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
                 {
                     await file.CopyToAsync(fs);
+                }
+
+                string? sha256Hex = null;
+                try
+                {
+                    using var sha = SHA256.Create();
+                    await using var rs = new FileStream(savePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                    var hash = await sha.ComputeHashAsync(rs);
+                    sha256Hex = Convert.ToHexString(hash).ToLowerInvariant();
+                }
+                catch
+                {
+                    sha256Hex = null;
+                }
+
+                var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+                var storagePath = Path.Combine(dayFolderName, fileKey).Replace('\\', '/');
+
+                if (hasDb)
+                {
+                    var uploaderId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+                    await using var conn = new SqlConnection(cs);
+                    await conn.OpenAsync();
+
+                    await using var cmd = conn.CreateCommand();
+                    cmd.CommandText = @"
+INSERT INTO dbo.DocumentFiles
+    (DocId, CommentId, FileKey, OriginalName, StoragePath, ContentType, ByteSize, Sha256, UploadedBy, UploadedAt)
+VALUES
+    (@DocId, @CommentId, @FileKey, @OriginalName, @StoragePath, @ContentType, @ByteSize, @Sha256, @UploadedBy, SYSUTCDATETIME());";
+
+                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId! });
+                    cmd.Parameters.Add(new SqlParameter("@CommentId", SqlDbType.BigInt) { Value = (object?)commentId ?? DBNull.Value });
+                    cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 200) { Value = fileKey });
+                    cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 260) { Value = originalName });
+                    cmd.Parameters.Add(new SqlParameter("@StoragePath", SqlDbType.NVarChar, 400) { Value = storagePath });
+                    cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 200) { Value = contentType });
+                    cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = file.Length });
+                    cmd.Parameters.Add(new SqlParameter("@Sha256", SqlDbType.NVarChar, 64) { Value = (object?)sha256Hex ?? DBNull.Value });
+                    cmd.Parameters.Add(new SqlParameter("@UploadedBy", SqlDbType.NVarChar, 450) { Value = (object?)uploaderId ?? DBNull.Value });
+
+                    await cmd.ExecuteNonQueryAsync();
                 }
 
                 items.Add(new UploadItemResult
                 {
                     fileKey = fileKey,
                     originalName = originalName,
-                    contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                    contentType = contentType,
                     byteSize = file.Length
                 });
             }
@@ -113,7 +174,6 @@ namespace WebApplication1.Controllers
             return Json(new { items = oks, errors = errs });
         }
 
-        // 2025.10.15 Changed: async 제거(경고 해소). 스트림은 File()에서 처리.
         [HttpGet("Download/{fileKey}")]
         public IActionResult Download([FromRoute] string fileKey)
         {
@@ -142,6 +202,12 @@ namespace WebApplication1.Controllers
             var ext = Path.GetExtension(fileKey).ToLowerInvariant();
             if (ext is ".png") contentType = "image/png";
             else if (ext is ".jpg" or ".jpeg") contentType = "image/jpeg";
+            else if (ext is ".gif") contentType = "image/gif";
+            else if (ext is ".bmp") contentType = "image/bmp";
+            else if (ext is ".webp") contentType = "image/webp";
+            else if (ext is ".tif" or ".tiff") contentType = "image/tiff";
+            else if (ext is ".svg") contentType = "image/svg+xml";
+            else if (ext is ".ico") contentType = "image/x-icon";
             else if (ext is ".pdf") contentType = "application/pdf";
             else if (ext is ".txt") contentType = "text/plain";
 

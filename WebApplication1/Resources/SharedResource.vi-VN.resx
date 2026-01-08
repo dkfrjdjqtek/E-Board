@@ -1152,4 +1152,28 @@
   <data name="DOC_Confirm_DeleteComment" xml:space="preserve">
     <value>Bạn có muốn xóa bình luận này không?</value>
   </data>
+  <data name="CP_Signature_Label" xml:space="preserve">
+    <value>Chữ ký</value>
+  </data>
+  <data name="CP_Signature_Delete" xml:space="preserve">
+    <value>Xóa chữ ký</value>
+  </data>
+  <data name="DOC_Label_Attachments" xml:space="preserve">
+    <value>Tệp đính kèm</value>
+  </data>
+  <data name="DOC_Label_AttachmentsCount" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="DOC_Btn_Download" xml:space="preserve">
+    <value>Tải xuống</value>
+  </data>
+  <data name="DOC_Help_AttachmentsEmpty" xml:space="preserve">
+    <value>Chưa có tệp đính kèm.</value>
+  </data>
+  <data name="DOC_Btn_RecipientsChange" xml:space="preserve">
+    <value>Thay đổi người nhận</value>
+  </data>
+  <data name="DOC_Attach_Count_None" xml:space="preserve">
+    <value>Chưa chọn tệp đính kèm nào.</value>
+  </data>
 </root>

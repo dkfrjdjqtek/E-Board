@@ -135,7 +135,7 @@
 
     // 2025.10.15 Added: 기본 옵션
     const DEFAULTS = {
-        url: '/DocFile/Upload',
+        url: '/Doc/Upload',
         // 바이트 기준 (예: 20MB)
         maxBytes: 20 * 1024 * 1024,
         // 허용 확장자(소문자, 점 제외). 빈 배열이면 전체 허용

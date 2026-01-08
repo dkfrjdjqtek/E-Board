@@ -20,6 +20,9 @@ using Microsoft.Data.SqlClient;
 // 2025.10.13 Added: ADO 직접조회용 using
 using System.Data.Common;
 using System.Text;
+using Azure.Core;
+using DocumentFormat.OpenXml.Spreadsheet;
+using static WebApplication1.Controllers.DocTLController;
 
 
 namespace WebApplication1.Controllers
@@ -309,7 +312,8 @@ namespace WebApplication1.Controllers
             var query = _db.DocTemplateMasters
                .AsNoTracking()
                .Where(m => m.CompCd == compCd &&
-                   (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep));
+                   (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep))
+               .Where(m => m.IsActive == 1);
 
             if (!string.IsNullOrWhiteSpace(kind))
                 query = query.Where(m => m.KindCode == kind);
@@ -453,17 +457,17 @@ namespace WebApplication1.Controllers
             return result;
         }
 
+        // 2025.12.17 Changed: LoadTemplate 성능 개선을 위해 previewJson이 이미 유효하면 Excel 재오픈과 프리뷰 재생성을 생략하고 DocTemplateFiles 조회를 필요한 역할로 제한함
         [HttpGet("load-template")]
         public async Task<IActionResult> LoadTemplate(
-    [FromQuery] string? compCd,
-    [FromQuery] int? departmentId,
-    [FromQuery] string? docCode,
-    [FromQuery] bool embed = false)
+            [FromQuery] string? compCd,
+            [FromQuery] int? departmentId,
+            [FromQuery] string? docCode,
+            [FromQuery] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
 
             // --- compCd / docCode 기본값 정리 (GET 쿼리 기준) ---
-            // Controller의 Request는 null이 아니므로 ?. 제거, Query는 TryGetValue로 안전하게 처리
             string? qComp1 = Request.Query.TryGetValue("compCd", out var qcv1) ? qcv1.ToString() : null;
             string? qComp2 = Request.Query.TryGetValue("CompCd", out var qcv2) ? qcv2.ToString() : null;
 
@@ -478,7 +482,6 @@ namespace WebApplication1.Controllers
                 docCode = !string.IsNullOrWhiteSpace(qDoc1) ? qDoc1
                       : (!string.IsNullOrWhiteSpace(qDoc2) ? qDoc2 : string.Empty);
 
-            // 일반 사용자는 항상 본인 회사 코드 강제 (ctx.compCd가 null일 수 있으므로 방어)
             if (ctx.adminLevel == 0)
                 compCd = ctx.compCd ?? string.Empty;
 
@@ -519,10 +522,18 @@ namespace WebApplication1.Controllers
                 return RedirectToRoute("DocumentTemplates.Index");
             }
 
-            // --- 파일 메타데이터 조회 ---
+            // --- 파일 메타데이터 조회 (필요 역할만) ---
+            var wantRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "DescriptorJson","DescriptorJSON","Descriptor",
+        "PreviewJson","PreviewJSON","Preview",
+        "ExcelFile","Excel"
+    };
+
             var files = await _db.DocTemplateFiles
                 .AsNoTracking()
                 .Where(f => f.VersionId == latest.Id)
+                .Where(f => wantRoles.Contains((f.FileRole ?? "").Trim()))
                 .Select(f => new { f.FileRole, f.Storage, f.FilePath, f.Contents })
                 .ToListAsync();
 
@@ -545,7 +556,7 @@ namespace WebApplication1.Controllers
             }
 
             var descriptorJsonRaw = ReadFileByRole("DescriptorJson", "DescriptorJSON", "Descriptor");
-            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview"); // 옛 포맷일 수도 있음
+            var previewJson = ReadFileByRole("PreviewJson", "PreviewJSON", "Preview");
 
             if (string.IsNullOrWhiteSpace(descriptorJsonRaw))
             {
@@ -572,12 +583,11 @@ namespace WebApplication1.Controllers
                 desc,
                 new JsonSerializerOptions { WriteIndented = true });
 
-            // --- Excel 경로: EF 모델 속성 대신 ADO + DocTemplateFile 사용 ---
+            // --- Excel 경로: DocTemplateFile 우선, 없으면 DocTemplateVersion 테이블에서 조회 ---
             string? excelPathForPost = null;
 
             try
             {
-                // 1순위: DocTemplateFile에서 Excel 역할 찾기
                 var excelMeta = files.FirstOrDefault(f =>
                     string.Equals(f.FileRole ?? string.Empty, "ExcelFile", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(f.FileRole ?? string.Empty, "Excel", StringComparison.OrdinalIgnoreCase));
@@ -590,7 +600,6 @@ namespace WebApplication1.Controllers
                     excelPathForPost = excelMeta.FilePath;
                 }
 
-                // 2순위: 실 테이블 dbo.DocTemplateVersion 의 ExcelFilePath 직접 조회
                 if (string.IsNullOrWhiteSpace(excelPathForPost))
                 {
                     await using var conn = _db.Database.GetDbConnection();
@@ -611,11 +620,19 @@ namespace WebApplication1.Controllers
             }
             catch
             {
-                // Excel 경로 조회 실패 시에는 기존 previewJson 을 그대로 사용
+                // Excel 경로 조회 실패 시 기존 previewJson 유지
             }
 
-            // --- Excel 파일이 있으면 스타일 포함 프리뷰 다시 생성 ---
-            if (!string.IsNullOrWhiteSpace(excelPathForPost) &&
+            // --- 성능 핵심: 이미 previewJson이 유효하면 Excel 재오픈/재생성 스킵 ---
+            //  - previewJson이 비었거나
+            //  - styles가 없거나 비어 있으면
+            //  -> 그때만 Excel을 열어 BuildPreviewJsonWithStyles 실행
+            bool needRebuildPreview =
+                string.IsNullOrWhiteSpace(previewJson) ||
+                !PreviewJsonHasStyles(previewJson);
+
+            if (needRebuildPreview &&
+                !string.IsNullOrWhiteSpace(excelPathForPost) &&
                 System.IO.File.Exists(excelPathForPost))
             {
                 try
@@ -627,15 +644,13 @@ namespace WebApplication1.Controllers
                 }
                 catch
                 {
-                    // 실패시 무시하고 아래 EnsurePreviewJson 로 최소 구조 확보
+                    // 실패 시 아래 EnsurePreviewJson로 최소 구조 확보
                 }
             }
 
-            // --- 최종 previewJson 보정 + 디버깅 ---
             previewJson = EnsurePreviewJson(previewJson);
             DebugPreviewJson("LoadTemplate", previewJson);
 
-            // ViewBag / ViewData 바인딩
             ViewBag.ExcelPath = excelPathForPost;
             ViewBag.DescriptorJson = descriptorJsonForUi;
             ViewBag.PreviewJson = previewJson;
@@ -647,7 +662,6 @@ namespace WebApplication1.Controllers
             ViewBag.TemplateTitle = master.DocName;
             ViewBag.DocCode = master.DocCode;
 
-            // Ajax 판별도 null-safe (Header 없으면 ""로 비교됨)
             var isAjax = string.Equals(
                 Request.Headers["X-Requested-With"].ToString(),
                 "XMLHttpRequest",
@@ -658,6 +672,7 @@ namespace WebApplication1.Controllers
 
             return View("DocTLMap");
         }
+
 
         [HttpGet("get-kinds")]
         public async Task<IActionResult> GetKinds([FromQuery] string compCd, [FromQuery] int? departmentId)
@@ -1705,12 +1720,15 @@ namespace WebApplication1.Controllers
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
         public IActionResult MapSave(
-    [FromForm] string descriptor,
-    [FromForm] string? excelPath,
-    [FromForm] string? previewJson,
-    [FromForm] string? docCode
-)
+            [FromForm] string descriptor,
+            [FromForm] string? excelPath,
+            [FromForm] string? previewJson,
+            [FromForm] string? docCode
+        )
         {
+            var swAll = Stopwatch.StartNew();
+            long t0, t1, t2, t3, t4, t5, t6;
+
             if (string.IsNullOrWhiteSpace(descriptor))
                 return BadRequest("No descriptor");
 
@@ -1719,30 +1737,26 @@ namespace WebApplication1.Controllers
             catch { return BadRequest("Invalid descriptor"); }
             if (model == null) return BadRequest("Empty descriptor");
 
-            // ---------------------------------------------------------------------
-            // 0) docCode 확정: 폼 키 대소문자/이름 불일치 대비 (DocCode / docCode / templateCode 등)
-            //    ※ 여기서 docCode가 비면 "새 DocCode"가 생성되어 매번 신규 템플릿으로 저장되며,
-            //      그 결과 VersionNo가 증가하지 않는 것처럼 보입니다.
-            // ---------------------------------------------------------------------
+            t0 = swAll.ElapsedMilliseconds;
+
             string FirstNonEmpty(params string?[] xs) => xs.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
 
             var docCodeFromForm = FirstNonEmpty(
                 docCode,
-                Request?.Form["docCode"].ToString(),
-                Request?.Form["DocCode"].ToString(),
-                Request?.Form["templateCode"].ToString(),
-                Request?.Form["TemplateCode"].ToString(),
-                Request?.Form["docTemplateCode"].ToString(),
-                Request?.Form["DocTemplateCode"].ToString()
+                Request.Form["docCode"].ToString(),
+                Request.Form["DocCode"].ToString(),
+                Request.Form["templateCode"].ToString(),
+                Request.Form["TemplateCode"].ToString(),
+                Request.Form["docTemplateCode"].ToString(),
+                Request.Form["DocTemplateCode"].ToString()
             ).Trim();
 
             var docCodeToSave = !string.IsNullOrWhiteSpace(docCodeFromForm)
                 ? docCodeFromForm
                 : $"DOC_{Guid.NewGuid():N}".ToUpperInvariant();
 
-            // ---------------------------------------------------------------------
-            // 1) descriptor 필수값 보강: 기존 템플릿 저장(불러온 후 저장)이라면 Master에서 보강
-            // ---------------------------------------------------------------------
+            t1 = swAll.ElapsedMilliseconds;
+
             try
             {
                 bool needComp = string.IsNullOrWhiteSpace(model.CompCd);
@@ -1755,13 +1769,7 @@ namespace WebApplication1.Controllers
                     var m = _db.DocTemplateMasters
                         .AsNoTracking()
                         .Where(x => x.DocCode == docCodeToSave)
-                        .Select(x => new
-                        {
-                            x.CompCd,
-                            x.DepartmentId,
-                            x.KindCode,
-                            x.DocName
-                        })
+                        .Select(x => new { x.CompCd, x.DepartmentId, x.KindCode, x.DocName })
                         .FirstOrDefault();
 
                     if (m != null)
@@ -1773,19 +1781,15 @@ namespace WebApplication1.Controllers
                     }
                 }
             }
-            catch
-            {
-                // 보강 실패 시 아래 필수값 검증에서 차단
-            }
+            catch { }
 
             if (string.IsNullOrWhiteSpace(model.CompCd) || string.IsNullOrWhiteSpace(model.DocName))
                 return BadRequest("Invalid descriptor (CompCd/DocName)");
 
             var deptIdToSave = model.DepartmentId ?? 0;
 
-            // ---------------------------------------------------------------------
-            // 2) Fields 정규화 + 키 검증
-            // ---------------------------------------------------------------------
+            t2 = swAll.ElapsedMilliseconds;
+
             model.Fields = ExpandFieldsRange(model.Fields ?? new List<FieldDef>());
             var ck = ValidateFieldKeys(model.Fields);
             if (!ck.Ok)
@@ -1795,9 +1799,6 @@ namespace WebApplication1.Controllers
                     : "Field key is required.");
             }
 
-            // ---------------------------------------------------------------------
-            // 3) Approvals 검증
-            // ---------------------------------------------------------------------
             var apprs = model.Approvals ??= new List<ApprovalDef>();
             model.ApprovalCount = apprs.Count;
 
@@ -1828,13 +1829,71 @@ namespace WebApplication1.Controllers
                 model.Approvals[i] = a;
             }
 
+            t3 = swAll.ElapsedMilliseconds;
+
             // ---------------------------------------------------------------------
-            // 4) previewJson 보강 (없으면 excelPath로 생성)
+            // 4) previewJson 보강: (1) DB에 저장된 최신 PreviewJson 재사용 → (2) 최후에만 excelPath로 재생성
             // ---------------------------------------------------------------------
+            var willRebuildPreview = false;
+
+            if (string.IsNullOrWhiteSpace(previewJson))
+            {
+                try
+                {
+                    var cs = _db.Database.GetDbConnection().ConnectionString;
+                    using var conn = new SqlConnection(cs);
+                    conn.Open();
+
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = @"
+SELECT TOP (1)
+       f.Storage,
+       f.FilePath,
+       f.Contents
+FROM dbo.DocTemplateMaster  AS m
+JOIN dbo.DocTemplateVersion AS v
+     ON v.TemplateId = m.Id
+LEFT JOIN dbo.DocTemplateFile AS f
+     ON f.VersionId = v.Id
+WHERE m.DocCode = @DocCode
+  AND LOWER(LTRIM(RTRIM(ISNULL(f.FileRole,'')))) IN ('previewjson','preview')
+ORDER BY v.VersionNo DESC, v.Id DESC;";
+
+                    cmd.Parameters.Add(new SqlParameter("@DocCode", SqlDbType.NVarChar, 100)
+                    {
+                        Value = docCodeToSave
+                    });
+
+                    using var r = cmd.ExecuteReader();
+                    if (r.Read())
+                    {
+                        var storage = r["Storage"] as string;
+                        var filePath = r["FilePath"] as string;
+                        var contents = r["Contents"] as string;
+
+                        if (!string.IsNullOrWhiteSpace(contents))
+                        {
+                            previewJson = contents;
+                        }
+                        else if (string.Equals(storage, "Disk", StringComparison.OrdinalIgnoreCase) &&
+                                 !string.IsNullOrWhiteSpace(filePath) &&
+                                 System.IO.File.Exists(filePath))
+                        {
+                            previewJson = System.IO.File.ReadAllText(filePath);
+                        }
+                    }
+                }
+                catch
+                {
+                    // 재사용 실패 시 아래 excel 재생성 단계로 진행
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(previewJson) &&
                 !string.IsNullOrWhiteSpace(excelPath) &&
                 System.IO.File.Exists(excelPath))
             {
+                willRebuildPreview = true;
                 try
                 {
                     using var wbPrev = new XLWorkbook(excelPath);
@@ -1844,16 +1903,15 @@ namespace WebApplication1.Controllers
                 }
                 catch
                 {
-                    // 실패 시 null 유지 → DB에는 DBNull 저장
+                    // 실패 시 null 유지
                 }
             }
 
-            DebugPreviewJson("MapSave", previewJson);
-            Debug.WriteLine($"[DocTL][MapSave] docCodeToSave={docCodeToSave}, compCd={model.CompCd}, deptId={deptIdToSave}, kind={model.Kind}, previewLen={(previewJson?.Length ?? 0)}, hasStyles={PreviewJsonHasStyles(previewJson)}");
+            t4 = swAll.ElapsedMilliseconds;
 
-            // ---------------------------------------------------------------------
-            // 5) DB 저장 (sp가 VersionNo 증가를 책임져야 함)
-            // ---------------------------------------------------------------------
+            DebugPreviewJson("MapSave", previewJson);
+            Debug.WriteLine($"[DocTL][MapSave] docCodeToSave={docCodeToSave}, compCd={model.CompCd}, deptId={deptIdToSave}, kind={model.Kind}, previewLen={(previewJson?.Length ?? 0)}, hasStyles={PreviewJsonHasStyles(previewJson)}, rebuildPreview={willRebuildPreview}");
+
             var descriptorJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = false });
 
             var excelFileName = string.IsNullOrWhiteSpace(excelPath) ? "unknown.xlsx" : Path.GetFileName(excelPath);
@@ -1888,7 +1946,6 @@ namespace WebApplication1.Controllers
             new SqlParameter("@ExcelFileSize",   SqlDbType.BigInt){ Value = excelSize },
             new SqlParameter("@ExcelContentType",SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
             new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
-
             pOutTemplateId,
             pOutVersionId,
             pOutVersionNo
@@ -1912,9 +1969,8 @@ namespace WebApplication1.Controllers
                 return RedirectToAction(nameof(MapSaved), new { path = "", excelPath, fields = 0, approvals = 0 });
             }
 
-            // ---------------------------------------------------------------------
-            // 6) 스냅샷 JSON 파일 저장 (버전 기반 파일명)
-            // ---------------------------------------------------------------------
+            t5 = swAll.ElapsedMilliseconds;
+
             var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
             Directory.CreateDirectory(baseDir);
 
@@ -1926,7 +1982,6 @@ namespace WebApplication1.Controllers
             var name = $"{Safe(model.CompCd)}_{Safe(model.DocName)}_{Safe(docCodeToSave)}_{vtag}_{stamp}.json";
             var path = Path.Combine(baseDir, name);
 
-            // 저장 대상에 DocCode를 명시적으로 싣고 싶으면(뷰/JS 디버그용) 모델에 추가 필드가 없으므로, 파일에 같이 기록만 합니다.
             var snap = new
             {
                 docCode = docCodeToSave,
@@ -1938,6 +1993,10 @@ namespace WebApplication1.Controllers
             };
 
             System.IO.File.WriteAllText(path, JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
+
+            t6 = swAll.ElapsedMilliseconds;
+
+            Debug.WriteLine($"[DocTL][MapSave][Timing] total={t6}ms form={t0}ms code={t1 - t0}ms masterFill={t2 - t1}ms validate={t3 - t2}ms preview={t4 - t3}ms sp={t5 - t4}ms snap={t6 - t5}ms previewRebuild={willRebuildPreview} previewLen={(previewJson?.Length ?? 0)} excelSize={excelSize}");
 
             Debug.WriteLine($"[DocTL][MapSave] saved snapshot path={path}");
 

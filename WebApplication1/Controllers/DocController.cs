@@ -29,6 +29,8 @@ using WebApplication1.Controllers;
 using System.Text;
 using DocumentFormat.OpenXml.Bibliography;
 using DocumentFormat.OpenXml.Spreadsheet;
+using System.Text.Json.Serialization;
+using DocumentFormat.OpenXml.Office2010.Excel;
 
 namespace WebApplication1.Controllers
 {
@@ -45,6 +47,8 @@ namespace WebApplication1.Controllers
         private readonly ILogger<DocController> _log;
         private readonly IEmailSender _emailSender;
         private readonly SmtpOptions _smtpOpt;
+        private static readonly object _attachSeqLock = new object();
+
 
         public DocController(
             IStringLocalizer<SharedResource> S,
@@ -69,6 +73,116 @@ namespace WebApplication1.Controllers
             _log = log;
         }
 
+        private async Task<List<OrgTreeNode>> BuildOrgTreeNodesAsync(string langCode)
+        {
+            var orgNodes = new List<OrgTreeNode>();
+            var compMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
+            var deptMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT
+    a.CompCd,
+    ISNULL(g.Name, a.CompCd)        AS CompName,
+    a.DepartmentId,
+    ISNULL(f.Name, CAST(a.DepartmentId AS nvarchar(50))) AS DeptName,
+    a.UserId,
+    ISNULL(d.Name, '')              AS PositionName,
+    a.DisplayName
+FROM UserProfiles a
+LEFT JOIN AspNetUsers b          ON a.UserId = b.Id
+LEFT JOIN PositionMasters c      ON a.CompCd = c.CompCd AND a.PositionId = c.Id
+LEFT JOIN PositionMasterLoc d    ON c.Id = d.PositionId AND d.LangCode = @LangCode
+LEFT JOIN DepartmentMasters e    ON a.CompCd = e.CompCd AND a.DepartmentId = e.Id
+LEFT JOIN DepartmentMasterLoc f  ON e.Id = f.DepartmentId AND f.LangCode = @LangCode
+LEFT JOIN CompMasters g          ON a.CompCd = g.CompCd
+ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
+                cmd.Parameters.Add(new SqlParameter("@LangCode", SqlDbType.NVarChar, 8) { Value = langCode });
+
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var compCd = rd["CompCd"] as string ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(compCd))
+                        continue;
+
+                    var compName = rd["CompName"] as string ?? compCd;
+
+                    var deptIdObj = rd["DepartmentId"];
+                    if (deptIdObj == null || deptIdObj == DBNull.Value)
+                        continue;
+
+                    var deptId = Convert.ToString(deptIdObj) ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(deptId))
+                        continue;
+
+                    var deptName = rd["DeptName"] as string ?? deptId;
+
+                    var userId = rd["UserId"] as string ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(userId))
+                        continue;
+
+                    var positionName = rd["PositionName"] as string ?? string.Empty;
+                    var displayName = rd["DisplayName"] as string ?? string.Empty;
+
+                    // 회사 노드
+                    if (!compMap.TryGetValue(compCd, out var compNode))
+                    {
+                        compNode = new OrgTreeNode
+                        {
+                            NodeId = compCd,
+                            Name = compName,
+                            NodeType = "Branch",
+                            ParentId = null
+                        };
+                        compMap[compCd] = compNode;
+                        orgNodes.Add(compNode);
+                    }
+
+                    // 부서 노드 (유니크 NodeId: compCd:deptId)
+                    var deptKey = compCd + ":" + deptId;
+                    if (!deptMap.TryGetValue(deptKey, out var deptNode))
+                    {
+                        deptNode = new OrgTreeNode
+                        {
+                            NodeId = deptKey,
+                            Name = deptName,
+                            NodeType = "Dept",
+                            ParentId = compNode.NodeId
+                        };
+                        deptMap[deptKey] = deptNode;
+                        compNode.Children.Add(deptNode);
+                    }
+
+                    // 사용자 노드
+                    var caption = string.IsNullOrWhiteSpace(positionName)
+                        ? displayName
+                        : positionName + " " + displayName;
+
+                    var userNode = new OrgTreeNode
+                    {
+                        NodeId = userId,
+                        Name = caption,
+                        NodeType = "User",
+                        ParentId = deptNode.NodeId
+                    };
+
+                    deptNode.Children.Add(userNode);
+                }
+            }
+            catch
+            {
+                // 실패 시 빈 리스트 반환 (기존 동작 유지)
+            }
+
+            return orgNodes;
+        }
         private string ToContentRootAbsolute(string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return string.Empty;
@@ -196,11 +310,9 @@ namespace WebApplication1.Controllers
                 ? "{}"
                 : meta.descriptorJson;
 
-            // 기본값은 빈 객체
             var previewJson = "{}";
             var excelAbsPath = meta.excelFilePath ?? string.Empty;
 
-            // 1) 가능하면 항상 Excel 원본에서 프리뷰 재생성 (스타일 포함 JSON 사용)
             if (!string.IsNullOrWhiteSpace(excelAbsPath) && System.IO.File.Exists(excelAbsPath))
             {
                 try
@@ -213,11 +325,9 @@ namespace WebApplication1.Controllers
                 }
                 catch
                 {
-                    // Excel에서 재생성 실패 시 meta.previewJson 으로 fallback
                 }
             }
 
-            // 2) Excel 재생성이 안 되었거나 실패했다면 meta.previewJson 으로 대체
             if (previewJson == "{}")
             {
                 var metaPreview = string.IsNullOrWhiteSpace(meta.previewJson)
@@ -230,115 +340,22 @@ namespace WebApplication1.Controllers
                 }
             }
 
-            // ===== 조직 멀티 선택 콤보박스용 OrgTreeNodes 구성 =====
-            var orgNodes = new List<OrgTreeNode>();
-            var compMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
-            var deptMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
-
+            // ===== 기존 ADO 로더 블록 전체 제거하고 아래로 대체 =====
             try
             {
-                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-                await using var conn = new SqlConnection(cs);
-                await conn.OpenAsync();
+                var langCode = "ko";
 
-                await using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"
-SELECT
-    a.CompCd,
-    ISNULL(g.Name, a.CompCd)        AS CompName,
-    a.DepartmentId,
-    ISNULL(f.Name, CAST(a.DepartmentId AS nvarchar(50))) AS DeptName,
-    a.UserId,
-    ISNULL(d.Name, '')              AS PositionName,
-    a.DisplayName
-FROM UserProfiles a
-LEFT JOIN AspNetUsers b          ON a.UserId = b.Id
-LEFT JOIN PositionMasters c      ON a.CompCd = c.CompCd AND a.PositionId = c.Id
-LEFT JOIN PositionMasterLoc d    ON c.Id = d.PositionId AND d.LangCode = @LangCode
-LEFT JOIN DepartmentMasters e    ON a.CompCd = e.CompCd AND a.DepartmentId = e.Id
-LEFT JOIN DepartmentMasterLoc f  ON e.Id = f.DepartmentId AND f.LangCode = @LangCode
-LEFT JOIN CompMasters g          ON a.CompCd = g.CompCd
-ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
-                // 다국어까지 고려하면 현재 UI 문화권으로 바꾸면 되지만 일단 예시로 ko 사용
-                cmd.Parameters.Add(new SqlParameter("@LangCode", SqlDbType.NVarChar, 8) { Value = "ko" });
+                // (기존, 빌드 에러) var orgNodes = await BuildOrgTreeNodesAsync(conn, langCode);
+                // (수정) BuildOrgTreeNodesAsync의 기존 시그니처에 맞춰 호출
+                var orgNodes = await BuildOrgTreeNodesAsync(langCode);
 
-                await using var rd = await cmd.ExecuteReaderAsync();
-                while (await rd.ReadAsync())
-                {
-                    var compCd = rd["CompCd"] as string ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(compCd))
-                        continue;
-
-                    var compName = rd["CompName"] as string ?? compCd;
-                    var deptIdObj = rd["DepartmentId"];
-                    if (deptIdObj == null || deptIdObj == DBNull.Value)
-                        continue;
-                    var deptId = Convert.ToString(deptIdObj) ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(deptId))
-                        continue;
-
-                    var deptName = rd["DeptName"] as string ?? deptId;
-                    var userId = rd["UserId"] as string ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(userId))
-                        continue;
-
-                    var positionName = rd["PositionName"] as string ?? string.Empty;
-                    var displayName = rd["DisplayName"] as string ?? string.Empty;
-
-                    // 회사 노드
-                    if (!compMap.TryGetValue(compCd, out var compNode))
-                    {
-                        compNode = new OrgTreeNode
-                        {
-                            NodeId = compCd,
-                            Name = compName,
-                            NodeType = "Branch",
-                            ParentId = null
-                        };
-                        compMap[compCd] = compNode;
-                        orgNodes.Add(compNode);
-                    }
-
-                    // 부서 노드
-                    var deptKey = compCd + ":" + deptId;
-                    if (!deptMap.TryGetValue(deptKey, out var deptNode))
-                    {
-                        deptNode = new OrgTreeNode
-                        {
-                            NodeId = deptId,
-                            Name = deptName,
-                            NodeType = "Dept",
-                            ParentId = compNode.NodeId
-                        };
-                        deptMap[deptKey] = deptNode;
-                        compNode.Children.Add(deptNode);
-                    }
-
-                    // 사용자 노드
-                    var caption = string.IsNullOrWhiteSpace(positionName)
-                        ? displayName
-                        : positionName + " " + displayName;
-
-                    var userNode = new OrgTreeNode
-                    {
-                        NodeId = userId,
-                        Name = caption,
-                        NodeType = "User",
-                        ParentId = deptNode.NodeId
-                    };
-
-                    deptNode.Children.Add(userNode);
-                }
+                ViewBag.OrgTreeNodes = orgNodes;
             }
-            catch
+            catch (Exception ex)
             {
-                // 조직 트리 로딩 실패 시 orgNodes 는 빈 리스트로 두고 화면만 계속 진행
+                ViewBag.OrgTreeNodes = Array.Empty<OrgTreeNode>();
             }
 
-            ViewBag.OrgTreeNodes = orgNodes;
-            // ===== OrgTreeNodes 구성 끝 =====
-
-            // flowGroups 포함 descriptor 재구성 (기존 그대로 유지)
             descriptorJson = BuildDescriptorJsonWithFlowGroups(templateCode, descriptorJson);
 
             ViewBag.DescriptorJson = descriptorJson;
@@ -368,6 +385,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 return false;
             }
         }
+        // 2025.12.29 Changed: 문서 Create 성공 후 반환된 docId로만 업로드를 허용하고 Upload는 docId 필수와 CSRF 검증을 적용하여 문서 저장 후 첨부 업로드 정책을 강제 적용
 
         // ========== CSRF ==========
         [HttpGet("Csrf")]
@@ -378,29 +396,286 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return Json(new { headerName = "RequestVerificationToken", token = tokens.RequestToken });
         }
 
+        [HttpPost("Upload")]
+        [RequestSizeLimit(50_000_000)]
+        public async Task<IActionResult> Upload([FromQuery] string? docId, [FromForm] List<IFormFile> files)
+        {
+            if (files == null || files.Count == 0)
+                return BadRequest(new { messages = new[] { "DOC_Err_UploadFailed" }, detail = "no files" });
+
+            var trimmedDocId = string.IsNullOrWhiteSpace(docId) ? null : docId.Trim();
+            var uploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
+            // 정책: docId 없는 업로드는 허용하지 않음
+            if (string.IsNullOrWhiteSpace(trimmedDocId))
+                return BadRequest(new { messages = new[] { "DOC_Err_UploadFailed" }, detail = "docId required" });
+
+            // 1) 문서 메타(CompCd/DepartCD/작성월) 해석
+            var meta = await ResolveDocMetaForAttachmentPathAsync(trimmedDocId!);
+            var compCd = string.IsNullOrWhiteSpace(meta.compCd) ? "0000" : meta.compCd!;
+            var departCd = string.IsNullOrWhiteSpace(meta.departCd) ? "0" : meta.departCd!;
+            var y = meta.yyyy;
+            var m = meta.mm;
+
+            // 2) 최종 저장 상대/절대 루트
+            var relDir = Path.Combine("App_Data", "Docs", compCd, y, m, departCd);
+            var absDir = Path.Combine(_env.ContentRootPath, relDir);
+            Directory.CreateDirectory(absDir);
+
+            _log.LogInformation("Doc.Upload attach start docId={docId} dir={dir} fileCount={cnt}", trimmedDocId, relDir, files.Count);
+
+            var results = new List<object>();
+
+            foreach (var f in files)
+            {
+                if (f == null || f.Length <= 0) continue;
+
+                var originalName = Path.GetFileName(f.FileName);
+                var ext = Path.GetExtension(originalName)?.ToLowerInvariant() ?? "";
+                if (string.IsNullOrWhiteSpace(ext)) ext = "";
+
+                var fileKey = Guid.NewGuid().ToString("N");
+
+                // SHA256: DB varbinary(32)
+                byte[] shaBytes;
+                await using (var inStream = f.OpenReadStream())
+                {
+                    using var hasher = SHA256.Create();
+                    shaBytes = await hasher.ComputeHashAsync(inStream);
+                }
+
+                // 3) Attach{N} 번호 결정 (DocId 기준 다음 번호)
+                int nextN;
+                lock (_attachSeqLock)
+                {
+                    // lock 범위 내에서 "다음 번호" 계산만 보호 (동시 업로드 최소 방어)
+                    nextN = GetNextAttachSeqForDoc(trimmedDocId!);
+                }
+
+                var safeFileName = $"{trimmedDocId}_Attach{nextN}{ext}";
+                var relPath = Path.Combine(relDir, safeFileName);      // DB 저장용(상대경로)
+                var absPath = Path.Combine(absDir, safeFileName);      // 파일 저장용(절대경로)
+
+                // 파일 저장
+                await using (var outStream = System.IO.File.Create(absPath))
+                {
+                    await f.CopyToAsync(outStream);
+                }
+
+                var contentType = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType;
+
+                // 4) DB 저장: StoragePath는 상대경로만 저장
+                try
+                {
+                    await InsertDocumentFileRowAsync(
+                        trimmedDocId!,
+                        fileKey,
+                        originalName,
+                        relPath,          // ★ 상대경로 저장
+                        contentType,
+                        (long)f.Length,
+                        shaBytes,         // varbinary(32)
+                        uploadedBy
+                    );
+                }
+                catch (SqlException se)
+                {
+                    _log.LogError(se, "Doc.Upload SQL failed docId={docId} fileKey={fileKey}", trimmedDocId, fileKey);
+                    return StatusCode(500, new { messages = new[] { "DOC_Err_UploadFailed" }, detail = se.Message });
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Doc.Upload insert failed docId={docId} fileKey={fileKey}", trimmedDocId, fileKey);
+                    return StatusCode(500, new { messages = new[] { "DOC_Err_UploadFailed" }, detail = ex.Message });
+                }
+
+                results.Add(new
+                {
+                    fileKey,
+                    originalName,
+                    contentType,
+                    byteSize = (long)f.Length,
+                    docId = trimmedDocId,
+                    storagePath = relPath.Replace('/', '\\') // UI/디버그 확인용(표시)
+                });
+            }
+
+            _log.LogInformation("Doc.Upload attach done docId={docId} savedCount={cnt}", trimmedDocId, results.Count);
+            return Ok(new { files = results });
+        }
+
+        private async Task InsertDocumentFileRowAsync(
+            string docId,
+            string fileKey,
+            string originalName,
+            string storagePath,
+            string contentType,
+            long byteSize,
+            byte[] sha256Bytes,
+            string uploadedBy
+        )
+        {
+            if (sha256Bytes == null || sha256Bytes.Length != 32)
+                throw new InvalidOperationException($"Sha256Bytes must be 32 bytes. actual={(sha256Bytes == null ? 0 : sha256Bytes.Length)}");
+
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandType = CommandType.Text;
+            cmd.CommandText = @"
+INSERT INTO dbo.DocumentFiles
+(DocId, FileKey, OriginalName, StoragePath, ContentType, ByteSize, Sha256, UploadedBy, UploadedAt)
+VALUES
+(@DocId, @FileKey, @OriginalName, @StoragePath, @ContentType, @ByteSize, @Sha256, @UploadedBy, SYSUTCDATETIME());";
+
+            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 100) { Value = docId });
+            cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 64) { Value = fileKey });
+            cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 510) { Value = originalName ?? "" });
+            cmd.Parameters.Add(new SqlParameter("@StoragePath", SqlDbType.NVarChar, 800) { Value = storagePath ?? "" }); // ★ 상대경로
+            cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 254) { Value = contentType ?? "" });
+            cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = byteSize });
+
+            cmd.Parameters.Add(new SqlParameter("@Sha256", SqlDbType.VarBinary, 32) { Value = sha256Bytes });
+            cmd.Parameters.Add(new SqlParameter("@UploadedBy", SqlDbType.NVarChar, 128) { Value = uploadedBy ?? "" });
+
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task<(string? compCd, string? departCd, string yyyy, string mm)> ResolveDocMetaForAttachmentPathAsync(string docId)
+        {
+            var now = DateTime.UtcNow;
+            var yyyy = now.ToString("yyyy");
+            var mm = now.ToString("MM");
+
+            string? compCd = null;
+            string? departCd = null;
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandType = CommandType.Text;
+                cmd.CommandText = @"
+SELECT TOP (1)
+    CompCd,
+    DepartmentId
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 100) { Value = docId });
+
+                await using var r = await cmd.ExecuteReaderAsync();
+                if (await r.ReadAsync())
+                {
+                    compCd = r["CompCd"] as string;
+                    departCd = (r["DepartmentId"] == DBNull.Value ? null : Convert.ToString(r["DepartmentId"]));
+                }
+            }
+            catch
+            {
+                // 실패 시 기본값(0000/0)으로 상위에서 보정
+            }
+
+            return (compCd, departCd, yyyy, mm);
+        }
+
+        // DocId 기준 Attach{N} 다음 번호: StoragePath에 "_Attach{N}" 패턴이 있다고 가정하고 MAX+1
+        private int GetNextAttachSeqForDoc(string docId)
+        {
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(cs)) return 1;
+
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandType = CommandType.Text;
+                cmd.CommandText = @"
+SELECT MAX(TRY_CONVERT(int,
+    SUBSTRING(StoragePath,
+              CHARINDEX('_Attach', StoragePath) + LEN('_Attach'),
+              CHARINDEX('.', StoragePath, CHARINDEX('_Attach', StoragePath)) - (CHARINDEX('_Attach', StoragePath) + LEN('_Attach'))
+    )))
+FROM dbo.DocumentFiles
+WHERE DocId = @DocId
+  AND StoragePath LIKE '%\_Attach%.%' ESCAPE '\';";
+
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 100) { Value = docId });
+
+                var obj = cmd.ExecuteScalar();
+                if (obj == null || obj == DBNull.Value) return 1;
+
+                var maxN = Convert.ToInt32(obj);
+                if (maxN < 1) return 1;
+                return maxN + 1;
+            }
+            catch
+            {
+                return 1;
+            }
+        }
         // ========== Create (POST) ==========
         [HttpPost("Create")]
         [ValidateAntiForgeryToken]
-        [Consumes("application/json")]
         [Produces("application/json")]
-        public async Task<IActionResult> Create([FromBody] ComposePostDto? dto)
+        public async Task<IActionResult> Create([FromBody] ComposePostDto dto)
         {
+            // ------------------------------------------------------------
+            // 방법 B 문서 저장 먼저 첨부는 성공 후 별도 업로드 전제
+            // ------------------------------------------------------------
+
+            ComposePostDto? resolvedDto = dto;
+
+            // 415 방지 form-data 로 들어오면 JSON payload만 추출해서 dto로 복원
+            if ((resolvedDto == null || string.IsNullOrWhiteSpace(resolvedDto.TemplateCode)) && Request.HasFormContentType)
+            {
+                try
+                {
+                    var form = await Request.ReadFormAsync();
+
+                    var json =
+                        form["payload"].FirstOrDefault()
+                        ?? form["dto"].FirstOrDefault()
+                        ?? form["data"].FirstOrDefault();
+
+                    if (!string.IsNullOrWhiteSpace(json))
+                    {
+                        resolvedDto = System.Text.Json.JsonSerializer.Deserialize<ComposePostDto>(
+                            json,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                        );
+                    }
+
+                    // 파일은 방법 B 정책상 Create에서 절대 처리하지 않음
+                    // var ignoredFiles = form.Files;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Create: form-data dto parse failed");
+                }
+            }
+
+            dto = resolvedDto!;
+
             if (dto is null || string.IsNullOrWhiteSpace(dto.TemplateCode))
                 return BadRequest(new { messages = new[] { "DOC_Val_TemplateRequired" }, stage = "arg", detail = "templateCode null/empty" });
 
             var tc = dto.TemplateCode!;
             var inputsMap = dto.Inputs ?? new Dictionary<string, string>();
 
-            // ★ 사용자 회사/부서 정보는 한 번만 가져와서 아래에서 공통 사용
             var userCompDept = GetUserCompDept();
             var compCd = string.IsNullOrWhiteSpace(userCompDept.compCd) ? "0000" : userCompDept.compCd!;
-            var deptIdPart = string.IsNullOrWhiteSpace(userCompDept.departmentId)
-                ? "0"
-                : userCompDept.departmentId!;
+            var deptIdPart = string.IsNullOrWhiteSpace(userCompDept.departmentId) ? "0" : userCompDept.departmentId!;
 
             var (descriptorJson, _previewJsonFromTpl, title, versionId, excelPathRaw) = await _tpl.LoadMetaAsync(tc);
-
-            // 템플릿 엑셀: DB에는 상대(App_Data\DocTemplates\...)가 들어가므로 절대 경로로 변환
             var excelPath = ToContentRootAbsolute(excelPathRaw);
 
             if (versionId <= 0 || string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
@@ -411,96 +686,92 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     detail = $"Excel not found or version invalid. versionId={versionId}, path='{excelPathRaw}' → '{excelPath}'"
                 });
 
-            // 실제 생성 파일 절대 경로
-            string outputPathFull;
+            string tempExcelFullPath;
             try
             {
                 _log.LogInformation("GenerateExcel start tc={tc} ver={ver} path={path} inputs={cnt}", tc, versionId, excelPath, inputsMap.Count);
 
-                outputPathFull = await GenerateExcelFromInputsAsync(
+                tempExcelFullPath = await GenerateExcelFromInputsAsync(
                     versionId, excelPath, inputsMap, dto.DescriptorVersion);
 
-                _log.LogInformation("GenerateExcel done out={out}", outputPathFull);
+                _log.LogInformation("GenerateExcel done out={out}", tempExcelFullPath);
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Create.Generate failed tc={tc} ver={ver} path={path}", tc, versionId, excelPath);
-                return BadRequest(new
-                {
-                    messages = new[] { "DOC_Err_SaveFailed" },
-                    stage = "generate",
-                    detail = ex.Message
-                });
+                return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" }, stage = "generate", detail = ex.Message });
             }
 
-            // ★ 여기서부터: 생성된 파일을 App_Data\Docs\CompCd\yyyy\MM\DepartmentId 밑으로 이동
-            try
-            {
-                var now = DateTime.Now;
-                var year = now.Year.ToString("D4");
-                var month = now.Month.ToString("D2");
+            var now = DateTime.Now;
+            var year = now.Year.ToString("D4");
+            var month = now.Month.ToString("D2");
 
-                var fileName = Path.GetFileName(outputPathFull);
+            var destDirRel = Path.Combine("App_Data", "Docs", compCd, year, month, deptIdPart);
 
-                // ContentRoot 기준 대상 디렉터리 절대 경로
-                var destDirFull = Path.Combine(
-                    _env.ContentRootPath,
-                    "App_Data",
-                    "Docs",          // ← 폴더명 Docs 로 고정
-                    compCd,
-                    year,
-                    month,
-                    deptIdPart
-                );
+            var docId = Path.GetFileNameWithoutExtension(tempExcelFullPath);
+            var excelExt = Path.GetExtension(tempExcelFullPath);
+            if (string.IsNullOrWhiteSpace(excelExt)) excelExt = ".xlsx";
 
-                Directory.CreateDirectory(destDirFull);
+            var outputPathForDb = Path.Combine(destDirRel, $"{docId}{excelExt}");
 
-                var destFullPath = Path.Combine(destDirFull, fileName);
-
-                if (!string.Equals(outputPathFull, destFullPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    // 기존 위치에서 회사/연/월/부서 디렉터리로 이동
-                    System.IO.File.Move(outputPathFull, destFullPath, overwrite: false);
-                    outputPathFull = destFullPath;
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Move generated excel to App_Data\\Docs hierarchy failed path={path}", outputPathFull);
-                // 이동 실패 시에도 일단 계속 진행은 하되, 현재 위치 그대로 사용
-            }
-
-            // 미리보기/DocId 는 이동된 절대 경로 기준
-            var filledPreviewJson = BuildPreviewJsonFromExcel(outputPathFull);
+            var filledPreviewJson = BuildPreviewJsonFromExcel(tempExcelFullPath);
             var normalizedDesc = BuildDescriptorJsonWithFlowGroups(tc, descriptorJson);
 
-            // Approvals 추출/보강 (이하 기존 코드 그대로)
-            var approvalsJson = ExtractApprovalsJson(normalizedDesc);
-            if (string.IsNullOrWhiteSpace(approvalsJson) || approvalsJson.Trim() == "[]")
-                approvalsJson = "[{\"roleKey\":\"A1\",\"approverType\":\"Person\",\"required\":false,\"value\":\"\"}]";
-
-            var docId = Path.GetFileNameWithoutExtension(outputPathFull);
-
-            // ★ DB 에는 ContentRoot 기준 상대 경로 저장 (예: App_Data\Docs\HY\2025\12\10\DOC_....xlsx)
-            var outputPathForDb = ToContentRootRelative(outputPathFull);
-
-            // 최초 수신자
-            List<string> toEmails; List<string> diag;
+            // ----------------------------
+            // 1) 수신자 먼저 해석 toEmails 확보
+            // ----------------------------
+            List<string> toEmails;
+            List<string> diag;
             try
             {
                 var recipients = GetInitialRecipients(dto, normalizedDesc, _cfg, docId, tc);
-                toEmails = recipients.emails;
-                diag = recipients.diag;
+                toEmails = recipients.emails ?? new List<string>();
+                diag = recipients.diag ?? new List<string>();
             }
             catch
             {
-                toEmails = new(); diag = new() { "recipients resolve error" };
+                toEmails = new();
+                diag = new() { "recipients resolve error" };
             }
 
-            // ... (이하 나머지 승인 보정/메일 발송 로직은 그대로 두고,
-            // SaveDocumentWithCollisionGuardAsync 호출 부분에서 compCd / departmentId 만 교체)
+            // ----------------------------
+            // 2) 결재 JSON 추출 및 보정
+            //    템플릿 결재 JSON이 비면 toEmails 로 A1 A2 ... 생성
+            // ----------------------------
+            var approvalsJson = ExtractApprovalsJson(normalizedDesc);
 
-            // DB 저장 (충돌 가드)
+            if (string.IsNullOrWhiteSpace(approvalsJson) || approvalsJson.Trim() == "[]")
+            {
+                if (toEmails.Count > 0)
+                {
+                    var built = new List<Dictionary<string, object>>();
+
+                    for (int i = 0; i < toEmails.Count; i++)
+                    {
+                        var email = (toEmails[i] ?? string.Empty).Trim();
+                        if (string.IsNullOrWhiteSpace(email)) continue;
+
+                        built.Add(new Dictionary<string, object>
+                        {
+                            ["roleKey"] = $"A{i + 1}",
+                            ["approverType"] = "Person",
+                            ["required"] = true,
+                            ["value"] = email
+                        });
+                    }
+
+                    if (built.Count == 0)
+                        return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" }, stage = "approvals", detail = "No valid approver emails." });
+
+                    approvalsJson = System.Text.Json.JsonSerializer.Serialize(built);
+                }
+                else
+                {
+                    // 결재자 해석 자체가 실패한 상태면 저장을 막는 것이 안전
+                    return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" }, stage = "approvals", detail = "Approver not resolved (toEmails empty)." });
+                }
+            }
+
             try
             {
                 var pair = await SaveDocumentWithCollisionGuardAsync(
@@ -508,18 +779,18 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     templateCode: tc,
                     title: string.IsNullOrWhiteSpace(title) ? tc : title!,
                     status: "PendingA1",
-                    outputPath: outputPathForDb,          // 상대 경로 저장
+                    outputPath: outputPathForDb,
                     inputs: inputsMap,
                     approvalsJson: approvalsJson,
                     descriptorJson: normalizedDesc,
                     userId: User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "",
                     userName: User?.Identity?.Name ?? "",
-                    compCd: compCd,                       // ← 위에서 구한 값 사용
-                    departmentId: deptIdPart              // ← 위에서 구한 값 사용
+                    compCd: compCd,
+                    departmentId: deptIdPart
                 );
 
                 docId = pair.docId;
-                outputPathForDb = pair.outputPath;        // 상대 경로(App_Data\Docs\CompCd\yyyy\MM\DeptId\...) 유지
+                outputPathForDb = pair.outputPath;
             }
             catch (Exception ex)
             {
@@ -528,24 +799,50 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 object? sqlDiag = null;
                 if (ex is SqlException se) sqlDiag = new { se.Number, se.State, se.Procedure, se.LineNumber };
 
-                return BadRequest(new
-                {
-                    messages = new[] { "DOC_Err_SaveFailed" },
-                    stage = "db",
-                    detail = ex.Message,
-                    sql = sqlDiag
-                });
+                return BadRequest(new { messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message, sql = sqlDiag });
             }
 
-            // 승인 동기화 (DocumentApprovals 생성/정렬)
+            string finalExcelFullPath = string.Empty;
+            try
+            {
+                finalExcelFullPath = ToContentRootAbsolute(outputPathForDb);
+
+                var finalDir = Path.GetDirectoryName(finalExcelFullPath);
+                if (!string.IsNullOrWhiteSpace(finalDir))
+                    Directory.CreateDirectory(finalDir);
+
+                if (!string.Equals(tempExcelFullPath, finalExcelFullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!System.IO.File.Exists(finalExcelFullPath))
+                    {
+                        System.IO.File.Move(tempExcelFullPath, finalExcelFullPath, overwrite: false);
+                        tempExcelFullPath = finalExcelFullPath;
+                    }
+                    else
+                    {
+                        _log.LogWarning("Final excel already exists. skip move. docId={docId} final={final}", docId, finalExcelFullPath);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(finalExcelFullPath) && System.IO.File.Exists(finalExcelFullPath))
+                    filledPreviewJson = BuildPreviewJsonFromExcel(finalExcelFullPath);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Move generated excel failed temp={temp} final={final} docId={docId}",
+                    tempExcelFullPath, finalExcelFullPath, docId);
+            }
+
             try
             {
                 await EnsureApprovalsAndSyncAsync(docId, tc);
                 await FillDocumentApprovalsFromEmailsAsync(docId, toEmails);
             }
-            catch (Exception ex) { _log.LogWarning(ex, "EnsureApprovalsAndSync failed docId={docId} tc={tc}", docId, tc); }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "EnsureApprovalsAndSync failed docId={docId} tc={tc}", docId, tc);
+            }
 
-            // DocumentApprovals.UserId 보강
             try
             {
                 var cs = _cfg.GetConnectionString("DefaultConnection");
@@ -569,7 +866,142 @@ WHERE a.DocId = @DocId
                 _log.LogWarning(ex, "Post-fix UserId update failed docId={docId}", docId);
             }
 
-            // 이하 메일/응답 부분은 기존 그대로
+            // 공유 저장 로직은 기존 그대로 유지
+            try
+            {
+                var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+
+                var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (selected.Count > 0)
+                {
+                    var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+                    await using var conn = new SqlConnection(cs);
+                    await conn.OpenAsync();
+                    await using var tx = await conn.BeginTransactionAsync();
+
+                    try
+                    {
+                        foreach (var targetUserId in selected)
+                        {
+                            await using (var cmd = conn.CreateCommand())
+                            {
+                                cmd.Transaction = (SqlTransaction)tx;
+                                cmd.CommandText = @"
+IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
+BEGIN
+    UPDATE dbo.DocumentShares
+       SET IsRevoked = 0,
+           ExpireAt = NULL
+     WHERE DocId=@DocId AND UserId=@UserId;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.DocumentShares (DocId, UserId, AccessRole, ExpireAt, IsRevoked, CreatedBy, CreatedAt)
+    VALUES (@DocId, @UserId, 'Commenter', NULL, 0, @CreatedBy, SYSUTCDATETIME());
+END";
+                                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                                cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            await using (var logCmd = conn.CreateCommand())
+                            {
+                                logCmd.Transaction = (SqlTransaction)tx;
+                                logCmd.CommandText = @"
+INSERT INTO dbo.DocumentShareLogs (DocId, ActorId, ChangeCode, TargetUserId, BeforeJson, AfterJson, ChangedAt)
+VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDATETIME());";
+                                logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                                logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+                                logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
+                                logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                                logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
+                                await logCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        await ((SqlTransaction)tx).CommitAsync();
+                    }
+                    catch
+                    {
+                        await ((SqlTransaction)tx).RollbackAsync();
+                        throw;
+                    }
+
+                    _log.LogInformation("Shares saved docId={docId} count={cnt}", docId, selected.Count);
+                }
+                else
+                {
+                    _log.LogInformation("No shares selected docId={docId}", docId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Share save failed docId={docId}", docId);
+            }
+
+            object? mailInfo = null;
+            //try
+            //{
+            //    mailInfo = await SendSubmitMailAsync(docId, dto, normalizedDesc, toEmails, title, tc);
+            //}
+            //catch (Exception ex)
+            //{
+            //    _log.LogWarning(ex, "SendSubmitMailAsync failed docId={docId}", docId);
+            //    mailInfo = new { from = "", to = Array.Empty<string>(), cc = Array.Empty<string>(), bcc = Array.Empty<string>(), subject = "", body = "", sent = false, sentCount = 0, error = ex.Message };
+            //}
+
+            var uploadUrl = $"/Doc/Upload?docId={Uri.EscapeDataString(docId)}";
+
+            return Json(new
+            {
+                ok = true,
+                docId,
+                title = title ?? tc,
+                status = "PendingA1",
+                previewJson = filledPreviewJson,
+                approvalsJson,
+                attachments = Array.Empty<object>(),
+                mailInfo = mailInfo,
+                uploadUrl = uploadUrl
+            });
+        }
+
+        #region Mail (extracted)
+
+        private async Task<object?> SendSubmitMailAsync(
+            string docId,
+            ComposePostDto dto,
+            string normalizedDesc,
+            List<string> toEmails,
+            string? title,
+            string tc
+        )
+        {
+            if (dto?.Mail == null || dto.Mail.Send == false)
+                return new
+                {
+                    from = "",
+                    fromDisplay = "",
+                    to = Array.Empty<string>(),
+                    toDisplay = Array.Empty<string>(),
+                    cc = Array.Empty<string>(),
+                    ccDisplay = Array.Empty<string>(),
+                    bcc = Array.Empty<string>(),
+                    bccDisplay = Array.Empty<string>(),
+                    subject = "",
+                    body = "",
+                    sent = false,
+                    sentCount = 0,
+                    error = ""
+                };
+
             static List<string> ResolveFirstStepApproverEmails(string? desc, IEnumerable<string> fallback)
             {
                 var result = new List<string>();
@@ -701,8 +1133,6 @@ WHERE a.DocId = @DocId
 
             var firstStepToEmails = ResolveFirstStepApproverEmails(normalizedDesc, toEmails);
 
-            // 2025.12.10 Added: DescriptorJson 과 GetInitialRecipients 에서 메일을 찾지 못한 경우
-            //                  이미 생성된 DocumentApprovals 에서 최소 StepOrder Pending 승인자의 메일을 보완
             if (!Norm(firstStepToEmails).Any())
             {
                 try
@@ -712,19 +1142,19 @@ WHERE a.DocId = @DocId
                     await conn.OpenAsync();
 
                     await using var cmd = conn.CreateCommand();
-                    cmd.CommandText = @"
-SELECT DISTINCT
-       COALESCE(u.Email, a.ApproverValue) AS Email
-FROM dbo.DocumentApprovals a
-LEFT JOIN dbo.AspNetUsers u ON a.UserId = u.Id
-WHERE a.DocId = @DocId
-  AND a.Status = N'Pending'
-  AND a.StepOrder = (
-        SELECT MIN(StepOrder)
-        FROM dbo.DocumentApprovals
-        WHERE DocId = @DocId
-          AND Status = N'Pending'
-      );";
+                    cmd.CommandText = @"ㅊ
+        SELECT DISTINCT
+               COALESCE(u.Email, a.ApproverValue) AS Email
+        FROM dbo.DocumentApprovals a
+        LEFT JOIN dbo.AspNetUsers u ON a.UserId = u.Id
+        WHERE a.DocId = @DocId
+          AND a.Status = N'Pending'
+          AND a.StepOrder = (
+                SELECT MIN(StepOrder)
+                FROM dbo.DocumentApprovals
+                WHERE DocId = @DocId
+                  AND Status = N'Pending'
+              );";
                     cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
 
                     var fallbackEmails = new List<string>();
@@ -812,34 +1242,25 @@ WHERE a.DocId = @DocId
                 }
             }
 
-            return Json(new
+            return new
             {
-                ok = true,
-                docId,
-                title = title ?? tc,
-                status = "PendingA1",
-                previewJson = filledPreviewJson,
-                approvalsJson,
-                mailInfo = new
-                {
-                    from = fromEmail ?? string.Empty,
-                    fromDisplay = fromAddress,
-                    to = Norm(toList).ToArray(),
-                    toDisplay = toDisplay.ToArray(),
-                    cc = Norm(ccList).ToArray(),
-                    ccDisplay = ccDisplay.ToArray(),
-                    bcc = Norm(bccList).ToArray(),
-                    bccDisplay = bccDisplay.ToArray(),
-                    subject,
-                    body,
-                    sent = sendErr is null && sentCount > 0,
-                    sentCount,
-                    error = sendErr ?? ""
-                }
-            });
+                from = fromEmail,
+                fromDisplay = fromAddress,
+                to = Norm(toList).ToArray(),
+                toDisplay = toDisplay.ToArray(),
+                cc = Norm(ccList).ToArray(),
+                ccDisplay = ccDisplay.ToArray(),
+                bcc = Norm(bccList).ToArray(),
+                bccDisplay = bccDisplay.ToArray(),
+                subject = subject,
+                body = body,
+                sent = (sentCount > 0 && string.IsNullOrWhiteSpace(sendErr)),
+                sentCount = sentCount,
+                error = sendErr ?? ""
+            };
         }
 
-
+        #endregion
 
         // ========== 승인 처리 ==========
         public sealed class ApproveDto
@@ -1275,37 +1696,38 @@ WHERE d.DocId = @id;";
                             .ToList();
 
                         // 4) 상신 메일 포맷 그대로 사용하여 개별 발송
-                        foreach (var to in distinctTo)
-                        {
-                            try
-                            {
-                                // 수신자 인사말용 표시 이름 (예: 생산차장)
-                                var recipientDisplay = GetDisplayNameByEmailStrict(to);
-                                if (string.IsNullOrWhiteSpace(recipientDisplay))
-                                    recipientDisplay = FallbackNameFromEmail(to);
+                        // 사장님 지시로 메일 발송 금지
+                        //foreach (var to in distinctTo)
+                        //{
+                        //    try
+                        //    {
+                        //        // 수신자 인사말용 표시 이름 (예: 생산차장)
+                        //        var recipientDisplay = GetDisplayNameByEmailStrict(to);
+                        //        if (string.IsNullOrWhiteSpace(recipientDisplay))
+                        //            recipientDisplay = FallbackNameFromEmail(to);
 
-                                var mail = BuildSubmissionMail(
-                                    mailAuthor!,
-                                    mailDocTitle!,
-                                    dto.docId,
-                                    recipientDisplay,      // "안녕하세요, {0}님" 에 들어갈 이름
-                                    createdAtLocalForMail  // 최초 작성 시각(로컬)
-                                );
+                        //        var mail = BuildSubmissionMail(
+                        //            mailAuthor!,
+                        //            mailDocTitle!,
+                        //            dto.docId,
+                        //            recipientDisplay,      // "안녕하세요, {0}님" 에 들어갈 이름
+                        //            createdAtLocalForMail  // 최초 작성 시각(로컬)
+                        //        );
 
-                                await _emailSender.SendEmailAsync(to, mail.subject, mail.bodyHtml);
+                        //        await _emailSender.SendEmailAsync(to, mail.subject, mail.bodyHtml);
 
-                                _log.LogInformation(
-                                    "NextApproverMail SEND OK DocId {DocId} NextStep {NextStep} To {To}",
-                                    dto.docId, next, to);
-                            }
-                            catch (Exception exMail)
-                            {
-                                _log.LogError(
-                                    exMail,
-                                    "NextApproverMail SEND ERROR DocId {DocId} NextStep {NextStep} To {To}",
-                                    dto.docId, next, to);
-                            }
-                        }
+                        //        _log.LogInformation(
+                        //            "NextApproverMail SEND OK DocId {DocId} NextStep {NextStep} To {To}",
+                        //            dto.docId, next, to);
+                        //    }
+                        //    catch (Exception exMail)
+                        //    {
+                        //        _log.LogError(
+                        //            exMail,
+                        //            "NextApproverMail SEND ERROR DocId {DocId} NextStep {NextStep} To {To}",
+                        //            dto.docId, next, to);
+                        //    }
+                        //}
                     }
                 }
             }
@@ -1582,18 +2004,15 @@ WHERE UserId = @UserId;";
             }
 
             // ---------------- 1-0) 작성/회수 시각(표시용) ----------------
-            // 작성시각: Documents.CreatedAt
             DateTime? createdAtForUi = null;
             string createdAtText = string.Empty;
 
             if (createdAtUtc.HasValue)
             {
-                // 기존 코드(ActedAt 처리)와 동일하게 UTC 가정 후 로컬 변환
                 createdAtForUi = DateTime.SpecifyKind(createdAtUtc.Value, DateTimeKind.Utc);
                 createdAtText = ToLocalStringFromUtc(createdAtForUi.Value);
             }
 
-            // 회수시각: DocumentApprovals에서 Recall(Action='Recalled')의 최신 ActedAt (없으면 빈 값)
             DateTime? recalledAtForUi = null;
             string recalledAtText = string.Empty;
 
@@ -1646,16 +2065,40 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
             // ---------------- 2) 프리뷰 JSON ----------------
             var inputsJson = "{}";
             string previewJson = "{}";
+
             try
             {
-                if (!string.IsNullOrWhiteSpace(outputPath) && System.IO.File.Exists(outputPath))
+                var raw = outputPath ?? string.Empty;
+                var resolved = raw;
+
+                if (!string.IsNullOrWhiteSpace(resolved))
                 {
-                    previewJson = BuildPreviewJsonFromExcel(outputPath);
+                    if (!System.IO.Path.IsPathRooted(resolved))
+                    {
+                        resolved = resolved.TrimStart('\\', '/');
+                        resolved = System.IO.Path.Combine(_env.ContentRootPath, resolved);
+                    }
+
+                    resolved = resolved.Replace('/', System.IO.Path.DirectorySeparatorChar)
+                                       .Replace('\\', System.IO.Path.DirectorySeparatorChar);
+                }
+
+                var exists = !string.IsNullOrWhiteSpace(resolved) && System.IO.File.Exists(resolved);
+                if (!exists)
+                {
+                    _log.LogWarning(
+                        "Detail: output excel not found. DocId={DocId}, OutputPath(raw)={Raw}, OutputPath(resolved)={Resolved}, CWD={Cwd}, ContentRoot={Root}",
+                        id, raw, resolved, System.IO.Directory.GetCurrentDirectory(), _env.ContentRootPath
+                    );
+                }
+                else
+                {
+                    previewJson = BuildPreviewJsonFromExcel(resolved);
                 }
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "Detail: BuildPreviewJsonFromExcel failed for {DocId}", id);
+                _log.LogError(ex, "Detail: BuildPreviewJsonFromExcel failed for {DocId}. OutputPath={OutputPath}", id, outputPath ?? string.Empty);
                 previewJson = "{}";
             }
 
@@ -1729,6 +2172,104 @@ ORDER BY Slot;";
                         A1 = rc["A1"] as string ?? string.Empty
                     });
                 }
+            }
+
+            // ---------------- 3-2) 문서 첨부 파일 목록(DocumentFiles) ----------------
+            var docFiles = new List<object>();
+            try
+            {
+                await using var fc = conn.CreateCommand();
+                fc.CommandText = @"
+SELECT FileKey,
+       OriginalName,
+       StoragePath,
+       ContentType,
+       ByteSize,
+       Sha256,
+       UploadedBy,
+       UploadedAt
+FROM dbo.DocumentFiles
+WHERE DocId = @DocId
+ORDER BY UploadedAt, FileId ASC;";
+                fc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
+
+                await using var fr = await fc.ExecuteReaderAsync();
+                while (await fr.ReadAsync())
+                {
+                    var fileKey = fr["FileKey"] as string ?? string.Empty;
+                    var originalName = fr["OriginalName"] as string ?? string.Empty;
+                    var contentType = fr["ContentType"] as string ?? string.Empty;
+                    long byteSize = 0;
+                    if (fr["ByteSize"] != DBNull.Value) byteSize = Convert.ToInt64(fr["ByteSize"]);
+
+                    DateTime? upUtc = fr["UploadedAt"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(fr["UploadedAt"]);
+                    string? upText = null;
+                    if (upUtc.HasValue)
+                    {
+                        var up = DateTime.SpecifyKind(upUtc.Value, DateTimeKind.Utc);
+                        upText = ToLocalStringFromUtc(up);
+                    }
+
+                    docFiles.Add(new
+                    {
+                        fileKey,
+                        originalName,
+                        contentType,
+                        byteSize,
+                        uploadedAtText = upText
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Detail: load DocumentFiles failed for {DocId}", id);
+            }
+
+            // ---------------- 3-3) 공유 대상자 목록(DocumentShares) ----------------
+            var sharedRecipientUserIds = new List<string>();
+            try
+            {
+                await using var sc = conn.CreateCommand();
+                sc.CommandText = @"
+SELECT s.UserId
+FROM dbo.DocumentShares s
+WHERE s.DocId = @DocId
+  AND ISNULL(s.IsRevoked, 0) = 0
+  AND (s.ExpireAt IS NULL OR s.ExpireAt > GETUTCDATE())
+ORDER BY s.CreatedAt ASC, s.Id ASC;";
+                sc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
+
+                await using var sr = await sc.ExecuteReaderAsync();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                while (await sr.ReadAsync())
+                {
+                    var uid = sr.IsDBNull(0) ? null : sr.GetString(0);
+                    if (string.IsNullOrWhiteSpace(uid)) continue;
+                    if (seen.Add(uid))
+                        sharedRecipientUserIds.Add(uid);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Detail: load DocumentShares failed for {DocId}", id);
+            }
+
+            // ---------------- 3-4) (수정) 공유 대상자 콤보 후보 데이터(OrgTreeNodes) 로드 ----------------
+            // 공통 헬퍼(BuildOrgTreeNodesAsync)로 통일 (Create(GET)과 동일 로직 재사용)
+            try
+            {
+                var langCode = "ko";
+
+                // (기존, 빌드 에러) var orgNodes = await BuildOrgTreeNodesAsync(conn, langCode);
+                // (수정) BuildOrgTreeNodesAsync의 기존 시그니처에 맞춰 호출
+                var orgNodes = await BuildOrgTreeNodesAsync(langCode);
+
+                ViewBag.OrgTreeNodes = orgNodes;
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Detail: load OrgTreeNodes failed for {DocId}, CompCd={CompCd}", id, compCd ?? string.Empty);
+                ViewBag.OrgTreeNodes = Array.Empty<OrgTreeNode>();
             }
 
             // ---------------- 4) 조회 로그 기록 ----------------
@@ -1806,7 +2347,11 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.ViewLogsJson = JsonSerializer.Serialize(viewLogs);
             ViewBag.ApprovalCellsJson = JsonSerializer.Serialize(approvalCells);
 
-            // ★ Detail.cshtml 의 data-created-at / data-recalled-at 에 매핑되는 값들(시간 표시용)
+            ViewBag.DocumentFilesJson = JsonSerializer.Serialize(docFiles);
+
+            ViewBag.SelectedRecipientUserIds = sharedRecipientUserIds;
+            ViewBag.SelectedRecipientUserIdsJson = JsonSerializer.Serialize(sharedRecipientUserIds);
+
             ViewBag.CreatedAt = createdAtForUi;
             ViewBag.CreatedAtText = createdAtText;
             ViewBag.RecalledAt = recalledAtForUi;
@@ -1822,6 +2367,207 @@ ORDER BY v.ViewedAt DESC;";
             return View("Detail");
         }
 
+        // (추가) Detail에서 공유자 변경 저장
+        [HttpPost("UpdateShares")]
+        [ValidateAntiForgeryToken]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        public async Task<IActionResult> UpdateShares([FromBody] UpdateSharesDto dto)
+        {
+            if (dto is null || string.IsNullOrWhiteSpace(dto.DocId))
+                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "arg", detail = "docId null/empty" });
+
+            var docId = dto.DocId!.Trim();
+            var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+
+            // 선택값 정리(본인 제외, 중복 제거)
+            var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+                await using var tx = await conn.BeginTransactionAsync();
+
+                try
+                {
+                    // 1) 현재 활성 공유자(미회수) 목록 조회
+                    var currentActive = new List<string>();
+                    await using (var sel = conn.CreateCommand())
+                    {
+                        sel.Transaction = (SqlTransaction)tx;
+                        sel.CommandText = @"
+SELECT UserId
+FROM dbo.DocumentShares
+WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
+                        sel.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+
+                        await using var r = await sel.ExecuteReaderAsync();
+                        while (await r.ReadAsync())
+                        {
+                            var uid = (r["UserId"]?.ToString() ?? "").Trim();
+                            if (!string.IsNullOrWhiteSpace(uid))
+                                currentActive.Add(uid);
+                        }
+                    }
+
+                    // 2) 제외된 사람은 revoke 처리 + 로그
+                    var toRevoke = currentActive
+                        .Where(uid => !selected.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+
+                    foreach (var targetUserId in toRevoke)
+                    {
+                        await using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.Transaction = (SqlTransaction)tx;
+                            cmd.CommandText = @"
+UPDATE dbo.DocumentShares
+   SET IsRevoked = 1,
+       ExpireAt = SYSUTCDATETIME()
+ WHERE DocId = @DocId AND UserId = @UserId;";
+                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        await using (var logCmd = conn.CreateCommand())
+                        {
+                            logCmd.Transaction = (SqlTransaction)tx;
+                            logCmd.CommandText = @"
+INSERT INTO dbo.DocumentShareLogs (DocId, ActorId, ChangeCode, TargetUserId, BeforeJson, AfterJson, ChangedAt)
+VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDATETIME());";
+                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareRevoked" });
+                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"revoked\":true}" });
+                            await logCmd.ExecuteNonQueryAsync();
+                        }
+                    }
+
+                    // 3) 선택된 사람은 upsert(기존 Create 로직 그대로) + 로그
+                    foreach (var targetUserId in selected)
+                    {
+                        await using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.Transaction = (SqlTransaction)tx;
+                            cmd.CommandText = @"
+IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
+BEGIN
+    UPDATE dbo.DocumentShares
+       SET IsRevoked = 0,
+           ExpireAt = NULL
+     WHERE DocId=@DocId AND UserId=@UserId;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.DocumentShares (DocId, UserId, AccessRole, ExpireAt, IsRevoked, CreatedBy, CreatedAt)
+    VALUES (@DocId, @UserId, 'Commenter', NULL, 0, @CreatedBy, SYSUTCDATETIME());
+END";
+                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                            cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        await using (var logCmd = conn.CreateCommand())
+                        {
+                            logCmd.Transaction = (SqlTransaction)tx;
+                            logCmd.CommandText = @"
+INSERT INTO dbo.DocumentShareLogs (DocId, ActorId, ChangeCode, TargetUserId, BeforeJson, AfterJson, ChangedAt)
+VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDATETIME());";
+                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
+                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
+                            await logCmd.ExecuteNonQueryAsync();
+                        }
+                    }
+
+                    await ((SqlTransaction)tx).CommitAsync();
+                }
+                catch
+                {
+                    await ((SqlTransaction)tx).RollbackAsync();
+                    throw;
+                }
+
+                return Json(new { ok = true, docId = docId, selectedCount = selected.Count });
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "UpdateShares failed docId={docId}", docId);
+                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
+            }
+        }
+
+
+
+        [HttpGet("Download/{fileKey}")]
+        public async Task<IActionResult> Download([FromRoute] string fileKey)
+        {
+            if (string.IsNullOrWhiteSpace(fileKey))
+                return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT TOP (1) DocId, FileKey, OriginalName, StoragePath, ContentType, ByteSize
+FROM dbo.DocumentFiles
+WHERE FileKey = @FileKey
+ORDER BY UploadedAt DESC, FileKey DESC;";
+
+                cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 200) { Value = fileKey });
+
+                await using var r = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+                if (!await r.ReadAsync())
+                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+                var storagePath = (r["StoragePath"] as string) ?? string.Empty;
+                var originalName = (r["OriginalName"] as string) ?? fileKey;
+                var contentType = (r["ContentType"] as string) ?? "application/octet-stream";
+
+                // StoragePath는 반드시 "상대경로"여야 함 (절대경로 금지 정책)
+                // 경로 탐색 방지: 루트/드라이브/상위(..) 차단 + ContentRootPath 결합
+                var rel = storagePath.Replace('\\', '/').Trim();
+                if (string.IsNullOrWhiteSpace(rel))
+                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+                if (rel.StartsWith("/") || rel.Contains(":") || rel.Contains(".."))
+                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+                var full = Path.GetFullPath(Path.Combine(_env.ContentRootPath, rel));
+                var root = Path.GetFullPath(_env.ContentRootPath);
+
+                // ContentRoot 하위만 허용
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+                if (!System.IO.File.Exists(full))
+                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+
+                // 스트림 반환
+                var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return File(stream, contentType, originalName, enableRangeProcessing: true);
+            }
+            catch
+            {
+                return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
+            }
+        }
         private static string CalculateViewerRole(
             string? createdBy,
             string viewerId,
@@ -1911,6 +2657,7 @@ VALUES
 
             // 필요하면 여기서 DocumentAuditLogs 에도 "View" 액션으로 1줄 남겨도 됨
         }
+
         // ---------- Helper: DocumentViewLogs INSERT ----------
         private async Task WriteDocumentViewLogAsync(
             SqlConnection conn,
@@ -2132,15 +2879,57 @@ ORDER BY a.StepOrder;";
                 approvals
             });
         }
+        private string ResolveTempUploadPath(string fileKey)
+        {
+            if (string.IsNullOrWhiteSpace(fileKey))
+                return string.Empty;
+
+            // path traversal 방지: 파일명만 사용
+            var safeKey = Path.GetFileName(fileKey.Trim());
+
+            return Path.Combine(_env.ContentRootPath, "App_Data", "Uploads", "Temp", safeKey);
+        }
 
         // ========= DTOs =========
         public sealed class ComposePostDto
         {
+            [JsonPropertyName("templateCode")]
             public string? TemplateCode { get; set; }
+
+            [JsonPropertyName("inputs")]
             public Dictionary<string, string>? Inputs { get; set; }
+
+            [JsonPropertyName("approvals")]
             public ApprovalsDto? Approvals { get; set; }
+
+            [JsonPropertyName("mail")]
             public MailDto? Mail { get; set; }
+
+            [JsonPropertyName("descriptorVersion")]
             public string? DescriptorVersion { get; set; }
+
+            // 2025.12.23 Added: Compose 화면 조직 멀티 콤보박스 선택 사용자(공유 대상)
+            [JsonPropertyName("selectedRecipientUserIds")]
+            public List<string>? SelectedRecipientUserIds { get; set; }
+
+            // 2025.12.23 Added: Compose 첨부파일(임시 업로드 결과) 목록
+            [JsonPropertyName("attachments")]
+            public List<ComposeAttachmentDto>? Attachments { get; set; }
+        }
+
+        public class ComposeAttachmentDto
+        {
+            [JsonPropertyName("fileKey")]
+            public string? FileKey { get; set; }        // /DocFile/Upload 응답의 fileKey
+
+            [JsonPropertyName("originalName")]
+            public string? OriginalName { get; set; }   // 원본 파일명(표시용)
+
+            [JsonPropertyName("contentType")]
+            public string? ContentType { get; set; }
+
+            [JsonPropertyName("byteSize")]
+            public long? ByteSize { get; set; }
         }
 
         public sealed class ApprovalsDto
@@ -2187,6 +2976,13 @@ ORDER BY a.StepOrder;";
         {
             public string ID { get; set; } = "";
             public List<string> Keys { get; set; } = new();
+        }
+
+        // (추가) Detail 공유자 변경용 DTO
+        public sealed class UpdateSharesDto
+        {
+            public string? DocId { get; set; }
+            public List<string>? SelectedRecipientUserIds { get; set; }
         }
 
         // ========= Claims → 회사/부서 =========
@@ -3546,12 +4342,293 @@ VALUES
             }
         }
 
-        // ========= Board =========
-        [HttpGet("Board")]
-        public IActionResult Board()
-        {
-            return View("Board");
-        }
+//        // ========= Board =========
+//        [HttpGet("Board")]
+//        public IActionResult Board()
+//        {
+//            return View("Board");
+//        }
+
+//        [HttpGet("BoardData")]
+//        // 2025.12.23 Changed: 공유 문서함 조회에 DocumentShares IsRevoked 조건과 만료 조건을 추가하여 철회 및 만료 공유를 제외
+//        // 2025.12.09 Changed: 결재 문서함 승인 탭에서 선행 단계 보류 반려 문서가 후행 승인자에게 표시되지 않도록 필터 보강
+//        public async Task<IActionResult> BoardData(
+//    string tab = "created",
+//    int page = 1,
+//    int pageSize = 20,
+//    string titleFilter = "all",
+//    string sort = "created_desc",
+//    string? q = null,
+//    string approvalView = "all")
+//        {
+//            if (page < 1) page = 1;
+//            if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+//            var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+//            string orderBy = sort switch
+//            {
+//                "created_asc" => "ORDER BY d.CreatedAt ASC",
+//                "title_asc" => "ORDER BY d.TemplateTitle ASC",
+//                "title_desc" => "ORDER BY d.TemplateTitle DESC",
+//                _ => "ORDER BY d.CreatedAt DESC"
+//            };
+
+//            string whereSearch = string.IsNullOrWhiteSpace(q) ? "" : " AND d.TemplateTitle LIKE @Q ";
+
+//            // 2025.12.08 Changed: 보류/반려 문서가 OnHoldA1 / RejectedA1 처럼 저장된 경우도 필터에 포함되도록 LIKE 로 변경
+//            string whereTitleFilter = titleFilter?.ToLowerInvariant() switch
+//            {
+//                "approved" => " AND ISNULL(d.Status, N'') LIKE N'Approved%' ",
+//                "rejected" => " AND ISNULL(d.Status, N'') LIKE N'Rejected%' ",
+//                "pending" => " AND ISNULL(d.Status, N'') LIKE N'Pending%' ",
+//                "onhold" => " AND ISNULL(d.Status, N'') LIKE N'OnHold%' ",
+//                "recalled" => " AND ISNULL(d.Status, N'') LIKE N'Recalled%' ",
+//                _ => ""
+//            };
+
+//            string sqlCount;
+//            string sqlList;
+//            var offset = (page - 1) * pageSize;
+
+//            if (tab == "created")
+//            {
+//                sqlCount = @"
+//SELECT COUNT(1)
+//FROM Documents d
+//WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + ";";
+
+//                sqlList = @"
+//SELECT d.DocId,
+//       d.TemplateTitle,
+//       d.CreatedAt,
+//       ISNULL(d.Status, N'') AS Status,
+//       up.DisplayName AS AuthorName,
+//       (SELECT COUNT(1)
+//          FROM DocumentComments c
+//         WHERE c.DocId = d.DocId
+//           AND c.IsDeleted = 0) AS CommentCount,
+//       CAST(0 AS bit) AS HasAttachment,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId) AS TotalSteps,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId
+//           AND (ISNULL(da.Action, N'') = N'Approved'
+//             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
+//FROM Documents d
+//LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
+//WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + $@"
+//{orderBy}
+//OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+//            }
+//            else if (tab == "approval")
+//            {
+//                // 2025.12.08 기존 코드 유지
+//                string whereApprovalView = (approvalView ?? string.Empty).ToLowerInvariant() switch
+//                {
+//                    "pending" =>
+//                        " AND ISNULL(a.Status, N'') = N'Pending' " +
+//                        " AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10)) ",
+//                    "approved" =>
+//                        " AND (ISNULL(a.Action, N'') = N'Approved' OR ISNULL(a.Status, N'') = N'Approved') ",
+//                    _ => @"
+//  AND (
+//        (
+//          ISNULL(a.Status, N'') = N'Pending'
+//          AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+//        )
+//        OR
+//        (
+//          ISNULL(a.Action, N'') <> N''
+//          OR (
+//               ISNULL(a.Status, N'') <> N''
+//           AND ISNULL(a.Status, N'') <> N'Pending'
+//             )
+//        )
+//      )"
+//                };
+
+//                const string whereRecalledFilter = @"
+//  AND ISNULL(d.Status, N'') <> N'Recalled'
+//  AND ISNULL(a.Status, N'') <> N'Recalled'";
+
+//                sqlCount = @"
+//SELECT COUNT(1)
+//FROM DocumentApprovals a
+//JOIN Documents d ON a.DocId = d.DocId
+//WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + @";";
+
+//                sqlList = @"
+//SELECT d.DocId,
+//       d.TemplateTitle,
+//       d.CreatedAt,
+//       CASE 
+//           WHEN ISNULL(a.Action, N'') <> N'' THEN a.Action 
+//           ELSE ISNULL(d.Status, N'') 
+//       END AS Status,
+//       up.DisplayName AS AuthorName,
+//       (SELECT COUNT(1)
+//          FROM DocumentComments c
+//         WHERE c.DocId = d.DocId
+//           AND c.IsDeleted = 0) AS CommentCount,
+//       CAST(0 AS bit) AS HasAttachment,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId) AS TotalSteps,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId
+//           AND (ISNULL(da.Action, N'') = N'Approved'
+//             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
+//FROM DocumentApprovals a
+//JOIN Documents d ON a.DocId = d.DocId
+//LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
+//WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + $@"
+//{orderBy}
+//OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+//            }
+//            else // shared
+//            {
+//                // 2025.12.23 Changed: 공유 문서함은 철회(IsRevoked=0) + 만료(ExpireAt) 조건을 반드시 포함
+//                // - 회사/부서/상태 스코프 필터는 shared 에 과도하게 적용하지 않도록 분리(현재 로직은 상태/검색만 적용)
+//                const string whereShareActive = @"
+// AND ISNULL(s.IsRevoked, 0) = 0
+// AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())";
+
+//                sqlCount = @"
+//SELECT COUNT(1)
+//FROM DocumentShares s
+//JOIN Documents d ON s.DocId = d.DocId
+//WHERE s.UserId = @UserId" + whereShareActive + whereSearch + whereTitleFilter + ";";
+
+//                sqlList = @"
+//SELECT d.DocId,
+//       d.TemplateTitle,
+//       d.CreatedAt,
+//       ISNULL(d.Status, N'') AS Status,
+//       up.DisplayName AS AuthorName,
+//       (SELECT COUNT(1)
+//          FROM DocumentComments c
+//         WHERE c.DocId = d.DocId
+//           AND c.IsDeleted = 0) AS CommentCount,
+//       CAST(0 AS bit) AS HasAttachment,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId) AS TotalSteps,
+//       (SELECT COUNT(1)
+//          FROM DocumentApprovals da
+//         WHERE da.DocId = d.DocId
+//           AND (ISNULL(da.Action, N'') = N'Approved'
+//             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
+//FROM DocumentShares s
+//JOIN Documents d ON s.DocId = d.DocId
+//LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
+//WHERE s.UserId = @UserId" + whereShareActive + whereSearch + whereTitleFilter + $@"
+//{orderBy}
+//OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+//            }
+
+//            var connStr = _cfg.GetConnectionString("DefaultConnection");
+//            using var conn = new SqlConnection(connStr);
+//            await conn.OpenAsync();
+
+//            using var cmdCount = new SqlCommand(sqlCount, conn);
+//            cmdCount.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+//            if (!string.IsNullOrWhiteSpace(q))
+//                cmdCount.Parameters.Add(new SqlParameter("@Q", SqlDbType.NVarChar, 200) { Value = $"%{q}%" });
+
+//            var total = Convert.ToInt32(await cmdCount.ExecuteScalarAsync());
+
+//            using var cmdList = new SqlCommand(sqlList, conn);
+//            cmdList.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+//            if (!string.IsNullOrWhiteSpace(q))
+//                cmdList.Parameters.Add(new SqlParameter("@Q", SqlDbType.NVarChar, 200) { Value = $"%{q}%" });
+//            cmdList.Parameters.Add(new SqlParameter("@Offset", SqlDbType.Int) { Value = offset });
+//            cmdList.Parameters.Add(new SqlParameter("@PageSize", SqlDbType.Int) { Value = pageSize });
+
+//            var items = new List<object>();
+//            using (var rdr = await cmdList.ExecuteReaderAsync())
+//            {
+//                while (await rdr.ReadAsync())
+//                {
+//                    var createdAtLocal = (rdr["CreatedAt"] is DateTime utc)
+//                        ? ToLocalStringFromUtc(utc)
+//                        : string.Empty;
+
+//                    var rawStatus = rdr["Status"]?.ToString() ?? string.Empty;
+
+//                    var totalSteps = rdr["TotalSteps"] is int ts ? ts : Convert.ToInt32(rdr["TotalSteps"]);
+//                    var completedSteps = rdr["CompletedSteps"] is int cs ? cs : Convert.ToInt32(rdr["CompletedSteps"]);
+//                    var commentCount = rdr["CommentCount"] is int cc ? cc : Convert.ToInt32(rdr["CommentCount"]);
+
+//                    items.Add(new
+//                    {
+//                        docId = rdr["DocId"]?.ToString() ?? string.Empty,
+//                        templateTitle = rdr["TemplateTitle"]?.ToString() ?? string.Empty,
+//                        authorName = rdr["AuthorName"]?.ToString() ?? string.Empty,
+//                        createdAt = createdAtLocal,
+//                        status = rawStatus,
+//                        statusCode = rawStatus,
+//                        totalApprovers = totalSteps,
+//                        completedApprovers = completedSteps,
+//                        commentCount = commentCount,
+//                        hasAttachment = Convert.ToInt32(rdr["HasAttachment"]) == 1
+//                    });
+//                }
+//            }
+
+//            return Json(new { total, page, pageSize, items });
+//        }
+
+
+
+//        [HttpGet("BoardBadges")]
+//        public async Task<IActionResult> BoardBadges()
+//        {
+//            var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+//            var connStr = _cfg.GetConnectionString("DefaultConnection");
+//            using var conn = new SqlConnection(connStr);
+//            await conn.OpenAsync();
+
+//            // 2025.12.08 Changed: 회수된 문서는 결재 대기 배지에서 제외되도록 Documents 와 조인
+//            // 2025.12.09 Changed: a.Status=Pending 인 행 중에서 실제 현재 차수(PendingA{StepOrder})에 해당하는 것만 집계
+//            var sqlApprovalPending = @"
+//SELECT COUNT(1)
+//FROM DocumentApprovals a
+//JOIN Documents d ON a.DocId = d.DocId
+//WHERE a.UserId = @UserId
+//  AND ISNULL(a.Status, N'') = N'Pending'
+//  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+//  AND ISNULL(d.Status, N'') <> N'Recalled';";
+
+//            var sqlSharedUnread = @"
+//SELECT COUNT(1)
+//FROM DocumentShares s
+//WHERE s.UserId = @UserId
+//AND NOT EXISTS (
+//    SELECT 1 
+//    FROM DocumentAuditLogs l
+//    WHERE l.DocId = s.DocId AND l.ActorId = @UserId AND l.ActionCode = N'READ'
+//);";
+
+//            int approvalPending = 0;
+//            int sharedUnread = 0;
+
+//            using (var cmd = new SqlCommand(sqlApprovalPending, conn))
+//            {
+//                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+//                approvalPending = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+//            }
+//            using (var cmd = new SqlCommand(sqlSharedUnread, conn))
+//            {
+//                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+//                sharedUnread = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+//            }
+
+//            return Json(new { created = 0, approvalPending, sharedUnread });
+//        }
 
         private string BuildBoardStatusLabel(string rawStatus, int completedSteps, int totalSteps)
         {
@@ -3605,293 +4682,6 @@ VALUES
                 var done = Math.Max(0, Math.Min(completed, total));
                 return $"{label} ({done}/{total})";
             }
-        }
-
-        [HttpGet("BoardData")]
-        // 2025.12.09 Changed: 결재 문서함 승인 탭에서 선행 단계 보류 반려 문서가 후행 승인자에게 표시되지 않도록 필터 보강
-        public async Task<IActionResult> BoardData(
-    string tab = "created",
-    int page = 1,
-    int pageSize = 20,
-    string titleFilter = "all",
-    string sort = "created_desc",
-    string? q = null,
-    string approvalView = "all")
-        {
-            if (page < 1) page = 1;
-            if (pageSize < 1 || pageSize > 100) pageSize = 20;
-
-            var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
-
-            string orderBy = sort switch
-            {
-                "created_asc" => "ORDER BY d.CreatedAt ASC",
-                "title_asc" => "ORDER BY d.TemplateTitle ASC",
-                "title_desc" => "ORDER BY d.TemplateTitle DESC",
-                _ => "ORDER BY d.CreatedAt DESC"
-            };
-
-            string whereSearch = string.IsNullOrWhiteSpace(q) ? "" : " AND d.TemplateTitle LIKE @Q ";
-
-            // 2025.12.08 Changed: 보류/반려 문서가 OnHoldA1 / RejectedA1 처럼 저장된 경우도 필터에 포함되도록 LIKE 로 변경
-            string whereTitleFilter = titleFilter?.ToLowerInvariant() switch
-            {
-                "approved" => " AND ISNULL(d.Status, N'') LIKE N'Approved%' ",
-                "rejected" => " AND ISNULL(d.Status, N'') LIKE N'Rejected%' ",
-                "pending" => " AND ISNULL(d.Status, N'') LIKE N'Pending%' ",
-                "onhold" => " AND ISNULL(d.Status, N'') LIKE N'OnHold%' ",
-                "recalled" => " AND ISNULL(d.Status, N'') LIKE N'Recalled%' ",
-                _ => ""
-            };
-
-            string sqlCount;
-            string sqlList;
-            var offset = (page - 1) * pageSize;
-
-            if (tab == "created")
-            {
-                sqlCount = @"
-SELECT COUNT(1)
-FROM Documents d
-WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + ";";
-
-                sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       ISNULL(d.Status, N'') AS Status,
-       up.DisplayName AS AuthorName,
-       /* 댓글 개수 */
-       /* 2025.12.08 Changed: 삭제된 댓글(IsDeleted=1) 제외 */
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       /* 진행률: 전체 결재 단계 수, 승인 완료 수 */
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved'
-             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
-FROM Documents d
-LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
-WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + $@"
-{orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
-            }
-            else if (tab == "approval")
-            {
-                // 2025.12.08 기존 코드 유지
-                string whereApprovalView = (approvalView ?? string.Empty).ToLowerInvariant() switch
-                {
-                    "pending" =>
-                        " AND ISNULL(a.Status, N'') = N'Pending' " +
-                        " AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10)) ",
-                    "approved" =>
-                        " AND (ISNULL(a.Action, N'') = N'Approved' OR ISNULL(a.Status, N'') = N'Approved') ",
-                    // 2025.12.09 Changed: all 뷰에서 a.Status 가 Pending 인 행은
-                    //                     '내가 조치한 문서' 로 보지 않도록 분기 보강
-                    _ => @"
-  AND (
-        (
-          ISNULL(a.Status, N'') = N'Pending'
-          AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
-        )
-        OR
-        (
-          ISNULL(a.Action, N'') <> N''
-          OR (
-               ISNULL(a.Status, N'') <> N''
-           AND ISNULL(a.Status, N'') <> N'Pending'
-             )
-        )
-      )"
-                };
-
-                const string whereRecalledFilter = @"
-  AND ISNULL(d.Status, N'') <> N'Recalled'
-  AND ISNULL(a.Status, N'') <> N'Recalled'";
-
-                sqlCount = @"
-SELECT COUNT(1)
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + @";";
-
-                sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       /* 결재자 입장에서는 자신의 행(Action/Status)을 우선 표시 */
-       CASE 
-           WHEN ISNULL(a.Action, N'') <> N'' THEN a.Action 
-           ELSE ISNULL(d.Status, N'') 
-       END AS Status,
-       up.DisplayName AS AuthorName,
-       /* 댓글 개수 */
-       /* 2025.12.08 Changed: 삭제된 댓글 제외 */
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved'
-             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
-LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
-WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + $@"
-{orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
-            }
-            else // shared
-            {
-                sqlCount = @"
-SELECT COUNT(1)
-FROM DocumentShares s
-JOIN Documents d ON s.DocId = d.DocId
-WHERE s.UserId = @UserId" + whereSearch + whereTitleFilter + ";";
-
-                sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       ISNULL(d.Status, N'') AS Status,
-       up.DisplayName AS AuthorName,
-       /* 댓글 개수 */
-       /* 2025.12.08 Changed: 삭제된 댓글 제외 */
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1)
-          FROM DocumentApprovals da
-         WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved'
-             OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps
-FROM DocumentShares s
-JOIN Documents d ON s.DocId = d.DocId
-LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
-WHERE s.UserId = @UserId" + whereSearch + whereTitleFilter + $@"
-{orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
-            }
-
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            using var conn = new SqlConnection(connStr);
-            await conn.OpenAsync();
-
-            using var cmdCount = new SqlCommand(sqlCount, conn);
-            cmdCount.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-            if (!string.IsNullOrWhiteSpace(q))
-            {
-                cmdCount.Parameters.Add(new SqlParameter("@Q", SqlDbType.NVarChar, 200) { Value = $"%{q}%" });
-            }
-
-            var total = Convert.ToInt32(await cmdCount.ExecuteScalarAsync());
-
-            using var cmdList = new SqlCommand(sqlList, conn);
-            cmdList.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-            if (!string.IsNullOrWhiteSpace(q))
-            {
-                cmdList.Parameters.Add(new SqlParameter("@Q", SqlDbType.NVarChar, 200) { Value = $"%{q}%" });
-            }
-            cmdList.Parameters.Add(new SqlParameter("@Offset", SqlDbType.Int) { Value = offset });
-            cmdList.Parameters.Add(new SqlParameter("@PageSize", SqlDbType.Int) { Value = pageSize });
-
-            var items = new List<object>();
-            using (var rdr = await cmdList.ExecuteReaderAsync())
-            {
-                while (await rdr.ReadAsync())
-                {
-                    var createdAtLocal = (rdr["CreatedAt"] is DateTime utc)
-                        ? ToLocalStringFromUtc(utc)
-                        : string.Empty;
-
-                    var rawStatus = rdr["Status"]?.ToString() ?? string.Empty;
-
-                    var totalSteps = rdr["TotalSteps"] is int ts ? ts : Convert.ToInt32(rdr["TotalSteps"]);
-                    var completedSteps = rdr["CompletedSteps"] is int cs ? cs : Convert.ToInt32(rdr["CompletedSteps"]);
-                    var commentCount = rdr["CommentCount"] is int cc ? cc : Convert.ToInt32(rdr["CommentCount"]);
-
-                    items.Add(new
-                    {
-                        docId = rdr["DocId"]?.ToString() ?? string.Empty,
-                        templateTitle = rdr["TemplateTitle"]?.ToString() ?? string.Empty,
-                        authorName = rdr["AuthorName"]?.ToString() ?? string.Empty,
-                        createdAt = createdAtLocal,
-                        status = rawStatus,
-                        statusCode = rawStatus,
-                        totalApprovers = totalSteps,
-                        completedApprovers = completedSteps,
-                        commentCount = commentCount,
-                        hasAttachment = Convert.ToInt32(rdr["HasAttachment"]) == 1
-                    });
-                }
-            }
-
-            return Json(new { total, page, pageSize, items });
-        }
-
-
-        [HttpGet("BoardBadges")]
-        public async Task<IActionResult> BoardBadges()
-        {
-            var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
-            var connStr = _cfg.GetConnectionString("DefaultConnection");
-            using var conn = new SqlConnection(connStr);
-            await conn.OpenAsync();
-
-            // 2025.12.08 Changed: 회수된 문서는 결재 대기 배지에서 제외되도록 Documents 와 조인
-            // 2025.12.09 Changed: a.Status=Pending 인 행 중에서 실제 현재 차수(PendingA{StepOrder})에 해당하는 것만 집계
-            var sqlApprovalPending = @"
-SELECT COUNT(1)
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId
-  AND ISNULL(a.Status, N'') = N'Pending'
-  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
-  AND ISNULL(d.Status, N'') <> N'Recalled';";
-
-            var sqlSharedUnread = @"
-SELECT COUNT(1)
-FROM DocumentShares s
-WHERE s.UserId = @UserId
-AND NOT EXISTS (
-    SELECT 1 
-    FROM DocumentAuditLogs l
-    WHERE l.DocId = s.DocId AND l.ActorId = @UserId AND l.ActionCode = N'READ'
-);";
-
-            int approvalPending = 0;
-            int sharedUnread = 0;
-
-            using (var cmd = new SqlCommand(sqlApprovalPending, conn))
-            {
-                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-                approvalPending = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            }
-            using (var cmd = new SqlCommand(sqlSharedUnread, conn))
-            {
-                cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-                sharedUnread = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            }
-
-            return Json(new { created = 0, approvalPending, sharedUnread });
         }
 
         // ========= 시간대/유틸 =========

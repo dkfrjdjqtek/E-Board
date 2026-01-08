@@ -1,4 +1,5 @@
-﻿// 2025.11.10 Changed: Kestrel 바인딩은 launchSettings.json에 위임, Development 환경에서 HTTPS 리다이렉트 해제
+﻿// 2025.12.23 Changed: JSON 바인딩 키 매칭 리스크 완화 위해 PropertyNameCaseInsensitive 및 CamelCase 정책을 명시하여 DTO/JS 키 차이를 흡수
+// 2025.11.10 Changed: Kestrel 바인딩은 launchSettings.json에 위임, Development 환경에서 HTTPS 리다이렉트 해제
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -15,6 +16,7 @@ using WebApplication1;
 using Microsoft.AspNetCore.WebUtilities; // QueryHelpers
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.FileProviders;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -162,6 +164,15 @@ builder.Services
     {
         options.DataAnnotationLocalizerProvider = (type, factory) =>
             factory.Create(typeof(SharedResource));
+    })
+    .AddJsonOptions(o =>
+    {
+        // JS(camelCase) ↔ DTO(PascalCase) 키 차이 흡수
+        o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+
+        // 서버가 JSON을 다시 내려줄 때(예: Create 응답의 mailInfo 등) 키 스타일을 안정화
+        o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
     });
 
 var cultures = new[] { "ko-KR", "en-US", "vi-VN", "id-ID", "zh-CN" }
@@ -194,6 +205,7 @@ builder.Services.AddAntiforgery(options =>
 // -----------------------------
 builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
 
+
 // ===== Build =====
 var app = builder.Build();
 
@@ -202,7 +214,7 @@ app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocal
 // -----------------------------
 // 10) Pipeline
 // -----------------------------
-if (app.Environment.IsDevelopment())
+if (app  .Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
     app.UseMigrationsEndPoint();
@@ -229,7 +241,7 @@ app.UseStaticFiles(new StaticFileOptions
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.Equals("/Identity/Account/Login", StringComparison.OrdinalIgnoreCase))
-    {
+     {
         var to = QueryHelpers.AddQueryString(
             "/Account/Login",
             "returnUrl",
@@ -243,6 +255,7 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseRouting();
+
 
 app.UseAuthentication();
 app.UseAuthorization();
