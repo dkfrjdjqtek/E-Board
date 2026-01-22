@@ -1,7 +1,6 @@
-﻿@* 2026.01.08 Changed: 웹 푸시 구독 스크립트(eb.push.js)를 전역 로드하여 EBPush 전역이 정의되도록 추가 *@
-@* 2025.11.13 Changed: Scripts 섹션 중복 렌더링 제거 *@
-@* 2025.09.16 Changed: EBValidate 경로는 eb-validate.js로 유지 실제 배포 파일명이 이 이름임 언더스코어 경로 사용 시 스크립트 미로딩으로 invalid 표시가 사라짐 *@
-@* 2025.09.16 Added: eb-validate.js에 asp-append-version 추가 캐시 문제로 구버전이 남는 현상 방지 *@
+﻿@* 2026.01.20 Changed DevExtreme AspNetCore 헬퍼 의존 제거 dxresources 정적 링크로 DevExpress 리소스 로드 *@
+@using System.Reflection
+@using System.Text.RegularExpressions
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 <!DOCTYPE html>
 <html lang="en">
@@ -17,43 +16,69 @@
     <!-- Google Fonts: Noto Sans KR -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    @* 2026.01.20 Changed DevExtreme 리소스는 dxresources 정적 파일로 직접 로드 *@
+    <link rel="stylesheet" href="~/dxresources/css/dx.common.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/dxresources/css/dx.light.css" asp-append-version="true" />
+
+
     <!-- site -->
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/WebApplication1.styles.css" asp-append-version="true" />
-    <!-- custom overrides 항상 맨 마지막 -->
     <link rel="stylesheet" href="~/css/_custom.css" asp-append-version="true" />
     @RenderSection("Styles", required: false)
 </head>
 <body>
 
-    <!-- 헤더 -->
     <partial name="_Header" />
-    @* 또는 @await Html.PartialAsync("_Header") *@
 
-    <!-- 본문 래퍼 -->
     <div id="layout-body" class="d-flex">
-        <!-- 사이드바 -->
         <aside class="sidebar-host flex-shrink-0">
             @await Html.PartialAsync("_Sidebar")
         </aside>
 
-        <!-- 메인 -->
         <main id="main" class="flex-grow-1 container">
             @RenderBody()
         </main>
     </div>
 
-    <!--
-    <footer class="border-top footer text-muted small py-2">
-        <div class="container">
-            &copy; 2025 - WebApplication1 - <a asp-controller="Home" asp-action="Privacy">Privacy</a>
-        </div>
-    </footer>
-    -->
+    @{
+        var appAsm = Assembly.GetEntryAssembly() ?? typeof(Program).Assembly;
+
+        var infoVerRaw =
+        appAsm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? "";
+
+        var mDt = Regex.Match(infoVerRaw, @"\b(?<d>\d{8})\.(?<t>\d{4})\b");
+        var d = mDt.Success ? mDt.Groups["d"].Value : "";
+        var t = mDt.Success ? mDt.Groups["t"].Value : "";
+
+        var mhParen = Regex.Match(infoVerRaw, @"\((?<h>[0-9a-fA-F]{4,40})\)");
+        var hRaw = mhParen.Success ? mhParen.Groups["h"].Value : "";
+
+        if (string.IsNullOrWhiteSpace(hRaw))
+        {
+            var mhAny = Regex.Match(infoVerRaw, @"\b(?<h>[0-9a-fA-F]{7,40})\b");
+            hRaw = mhAny.Success ? mhAny.Groups["h"].Value : "";
+        }
+
+        var h7 = "";
+        if (!string.IsNullOrWhiteSpace(hRaw))
+            h7 = (hRaw.Length >= 7) ? hRaw.Substring(0, 7) : hRaw;
+
+        var footerBuildText =
+        (!string.IsNullOrWhiteSpace(d) && !string.IsNullOrWhiteSpace(t) && !string.IsNullOrWhiteSpace(h7))
+        ? $"{d}.{t} ({h7})"
+        : "";
+
+        var footerBuildSuffix = string.IsNullOrWhiteSpace(footerBuildText)
+        ? ""
+        : S["_CM_BuildSuffix", footerBuildText].Value;
+    }
+
     <footer class="border-top footer app-footer text-muted small">
         <div class="container-fluid px-3">
             <div class="d-flex align-items-center justify-content-between flex-nowrap">
-                <span class="mb-0">&copy; @DateTime.Now.Year @(S["_CM_MainTitle"])</span>
+                <span class="mb-0">&copy; @DateTime.Now.Year @(S["_CM_MainTitle"])@footerBuildSuffix</span>
                 <nav class="d-flex gap-2 text-nowrap">
                     <a asp-controller="Home" asp-action="Privacy">@(S["_CM_PrivacyPolicy"])</a>
                     <a asp-controller="Home" asp-action="Terms">@(S["_CM_TermsofUse"])</a>
@@ -62,18 +87,16 @@
         </div>
     </footer>
 
-    <!-- Scripts -->
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
 
-    @* 2026.01.08 Added: Web Push 구독/등록 스크립트 전역 로드(EBPush 전역 생성) *@
-    <script src="~/js/eb.push.js" asp-append-version="true"></script>
+    @* 2026.01.20 Changed DevExtreme 서버헬퍼 대신 dxresources 스크립트를 직접 로드 *@
+    <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
 
-    @* 2025.09.16 Changed: 아래 한 줄이 핵심 현재 프로젝트에는 eb-validate.js 파일이 존재함 이 경로로 로드해야 EBValidate 전역이 생성되어 invalid 표시가 동작함 *@
+    <script src="~/js/eb.push.js" asp-append-version="true"></script>
     <script src="~/js/eb-validate.js" asp-append-version="true"></script>
 
-    @* 2025.09.16 Added: EBValidate가 없으면 개발자 콘솔에 원인 노출 디버깅을 돕기 위한 가드 코드 *@
     <script>
         if (!window.EBValidate) {
             console.error("EBValidate가 로드되지 않았습니다. 레이아웃의 스크립트 경로와 파일 존재를 확인하세요. 예상 경로 wwwroot/js/eb-validate.js");
@@ -85,88 +108,64 @@
 
     @await RenderSectionAsync("Scripts", required: false)
 
-    <script>
-        // -----------------------------
-        // 2026.01.08 Added: Web Push helper (scope fix)
-        // - sw 파일이 /push/sw.js 이면, scope는 반드시 /push/ 여야 함
-        // - 어떤 페이지(/Doc/...)에서 실행해도 등록되도록 scope 고정
-        // -----------------------------
-        (function () {
-            if (window.EBPush) return;
+    @if (User?.Identity?.IsAuthenticated ?? false)
+    {
+        <script>
+            (function () {
+                if (!window.EBPush) return;
 
-            function urlBase64ToUint8Array(base64String) {
-                const padding = '='.repeat((4 - base64String.length % 4) % 4);
-                const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-                const raw = atob(base64);
-                const output = new Uint8Array(raw.length);
-                for (let i = 0; i < raw.length; ++i) output[i] = raw.charCodeAt(i);
-                return output;
-            }
+                function safeCall(p) {
+                    try { return Promise.resolve(p); } catch (e) { return Promise.reject(e); }
+                }
 
-            async function fetchVapidPublicKey() {
-                const r = await fetch('/Push/VapidPublicKey', { credentials: 'same-origin' });
-                if (!r.ok) throw new Error('VAPID public key fetch failed: ' + r.status);
-                const j = await r.json();
-                if (!j || !j.publicKey) throw new Error('VAPID public key missing');
-                return j.publicKey;
-            }
+                window.addEventListener('load', function () {
+                    safeCall(EBPush.ensureSubscribed({ sendToServer: true }))
+                        .catch(function (e) {
+                            console.warn('[EBPush] ensureSubscribed failed:', e);
+                        });
 
-            async function registerSw() {
-                if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker not supported');
-                // 핵심: scope는 /push/ 로 고정
-                const reg = await navigator.serviceWorker.register('/push/sw.js', { scope: '/push/' });
-                return reg;
-            }
-
-            async function ensurePermission() {
-                if (!('Notification' in window)) throw new Error('Notification not supported');
-                if (Notification.permission === 'granted') return true;
-                const p = await Notification.requestPermission();
-                return p === 'granted';
-            }
-
-            async function ensureSubscribed() {
-                const ok = await ensurePermission();
-                if (!ok) throw new Error('Notification permission denied');
-
-                const reg = await registerSw();
-                const existing = await reg.pushManager.getSubscription();
-                if (existing) return existing;
-
-                const publicKey = await fetchVapidPublicKey();
-                const sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                    if (!window.__EBPUSH_PING_TIMER__) {
+                        window.__EBPUSH_PING_TIMER__ = window.setInterval(function () {
+                            safeCall(EBPush.ping()).catch(function () { });
+                        }, 5 * 60 * 1000);
+                    }
                 });
 
-                // 서버에 저장 API가 있으면 호출(없으면 404일 수 있으니 무시)
-                try {
-                    await fetch('/Push/Subscribe', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(sub)
-                    });
-                } catch { }
+                async function runUnregisterBestEffort() {
+                    try { await EBPush.unregister({ unsubscribeClient: true }); } catch { }
+                }
 
-                return sub;
-            }
+                document.addEventListener('click', function (ev) {
+                    var t = ev.target;
 
-            async function debugListRegs() {
-                if (!('serviceWorker' in navigator)) return [];
-                const regs = await navigator.serviceWorker.getRegistrations();
-                return regs.map(r => ({ scope: r.scope, active: !!r.active, scriptURL: r.active ? r.active.scriptURL : null }));
-            }
+                    var el = t && t.closest ? t.closest('[data-eb-logout]') : null;
+                    if (el) {
+                        ev.preventDefault();
+                        var href = el.getAttribute('href');
+                        var form = el.closest && el.closest('form');
 
-            window.EBPush = {
-                ensureSubscribed,
-                debugListRegs
-            };
+                        Promise.resolve(runUnregisterBestEffort())
+                            .finally(function () {
+                                if (form) form.submit();
+                                else if (href) window.location.href = href;
+                                else el.click();
+                            });
+                        return;
+                    }
 
-            // 콘솔 편의 로그
-            console.log('EBPush ready. Try: await EBPush.ensureSubscribed()');
-        })();
-    </script>
+                    var submitBtn = t && t.closest ? t.closest('button[type="submit"], input[type="submit"]') : null;
+                    if (submitBtn) {
+                        var f = submitBtn.closest('form');
+                        if (f && f.action && (f.action.indexOf('Logout') >= 0 || f.action.indexOf('/logout') >= 0)) {
+                            ev.preventDefault();
+                            Promise.resolve(runUnregisterBestEffort())
+                                .finally(function () { f.submit(); });
+                        }
+                    }
+                }, true);
+            })();
+        </script>
+    }
 
     <script>
         (() => {
@@ -186,7 +185,6 @@
         })();
     </script>
 
-    @* 상태 토스트 *@
     @if (TempData["StatusMessage"] is string msg)
     {
         <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" style="z-index:1080;">

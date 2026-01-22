@@ -1176,4 +1176,37 @@
   <data name="DOC_Attach_Count_None" xml:space="preserve">
     <value>未选择任何附件。</value>
   </data>
+  <data name="Login_BuildInfo_Format" xml:space="preserve">
+    <value>构建：{0}</value>
+  </data>
+  <data name="Login_BuildInfo_Aria" xml:space="preserve">
+    <value>构建信息</value>
+  </data>
+  <data name="_CM_BuildSuffix" xml:space="preserve">
+    <value> (构建：{0})</value>
+  </data>
+  <data name="DOC_Col_Result" xml:space="preserve">
+    <value>结果</value>
+  </data>
+  <data name="DOC_RS_Recalled" xml:space="preserve">
+    <value>{1}{0}已撤回。</value>
+  </data>
+  <data name="DOC_RS_Pending" xml:space="preserve">
+    <value>{1}{0}处于待处理状态。</value>
+  </data>
+  <data name="DOC_RS_Rejected" xml:space="preserve">
+    <value>{1}{0}已驳回。</value>
+  </data>
+  <data name="DOC_RS_OnHold" xml:space="preserve">
+    <value>{1}{0}已暂挂。</value>
+  </data>
+  <data name="DOC_RS_ApprovedDone" xml:space="preserve">
+    <value>{1}{0}已批准。</value>
+  </data>
+  <data name="DOC_Result_Viewed" xml:space="preserve">
+    <value>已查看</value>
+  </data>
+  <data name="DOC_Result_Unviewed" xml:space="preserve">
+    <value>未查看</value>
+  </data>
 </root>

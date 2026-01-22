@@ -1,0 +1,36 @@
+﻿@* 2026.01.20 Changed: DevExtreme NuGet 헬퍼 의존 제거하고 dxresources 정적 링크로만 로드하도록 정리 *@
+@{
+    // 목적:
+    // - DevExtreme.AspNet.Core(헬퍼/태그헬퍼) 없이 정적 리소스만 로드
+    // - IIS 가상 디렉터리/하위 경로 배포 안전: "~/" 기반 사용
+    // - 캐시 갱신 안정: asp-append-version 사용
+
+    // 주의:
+    // - DevExtreme 위젯은 보통 jQuery가 필요합니다(프로젝트에서 이미 로드 중이어야 함).
+    // - 국제화(Globalize/CLDR)가 필요하면 아래 주석 블록을 활성화하세요.
+}
+
+<link rel="stylesheet" href="@(Url.Content("~/dxresources/css/dx.light.css"))" asp-append-version="true" />
+
+@* ---- (선택) 다른 테마를 쓰면 위 css를 교체 ----
+<link rel="stylesheet" href="@(Url.Content("~/dxresources/css/dx.material.blue.light.css"))" asp-append-version="true" />
+*@
+
+<script src="@(Url.Content("~/dxresources/js/dx.all.js"))" asp-append-version="true"></script>
+
+@* ---- (선택) 국제화/로캘 기능 필요 시: DevExpress 배포본에 포함된 파일만 경로 맞춰 활성화 ----
+<script src="@(Url.Content("~/dxresources/js/cldr.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/cldr/event.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/cldr/supplemental.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/cldr/unresolved.js"))" asp-append-version="true"></script>
+
+<script src="@(Url.Content("~/dxresources/js/globalize.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/globalize/message.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/globalize/number.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/globalize/date.js"))" asp-append-version="true"></script>
+<script src="@(Url.Content("~/dxresources/js/globalize/currency.js"))" asp-append-version="true"></script>
+*@
+
+@* ---- (선택) 엑셀 내보내기 등 JSZip 필요 시(프로젝트에 이미 있으면 중복 로드 금지) ----
+<script src="@(Url.Content("~/lib/jszip/jszip.min.js"))" asp-append-version="true"></script>
+*@

@@ -1,0 +1,54 @@
+﻿@using System.IO
+@using DevExpress.AspNetCore
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment env
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+
+    var docPath = System.IO.Path.Combine(
+        env.WebRootPath ?? env.ContentRootPath,
+        "test.xlsx"
+    );
+
+    var workDir = System.IO.Path.Combine(
+        env.ContentRootPath,
+        "App_Data"
+    );
+    Directory.CreateDirectory(workDir);
+}
+
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    @Html.DevExpress().StyleSheets()
+
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        .host {
+            height: 100vh;
+            width: 100vw;
+        }
+    </style>
+</head>
+<body>
+    <div class="host">
+        @(Html.DevExpress()
+            .Spreadsheet("ss")
+            .Width("100%")
+            .Height("100%")
+            .DocumentRequestHandlerUrl(Url.Action("DxSpreadsheetRequest", "Spreadsheet"))
+            .WorkDirectory(workDir)
+            .Open(docPath)
+            )
+    </div>
+
+    @Html.DevExpress().Scripts()
+</body>
+</html>

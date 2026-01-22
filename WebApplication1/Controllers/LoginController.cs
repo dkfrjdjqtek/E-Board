@@ -61,10 +61,6 @@ namespace WebApplication1.Controllers
         [HttpGet]
         public IActionResult Login(string? returnUrl = null)
         {
-            // BEFORE:
-            // ViewData["ReturnUrl"] = returnUrl ?? Url.Content("~/");
-
-            // AFTER:
             ViewData["ReturnUrl"] = NormalizeReturnUrl(returnUrl);
 
             StampEbValidateData();
@@ -75,11 +71,6 @@ namespace WebApplication1.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Login(LoginViewModel model, string? returnUrl = null)
         {
-            // BEFORE:
-            // returnUrl ??= Url.Content("~/");
-            // ViewData["ReturnUrl"] = returnUrl;
-
-            // AFTER:
             var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
             ViewData["ReturnUrl"] = normalizedReturnUrl;
 
@@ -118,14 +109,7 @@ namespace WebApplication1.Controllers
                 user, model.Password, model.RememberMe, lockoutOnFailure: true);
 
             if (result.Succeeded)
-            {
-                // BEFORE:
-                // var target = (returnUrl != null && Url.IsLocalUrl(returnUrl)) ? returnUrl : "/Doc/Board";
-                // return Redirect(target);
-
-                // AFTER:
                 return LocalRedirect(normalizedReturnUrl);
-            }
 
             if (result.RequiresTwoFactor)
             {
@@ -161,7 +145,6 @@ namespace WebApplication1.Controllers
         {
             if (!ModelState.IsValid)
             {
-                // 2025.09.16 Added: 등록 폼도 동일하게 EBValidate 데이터 Stamp
                 StampEbValidateData();
                 return View(model);
             }
@@ -170,12 +153,23 @@ namespace WebApplication1.Controllers
             var result = await _userManager.CreateAsync(user, model.Password);
             if (result.Succeeded) return RedirectToAction("Login");
 
-            // 2025.09.16 Changed: Identity 오류를 필드 키로 매핑
             foreach (var e in result.Errors)
                 MapAndAddRegisterError(e);
 
-            StampEbValidateData(); // 2025.09.16 Added
+            StampEbValidateData();
             return View(model);
+        }
+
+        // ✅ 추가: GET /Account/Logout 이 들어와도 400 대신 로그인으로 보냄
+        [HttpGet]
+        public async Task<IActionResult> Logout(string? returnUrl = null)
+        {
+            await _signInManager.SignOutAsync();
+
+            // 세션 만료/자동 리다이렉트 상황에서는 "로그인 화면"이 목적
+            // returnUrl이 있으면 Login으로 넘겨서 로그인 후 원위치 가능(정규화)
+            var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
+            return RedirectToAction("Login", new { returnUrl = normalizedReturnUrl });
         }
 
         [HttpPost]
@@ -183,10 +177,10 @@ namespace WebApplication1.Controllers
         public async Task<IActionResult> Logout()
         {
             await _signInManager.SignOutAsync();
-            return RedirectToAction("Index", "Home");
+            // 기존 Home 이동 대신 Login으로 보내는 것이 UX/일관성에 유리
+            return RedirectToAction("Login");
         }
 
-        // 2025.09.16 Added: 중복 방지용 헬퍼 동일 메시지 1회만
         private void AddErrorOnce(string fieldKey, string message)
         {
             if (string.IsNullOrWhiteSpace(fieldKey) || string.IsNullOrWhiteSpace(message)) return;
@@ -194,7 +188,6 @@ namespace WebApplication1.Controllers
                 ModelState.AddModelError(fieldKey, message);
         }
 
-        // 2025.09.16 Added: Identity 오류코드 매핑
         private void MapAndAddRegisterError(IdentityError e)
         {
             var code = e.Code ?? string.Empty;
@@ -215,12 +208,8 @@ namespace WebApplication1.Controllers
             AddErrorOnce(key, desc);
         }
 
-        // 2025.09.16 Added: EBValidate가 바로 사용할 수 있는 데이터 ViewData에 Stamp
-        // 요약 에러는 EBValidate.showAlert 로 사용
-        // 필드별 에러는 EBValidate.setInvalid 대상 입력 id와 매칭
         private void StampEbValidateData()
         {
-            // 2025.09.16 Added: 필드별 사전 생성 키는 마지막 토큰 사용
             var fieldErrors = ModelState
                 .Where(kv => !string.IsNullOrEmpty(kv.Key) && kv.Value is { Errors.Count: > 0 })
                 .ToDictionary(
@@ -235,14 +224,12 @@ namespace WebApplication1.Controllers
                 .Distinct()
                 .ToList();
 
-            // 2025.09.16 Added: 뷰에서 바로 쓰거나 스크립트에서 읽을 수 있도록 이중 형태로 제공
             ViewData["EBV_FieldErrors"] = fieldErrors;
             ViewData["EBV_FieldErrorsJson"] = JsonSerializer.Serialize(fieldErrors);
             ViewData["EBV_SummaryErrors"] = summaryErrors;
             ViewData["EBV_SummaryErrorsJson"] = JsonSerializer.Serialize(summaryErrors);
         }
 
-        // 2025.09.16 Added: a.b.c 키가 올 경우 마지막 토큰을 id로 사용
         private static string GetFieldId(string key)
         {
             var idx = key.LastIndexOf('.');

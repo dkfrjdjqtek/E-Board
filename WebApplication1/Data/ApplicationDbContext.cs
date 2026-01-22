@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WebApplication1.Models;
 using WebApplication1.Data.Config;
+using WebApplication1.Controllers;
 
 namespace WebApplication1.Data;
 
@@ -29,6 +30,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DocTemplateVersion> DocTemplateVersions { get; set; } = default!;
     public DbSet<DocTemplateFile> DocTemplateFiles { get; set; } = default!;
     public DbSet<DocTemplateApproval> DocTemplateApprovals { get; set; } = default!;
+
+    public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; } = default!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -317,6 +320,26 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.CellA1).HasMaxLength(50);
             e.Property(x => x.CellRow);
             e.Property(x => x.CellColumn);
+        });
+
+        modelBuilder.Entity<WebPushSubscription>(e =>
+        {
+            e.ToTable("WebPushSubscriptions");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.UserId).HasMaxLength(64);
+            e.Property(x => x.Email).HasMaxLength(256);
+
+            e.Property(x => x.Endpoint).HasMaxLength(2048).IsRequired();
+            e.Property(x => x.P256dh).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Auth).HasMaxLength(256).IsRequired();
+
+            e.Property(x => x.UserAgent).HasMaxLength(512);
+
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+
+            // DB 기본값 SYSUTCDATETIME()가 이미 있으므로, EF는 값만 보관해도 됨
+            // (필요 시 ValueGeneratedOnAddOrUpdate 등을 추가할 수 있으나 현재는 최소 변경)
         });
     }
 }

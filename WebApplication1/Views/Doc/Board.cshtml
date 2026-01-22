@@ -1,32 +1,22 @@
-﻿@* 2025.12.04 Changed: Board 필터 콤보박스 정리 및 회수 필터를 상신 문서함 전용으로 적용 *@
-@* 2025.12.03 Changed: 상태 다국어 표시 및 진행률(완료/총 결재 인원) 표시 추가 *@
-@* 2025.11.20 Changed: Board 화면 가로 스크롤을 내부 컨테이너(.doc-board)에서만 처리하도록 수정
-   - .doc-board-wrap 은 세로 스크롤만 담당(overflow-y:auto, overflow-x:visible)
-   - .doc-board 가 overflow-x:auto 를 가지며, 가로 스크롤바가 실제 콘텐츠 폭에만 맞춰 표시됨
-   - 스크립트 및 기타 레이아웃/기능은 변경 없음 *@
+﻿@* 2026.01.20 Changed: 뒤로가기(popstate/pageshow) 시에는 조건별 스냅샷을 항상 우선 복원하고 배지만 서버 최신으로 갱신하여 대기필터 결재후에도 리스트가 유지되도록 수정 *@
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DOC_Board_Title"];
 }
 <style>
-    /* ★ 문서 리스트 전체 영역: 헤더/사이드바/푸터를 피해서 그 사이만 채우는 스크롤 호스트 */
     .doc-board-wrap {
         position: fixed;
         top: var(--header-h, 56px);
         right: 0;
         bottom: var(--footer-h, 32px);
-        /* 사이드바 폭(240px) 오른쪽부터 시작 → 스크롤바가 사이드바 밑으로 안 들어가게 */
         left: var(--sidebar-w, 270px);
-        /* 컨텐츠 좌우 여백 24px */
         padding: 0 24px;
         box-sizing: border-box;
-        /* 이 컨테이너 하나만 세로/가로 스크롤 담당 */
         overflow-y: auto;
         overflow-x: auto;
         overscroll-behavior: contain;
     }
 
-    /* ★ 보드 레이아웃: 내용만 배치, 스크롤은 .doc-board-wrap 이 담당 */
     .doc-board {
         display: flex;
         flex-direction: column;
@@ -35,8 +25,6 @@
         margin-bottom: 16px;
         width: 100%;
     }
-
-    /* ================= 탭 영역 ================= */
 
     .doc-tabs {
         display: flex;
@@ -55,48 +43,46 @@
         transition: filter .15s ease, border-color .15s ease, background .15s ease, color .15s ease;
     }
 
-        .doc-tab:hover {
-            filter: brightness(1.05);
-        }
+    .doc-tab:hover {
+        filter: brightness(1.25);
+    }
 
-        .doc-tab:focus-visible {
-            outline: 2px solid currentColor;
-            outline-offset: 2px;
-        }
+    .doc-tab:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+    }
 
-        .doc-tab[data-tab="created"] {
-            --sel: #111827;
-            background: linear-gradient(180deg,#4b5563,#111827);
-        }
+    .doc-tab[data-tab="created"] {
+        --sel: #111827;
+        background: linear-gradient(180deg,#4b5563,#111827);
+    }
 
-        .doc-tab[data-tab="approval"] {
-            --sel: #2563eb;
-            background: linear-gradient(180deg,#3b82f6,#1d4ed8);
-        }
+    .doc-tab[data-tab="approval"] {
+        --sel: #2563eb;
+        background: linear-gradient(180deg,#3b82f6,#1d4ed8);
+    }
 
-        .doc-tab[data-tab="shared"] {
-            --sel: #059669;
-            background: linear-gradient(180deg,#10b981,#047857);
-        }
+    .doc-tab[data-tab="shared"] {
+        --sel: #059669;
+        background: linear-gradient(180deg,#10b981,#047857);
+    }
 
-        .doc-tab[aria-selected="true"] {
-            color: #111827;
-            background: #fff;
-            border-color: var(--sel,#111827) var(--sel,#111827) #fff;
-            box-shadow: 0 1px 0 #fff inset;
-            position: relative;
-        }
+    .doc-tab[aria-selected="true"] {
+        color: #111827;
+        background: #fff;
+        border-color: var(--sel,#111827) var(--sel,#111827) #fff;
+        box-shadow: 0 1px 0 #fff inset;
+        position: relative;
+    }
 
-        .doc-tab .badge {
-            margin-left: .35rem;
-            font-size: .75rem;
-            background: #ef4444;
-            color: #fff;
-            border-radius: 9999px;
-            padding: 0 .4rem;
-        }
-
-    /* ================= 필터 영역 ================= */
+    .doc-tab .badge {
+        margin-left: .35rem;
+        font-size: .75rem;
+        background: #ef4444;
+        color: #fff;
+        border-radius: 9999px;
+        padding: 0 .4rem;
+    }
 
     .doc-filter {
         display: flex;
@@ -105,68 +91,50 @@
         align-items: center;
     }
 
-        .doc-filter select,
-        .doc-filter input {
-            padding: .375rem .5rem;
-            border: 1px solid #d1d5db;
-            border-radius: .375rem;
-        }
-
-    /* ================= 테이블 ================= */
+    .doc-filter select,
+    .doc-filter input {
+        padding: .375rem .5rem;
+        border: 1px solid #d1d5db;
+        border-radius: .375rem;
+    }
 
     .doc-list {
         width: 100%;
         border-collapse: collapse;
-        /* 화면이 너무 좁을 때 최소 폭을 보장해서 가로 스크롤을 강제로 발생시킨다 */
-        min-width: 900px;
+        min-width: 1100px;
     }
 
-        .doc-list th {
-            padding: .6rem .625rem;
-            font-weight: 600;
-            color: #374151;
-            background: #f9fafb;
-            text-align: center;
-            border-bottom: 2px solid #d1d5db;
-        }
+    .doc-list th {
+        padding: .6rem .625rem;
+        font-weight: 600;
+        color: #374151;
+        background: #f9fafb;
+        text-align: center;
+        border-bottom: 2px solid #d1d5db;
+    }
 
-        .doc-list td {
-            padding: .5rem .625rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
+    .doc-list td {
+        padding: .5rem .625rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
 
-            /* 번호 컬럼(본문) 가운데 정렬 */
-            .doc-list td:nth-child(1) {
-                text-align: center;
-            }
+    .doc-list td:nth-child(1) { text-align: center; }
+    .doc-list td:nth-child(2),
+    .doc-list td:nth-child(3),
+    .doc-list td:nth-child(5) { text-align: left; }
+    .doc-list td:nth-child(4) { text-align: center; }
 
-            /* 문서 제목, 작성자(본문) 왼쪽 정렬 */
-            .doc-list td:nth-child(2),
-            .doc-list td:nth-child(3) {
-                text-align: left;
-            }
+    .doc-list thead th + th { position: relative; }
 
-            /* 작성일시, 상태(본문) 가운데 정렬 */
-            .doc-list td:nth-child(4),
-            .doc-list td:nth-child(5) {
-                text-align: center;
-            }
-
-        .doc-list thead th + th {
-            position: relative;
-        }
-
-            .doc-list thead th + th::before {
-                content: "";
-                position: absolute;
-                left: 0;
-                top: 30%;
-                bottom: 30%;
-                width: 1px;
-                background: rgba(0,0,0,.06);
-            }
-
-    /* ================= 기타 ================= */
+    .doc-list thead th + th::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 30%;
+        bottom: 30%;
+        width: 1px;
+        background: rgba(0,0,0,.06);
+    }
 
     .doc-title {
         display: inline-flex;
@@ -174,17 +142,13 @@
         gap: .35rem;
     }
 
-        .doc-title .meta {
-            color: #6b7280;
-            font-weight: 500;
-        }
+    .doc-title .meta {
+        color: #6b7280;
+        font-weight: 500;
+    }
 
-    .doc-clip {
-        width: 16px;
-        height: 16px;
-        display: inline-block;
-        background: no-repeat center/contain;
-        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%236b7280" viewBox="0 0 16 16"><path d="M6.354 5.5l-.708.708 3.182 3.182a2 2 0 0 1-2.828 2.828L2.818 8.236a3.5 3.5 0 1 1 4.95-4.95l4.95 4.95a5 5 0 1 1-7.072 7.072l-3.89-3.889.708-.708 3.89 3.889a4 4 0 1 0 5.657-5.657l-4.95-4.95a2.5 2.5 0 1 0-3.536 3.536l3.182 3.182a1 1 0 1 0 1.414-1.414L6.354 5.5z"/></svg>');
+    .doc-title a.doc-unread {
+        font-weight: 900;
     }
 
     .doc-paging {
@@ -194,27 +158,27 @@
         padding-top: .5rem;
     }
 
-        .doc-paging button {
-            min-width: 32px;
-            height: 32px;
-            border: 1px solid #d1d5db;
-            background: #fff;
-            border-radius: .375rem;
-            cursor: pointer;
-        }
+    .doc-paging button {
+        min-width: 32px;
+        height: 32px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        border-radius: .375rem;
+        cursor: pointer;
+    }
 
-            .doc-paging button[aria-current="page"] {
-                background: #111827;
-                color: #fff;
-                border-color: #111827;
-            }
+    .doc-paging button[aria-current="page"] {
+        background: #111827;
+        color: #fff;
+        border-color: #111827;
+    }
 
     .sr-only {
         position: absolute;
         width: 1px;
         height: 1px;
         padding: 0;
-        margin: -1px;
+        margin: 0;
         overflow: hidden;
         clip: rect(0,0,0,0);
         border: 0;
@@ -227,7 +191,6 @@
          data-api-badges="/Doc/BoardBadges"
          data-detail-url="/Doc/Detail/{docId}">
 
-        <!-- 탭 -->
         <div class="doc-tabs" role="tablist" aria-label="@S["DOC_Board_Tablist_Aria"]">
             <button class="doc-tab" role="tab" data-tab="created" aria-selected="true">
                 @S["DOC_Tab_CreatedByMe"] <span class="badge" id="badge-created" hidden>0</span>
@@ -240,17 +203,21 @@
             </button>
         </div>
 
-        <!-- 필터 -->
         <div class="doc-filter">
             <label class="sr-only" for="filterTitle">@S["DOC_Filter_Title_Label"]</label>
+
             <select id="filterTitle">
                 <option value="all">@S["DOC_Filter_Title_All"]</option>
-                <option value="approved">@S["DOC_Filter_Title_Approved"]</option>
-                <option value="rejected">@S["DOC_Filter_Title_Rejected"]</option>
-                <option value="pending">@S["DOC_Filter_Title_Pending"]</option>
-                <option value="onhold">@S["DOC_Filter_Title_OnHold"]</option>
-                <!-- 회수는 상신 문서함 전용 필터 -->
-                <option value="recalled" data-created-only="true">@S["DOC_Filter_Title_Recalled"]</option>
+
+                <option value="viewed" data-shared-only="true">@S["DOC_Result_Viewed"]</option>
+                <option value="unviewed" data-shared-only="true">@S["DOC_Result_Unviewed"]</option>
+
+                <option value="approved" data-nonshared-only="true">@S["DOC_Filter_Title_Approved"]</option>
+                <option value="rejected" data-nonshared-only="true">@S["DOC_Filter_Title_Rejected"]</option>
+                <option value="pending" data-nonshared-only="true">@S["DOC_Filter_Title_Pending"]</option>
+                <option value="onhold" data-nonshared-only="true">@S["DOC_Filter_Title_OnHold"]</option>
+
+                <option value="recalled" data-created-only="true" data-nonshared-only="true">@S["DOC_Filter_Title_Recalled"]</option>
             </select>
 
             <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
@@ -266,7 +233,6 @@
             <button type="button" id="filterApply">@S["DOC_Filter_Apply"]</button>
         </div>
 
-        <!-- 리스트 -->
         <table class="doc-list" aria-live="polite">
             <thead>
                 <tr>
@@ -274,17 +240,17 @@
                     <th>@S["DOC_Col_Title"]</th>
                     <th style="width:180px">@S["DOC_Col_Author"]</th>
                     <th style="width:160px">@S["DOC_Col_Date"]</th>
-                    <th style="width:140px">@S["DOC_Col_Status"]</th>
+                    <th style="width:420px">@S["DOC_Col_Status"]</th>
+                    <th style="width:160px">@S["DOC_Col_Result"]</th>
                 </tr>
             </thead>
             <tbody id="docListBody">
                 <tr>
-                    <td colspan="5">@S["DOC_List_Loading"]</td>
+                    <td colspan="6">@S["DOC_List_Loading"]</td>
                 </tr>
             </tbody>
         </table>
 
-        <!-- 페이징 -->
         <div class="doc-paging" id="docPaging" aria-label="@S["DOC_Pagination_Label"]"></div>
     </div>
 </div>
@@ -305,54 +271,34 @@
         const filterQuery = document.getElementById('filterQuery');
         const btnApply = document.getElementById('filterApply');
 
-        const optRecalled = filterTitle.querySelector('option[value="recalled"]');
-
         const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-
-        // 2025.12.09 Changed: 초기 탭을 URL(tab) → sessionStorage(docBoardTab) → 기본값(created) 순으로 결정
-        // 변경 전:
-        // const state = {
-        //     tab: 'created',
-        //     page: 1,
-        //     pageSize: 20,
-        //     titleFilter: 'all',
-        //     sort: 'created_desc',
-        //     q: ''
-        // };
         const allowedTabs = ['created', 'approval', 'shared'];
-        let initialTab = 'created';
-        (function resolveInitialTab() {
+        const STORAGE_KEY = 'docBoardStateByTab';
+
+        // ------------------------------------------------------------
+        // 2026.01.20 Changed: Back 직후 리스트 유지 스냅샷(조건별)
+        // - popstate/pageshow에서는 "항상" 스냅샷 우선 복원
+        // - 배지는 서버 최신으로만 갱신
+        // ------------------------------------------------------------
+        const SNAPSHOT_PREFIX = 'docBoardSnapshot:'; // + stateKey
+
+        // shared 탭: Back 직후 "방금 열람한 문서" 굵기 해제용 오버라이드
+        const READ_OVERRIDE_KEY = 'docBoardReadOverrides_shared';   // { docId: unixTs }
+        const LAST_OPENED_KEY = 'docBoardLastOpened_shared';        // { docId, tab, at }
+
+        function readJson(key, fallback) {
             try {
-                const qs = new URLSearchParams(window.location.search || '');
-                const fromQuery = qs.get('tab');
-                if (fromQuery && allowedTabs.indexOf(fromQuery) >= 0) {
-                    initialTab = fromQuery;
-                    // URL 에 이미 tab 이 있으면 sessionStorage 에도 동기화
-                    window.sessionStorage.setItem('docBoardTab', initialTab);
-                    return;
-                }
+                const s = window.sessionStorage.getItem(key);
+                if (!s) return fallback;
+                const o = JSON.parse(s);
+                return (o && typeof o === 'object') ? o : fallback;
+            } catch { return fallback; }
+        }
 
-                const stored = window.sessionStorage.getItem('docBoardTab');
-                if (stored && allowedTabs.indexOf(stored) >= 0) {
-                    initialTab = stored;
-                    qs.set('tab', initialTab);
-                    window.history.replaceState(null, '', window.location.pathname + '?' + qs.toString());
-                }
-            } catch {
-                initialTab = 'created';
-            }
-        })();
+        function writeJson(key, obj) {
+            try { window.sessionStorage.setItem(key, JSON.stringify(obj || {})); } catch { }
+        }
 
-        const state = {
-            tab: initialTab,
-            page: 1,
-            pageSize: 20,
-            titleFilter: 'all',
-            sort: 'created_desc',
-            q: ''
-        };
-
-        // HTML 엔티티 디코더
         function decodeHtmlEntities(encoded) {
             if (!encoded) return '';
             const txt = document.createElement('textarea');
@@ -360,7 +306,6 @@
             return txt.value;
         }
 
-        // ★ 상태 다국어 라벨 매핑 (엔티티 → 실제 문자열로 디코딩)
         const STATUS_LABELS = {
             Pending: decodeHtmlEntities('@S["DOC_Status_Pending"]'),
             Approved: decodeHtmlEntities('@S["DOC_Status_Approved"]'),
@@ -369,19 +314,17 @@
             Recalled: decodeHtmlEntities('@S["DOC_Status_Recalled"]')
         };
 
+        const READ_LABEL = decodeHtmlEntities('@S["DOC_Result_Viewed"]');
+        const UNREAD_LABEL = decodeHtmlEntities('@S["DOC_Result_Unviewed"]');
+
         function getStatusBase(raw) {
             if (!raw) return 'Pending';
             const s = String(raw).trim().toUpperCase();
-
-            // 공통 Pending (Pending, PendingA1 ...)
             if (s.startsWith('PENDING')) return 'Pending';
-
-            // 결재 문서함에서 a.Action 으로 들어오는 값 처리
             if (s === 'APPROVE' || s.startsWith('APPROVED')) return 'Approved';
             if (s === 'REJECT' || s.startsWith('REJECTED')) return 'Rejected';
             if (s === 'HOLD' || s.startsWith('ONHOLD') || s.startsWith('ON HOLD')) return 'OnHold';
             if (s === 'RECALL' || s.startsWith('RECALLED')) return 'Recalled';
-
             return raw;
         }
 
@@ -395,65 +338,301 @@
             return label;
         }
 
-        // 탭 전환 시 UI 정리: 회수 필터는 상신 문서함에서만 사용
+        function readStateMap() {
+            try {
+                const s = window.sessionStorage.getItem(STORAGE_KEY);
+                if (!s) return {};
+                const obj = JSON.parse(s);
+                return (obj && typeof obj === 'object') ? obj : {};
+            } catch { return {}; }
+        }
+
+        function writeStateMap(map) {
+            try { window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(map || {})); } catch { }
+        }
+
+        function saveStateToSession() {
+            const map = readStateMap();
+            map[state.tab] = {
+                tab: state.tab,
+                page: state.page,
+                pageSize: state.pageSize,
+                titleFilter: state.titleFilter,
+                sort: state.sort,
+                q: state.q
+            };
+            writeStateMap(map);
+        }
+
+        function setUrlFromState(replaceOnly) {
+            try {
+                const qs = new URLSearchParams(window.location.search || '');
+                qs.set('tab', state.tab);
+                qs.set('page', String(state.page || 1));
+                qs.set('pageSize', String(state.pageSize || 20));
+                qs.set('titleFilter', String(state.titleFilter || 'all'));
+                qs.set('sort', String(state.sort || 'created_desc'));
+                qs.set('q', String(state.q || ''));
+
+                const url = window.location.pathname + '?' + qs.toString();
+                if (replaceOnly) window.history.replaceState(null, '', url);
+                else window.history.pushState(null, '', url);
+            } catch { }
+        }
+
+        function readStateFromUrl() {
+            const qs = new URLSearchParams(window.location.search || '');
+            const tab = qs.get('tab');
+            const page = qs.get('page');
+            const pageSize = qs.get('pageSize');
+            const titleFilter = qs.get('titleFilter');
+            const sort = qs.get('sort');
+            const q = qs.get('q');
+
+            const out = {};
+            if (tab && allowedTabs.indexOf(tab) >= 0) out.tab = tab;
+
+            const p = parseInt(page || '', 10);
+            const ps = parseInt(pageSize || '', 10);
+            if (!isNaN(p) && p > 0) out.page = p;
+            if (!isNaN(ps) && ps > 0 && ps <= 100) out.pageSize = ps;
+
+            if (titleFilter) out.titleFilter = titleFilter;
+            if (sort) out.sort = sort;
+            if (q != null) out.q = q;
+
+            return out;
+        }
+
+        function readStateForTabFromSession(tab) {
+            const map = readStateMap();
+            const s = map && map[tab];
+            if (!s || typeof s !== 'object') return null;
+            return s;
+        }
+
+        function setOptionHidden(opt, hidden) {
+            if (!opt) return;
+            opt.hidden = !!hidden;
+            opt.disabled = !!hidden;
+        }
+
+        function normalizeTitleFilterByTab() {
+            const v = (filterTitle.value || 'all').toLowerCase();
+
+            if (state.tab === 'shared') {
+                if (v !== 'all' && v !== 'viewed' && v !== 'unviewed') {
+                    filterTitle.value = 'all';
+                }
+            } else {
+                if (v === 'viewed' || v === 'unviewed') {
+                    filterTitle.value = 'all';
+                }
+            }
+            state.titleFilter = filterTitle.value;
+        }
+
         function applyTabUi() {
-            if (!optRecalled) return;
+            const isShared = state.tab === 'shared';
+
+            const sharedOnly = Array.from(filterTitle.querySelectorAll('option[data-shared-only="true"]'));
+            const nonSharedOnly = Array.from(filterTitle.querySelectorAll('option[data-nonshared-only="true"]'));
+            const createdOnly = Array.from(filterTitle.querySelectorAll('option[data-created-only="true"]'));
+
+            sharedOnly.forEach(o => setOptionHidden(o, !isShared));
+            nonSharedOnly.forEach(o => setOptionHidden(o, isShared));
 
             if (state.tab === 'created') {
-                optRecalled.hidden = false;
+                createdOnly.forEach(o => setOptionHidden(o, false));
             } else {
-                if (filterTitle.value === 'recalled') {
-                    filterTitle.value = 'all';
-                    state.titleFilter = 'all';
-                }
-                optRecalled.hidden = true;
+                createdOnly.forEach(o => setOptionHidden(o, true));
             }
 
-            // 2025.12.09 Added: 현재 탭에 맞게 aria-selected 동기화
+            normalizeTitleFilterByTab();
+
             tabs.forEach(x => {
                 x.setAttribute('aria-selected', x.dataset.tab === state.tab ? 'true' : 'false');
             });
         }
 
-        // 탭 클릭
+        const state = {
+            tab: 'created',
+            page: 1,
+            pageSize: 20,
+            titleFilter: 'all',
+            sort: 'created_desc',
+            q: ''
+        };
+
+        function applyStateToControls() {
+            try {
+                filterTitle.value = state.titleFilter || 'all';
+                filterSort.value = state.sort || 'created_desc';
+                filterQuery.value = state.q || '';
+            } catch { }
+        }
+
+        function buildStateKey() {
+            const parts = [
+                state.tab || '',
+                state.page || 1,
+                state.pageSize || 20,
+                state.titleFilter || 'all',
+                state.sort || 'created_desc',
+                state.q || ''
+            ];
+            return parts.map(x => String(x)).join('|');
+        }
+
+        function saveSnapshot(res) {
+            try {
+                const key = SNAPSHOT_PREFIX + buildStateKey();
+                writeJson(key, { at: Date.now(), res: res || null });
+            } catch { }
+        }
+
+        function tryRestoreSnapshot() {
+            try {
+                const key = SNAPSHOT_PREFIX + buildStateKey();
+                const snap = readJson(key, null);
+                if (!snap || !snap.res) return null;
+                return snap.res;
+            } catch { return null; }
+        }
+
+        function markDocReadLocallyShared(docId) {
+            if (!docId) return;
+            const now = Date.now();
+
+            const map = readJson(READ_OVERRIDE_KEY, {});
+            map[String(docId)] = now;
+            writeJson(READ_OVERRIDE_KEY, map);
+
+            writeJson(LAST_OPENED_KEY, { docId: String(docId), tab: 'shared', at: now });
+        }
+
+        function isDocReadOverriddenShared(docId) {
+            if (!docId) return false;
+            const map = readJson(READ_OVERRIDE_KEY, {});
+            return !!map[String(docId)];
+        }
+
+        function applyReadOverrideToDomShared(docId) {
+            if (!docId) return;
+
+            const anchors = root.querySelectorAll('a.doc-unread');
+            anchors.forEach(a => {
+                const href = a.getAttribute('href') || '';
+                if (href.indexOf('/Doc/Detail/' + docId) >= 0) {
+                    a.classList.remove('doc-unread');
+                }
+            });
+        }
+
+        function applyLastOpenedReadOverrideShared() {
+            if (state.tab !== 'shared') return;
+
+            const last = readJson(LAST_OPENED_KEY, null);
+            if (!last || !last.docId) return;
+
+            applyReadOverrideToDomShared(String(last.docId));
+        }
+
+        function restoreInitialState() {
+            const fromUrl = readStateFromUrl();
+
+            let tab = fromUrl.tab || null;
+            if (!tab) {
+                try {
+                    const storedTab = window.sessionStorage.getItem('docBoardTab');
+                    if (storedTab && allowedTabs.indexOf(storedTab) >= 0) tab = storedTab;
+                } catch { }
+            }
+            if (!tab) tab = 'created';
+            state.tab = tab;
+
+            const fromSession = readStateForTabFromSession(state.tab) || {};
+
+            state.page = fromUrl.page || fromSession.page || 1;
+            state.pageSize = fromUrl.pageSize || fromSession.pageSize || 20;
+            state.titleFilter = fromUrl.titleFilter || fromSession.titleFilter || 'all';
+            state.sort = fromUrl.sort || fromSession.sort || 'created_desc';
+            state.q = (fromUrl.q != null && fromUrl.q !== '') ? fromUrl.q : (fromSession.q || '');
+
+            applyStateToControls();
+            applyTabUi();
+
+            setUrlFromState(true);
+            saveStateToSession();
+
+            try { window.sessionStorage.setItem('docBoardTab', state.tab); } catch { }
+        }
+
         tabs.forEach(t => {
             t.addEventListener('click', () => {
-                tabs.forEach(x => x.setAttribute('aria-selected', 'false'));
-                t.setAttribute('aria-selected', 'true');
-                state.tab = t.dataset.tab;
-                state.page = 1;
+                const nextTab = t.dataset.tab;
+                if (!nextTab || allowedTabs.indexOf(nextTab) < 0) return;
 
-                // 2025.12.09 Added: 선택된 탭을 sessionStorage와 URL 쿼리에 저장
-                try {
-                    window.sessionStorage.setItem('docBoardTab', state.tab);
-                    const qs = new URLSearchParams(window.location.search || '');
-                    qs.set('tab', state.tab);
-                    window.history.replaceState(null, '', window.location.pathname + '?' + qs.toString());
-                } catch { }
+                state.tab = nextTab;
 
+                const s = readStateForTabFromSession(state.tab);
+                if (s) {
+                    state.page = s.page || 1;
+                    state.pageSize = s.pageSize || 20;
+                    state.titleFilter = s.titleFilter || 'all';
+                    state.sort = s.sort || 'created_desc';
+                    state.q = s.q || '';
+                } else {
+                    state.page = 1;
+                    state.titleFilter = filterTitle.value || 'all';
+                    state.sort = filterSort.value || 'created_desc';
+                    state.q = filterQuery.value || '';
+                }
+
+                applyStateToControls();
                 applyTabUi();
+
+                try { window.sessionStorage.setItem('docBoardTab', state.tab); } catch { }
+                setUrlFromState(true);
+                saveStateToSession();
+
                 refreshBadges();
                 loadList();
             });
         });
 
-        // 검색 엔터
         filterQuery.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') btnApply.click();
         });
 
-        // 필터 적용
         btnApply.addEventListener('click', () => {
             state.titleFilter = filterTitle.value;
             state.sort = filterSort.value;
             state.q = filterQuery.value || '';
             state.pageSize = clamp(state.pageSize, 1, 100);
             state.page = 1;
+
+            applyStateToControls();
+            applyTabUi();
+
+            setUrlFromState(true);
+            saveStateToSession();
+
             loadList();
         });
 
         function buildRow(item, displayNo) {
             const tr = document.createElement('tr');
+
+            const baseStatus = getStatusBase(item && (item.statusCode || item.status));
+
+            const overriddenReadShared = (state.tab === 'shared') && isDocReadOverriddenShared(item && item.docId);
+            const isUnreadShared = (state.tab === 'shared') && (!overriddenReadShared) && (item && item.isRead === false);
+
+            // 요구사항: 결재 문서함은 "대기"이면 제목 굵게 유지
+            const isPendingApproval = (state.tab === 'approval') && (baseStatus === 'Pending');
+
+            const isBoldTitle = isUnreadShared || isPendingApproval;
 
             const tdNo = document.createElement('td');
             tdNo.textContent = String(displayNo);
@@ -463,9 +642,19 @@
             wrapper.className = 'doc-title';
 
             const link = document.createElement('a');
-            link.href = detailUrl.replace('{docId}', item.docId);
+            const tabQs = (state && state.tab) ? ('?tab=' + encodeURIComponent(state.tab)) : '';
+            link.href = detailUrl.replace('{docId}', item.docId) + tabQs;
+
             link.title = item.templateTitle || '';
             link.textContent = item.templateTitle || '';
+            if (isBoldTitle) link.classList.add('doc-unread');
+
+            link.addEventListener('click', () => {
+                try {
+                    if (state.tab === 'shared') markDocReadLocallyShared(item.docId);
+                } catch { }
+            });
+
             wrapper.appendChild(link);
 
             const commentCount = Number(item.commentCount || 0);
@@ -485,21 +674,30 @@
             tdDate.textContent = item.createdAt || '';
 
             const tdStatus = document.createElement('td');
-            const total = typeof item.totalApprovers === 'number' ? item.totalApprovers : 0;
-            const done = typeof item.completedApprovers === 'number' ? item.completedApprovers : 0;
-            tdStatus.textContent = formatStatus(item.statusCode || item.status, done, total);
+            tdStatus.textContent = (item.resultSummary || '').trim();
 
-            tr.append(tdNo, tdTitle, tdAuthor, tdDate, tdStatus);
+            const tdResult = document.createElement('td');
+
+            if (state.tab === 'shared') {
+                const read = (item && item.isRead === true) || overriddenReadShared;
+                tdResult.textContent = read ? READ_LABEL : UNREAD_LABEL;
+            } else {
+                const total = typeof item.totalApprovers === 'number' ? item.totalApprovers : 0;
+                const done = typeof item.completedApprovers === 'number' ? item.completedApprovers : 0;
+                tdResult.textContent = formatStatus(item.statusCode || item.status, done, total);
+            }
+
+            tr.append(tdNo, tdTitle, tdAuthor, tdDate, tdStatus, tdResult);
             return tr;
         }
 
         function renderList(res) {
             body.innerHTML = '';
 
-            if (!res.items || res.items.length === 0) {
+            if (!res || !res.items || res.items.length === 0) {
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
-                td.colSpan = 5;
+                td.colSpan = 6;
                 td.textContent = decodeHtmlEntities('@S["DOC_List_Empty"]');
                 tr.appendChild(td);
                 body.appendChild(tr);
@@ -516,8 +714,9 @@
                 body.appendChild(buildRow(item, displayNo));
             });
 
-            const totalPages = Math.max(1,
-                Math.ceil((res.total || 0) / res.pageSize));
+            applyLastOpenedReadOverrideShared();
+
+            const totalPages = Math.max(1, Math.ceil((res.total || 0) / res.pageSize));
             paging.innerHTML = '';
 
             const makeBtn = (label, page, current) => {
@@ -526,6 +725,8 @@
                 if (current) b.setAttribute('aria-current', 'page');
                 b.addEventListener('click', () => {
                     state.page = page;
+                    setUrlFromState(true);
+                    saveStateToSession();
                     loadList();
                 });
                 return b;
@@ -537,16 +738,15 @@
             const end = Math.min(totalPages, start + block - 1);
 
             if (start > 1)
-                paging.appendChild(makeBtn('@S["DOC_Pagination_Prev"]', start - 1, false));
+                paging.appendChild(makeBtn(decodeHtmlEntities('@S["DOC_Pagination_Prev"]'), start - 1, false));
             for (let p = start; p <= end; p++)
                 paging.appendChild(makeBtn(String(p), p, p === state.page));
             if (end < totalPages)
-                paging.appendChild(makeBtn('@S["DOC_Pagination_Next"]', end + 1, false));
+                paging.appendChild(makeBtn(decodeHtmlEntities('@S["DOC_Pagination_Next"]'), end + 1, false));
         }
 
         async function loadList() {
-            body.innerHTML =
-                '<tr><td colspan="5">@S["DOC_List_Loading"]</td></tr>';
+            body.innerHTML = '<tr><td colspan="6">@S["DOC_List_Loading"]</td></tr>';
 
             const params = new URLSearchParams({
                 tab: state.tab,
@@ -557,20 +757,33 @@
                 q: state.q
             });
 
+            params.set('_ts', String(Date.now()));
+
             const r = await fetch(apiList + '?' + params.toString(), {
+                method: 'GET',
+                cache: 'no-store',
                 headers: { 'Accept': 'application/json' }
             });
 
             const res = await r.json();
             renderList(res);
+
+            // 조건별 스냅샷 저장 (Back 복원용)
+            saveSnapshot(res);
+
             refreshBadges();
         }
 
         async function refreshBadges() {
             try {
-                const r = await fetch(apiBadges, {
+                const url = apiBadges + (apiBadges.indexOf('?') >= 0 ? '&' : '?') + '_ts=' + Date.now();
+
+                const r = await fetch(url, {
+                    method: 'GET',
+                    cache: 'no-store',
                     headers: { 'Accept': 'application/json' }
                 });
+
                 const data = await r.json();
                 setBadge('created', data.created ?? 0);
                 setBadge('approval', data.approvalPending ?? 0);
@@ -590,14 +803,50 @@
             }
         }
 
-        // 2025.12.09 Changed: 초기 로드 시 선택된 탭(state.tab)에 맞게 UI 정리 후 리스트 로드
-        applyTabUi();
-        if (btnApply && typeof btnApply.click === 'function') {
-            btnApply.click();
-        } else {
+        function applyStateFromUrl() {
+            const u = readStateFromUrl();
+            if (u.tab && allowedTabs.indexOf(u.tab) >= 0) state.tab = u.tab;
+            state.page = u.page || 1;
+            state.pageSize = u.pageSize || 20;
+            state.titleFilter = u.titleFilter || 'all';
+            state.sort = u.sort || 'created_desc';
+            state.q = (u.q != null) ? u.q : '';
+
+            applyStateToControls();
+            applyTabUi();
+            saveStateToSession();
+        }
+
+        function restoreBySnapshotFirst() {
+            // Back 직후: "무조건" 스냅샷 우선
+            const snap = tryRestoreSnapshot();
+            if (snap) {
+                renderList(snap);
+                refreshBadges();
+                return;
+            }
+
+            // 스냅샷이 없을 때만 DB 재조회
             loadList();
             refreshBadges();
         }
 
+        window.addEventListener('popstate', () => {
+            applyStateFromUrl();
+            restoreBySnapshotFirst();
+        });
+
+        window.addEventListener('pageshow', (e) => {
+            if (e && e.persisted) {
+                applyStateFromUrl();
+                restoreBySnapshotFirst();
+            }
+        });
+
+        restoreInitialState();
+
+        // 최초 진입은 DB 재조회
+        loadList();
+        refreshBadges();
     })();
 </script>

@@ -1176,4 +1176,37 @@
   <data name="DOC_Attach_Count_None" xml:space="preserve">
     <value>Chưa chọn tệp đính kèm nào.</value>
   </data>
+  <data name="Login_BuildInfo_Format" xml:space="preserve">
+    <value>Bản dựng : {0}</value>
+  </data>
+  <data name="Login_BuildInfo_Aria" xml:space="preserve">
+    <value>Thông tin bản dựng</value>
+  </data>
+  <data name="_CM_BuildSuffix" xml:space="preserve">
+    <value> (Bản dựng : {0})</value>
+  </data>
+  <data name="DOC_Col_Result" xml:space="preserve">
+    <value>Kết quả</value>
+  </data>
+  <data name="DOC_RS_Recalled" xml:space="preserve">
+    <value>{1} {0} đã thu hồi.</value>
+  </data>
+  <data name="DOC_RS_Pending" xml:space="preserve">
+    <value>{1} {0} đang chờ xử lý.</value>
+  </data>
+  <data name="DOC_RS_Rejected" xml:space="preserve">
+    <value>{1} {0} đã từ chối.</value>
+  </data>
+  <data name="DOC_RS_OnHold" xml:space="preserve">
+    <value>{1} {0} đang tạm dừng.</value>
+  </data>
+  <data name="DOC_RS_ApprovedDone" xml:space="preserve">
+    <value>{1} {0} đã phê duyệt.</value>
+  </data>
+  <data name="DOC_Result_Viewed" xml:space="preserve">
+    <value>Đã xem</value>
+  </data>
+  <data name="DOC_Result_Unviewed" xml:space="preserve">
+    <value>Chưa xem</value>
+  </data>
 </root>

@@ -1,4 +1,6 @@
-﻿self.addEventListener('push', function (event) {
+﻿// 2026.01.12 Changed: 푸시 알림이 사용자가 닫을 때까지 유지되도록 requireInteraction 적용하고 고정 태그 알림 재알림을 위해 renotify를 적용
+
+self.addEventListener('push', function (event) {
     let data = {};
     try {
         // payload가 JSON이 아닌 경우도 있으니 방어
@@ -23,12 +25,19 @@
 
     const options = {
         body: body,
-        data: { url: url }
+        data: { url: url },
+        requireInteraction: true // 운영: 사용자가 닫거나 클릭할 때까지 알림 유지
         // 필요 시 icon, badge 추가 가능
-        // requireInteraction: true // 디버깅용: 자동으로 빨리 사라지는 것처럼 보이면 잠시 켜서 확인
     };
 
-    if (tag) options.tag = tag;
+    // A안: 문서 1건당 알림 1개(고정 tag)로 유지
+    // 30분마다 같은 tag로 다시 보내면 누적이 아니라 기존 알림이 교체되지만,
+    // renotify를 켜면 교체 시에도 다시 알림이 울리도록 시도합니다(환경에 따라 다를 수 있음).
+    if (tag) {
+        options.tag = tag;
+        options.renotify = true;
+        options.requireInteraction = true //사용자가 직접 닫거나 클릭할 때까지 유지
+    }
 
     event.waitUntil(self.registration.showNotification(title, options));
 });

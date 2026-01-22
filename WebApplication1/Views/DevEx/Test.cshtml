@@ -1,0 +1,20 @@
+﻿@* 2026.01.20 Changed: SpreadsheetBuilder에 없는 OpenUri 제거하고, wwwroot/test.xlsx를 Open 방식으로 로드하도록 수정 *@
+@using DevExpress.AspNetCore
+
+@{
+    ViewData["Title"] = "DevExpress Spreadsheet Test";
+}
+
+<h3>DevExpress 리소스 로딩 확인 페이지</h3>
+<div style="margin:8px 0; color:#555;">
+    1) 개발자도구 Network에서 <code>/dxresources/*</code> 200 확인<br />
+    2) 아래 스프레드시트 UI가 뜨면 OK
+</div>
+
+@(
+    Html.DevExpress().Spreadsheet("ssTest")
+        .Height("800px")
+        // wwwroot/test.xlsx => 브라우저 경로는 "/test.xlsx"
+        // OpenUri는 SpreadsheetBuilder에 없으므로 Open(...)을 사용
+        .Open("/test.xlsx")
+)

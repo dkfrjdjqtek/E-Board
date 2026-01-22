@@ -497,10 +497,16 @@ namespace WebApplication1.Controllers
             // --- 템플릿 Master 조회 ---
             var dep = departmentId ?? ctx.deptId ?? 0;
             var master = await _db.DocTemplateMasters
-                .AsNoTracking()
-                .Where(m => m.CompCd == compCd && (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep))
-                .Where(m => m.DocCode == docCode)
-                .FirstOrDefaultAsync();
+     .AsNoTracking()
+     .Where(m => m.CompCd == compCd && (dep == 0 ? (m.DepartmentId == 0) : m.DepartmentId == dep))
+     .Where(m => m.DocCode == docCode)
+     .Select(m => new
+     {
+         m.Id,
+         m.DocName,
+         m.DocCode
+     })
+     .FirstOrDefaultAsync();
 
             if (master == null)
             {
@@ -510,11 +516,16 @@ namespace WebApplication1.Controllers
 
             // --- 최신 Version 조회 ---
             var latest = await _db.DocTemplateVersions
-                .AsNoTracking()
-                .Where(v => v.TemplateId == master.Id)
-                .OrderByDescending(v => v.VersionNo)
-                .ThenByDescending(v => v.Id)
-                .FirstOrDefaultAsync();
+      .AsNoTracking()
+      .Where(v => v.TemplateId == master.Id)
+      .OrderByDescending(v => v.VersionNo)
+      .ThenByDescending(v => v.Id)
+      .Select(v => new
+      {
+          v.Id,
+          v.VersionNo
+      })
+      .FirstOrDefaultAsync();
 
             if (latest == null)
             {

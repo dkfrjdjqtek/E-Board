@@ -1,9 +1,12 @@
-﻿@* 2025.09.17 Changed: 필드 하단 문구가 "중복" 출력되는 원인 제거(asp-validation-for + EBValidate 이중 렌더링 해소) *@
+﻿@* 2026.01.12 Changed: 빌드 정보는 Program 어셈블리에서 읽고 yyyyMMdd.HHmm (7자리해시) 형식으로만 강제 표시 *@
+@* 2025.09.17 Changed: 필드 하단 문구가 "중복" 출력되는 원인 제거(asp-validation-for + EBValidate 이중 렌더링 해소) *@
 @* 2025.09.17 Changed: 제출(로그인 클릭) 전까지 invalid 보더/아이콘 고정 – 입력·포커스로는 상태 변경 금지 유지 *@
 @* 2025.09.16 Changed: 서버 ModelState를 EBValidate로 렌더링하도록 변경. 요약은 _ValidationAlert 사용. *@
 
 @using System.Linq
 @using System.Text.Json
+@using System.Reflection
+@using System.Text.RegularExpressions
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @model WebApplication1.Models.LoginViewModel
 
@@ -20,16 +23,56 @@
 
     // 요약 메시지
     var serverErrors = errMap.Values.SelectMany(v => v).ToArray();
+
+    // ------------------------------------------------------------
+    // 2026.01.12 Changed:
+    // 화면 출력은 반드시 "yyyyMMdd.HHmm (7자리해시)" 한 가지 형식만.
+    // - Version(1.0.0) 출력 안 함
+    // - Environment(Development) 출력 안 함
+    // - Razor 런타임 컴파일 어셈블리(ExecutingAssembly) 금지 → Program 어셈블리 고정
+    // - 뒤에 자동으로 붙는 잡다한 문자열은 전부 무시
+    // ------------------------------------------------------------
+    var infoVerRaw =
+        typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion
+        ?? "";
+
+    // 날짜/시간: "yyyyMMdd.HHmm" 우선 매칭 (예: 20260112.1727)
+    // (참고) 현재 csproj가 git count로 찍는 형식(yyyyMMdd.####)이면 여기서 HHmm을 만들 수 없으므로, HHmm이 포함되도록 csproj도 맞춰야 합니다.
+    var mDt = Regex.Match(infoVerRaw, @"\b(?<d>\d{8})\.(?<t>\d{4})\b");
+    var d = mDt.Success ? mDt.Groups["d"].Value : "";
+    var t = mDt.Success ? mDt.Groups["t"].Value : "";
+
+    // 해시: 괄호 안이 있으면 우선 사용 (4~40 자리 가능). 없으면 전체 문자열에서 7자리 hex를 탐색.
+    var mhParen = Regex.Match(infoVerRaw, @"\((?<h>[0-9a-fA-F]{4,40})\)");
+    var hRaw = mhParen.Success ? mhParen.Groups["h"].Value : "";
+
+    if (string.IsNullOrWhiteSpace(hRaw))
+    {
+        var mhAny = Regex.Match(infoVerRaw, @"\b(?<h>[0-9a-fA-F]{7,40})\b");
+        hRaw = mhAny.Success ? mhAny.Groups["h"].Value : "";
+    }
+
+    // 7자리 해시로 강제(길이가 7보다 길면 앞 7자리 사용)
+    var h7 = "";
+    if (!string.IsNullOrWhiteSpace(hRaw))
+        h7 = (hRaw.Length >= 7) ? hRaw.Substring(0, 7) : hRaw;
+
+    var buildText =
+        (!string.IsNullOrWhiteSpace(d) && !string.IsNullOrWhiteSpace(t) && !string.IsNullOrWhiteSpace(h7))
+            ? $"{d}.{t} ({h7})"
+            : "";
 }
 
 <h1>@S["Login_Login"]</h1>
 
 @* 상단 요약 알림 (id=login-alert) *@
 @await Html.PartialAsync(
-        "~/Views/Shared/_ValidationAlert.cshtml",
-        serverErrors,
-        new ViewDataDictionary(ViewData) { ["AlertId"] = "login-alert" }
-    )
+                "~/Views/Shared/_ValidationAlert.cshtml",
+                serverErrors,
+                new ViewDataDictionary(ViewData) { ["AlertId"] = "login-alert" }
+            )
 
 <form asp-action="Login" method="post" novalidate id="login-form">
     @Html.AntiForgeryToken()
@@ -67,6 +110,14 @@
         </div>
     </div>
 </form>
+
+@* 2026.01.12 Changed: 빌드 정보는 요청 형식으로만 출력 *@
+@if (!string.IsNullOrWhiteSpace(buildText))
+{
+    <div class="text-muted small mt-3" aria-label="@S["Login_BuildInfo_Aria"]">
+        @S["Login_BuildInfo_Format", buildText]
+    </div>
+}
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />

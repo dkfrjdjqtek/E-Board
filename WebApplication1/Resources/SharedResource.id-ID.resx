@@ -1176,4 +1176,37 @@
   <data name="DOC_Attach_Count_None" xml:space="preserve">
     <value>Tidak ada lampiran yang dipilih.</value>
   </data>
+  <data name="Login_BuildInfo_Format" xml:space="preserve">
+    <value>Build : {0}</value>
+  </data>
+  <data name="Login_BuildInfo_Aria" xml:space="preserve">
+    <value>Info build</value>
+  </data>
+  <data name="_CM_BuildSuffix" xml:space="preserve">
+    <value> (Build : {0})</value>
+  </data>
+  <data name="DOC_Col_Result" xml:space="preserve">
+    <value>Hasil</value>
+  </data>
+  <data name="DOC_RS_Recalled" xml:space="preserve">
+    <value>{1} {0} telah ditarik kembali.</value>
+  </data>
+  <data name="DOC_RS_Pending" xml:space="preserve">
+    <value>{1} {0} sedang menunggu.</value>
+  </data>
+  <data name="DOC_RS_Rejected" xml:space="preserve">
+    <value>{1} {0} menolak.</value>
+  </data>
+  <data name="DOC_RS_OnHold" xml:space="preserve">
+    <value>{1} {0} ditangguhkan.</value>
+  </data>
+  <data name="DOC_RS_ApprovedDone" xml:space="preserve">
+    <value>{1} {0} telah menyetujui.</value>
+  </data>
+  <data name="DOC_Result_Viewed" xml:space="preserve">
+    <value>Sudah dilihat</value>
+  </data>
+  <data name="DOC_Result_Unviewed" xml:space="preserve">
+    <value>Belum dilihat</value>
+  </data>
 </root>

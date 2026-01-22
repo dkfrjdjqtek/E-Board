@@ -1,40 +1,74 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<!-- 2026.01.20 Changed: DevExpress 패키지 정리 메타 패키지 DevExpress.AspNetCore 및 미사용 가능성이 큰 DevExpress.Xpo 제거 Core Resources Spreadsheet 22.2.12 고정 유지 -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>aspnet-WebApplication1-87f0e9a0-2855-4018-8dd5-143535191d25</UserSecretsId>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UserSecretsId>aspnet-WebApplication1-87f0e9a0-2855-4018-8dd5-143535191d25</UserSecretsId>
 
-  <ItemGroup>
-    <PackageReference Include="ClosedXML" Version="0.105.0" />
-    <PackageReference Include="DevExpress.Xpo" Version="22.2.12" />
-    <PackageReference Include="Fido2" Version="3.*" />
-    <PackageReference Include="Lib.Net.Http.WebPush" Version="3.3.1" />
-    <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="8.0.7" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.11" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="8.0.0" />
-    <PackageReference Include="QRCoder" Version="1.6.0" />
-	  <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
-	  <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-  </ItemGroup>
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+		<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
 
-  <ItemGroup>
-    <Content Update="wwwroot\css\_custom.css">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+		<EB_BuildDate>$([System.DateTime]::Now.ToString('yyyyMMdd'))</EB_BuildDate>
+		<EB_BuildTime>$([System.DateTime]::Now.ToString('HHmm'))</EB_BuildTime>
+		<InformationalVersion>$(EB_BuildDate).$(EB_BuildTime)</InformationalVersion>
+
+		<GitExe Condition="'$(GitExe)'==''">git</GitExe>
+	</PropertyGroup>
+
+	<Target Name="EB_SetInformationalVersionFromGit" BeforeTargets="GenerateAssemblyInfo">
+		<PropertyGroup>
+			<_GitInfoFile>$(IntermediateOutputPath)eb_gitinfo.txt</_GitInfoFile>
+		</PropertyGroup>
+
+		<Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command ^&#xD;&#xA;$ErrorActionPreference=&quot;Stop&quot;; ^&#xD;&#xA;Set-Location -LiteralPath &quot;$(MSBuildProjectDirectory)&quot;; ^&#xD;&#xA;$today = (Get-Date).ToString(&quot;yyyyMMdd&quot;); ^&#xD;&#xA;$git = &quot;$(GitExe)&quot;; ^&#xD;&#xA;$cnt = (&amp; $git rev-list --count HEAD) 2&gt;$null; ^&#xD;&#xA;$h   = (&amp; $git rev-parse --short=4 HEAD) 2&gt;$null; ^&#xD;&#xA;if([string]::IsNullOrWhiteSpace($cnt)) { throw &quot;git count empty&quot; } ^&#xD;&#xA;try { $n = [int]$cnt } catch { $n = 0 } ^&#xD;&#xA;$cnt4 = (&quot;{0:0000}&quot; -f ($n % 10000)); ^&#xD;&#xA;$h = (&quot;$h&quot;).Trim(); ^&#xD;&#xA;if($h.Length -lt 4) { $h = &quot;&quot; } ^&#xD;&#xA;$line = ($today + &quot;.&quot; + $cnt4 + (if($h -ne &quot;&quot;) { &quot; (&quot; + $h + &quot;)&quot; } else { &quot;&quot; })); ^&#xD;&#xA;Set-Content -Encoding ASCII -NoNewline &quot;$(_GitInfoFile)&quot; $line;" IgnoreExitCode="true" />
+
+		<ReadLinesFromFile Condition="Exists('$(_GitInfoFile)')" File="$(_GitInfoFile)">
+			<Output TaskParameter="Lines" PropertyName="InformationalVersion" />
+		</ReadLinesFromFile>
+
+		<Message Importance="high" Text="EB InformationalVersion=$(InformationalVersion) / GitExe=$(GitExe)" />
+	</Target>
+
+	<ItemGroup>
+		<PackageReference Include="ClosedXML" Version="0.105.0" />
+
+		<!-- DevExpress: 22.2.12로 유지 (Spreadsheet 동작에 필요한 최소 구성) -->
+		<PackageReference Include="DevExpress.AspNetCore.Core" Version="22.2.12" />
+		<PackageReference Include="DevExpress.AspNetCore.Resources" Version="22.2.12" />
+		<PackageReference Include="DevExpress.AspNetCore.Spreadsheet" Version="22.2.12" />
+
+		<!-- 2026.01.20 Changed: 아래 패키지는 제거해야 한다
+		     - DevExtreme.AspNet.Core 22.2.12는 NuGet에 없어 25.x로 강제 상승하며 DevExpress.Data 25.x를 요구해 충돌한다 -->
+		<!-- <PackageReference Include="DevExtreme.AspNet.Core" Version="..." /> -->
+		<!-- <PackageReference Include="DevExpress.Data" Version="..." /> -->
+
+		<PackageReference Include="Fido2" Version="3.*" />
+		<PackageReference Include="Lib.Net.Http.WebPush" Version="3.3.1" />
+		<PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="8.0.7" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.11" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.11" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.11">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="8.0.0" />
+		<PackageReference Include="QRCoder" Version="1.6.0" />
+		<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Update="wwwroot\css\_custom.css">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
 
 </Project>

@@ -1176,4 +1176,37 @@
   <data name="DOC_Attach_Count_None" xml:space="preserve">
     <value>선택된 첨부 파일이 없습니다.</value>
   </data>
+  <data name="Login_BuildInfo_Format" xml:space="preserve">
+    <value>빌드 : {0}</value>
+  </data>
+  <data name="Login_BuildInfo_Aria" xml:space="preserve">
+    <value>빌드 정보</value>
+  </data>
+  <data name="_CM_BuildSuffix" xml:space="preserve">
+    <value> (빌드: {0})</value>
+  </data>
+  <data name="DOC_Col_Result" xml:space="preserve">
+    <value>결과</value>
+  </data>
+  <data name="DOC_RS_Recalled" xml:space="preserve">
+    <value>{0} {1} 회수함.</value>
+  </data>
+  <data name="DOC_RS_Pending" xml:space="preserve">
+    <value>{0} {1} 대기 중.</value>
+  </data>
+  <data name="DOC_RS_Rejected" xml:space="preserve">
+    <value>{0} {1} 반려함.</value>
+  </data>
+  <data name="DOC_RS_OnHold" xml:space="preserve">
+    <value>{0} {1} 보류함.</value>
+  </data>
+  <data name="DOC_RS_ApprovedDone" xml:space="preserve">
+    <value>{0} {1} 승인함.</value>
+  </data>
+  <data name="DOC_Result_Viewed" xml:space="preserve">
+    <value>열람</value>
+  </data>
+  <data name="DOC_Result_Unviewed" xml:space="preserve">
+    <value>미열람</value>
+  </data>
 </root>

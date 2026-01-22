@@ -1,5 +1,5 @@
-﻿// 2025.12.23 Changed: JSON 바인딩 키 매칭 리스크 완화 위해 PropertyNameCaseInsensitive 및 CamelCase 정책을 명시하여 DTO/JS 키 차이를 흡수
-// 2025.11.10 Changed: Kestrel 바인딩은 launchSettings.json에 위임, Development 환경에서 HTTPS 리다이렉트 해제
+﻿// 2026.01.21 Changed: DXR.axd 500 원인 파악을 위해 Development에서만 DXR 요청 예외를 본문으로 노출하는 진단 미들웨어를 추가하고, DevExpress 리소스 처리를 위해 UseDevExpressControls 위치를 UseRouting 뒤로 정리
+using DevExpress.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -43,15 +43,13 @@ builder.Services
         options.SignIn.RequireConfirmedAccount = false;
         options.Password.RequireNonAlphanumeric = false;
         options.Password.RequireUppercase = false;
-        options.Password.RequireLowercase = false;         // 소문자 필수
+        options.Password.RequireLowercase = false;
         options.Password.RequiredLength = 4;
-        //options.Password.RequiredUniqueChars = 3;         
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders()
     .AddDefaultUI();
 
-// 익명 허용: 필요한 Identity 페이지만
 builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AllowAnonymousToAreaPage("Identity", "/Account/Login");
@@ -66,7 +64,6 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AddPageRoute("/Identity/Admin/AdminUserProfile", "/AdminUserProfile");
 });
 
-// 쿠키 설정
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/Account/Login";
@@ -88,19 +85,16 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
-// 이메일/비번 재설정 등 토큰 유효시간
 builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
 {
     o.TokenLifespan = TimeSpan.FromMinutes(30);
 });
 
-// 2025.09.26 Added: 초대 완료 전 로그인 방지
 builder.Services.Configure<IdentityOptions>(o =>
 {
     o.SignIn.RequireConfirmedEmail = true;
 });
 
-// 커스텀 클레임 팩토리
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, CustomUserClaimsPrincipalFactory>();
 
 // -----------------------------
@@ -121,19 +115,19 @@ builder.Services.AddAuthorization(options =>
 });
 
 // -----------------------------
-// 5) 업로드(요청 본문) 한도 — 50MB
+// 5) 업로드 한도 50MB
 // -----------------------------
 builder.Services.Configure<FormOptions>(o =>
 {
-    o.MultipartBodyLengthLimit = 50L * 1024 * 1024; // 50MB
+    o.MultipartBodyLengthLimit = 50L * 1024 * 1024;
 });
 builder.Services.Configure<IISServerOptions>(o =>
 {
-    o.MaxRequestBodySize = 50L * 1024 * 1024; // IIS(in-process)
+    o.MaxRequestBodySize = 50L * 1024 * 1024;
 });
 builder.WebHost.ConfigureKestrel(o =>
 {
-    o.Limits.MaxRequestBodySize = 50L * 1024 * 1024; // Kestrel
+    o.Limits.MaxRequestBodySize = 50L * 1024 * 1024;
 });
 
 // -----------------------------
@@ -143,7 +137,6 @@ builder.Services.AddSingleton(provider =>
 {
     var cfg = new Fido2Configuration
     {
-        //ServerDomain = "localhost",
         ServerDomain = "localhost",
         ServerName = "Han Young E-Board",
         Origins = new HashSet<string> { "https://localhost:7242" },
@@ -167,10 +160,7 @@ builder.Services
     })
     .AddJsonOptions(o =>
     {
-        // JS(camelCase) ↔ DTO(PascalCase) 키 차이 흡수
         o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-
-        // 서버가 JSON을 다시 내려줄 때(예: Create 응답의 mailInfo 등) 키 스타일을 안정화
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
     });
@@ -205,30 +195,33 @@ builder.Services.AddAntiforgery(options =>
 // -----------------------------
 builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
 
+// -----------------------------
+// 10) WebPushNotifier
+// -----------------------------
+builder.Services.AddScoped<WebPushNotifier>();
+builder.Services.AddScoped<WebApplication1.Services.IWebPushNotifier, WebApplication1.Services.WebPushNotifier>();
 
-// ===== Build =====
+// -----------------------------
+// 11) DevExpress 컨트롤 등록
+// -----------------------------
+builder.Services.AddDevExpressControls();
+
 var app = builder.Build();
 
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
-// -----------------------------
-// 10) Pipeline
-// -----------------------------
-if (app  .Environment.IsDevelopment())
+if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
     app.UseMigrationsEndPoint();
-    // 개발 환경: HTTP 5000 사용, HTTPS 리다이렉트 없음
 }
 else
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
-    //app.UseHttpsRedirection(); // 운영에서만 HTTPS 강제
 }
 
-// 10-1) wwwroot 정적 파일 제공 (★ 추가)
-app.UseStaticFiles();   // /css, /js, /lib, /images 등 wwwroot 하위 전체
+app.UseStaticFiles();
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -237,11 +230,10 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/images/signatures"
 });
 
-// /Identity/Account/Login -> /Account/Login 영구 리다이렉트
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.Equals("/Identity/Account/Login", StringComparison.OrdinalIgnoreCase))
-     {
+    {
         var to = QueryHelpers.AddQueryString(
             "/Account/Login",
             "returnUrl",
@@ -256,13 +248,45 @@ app.Use(async (ctx, next) =>
 
 app.UseRouting();
 
+// ----------------------------------------
+// DevExpress 리소스(DXR.axd) 진단: Development에서만 예외 본문 노출
+// - 지금은 Response 탭이 비어있어서 원인 추적이 막히므로, 여기서 확정 원인을 뽑습니다.
+// ----------------------------------------
+if (app.Environment.IsDevelopment())
+{
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Request.Path.StartsWithSegments("/DXR.axd", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await next();
+            }
+            catch (Exception ex)
+            {
+                ctx.Response.Clear();
+                ctx.Response.StatusCode = 500;
+                ctx.Response.ContentType = "text/plain; charset=utf-8";
+                await ctx.Response.WriteAsync("DXR.axd failed\n");
+                await ctx.Response.WriteAsync(ex.GetType().FullName + "\n");
+                await ctx.Response.WriteAsync(ex.Message + "\n\n");
+                await ctx.Response.WriteAsync(ex.ToString());
+                return;
+            }
+        }
+        else
+        {
+            await next();
+        }
+    });
+}
+
+// DevExpress 미들웨어는 Routing 이후에 두고, DXR.axd / 내부 콜백을 여기서 처리하도록 함
+app.UseDevExpressControls();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-// -----------------------------
-// 11) 라우팅
-// -----------------------------
 app.MapControllerRoute(
     name: "areas",
     pattern: "{area:exists}/{controller=Home}/{action=Index}/{id?}");
@@ -272,5 +296,10 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.MapRazorPages();
+
+// MapDevExpressControls 는 22.2.12에서 확장 메서드가 없는 환경이 있으므로 유지하지 않음
+//app.MapDevExpressControls();
+
+app.MapGet("/devex/ping", () => Results.Ok(new { ok = true, devexpress = "enabled" }));
 
 app.Run();

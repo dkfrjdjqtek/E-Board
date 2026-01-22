@@ -1176,4 +1176,37 @@
   <data name="DOC_Attach_Count_None" xml:space="preserve">
     <value>No attachments selected.</value>
   </data>
+  <data name="Login_BuildInfo_Format" xml:space="preserve">
+    <value>Build : {0}</value>
+  </data>
+  <data name="Login_BuildInfo_Aria" xml:space="preserve">
+    <value>Build info</value>
+  </data>
+  <data name="_CM_BuildSuffix" xml:space="preserve">
+    <value> (Build : {0})</value>
+  </data>
+  <data name="DOC_Col_Result" xml:space="preserve">
+    <value>Result</value>
+  </data>
+  <data name="DOC_RS_Recalled" xml:space="preserve">
+    <value>{1} {0} recalled.</value>
+  </data>
+  <data name="DOC_RS_Pending" xml:space="preserve">
+    <value>{1} {0} is pending.</value>
+  </data>
+  <data name="DOC_RS_Rejected" xml:space="preserve">
+    <value>{1} {0} rejected.</value>
+  </data>
+  <data name="DOC_RS_OnHold" xml:space="preserve">
+    <value>{1} {0} is on hold.</value>
+  </data>
+  <data name="DOC_RS_ApprovedDone" xml:space="preserve">
+    <value>{1} {0} approved.</value>
+  </data>
+  <data name="DOC_Result_Viewed" xml:space="preserve">
+    <value>Viewed</value>
+  </data>
+  <data name="DOC_Result_Unviewed" xml:space="preserve">
+    <value>Unviewed</value>
+  </data>
 </root>
