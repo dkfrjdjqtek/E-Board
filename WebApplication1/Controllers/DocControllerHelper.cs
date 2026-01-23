@@ -1,153 +1,196 @@
-﻿// 2026.01.23 Changed DocController 공통 멤버와 헬퍼를 DocControllerHelper 베이스로 분리
+﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using ClosedXML.Excel;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Localization;
-using Microsoft.Extensions.Logging;
+using WebApplication1.Models;
 
 namespace WebApplication1.Controllers
 {
-    /// <summary>
-    /// Doc 관련 컨트롤러 공통 베이스.
-    /// - 필드/DI
-    /// - DTO
-    /// - 공통 헬퍼(프리뷰, 시간대, 수신자/유틸 등)
-    /// </summary>
-    [Authorize]
-    public abstract class DocControllerHelper : Controller
+    public class DocControllerHelper
     {
-        protected readonly IConfiguration _cfg;
-        protected readonly IWebHostEnvironment _env;
-        protected readonly ILogger _log;
-        protected readonly IStringLocalizer<SharedResource> _S;
-        protected readonly IWebPushNotifier _webPushNotifier;
-
-        protected DocControllerHelper(
-            IConfiguration cfg,
-            IWebHostEnvironment env,
-            ILoggerFactory loggerFactory,
-            IStringLocalizer<SharedResource> S,
-            IWebPushNotifier webPushNotifier
-        )
+        private async Task<List<OrgTreeNode>> BuildOrgTreeNodesAsync(string langCode)
         {
-            _cfg = cfg;
-            _env = env;
-            _S = S;
-            _webPushNotifier = webPushNotifier;
-            _log = loggerFactory.CreateLogger(GetType());
+            var orgNodes = new List<OrgTreeNode>();
+            var compMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
+            var deptMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT
+    a.CompCd,
+    ISNULL(g.Name, a.CompCd)        AS CompName,
+    a.DepartmentId,
+    ISNULL(f.Name, CAST(a.DepartmentId AS nvarchar(50))) AS DeptName,
+    a.UserId,
+    ISNULL(d.Name, '')              AS PositionName,
+    a.DisplayName
+FROM UserProfiles a
+LEFT JOIN AspNetUsers b          ON a.UserId = b.Id
+LEFT JOIN PositionMasters c      ON a.CompCd = c.CompCd AND a.PositionId = c.Id
+LEFT JOIN PositionMasterLoc d    ON c.Id = d.PositionId AND d.LangCode = @LangCode
+LEFT JOIN DepartmentMasters e    ON a.CompCd = e.CompCd AND a.DepartmentId = e.Id
+LEFT JOIN DepartmentMasterLoc f  ON e.Id = f.DepartmentId AND f.LangCode = @LangCode
+LEFT JOIN CompMasters g          ON a.CompCd = g.CompCd
+ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
+                cmd.Parameters.Add(new SqlParameter("@LangCode", SqlDbType.NVarChar, 8) { Value = langCode });
+
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var compCd = rd["CompCd"] as string ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(compCd))
+                        continue;
+
+                    var compName = rd["CompName"] as string ?? compCd;
+
+                    var deptIdObj = rd["DepartmentId"];
+                    if (deptIdObj == null || deptIdObj == DBNull.Value)
+                        continue;
+
+                    var deptId = Convert.ToString(deptIdObj) ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(deptId))
+                        continue;
+
+                    var deptName = rd["DeptName"] as string ?? deptId;
+
+                    var userId = rd["UserId"] as string ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(userId))
+                        continue;
+
+                    var positionName = rd["PositionName"] as string ?? string.Empty;
+                    var displayName = rd["DisplayName"] as string ?? string.Empty;
+
+                    // 회사 노드
+                    if (!compMap.TryGetValue(compCd, out var compNode))
+                    {
+                        compNode = new OrgTreeNode
+                        {
+                            NodeId = compCd,
+                            Name = compName,
+                            NodeType = "Branch",
+                            ParentId = null
+                        };
+                        compMap[compCd] = compNode;
+                        orgNodes.Add(compNode);
+                    }
+
+                    // 부서 노드 (유니크 NodeId: compCd:deptId)
+                    var deptKey = compCd + ":" + deptId;
+                    if (!deptMap.TryGetValue(deptKey, out var deptNode))
+                    {
+                        deptNode = new OrgTreeNode
+                        {
+                            NodeId = deptKey,
+                            Name = deptName,
+                            NodeType = "Dept",
+                            ParentId = compNode.NodeId
+                        };
+                        deptMap[deptKey] = deptNode;
+                        compNode.Children.Add(deptNode);
+                    }
+
+                    // 사용자 노드
+                    var caption = string.IsNullOrWhiteSpace(positionName)
+                        ? displayName
+                        : positionName + " " + displayName;
+
+                    var userNode = new OrgTreeNode
+                    {
+                        NodeId = userId,
+                        Name = caption,
+                        NodeType = "User",
+                        ParentId = deptNode.NodeId
+                    };
+
+                    deptNode.Children.Add(userNode);
+                }
+            }
+            catch
+            {
+                // 실패 시 빈 리스트 반환 (기존 동작 유지)
+            }
+
+            return orgNodes;
         }
 
-        // ========= DTOs =========
-        public sealed class ComposePostDto
+        private string ToContentRootAbsolute(string? path)
         {
-            [JsonPropertyName("templateCode")]
-            public string? TemplateCode { get; set; }
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
 
-            [JsonPropertyName("inputs")]
-            public Dictionary<string, string>? Inputs { get; set; }
+            var normalized = path
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar);
 
-            [JsonPropertyName("approvals")]
-            public ApprovalsDto? Approvals { get; set; }
+            if (Path.IsPathRooted(normalized))
+                return normalized;
 
-            [JsonPropertyName("mail")]
-            public MailDto? Mail { get; set; }
-
-            [JsonPropertyName("descriptorVersion")]
-            public string? DescriptorVersion { get; set; }
-
-            // 2025.12.23 Added: Compose 화면 조직 멀티 콤보박스 선택 사용자(공유 대상)
-            [JsonPropertyName("selectedRecipientUserIds")]
-            public List<string>? SelectedRecipientUserIds { get; set; }
-
-            // 2025.12.23 Added: Compose 첨부파일(임시 업로드 결과) 목록
-            [JsonPropertyName("attachments")]
-            public List<ComposeAttachmentDto>? Attachments { get; set; }
+            return Path.Combine(_env.ContentRootPath, normalized);
         }
 
-        public sealed class ComposeAttachmentDto
+        // ContentRoot 기준 상대 경로(절대 → 상대) 변환
+        private string ToContentRootRelative(string? fullPath)
         {
-            [JsonPropertyName("fileKey")]
-            public string? FileKey { get; set; }        // /DocFile/Upload 응답의 fileKey
+            if (string.IsNullOrWhiteSpace(fullPath)) return string.Empty;
 
-            [JsonPropertyName("originalName")]
-            public string? OriginalName { get; set; }   // 원본 파일명(표시용)
+            var root = _env.ContentRootPath.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
 
-            [JsonPropertyName("contentType")]
-            public string? ContentType { get; set; }
+            var normalized = fullPath
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar);
 
-            [JsonPropertyName("byteSize")]
-            public long? ByteSize { get; set; }
+            if (Path.IsPathRooted(normalized) &&
+                normalized.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetRelativePath(root, normalized);
+            }
+
+            return normalized;
         }
 
-        public sealed class ApprovalsDto
+        private static string NormalizeTemplateExcelPath(string? raw)
         {
-            public List<string>? To { get; set; }
-            public List<ApprovalStepDto>? Steps { get; set; }
+            var s = (raw ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(s)) return s;
+
+            // 이미 상대경로(App_Data...)면 그대로
+            if (s.StartsWith("App_Data\\", StringComparison.OrdinalIgnoreCase) || s.StartsWith("App_Data/", StringComparison.OrdinalIgnoreCase))
+                return s.Replace('/', '\\');
+
+            // 절대경로에 App_Data\ 또는 App_Data/ 가 포함되어 있으면 그 이후만 취함
+            var idx = s.IndexOf("App_Data\\", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) idx = s.IndexOf("App_Data/", StringComparison.OrdinalIgnoreCase);
+
+            if (idx >= 0)
+                return s.Substring(idx).Replace('/', '\\');
+
+            // 그 외는 원본 유지
+            return s;
         }
 
-        public sealed class ApprovalStepDto
+        private static (string BaseKey, int? Index) ParseKey(string key)
         {
-            public string? RoleKey { get; set; }
-            public string? ApproverType { get; set; }
-            public string? Value { get; set; }
-        }
-
-        public sealed class MailDto
-        {
-            public List<string>? TO { get; set; }
-            public List<string>? CC { get; set; }
-            public List<string>? BCC { get; set; }
-            public string? Subject { get; set; }
-            public string? Body { get; set; }
-            public bool Send { get; set; } = true;
-            public string? From { get; set; }
-        }
-
-        // Detail 공유자 변경용 DTO
-        public sealed class UpdateSharesDto
-        {
-            public string? DocId { get; set; }
-            public List<string>? SelectedRecipientUserIds { get; set; }
-        }
-
-        protected sealed class DescriptorDto
-        {
-            public string? Version { get; set; }
-            public List<InputFieldDto>? Inputs { get; set; }
-            public Dictionary<string, object>? Styles { get; set; }
-            public List<object>? Approvals { get; set; }
-            public List<FlowGroupDto>? FlowGroups { get; set; }
-        }
-
-        protected sealed class InputFieldDto
-        {
-            public string Key { get; set; } = "";
-            public string? A1 { get; set; }
-            public string? Type { get; set; }
-        }
-
-        protected sealed class FlowGroupDto
-        {
-            public string ID { get; set; } = "";
-            public List<string> Keys { get; set; } = new();
+            if (string.IsNullOrWhiteSpace(key)) return ("", null);
+            var i = key.LastIndexOf('_');
+            if (i > 0 && int.TryParse(key[(i + 1)..], out var n))
+                return (key[..i], n);
+            return (key, null);
         }
 
         // ========= Preview 생성 =========
-        protected static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
+        private static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
         {
             using var wb = new XLWorkbook(excelPath);
             var ws0 = wb.Worksheets.First();
@@ -243,8 +286,8 @@ namespace WebApplication1.Controllers
                 styles
             });
         }
-
-        protected static string? ToHexIfRgb(IXLCell cell)
+        
+        private static string? ToHexIfRgb(IXLCell cell)
         {
             try
             {
@@ -259,7 +302,7 @@ namespace WebApplication1.Controllers
             return null;
         }
 
-        protected static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
+        private static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
         {
             doc = null!;
             if (string.IsNullOrWhiteSpace(json)) return false;
@@ -284,36 +327,158 @@ namespace WebApplication1.Controllers
             }
         }
 
-        // ========= 시간대/유틸 =========
-        protected string ResolveTimeZoneIdForCurrentUser()
+
+        private TimeZoneInfo ResolveCompanyTimeZone()
+        {
+            var compCd = User.FindFirstValue("compCd") ?? "";
+
+            string? tzIdFromDb = null;
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                if (!string.IsNullOrWhiteSpace(cs) && !string.IsNullOrWhiteSpace(compCd))
+                {
+                    using var conn = new SqlConnection(cs);
+                    conn.Open();
+                    using var cmd = new SqlCommand(
+                        @"SELECT TOP 1 TimeZoneId FROM dbo.CompMasters WHERE CompCd = @comp", conn);
+                    cmd.Parameters.Add(new SqlParameter("@comp", SqlDbType.VarChar, 10) { Value = compCd });
+                    tzIdFromDb = cmd.ExecuteScalar() as string;
+                }
+            }
+            catch { }
+
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(tzIdFromDb)) candidates.Add(tzIdFromDb.Trim());
+            candidates.Add("Asia/Seoul");
+            candidates.Add("Korea Standard Time");
+
+            foreach (var id in candidates)
+            {
+                try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+                catch
+                {
+                    var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Asia/Seoul"] = "Korea Standard Time",
+                        ["Korea Standard Time"] = "Asia/Seoul",
+                        ["Asia/Ho_Chi_Minh"] = "SE Asia Standard Time",
+                        ["Asia/Jakarta"] = "SE Asia Standard Time",
+                    };
+                    if (map.TryGetValue(id, out var mapped))
+                    {
+                        try { return TimeZoneInfo.FindSystemTimeZoneById(mapped); } catch { }
+                    }
+                }
+            }
+
+            try { return TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time"); } catch { }
+            try { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul"); } catch { }
+            return TimeZoneInfo.Utc;
+        }
+
+        private string ResolveTimeZoneIdForCurrentUser()
         {
             var tzFromClaim = User?.Claims?.FirstOrDefault(c => c.Type == "TimeZoneId")?.Value;
             if (!string.IsNullOrWhiteSpace(tzFromClaim)) return tzFromClaim;
             return "Korea Standard Time";
         }
 
-        protected string ToLocalStringFromUtc(DateTime utc)
+
+        private string ToLocalStringFromUtc(DateTime utc)
         {
             if (utc.Kind != DateTimeKind.Utc)
                 utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
 
             var tzId = ResolveTimeZoneIdForCurrentUser();
             TimeZoneInfo tzi;
-            try { tzi = TimeZoneInfo.FindSystemTimeZoneById(tzId); }
-            catch { tzi = TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time"); }
+            try
+            {
+                tzi = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            }
+            catch
+            {
+                tzi = TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time");
+            }
 
             var local = TimeZoneInfo.ConvertTimeFromUtc(utc, tzi);
             return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
 
-        protected static string FallbackNameFromEmail(string? email)
+
+        private string GetCurrentUserEmail()
+        {
+            try
+            {
+                var uid = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (string.IsNullOrWhiteSpace(uid)) return string.Empty;
+
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+                using var cmd = new SqlCommand("SELECT TOP 1 Email FROM dbo.AspNetUsers WHERE Id=@id", conn);
+                cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 450) { Value = uid });
+                return cmd.ExecuteScalar() as string ?? string.Empty;
+            }
+            catch { return string.Empty; }
+        }
+
+
+        private string GetCurrentUserDisplayNameStrict()
+        {
+            try
+            {
+                var uid = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (string.IsNullOrWhiteSpace(uid)) return string.Empty;
+
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1 LTRIM(RTRIM(p.DisplayName))
+FROM dbo.UserProfiles p
+WHERE p.UserId = @uid;", conn);
+                cmd.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 450) { Value = uid });
+
+                var name = cmd.ExecuteScalar() as string;
+                return string.IsNullOrWhiteSpace(name) ? string.Empty : name!;
+            }
+            catch { return string.Empty; }
+        }
+
+        private string GetDisplayNameByEmailStrict(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return string.Empty;
+
+            try
+            {
+                var em = email.Trim();
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1 LTRIM(RTRIM(p.DisplayName))
+FROM dbo.AspNetUsers u
+JOIN dbo.UserProfiles p ON p.UserId = u.Id
+WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
+                cmd.Parameters.Add(new SqlParameter("@em", SqlDbType.NVarChar, 256) { Value = em });
+
+                var name = cmd.ExecuteScalar() as string;
+                return string.IsNullOrWhiteSpace(name) ? string.Empty : name!;
+            }
+            catch { return string.Empty; }
+        }
+
+        private static string FallbackNameFromEmail(string? email)
         {
             if (string.IsNullOrWhiteSpace(email)) return string.Empty;
             var at = email.IndexOf('@');
             return at > 0 ? email[..at] : email;
         }
 
-        protected string ComposeAddress(string? email, string? displayName)
+        private string ComposeAddress(string? email, string? displayName)
         {
             if (string.IsNullOrWhiteSpace(email)) return string.Empty;
             var name = (displayName ?? string.Empty).Trim();
@@ -322,8 +487,7 @@ namespace WebApplication1.Controllers
             return $"{name} <{email.Trim()}>";
         }
 
-        // ========= Claims → 회사/부서 =========
-        protected (string compCd, string? departmentId) GetUserCompDept()
+        private (string compCd, string? departmentId) GetUserCompDept()
         {
             var comp = User.FindFirstValue("compCd");
             var dept = User.FindFirstValue("departmentId");
@@ -354,21 +518,26 @@ namespace WebApplication1.Controllers
             catch { }
             return ("", string.IsNullOrWhiteSpace(dept) ? null : dept);
         }
-
-        // ========= 첨부 임시경로 =========
-        protected string ResolveTempUploadPath(string fileKey)
+        private static string CalculateViewerRole(
+            string? createdBy,
+            string viewerId,
+            List<(int StepOrder, string? UserId, string Status)> approvals)
         {
-            if (string.IsNullOrWhiteSpace(fileKey))
-                return string.Empty;
+            if (string.IsNullOrWhiteSpace(viewerId))
+                return "Unknown";
 
-            var safeKey = Path.GetFileName(fileKey.Trim());
-            return Path.Combine(_env.ContentRootPath, "App_Data", "Uploads", "Temp", safeKey);
+            var isCreator = !string.IsNullOrWhiteSpace(createdBy) &&
+                            string.Equals(createdBy, viewerId, StringComparison.OrdinalIgnoreCase);
+
+            var isApprover = approvals.Exists(a =>
+                !string.IsNullOrWhiteSpace(a.UserId) &&
+                string.Equals(a.UserId, viewerId, StringComparison.OrdinalIgnoreCase));
+
+            if (isCreator && isApprover) return "Creator+Approver";
+            if (isCreator) return "Creator";
+            if (isApprover) return "Approver";
+            return "Viewer";
         }
 
-        // ========= (기존 DocController의 기타 공통 헬퍼는 여기로 이동) =========
-        // - GetInitialRecipients(...)
-        // - ResolveCompanyTimeZone(), BuildSubmissionMail(...)
-        // - EnsureApprovalsAndSyncAsync, FillDocumentApprovalsFromEmailsAsync 등
-        // 위 메서드들은 시그니처/내부 로직 변경 없이 "그대로" 이 파일(베이스)로 옮기면 됩니다.
     }
 }
