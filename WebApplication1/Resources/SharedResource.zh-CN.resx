@@ -1209,4 +1209,22 @@
   <data name="DOC_Result_Unviewed" xml:space="preserve">
     <value>未查看</value>
   </data>
+  <data name="PUSH_SummaryTitle" xml:space="preserve">
+    <value>E-BOARD</value>
+  </data>
+  <data name="PUSH_CreatedUnread" xml:space="preserve">
+    <value>我提交未查看 {0}</value>
+  </data>
+  <data name="PUSH_ApprovalPending" xml:space="preserve">
+    <value>待审批 {0}</value>
+  </data>
+  <data name="PUSH_SharedUnread" xml:space="preserve">
+    <value>共享未查看 {0}</value>
+  </data>
+  <data name="PUSH_ApprovalHold" xml:space="preserve">
+    <value>提交的文档已暂挂</value>
+  </data>
+  <data name="PUSH_ApprovalReject" xml:space="preserve">
+    <value>提交的文档已被驳回</value>
+  </data>
 </root>

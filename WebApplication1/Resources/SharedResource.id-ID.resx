@@ -1209,4 +1209,22 @@
   <data name="DOC_Result_Unviewed" xml:space="preserve">
     <value>Belum dilihat</value>
   </data>
+  <data name="PUSH_SummaryTitle" xml:space="preserve">
+    <value>E-BOARD</value>
+  </data>
+  <data name="PUSH_CreatedUnread" xml:space="preserve">
+    <value>Kiriman belum dilihat {0}</value>
+  </data>
+  <data name="PUSH_ApprovalPending" xml:space="preserve">
+    <value>Menunggu persetujuan {0}</value>
+  </data>
+  <data name="PUSH_SharedUnread" xml:space="preserve">
+    <value>Dibagikan belum dilihat {0}</value>
+  </data>
+  <data name="PUSH_ApprovalHold" xml:space="preserve">
+    <value>Pengajuan ditangguhkan</value>
+  </data>
+  <data name="PUSH_ApprovalReject" xml:space="preserve">
+    <value>Pengajuan ditolak</value>
+  </data>
 </root>

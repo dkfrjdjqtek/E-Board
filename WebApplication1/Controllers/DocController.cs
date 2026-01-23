@@ -1,15 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.IO;
-using System.Linq;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Globalization;
-using System.Threading.Tasks;
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Bibliography;
+using DocumentFormat.OpenXml.Office2010.Excel;
+using DocumentFormat.OpenXml.Spreadsheet;
+using Lib.Net.Http.WebPush;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -22,15 +15,24 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using WebApplication1.Controllers;
 using WebApplication1.Data;
 using WebApplication1.Models;
 using WebApplication1.Services;
-using WebApplication1.Controllers;
-using System.Text;
-using DocumentFormat.OpenXml.Bibliography;
-using DocumentFormat.OpenXml.Spreadsheet;
-using System.Text.Json.Serialization;
-using DocumentFormat.OpenXml.Office2010.Excel;
+
 
 namespace WebApplication1.Controllers
 {
@@ -1606,6 +1608,10 @@ WHERE DocId = @id
             return (canRecall, canDo, canDo, canDo);
         }
 
+        // 2026.01.22 Changed: ApproveOrHold에서 WebPushClient 직접 사용(ResolveVapid WebPushClient VapidDetails PushSubscription WebPushException PushPayload SendWebPushToUserIdsAsync) 흐름을 제거하고 기존 _webPushNotifier 방식으로 다음 결재자 및 작성자 알림 발송; 기존 주석 블록은 삭제하지 않고 유지
+        // =========================
+        // STEP 2. ApproveOrHold: 승인 시 다음 결재자 알림, 보류/반려 시 작성자 알림
+        // =========================
         [HttpPost("ApproveOrHold")]
         [ValidateAntiForgeryToken]
         [Produces("application/json")]
@@ -1654,6 +1660,9 @@ WHERE DocId = @DocId
                         });
                         await ac.ExecuteNonQueryAsync();
                     }
+
+                    // (선택) 회수 알림 정책이 필요하면 여기서 작성자/현재 결재자에게 발송 가능
+                    // - 현재 요청 범위는 "승인 다음결재자 / 보류반려 작성자" 이므로 회수는 미적용
                 }
 
                 // 클라이언트에는 문서 최종 상태만 전달
@@ -1661,9 +1670,6 @@ WHERE DocId = @DocId
             }
 
             // ===== 2) 승인 보류 반려 공통 처리 =====
-            //var outXlsx = ResolveOutputPathFromDocId(dto.docId);
-            //if (string.IsNullOrWhiteSpace(outXlsx) || !System.IO.File.Exists(outXlsx))
-            //    return NotFound(new { messages = new[] { "DOC_Err_DocumentNotFound" } });
             string outXlsx = string.Empty;
 
             try
@@ -1685,9 +1691,9 @@ WHERE DocId = @DocId;";
                 }
 
                 // DB에 상대 경로(App_Data\Docs\... 형태)로 저장되어 있는 경우 ContentRoot 기준으로 보정
-                if (!string.IsNullOrWhiteSpace(outXlsx) && !Path.IsPathRooted(outXlsx))
+                if (!string.IsNullOrWhiteSpace(outXlsx) && !System.IO.Path.IsPathRooted(outXlsx))
                 {
-                    outXlsx = Path.Combine(
+                    outXlsx = System.IO.Path.Combine(
                         _env.ContentRootPath,
                         outXlsx.TrimStart('\\', '/')
                     );
@@ -1753,13 +1759,17 @@ WHERE u.UserId = @uid;";
 
             string newStatus = "Updated";
 
+            // (추가) 알림 수신자 계산용 변수
+            int? actedStep = null;
+            int? nextStepForNotify = null;
+
             try
             {
                 var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
                 await using var conn = new SqlConnection(cs);
                 await conn.OpenAsync();
 
-                // --- 2 1) 현재 로그인 사용자가 담당인 Pending 단계 StepOrder 계산 ---
+                // --- 2-1) 현재 로그인 사용자가 담당인 Pending 단계 StepOrder 계산 ---
                 int? currentStep = null;
                 await using (var findStep = conn.CreateCommand())
                 {
@@ -1786,8 +1796,9 @@ ORDER BY StepOrder;";
                     return Forbid();
 
                 var step = currentStep.Value;
+                actedStep = step;
 
-                // --- 2 2) 현재 단계 DocumentApprovals 업데이트 ---
+                // --- 2-2) 현재 단계 DocumentApprovals 업데이트 ---
                 await using (var u = conn.CreateCommand())
                 {
                     u.CommandText = @"
@@ -1810,19 +1821,13 @@ WHERE DocId = @id AND StepOrder = @step;";
                     u.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
                     u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                     u.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = step });
-                    u.Parameters.Add(new SqlParameter("@displayText", SqlDbType.NVarChar, 400)
-                    {
-                        Value = (object?)approverDisplayText ?? DBNull.Value
-                    });
-                    u.Parameters.Add(new SqlParameter("@sigPath", SqlDbType.NVarChar, 400)
-                    {
-                        Value = (object?)signatureRelativePath ?? DBNull.Value
-                    });
+                    u.Parameters.Add(new SqlParameter("@displayText", SqlDbType.NVarChar, 400) { Value = (object?)approverDisplayText ?? DBNull.Value });
+                    u.Parameters.Add(new SqlParameter("@sigPath", SqlDbType.NVarChar, 400) { Value = (object?)signatureRelativePath ?? DBNull.Value });
 
                     await u.ExecuteNonQueryAsync();
                 }
 
-                // --- 2 3) Documents.Status 1차 업데이트 (현재 단계 기준) ---
+                // --- 2-3) Documents.Status 1차 업데이트 (현재 단계 기준) ---
                 newStatus = actionLower switch
                 {
                     "approve" => $"ApprovedA{step}",
@@ -1831,18 +1836,19 @@ WHERE DocId = @id AND StepOrder = @step;";
                     _ => "Updated"
                 };
 
-                await using (var u = conn.CreateCommand())
+                await using (var u2 = conn.CreateCommand())
                 {
-                    u.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
-                    u.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = newStatus });
-                    u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                    await u.ExecuteNonQueryAsync();
+                    u2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
+                    u2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = newStatus });
+                    u2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                    await u2.ExecuteNonQueryAsync();
                 }
 
-                // --- 2 4) 승인일 때만 다음 단계 처리 및 메일 발송 ---
+                // --- 2-4) 승인일 때만 다음 단계 처리 및 메일 발송 ---
                 if (actionLower == "approve")
                 {
                     var next = step + 1;
+                    nextStepForNotify = next;
 
                     var toList = await GetNextApproverEmailsFromDbAsync(conn, dto.docId, next);
 
@@ -1853,6 +1859,8 @@ WHERE DocId = @id AND StepOrder = @step;";
                         up2a.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
                         await up2a.ExecuteNonQueryAsync();
                         newStatus = "Approved";
+
+                        // (선택) 최종 승인 알림 정책이 필요하면 여기서 작성자 등에게 발송 가능
                     }
                     else
                     {
@@ -1865,7 +1873,6 @@ WHERE DocId = @id AND StepOrder = @step;";
                         {
                             q.CommandText = @"
 SELECT TOP 1
-       -- 작성자 이름은 UserProfiles.DisplayName 을 우선 사용
        ISNULL(up.DisplayName,
               ISNULL(d.CreatedByName, d.CreatedBy)) AS AuthorName,
        ISNULL(d.TemplateTitle, N'')                 AS TemplateTitle,
@@ -1911,10 +1918,10 @@ WHERE d.DocId = @id;";
                         newStatus = $"PendingA{next}";
 
                         // 3) 중복 제거된 수신자 목록
-                        var distinctTo = toList
-                            .Where(e => !string.IsNullOrWhiteSpace(e))
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .ToList();
+                        //var distinctTo = toList
+                        //    .Where(e => !string.IsNullOrWhiteSpace(e))
+                        //    .Distinct(StringComparer.OrdinalIgnoreCase)
+                        //    .ToList();
 
                         // 4) 상신 메일 포맷 그대로 사용하여 개별 발송
                         // 사장님 지시로 메일 발송 금지
@@ -1922,21 +1929,20 @@ WHERE d.DocId = @id;";
                         //{
                         //    try
                         //    {
-                        //        // 수신자 인사말용 표시 이름 (예: 생산차장)
                         //        var recipientDisplay = GetDisplayNameByEmailStrict(to);
                         //        if (string.IsNullOrWhiteSpace(recipientDisplay))
                         //            recipientDisplay = FallbackNameFromEmail(to);
-
+                        //
                         //        var mail = BuildSubmissionMail(
                         //            mailAuthor!,
                         //            mailDocTitle!,
                         //            dto.docId,
-                        //            recipientDisplay,      // "안녕하세요, {0}님" 에 들어갈 이름
-                        //            createdAtLocalForMail  // 최초 작성 시각(로컬)
+                        //            recipientDisplay,
+                        //            createdAtLocalForMail
                         //        );
-
+                        //
                         //        await _emailSender.SendEmailAsync(to, mail.subject, mail.bodyHtml);
-
+                        //
                         //        _log.LogInformation(
                         //            "NextApproverMail SEND OK DocId {DocId} NextStep {NextStep} To {To}",
                         //            dto.docId, next, to);
@@ -1949,6 +1955,68 @@ WHERE d.DocId = @id;";
                         //            dto.docId, next, to);
                         //    }
                         //}
+
+                        // ===== (변경) 승인 성공 시 다음 결재자에게 웹푸시 알림: 기존 _webPushNotifier 방식 사용 =====
+                        // - 다국어: title/body 는 "값"을 발송(리소스 키는 SW에서 해석 로직이 없으면 그대로 노출됨)
+                        // - 기존 결재 알림 갱신(교체)로 보내려면 tag 를 badge-approval-pending 으로 고정
+                        try
+                        {
+                            var nextApproverUserIds = await GetNextApproverUserIdsFromDbAsync(conn, dto.docId, next);
+                            if (nextApproverUserIds != null && nextApproverUserIds.Count > 0)
+                            {
+                                var titleText = (_S?["PUSH_Approval_Next_Title"] ?? "E-BOARD").ToString();
+                                var bodyText = (_S?["PUSH_Approval_Next_Body"] ?? "결재 대기 문서가 있습니다.").ToString();
+
+                                foreach (var uid in nextApproverUserIds
+                                             .Where(x => !string.IsNullOrWhiteSpace(x))
+                                             .Select(x => x.Trim())
+                                             .Distinct(StringComparer.OrdinalIgnoreCase))
+                                {
+                                    await _webPushNotifier.SendToUserIdAsync(
+                                        userId: uid,
+                                        title: titleText,
+                                        body: bodyText,
+                                        url: "/Doc/Detail?id=" + Uri.EscapeDataString(dto.docId),
+                                        tag: "badge-approval-pending"
+                                    );
+                                }
+                            }
+                        }
+                        catch (Exception exPush)
+                        {
+                            _log.LogWarning(exPush, "ApproveOrHold: push notify(next approver) failed docId={docId}", dto.docId);
+                        }
+                    }
+                }
+                else if (actionLower == "hold" || actionLower == "reject")
+                {
+                    // ===== (변경) 보류/반려 시 작성자에게 웹푸시 알림: 기존 _webPushNotifier 방식 사용 =====
+                    // - 다국어: title/body 는 값으로 발송
+                    try
+                    {
+                        var authorId = await GetDocumentAuthorUserIdAsync(conn, dto.docId);
+                        if (!string.IsNullOrWhiteSpace(authorId)
+                            && !string.Equals(authorId, approverId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var titleText = (_S?["PUSH_Approval_Author_Title"] ?? "E-BOARD").ToString();
+                            var bodyText = (actionLower == "hold")
+                                ? (_S?["PUSH_ApprovalHold"] ?? "문서가 보류 처리되었습니다.").ToString()
+                                : (_S?["PUSH_ApprovalReject"] ?? "문서가 반려 처리되었습니다.").ToString();
+
+                            var tag = (actionLower == "hold") ? "approval-author-hold" : "approval-author-reject";
+
+                            await _webPushNotifier.SendToUserIdAsync(
+                                userId: authorId.Trim(),
+                                title: titleText,
+                                body: bodyText,
+                                url: "/Doc/Detail?id=" + Uri.EscapeDataString(dto.docId),
+                                tag: tag
+                            );
+                        }
+                    }
+                    catch (Exception exPush)
+                    {
+                        _log.LogWarning(exPush, "ApproveOrHold: push notify(author) failed docId={docId}", dto.docId);
                     }
                 }
             }
@@ -1960,6 +2028,90 @@ WHERE d.DocId = @id;";
             var previewJson = BuildPreviewJsonFromExcel(outXlsx!);
             return Json(new { ok = true, docId = dto.docId, status = newStatus, previewJson });
         }
+
+        // ------------------------------------------------------------
+        // UpdateShares 내부 푸시: 기존 SendWebPushToUserIdsAsync/PushPayload 제거 없이 "호출부"만 _webPushNotifier로 교체
+        // (기존 주석 블록 유지 목적: 아래는 UpdateShares의 해당 try 블록에 넣어 교체)
+        // ------------------------------------------------------------
+        private async Task NotifySharesByWebPushAsync(SqlConnection conn, string docId, List<string> newlyAdded)
+        {
+            // ---- (기존 UpdateShares 주석은 호출부에 그대로 유지) ----
+            if (newlyAdded == null || newlyAdded.Count == 0) return;
+
+            try
+            {
+                var titleText = (_S?["PUSH_Share_Title"] ?? "E-BOARD").ToString();
+                // 예: 바디에 문서번호 포함이 필요하면 리소스가 포맷이면 S["PUSH_Share_Body", docId] 형태로 확장
+                var bodyText = (_S?["PUSH_Share_Body"] ?? "공유된 문서가 있습니다.").ToString();
+
+                foreach (var uid in newlyAdded
+                             .Where(x => !string.IsNullOrWhiteSpace(x))
+                             .Select(x => x.Trim())
+                             .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    await _webPushNotifier.SendToUserIdAsync(
+                        userId: uid,
+                        title: titleText,
+                        body: bodyText,
+                        url: "/Doc/Detail?id=" + Uri.EscapeDataString(docId),
+                        tag: "badge-shared"
+                    );
+                }
+            }
+            catch (Exception exPush)
+            {
+                _log.LogWarning(exPush, "UpdateShares: push notify(shared) failed docId={docId}", docId);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // (추가) 다음 결재자 UserId 목록 조회 (ApproveOrHold에서 사용)
+        // ------------------------------------------------------------
+        private async Task<List<string>> GetNextApproverUserIdsFromDbAsync(SqlConnection conn, string docId, int nextStep)
+        {
+            var list = new List<string>();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT DISTINCT NULLIF(LTRIM(RTRIM(UserId)), N'') AS UserId
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder = @Step
+  AND ISNULL(Status, N'Pending') LIKE N'Pending%';";
+            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+            cmd.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = nextStep });
+
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var uid = r["UserId"] as string;
+                if (!string.IsNullOrWhiteSpace(uid))
+                    list.Add(uid.Trim());
+            }
+
+            return list
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        // ------------------------------------------------------------
+        // (추가) 문서 작성자 UserId 조회 (ApproveOrHold에서 사용)
+        // ------------------------------------------------------------
+        private async Task<string?> GetDocumentAuthorUserIdAsync(SqlConnection conn, string docId)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT TOP (1) NULLIF(LTRIM(RTRIM(CreatedBy)), N'') AS CreatedBy
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+            var obj = await cmd.ExecuteScalarAsync();
+            var s = (obj == null || obj == DBNull.Value) ? null : (obj.ToString() ?? "").Trim();
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+
+
 
         // 2025.12.08 Changed: 트랜잭션 없는 호출을 위해 tx 를 nullable 로 변경하고 옵션 적용
         private static async Task<string?> TryResolveUserIdAsync(SqlConnection conn, SqlTransaction? tx, string? value)
@@ -2588,6 +2740,9 @@ ORDER BY v.ViewedAt DESC;";
             return View("Detail");
         }
 
+        // =========================
+        // STEP 3. UpdateShares: 공유 변경 시 추가된 공유자에게 알림
+        // =========================
         // (추가) Detail에서 공유자 변경 저장
         [HttpPost("UpdateShares")]
         [ValidateAntiForgeryToken]
@@ -2608,6 +2763,9 @@ ORDER BY v.ViewedAt DESC;";
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
                 .ToList();
+
+            // (추가) 알림 대상 계산용: 현재 활성 공유자 vs 선택된 공유자 차집합(추가된 사람만 알림)
+            var newlyAdded = new List<string>();
 
             try
             {
@@ -2637,6 +2795,11 @@ WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
                                 currentActive.Add(uid);
                         }
                     }
+
+                    newlyAdded = selected
+                        .Where(uid => !currentActive.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
 
                     // 2) 제외된 사람은 revoke 처리 + 로그
                     var toRevoke = currentActive
@@ -2721,7 +2884,36 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
                     throw;
                 }
 
-                return Json(new { ok = true, docId = docId, selectedCount = selected.Count });
+                // ===== (추가) 공유 변경 성공 후 "추가된 공유자"에게 웹푸시 알림 =====
+                try
+                {
+                    if (newlyAdded.Count > 0)
+                    {
+                        foreach (var uid in newlyAdded
+                                     .Where(x => !string.IsNullOrWhiteSpace(x))
+                                     .Select(x => x.Trim())
+                                     .Distinct(StringComparer.OrdinalIgnoreCase))
+                        {
+                            await _webPushNotifier.SendToUserIdAsync(
+                                userId: uid,
+                                //title: "PUSH_Share_Title",
+                                //body: "PUSH_Share_Body",
+                                //url: "/Doc/Detail?id=" + Uri.EscapeDataString(docId),
+                                //tag: "badge-shared"
+                                title: "PUSH_SummaryTitle",          // 또는 PUSH_App_Title
+                                body: "PUSH_ApprovalShare",        // 작성: "결재 대기 {0}건" 이지만 {0} 없이면 문구만
+                                url: "/",                                  // 배지 갱신 성격이면 상세 이동 X
+                                tag: "badge-approval-Share"
+                            );
+                        }
+                    }
+                }
+                catch (Exception exPush)
+                {
+                    _log.LogWarning(exPush, "UpdateShares: push notify(shared) failed docId={docId}", docId);
+                }
+
+                return Json(new { ok = true, docId = docId, selectedCount = selected.Count, addedNotifyCount = newlyAdded.Count });
             }
             catch (Exception ex)
             {
@@ -2729,7 +2921,6 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
                 return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
             }
         }
-
 
 
         [HttpGet("Download/{fileKey}")]

@@ -1209,4 +1209,22 @@
   <data name="DOC_Result_Unviewed" xml:space="preserve">
     <value>Chưa xem</value>
   </data>
+  <data name="PUSH_SummaryTitle" xml:space="preserve">
+    <value>E-BOARD</value>
+  </data>
+  <data name="PUSH_CreatedUnread" xml:space="preserve">
+    <value>Bản đã gửi chưa xem {0}</value>
+  </data>
+  <data name="PUSH_ApprovalPending" xml:space="preserve">
+    <value>Chờ phê duyệt {0}</value>
+  </data>
+  <data name="PUSH_SharedUnread" xml:space="preserve">
+    <value>Chia sẻ chưa xem {0}</value>
+  </data>
+  <data name="PUSH_ApprovalHold" xml:space="preserve">
+    <value>Hồ sơ đã gửi bị tạm dừng</value>
+  </data>
+  <data name="PUSH_ApprovalReject" xml:space="preserve">
+    <value>Hồ sơ đã gửi bị từ chối</value>
+  </data>
 </root>

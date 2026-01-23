@@ -1209,4 +1209,22 @@
   <data name="DOC_Result_Unviewed" xml:space="preserve">
     <value>미열람</value>
   </data>
+  <data name="PUSH_SummaryTitle" xml:space="preserve">
+    <value>E-BOARD</value>
+  </data>
+  <data name="PUSH_CreatedUnread" xml:space="preserve">
+    <value>작성 미열람 {0}건</value>
+  </data>
+  <data name="PUSH_ApprovalPending" xml:space="preserve">
+    <value>결재 대기 {0}건</value>
+  </data>
+  <data name="PUSH_SharedUnread" xml:space="preserve">
+    <value>공유 미확인 {0}건</value>
+  </data>
+  <data name="PUSH_ApprovalHold" xml:space="preserve">
+    <value>상신 문서가 보류되었습니다</value>
+  </data>
+  <data name="PUSH_ApprovalReject" xml:space="preserve">
+    <value>상신 문서가 반려되었습니다</value>
+  </data>
 </root>

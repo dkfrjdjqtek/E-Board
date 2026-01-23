@@ -1,6 +1,7 @@
-﻿@* 2026.01.20 Changed DevExtreme AspNetCore 헬퍼 의존 제거 dxresources 정적 링크로 DevExpress 리소스 로드 *@
+﻿@* 2026.01.22 Changed 로그인 직후 1회 BoardBadges 기반 배지 요약 토스트 표시 정리 중복 호출 제거 리소스 문자열 안전 직렬화 *@
 @using System.Reflection
 @using System.Text.RegularExpressions
+@using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 <!DOCTYPE html>
 <html lang="en">
@@ -19,7 +20,6 @@
     @* 2026.01.20 Changed DevExtreme 리소스는 dxresources 정적 파일로 직접 로드 *@
     <link rel="stylesheet" href="~/dxresources/css/dx.common.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/dxresources/css/dx.light.css" asp-append-version="true" />
-
 
     <!-- site -->
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -118,23 +118,115 @@
                     try { return Promise.resolve(p); } catch (e) { return Promise.reject(e); }
                 }
 
+                // 2026.01.22 Changed 로그인 세션 1회 배지 요약 토스트
+                function showLoginBadgeToast(summaryText) {
+                    try {
+                        if (!summaryText) return;
+
+                        var container = document.getElementById('loginBadgeToastContainer');
+                        if (!container) {
+                            container = document.createElement('div');
+                            container.id = 'loginBadgeToastContainer';
+                            container.className = 'toast-container position-fixed top-0 start-50 translate-middle-x p-3';
+                            container.style.zIndex = '1080';
+                            document.body.appendChild(container);
+                        }
+
+                        var old = document.getElementById('loginBadgeToast');
+                        if (old && old.parentNode) old.parentNode.removeChild(old);
+
+                        var toast = document.createElement('div');
+                        toast.id = 'loginBadgeToast';
+                        toast.className = 'toast border-0';
+                        toast.setAttribute('role', 'alert');
+                        toast.setAttribute('aria-live', 'assertive');
+                        toast.setAttribute('aria-atomic', 'true');
+                        toast.setAttribute('data-bs-delay', '3500');
+                        toast.style.backgroundColor = '#198754';
+                        toast.style.color = '#fff';
+                        toast.style.borderColor = 'transparent';
+
+                        toast.innerHTML =
+                            '<div class="d-flex">' +
+                                '<div class="toast-body"></div>' +
+                                '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
+                            '</div>';
+
+                        toast.querySelector('.toast-body').textContent = summaryText;
+                        container.appendChild(toast);
+
+                        if (window.bootstrap && window.bootstrap.Toast) {
+                            new bootstrap.Toast(toast).show();
+                        }
+                    } catch (e) {
+                        console.warn('[LoginBadgeToast] failed:', e);
+                    }
+                }
+
+                async function tryShowLoginBadgeOnce() {
+                    try {
+                        var userId = '@(User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "")';
+                        var key = 'EB_LOGIN_BADGE_SHOWN:' + (userId || 'anon');
+
+                        if (sessionStorage.getItem(key) === '1') return;
+
+                        var res = await fetch('/Doc/BoardBadges', { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
+                        if (!res.ok) return;
+
+                        var data = await res.json();
+                        var created = Number((data && data.created) || 0);
+                        var approvalPending = Number((data && data.approvalPending) || 0);
+                        var sharedUnread = Number((data && data.sharedUnread) || 0);
+
+                        if (created <= 0 && approvalPending <= 0 && sharedUnread <= 0) {
+                            sessionStorage.setItem(key, '1');
+                            return;
+                        }
+
+                        // 리소스 문자열은 JS로 안전 전달하기 위해 JSON 직렬화로 주입
+                        var fmtCreated  = @Html.Raw(JsonSerializer.Serialize(S["PUSH_CreatedUnread"].Value ?? "작성 미열람 {0}건"));
+                        var fmtApproval = @Html.Raw(JsonSerializer.Serialize(S["PUSH_ApprovalPending"].Value ?? "결재 대기 {0}건"));
+                        var fmtShared   = @Html.Raw(JsonSerializer.Serialize(S["PUSH_SharedUnread"].Value ?? "공유 미확인 {0}건"));
+                        var joiner      = @Html.Raw(JsonSerializer.Serialize(S["PUSH_Joiner"].Value ?? " / "));
+                        var title       = @Html.Raw(JsonSerializer.Serialize(S["PUSH_SummaryTitle"].Value ?? "E-BOARD"));
+
+                        var parts = [];
+                        if (created > 0) parts.push(String(fmtCreated).replace('{0}', String(created)));
+                        if (approvalPending > 0) parts.push(String(fmtApproval).replace('{0}', String(approvalPending)));
+                        if (sharedUnread > 0) parts.push(String(fmtShared).replace('{0}', String(sharedUnread)));
+
+                        var msg = String(title) + ' - ' + parts.join(String(joiner));
+
+                        showLoginBadgeToast(msg);
+                        sessionStorage.setItem(key, '1');
+                    } catch (e) {
+                        console.warn('[LoginBadge] fetch failed:', e);
+                    }
+                }
+
                 window.addEventListener('load', function () {
+                    // 1) 웹 푸시 구독 보장 1회
                     safeCall(EBPush.ensureSubscribed({ sendToServer: true }))
                         .catch(function (e) {
                             console.warn('[EBPush] ensureSubscribed failed:', e);
                         });
 
+                    // 2) 5분 주기 Ping 1회
                     if (!window.__EBPUSH_PING_TIMER__) {
                         window.__EBPUSH_PING_TIMER__ = window.setInterval(function () {
                             safeCall(EBPush.ping()).catch(function () { });
                         }, 5 * 60 * 1000);
                     }
+
+                    // 3) 로그인 직후 세션 1회 배지 요약 토스트
+                    safeCall(tryShowLoginBadgeOnce()).catch(function () { });
                 });
 
                 async function runUnregisterBestEffort() {
                     try { await EBPush.unregister({ unsubscribeClient: true }); } catch { }
                 }
 
+                // 로그아웃 직전 현재 단말만 비활성화
                 document.addEventListener('click', function (ev) {
                     var t = ev.target;
 
