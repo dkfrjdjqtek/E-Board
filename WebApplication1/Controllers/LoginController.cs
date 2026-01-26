@@ -32,6 +32,24 @@ namespace WebApplication1.Controllers
             _S = S;
         }
 
+        [Authorize]
+        [HttpGet("/Account/LoginNotifications")]
+        public async Task<IActionResult> LoginNotifications()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+                return Json(new { approvalPending = 0, sharedUnread = 0 });
+
+            var approvalPending = await GetApprovalPendingCountAsync(userId);
+            var sharedUnread = await GetSharedUnreadCountAsync(userId);
+
+            return Json(new
+            {
+                approvalPending,
+                sharedUnread
+            });
+        }
+
         // 2025.12.15 Added: returnUrl 정규화 Login 자기자신 및 초대리셋 경유 URL 차단
         private string NormalizeReturnUrl(string? returnUrl)
         {

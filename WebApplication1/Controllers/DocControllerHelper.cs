@@ -1,19 +1,35 @@
-﻿using ClosedXML.Excel;
-using DocumentFormat.OpenXml.Spreadsheet;
+﻿// 2026.01.26 Changed: DocControllerHelper 공용 함수 누락 보완 및 컴파일 가능하도록 의존성 주입과 접근 제어 수정
+using ClosedXML.Excel;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using WebApplication1.Models;
 
 namespace WebApplication1.Controllers
 {
     public class DocControllerHelper
     {
-        private async Task<List<OrgTreeNode>> BuildOrgTreeNodesAsync(string langCode)
+        private readonly IConfiguration _cfg;
+        private readonly IWebHostEnvironment _env;
+        private readonly ClaimsPrincipal _user;
+
+        public DocControllerHelper(IConfiguration cfg, IWebHostEnvironment env, ClaimsPrincipal user)
+        {
+            _cfg = cfg;
+            _env = env;
+            _user = user;
+        }
+
+        public async Task<List<OrgTreeNode>> BuildOrgTreeNodesAsync(string langCode)
         {
             var orgNodes = new List<OrgTreeNode>();
             var compMap = new Dictionary<string, OrgTreeNode>(StringComparer.OrdinalIgnoreCase);
@@ -79,10 +95,15 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                             NodeId = compCd,
                             Name = compName,
                             NodeType = "Branch",
-                            ParentId = null
+                            ParentId = null,
+                            Children = new List<OrgTreeNode>()
                         };
                         compMap[compCd] = compNode;
                         orgNodes.Add(compNode);
+                    }
+                    else
+                    {
+                        compNode.Children ??= new List<OrgTreeNode>();
                     }
 
                     // 부서 노드 (유니크 NodeId: compCd:deptId)
@@ -94,10 +115,15 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                             NodeId = deptKey,
                             Name = deptName,
                             NodeType = "Dept",
-                            ParentId = compNode.NodeId
+                            ParentId = compNode.NodeId,
+                            Children = new List<OrgTreeNode>()
                         };
                         deptMap[deptKey] = deptNode;
                         compNode.Children.Add(deptNode);
+                    }
+                    else
+                    {
+                        deptNode.Children ??= new List<OrgTreeNode>();
                     }
 
                     // 사용자 노드
@@ -110,7 +136,8 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                         NodeId = userId,
                         Name = caption,
                         NodeType = "User",
-                        ParentId = deptNode.NodeId
+                        ParentId = deptNode.NodeId,
+                        Children = new List<OrgTreeNode>()
                     };
 
                     deptNode.Children.Add(userNode);
@@ -124,7 +151,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return orgNodes;
         }
 
-        private string ToContentRootAbsolute(string? path)
+        public string ToContentRootAbsolute(string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return string.Empty;
 
@@ -138,8 +165,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return Path.Combine(_env.ContentRootPath, normalized);
         }
 
-        // ContentRoot 기준 상대 경로(절대 → 상대) 변환
-        private string ToContentRootRelative(string? fullPath)
+        public string ToContentRootRelative(string? fullPath)
         {
             if (string.IsNullOrWhiteSpace(fullPath)) return string.Empty;
 
@@ -160,27 +186,24 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return normalized;
         }
 
-        private static string NormalizeTemplateExcelPath(string? raw)
+        public static string NormalizeTemplateExcelPath(string? raw)
         {
             var s = (raw ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(s)) return s;
 
-            // 이미 상대경로(App_Data...)면 그대로
             if (s.StartsWith("App_Data\\", StringComparison.OrdinalIgnoreCase) || s.StartsWith("App_Data/", StringComparison.OrdinalIgnoreCase))
                 return s.Replace('/', '\\');
 
-            // 절대경로에 App_Data\ 또는 App_Data/ 가 포함되어 있으면 그 이후만 취함
             var idx = s.IndexOf("App_Data\\", StringComparison.OrdinalIgnoreCase);
             if (idx < 0) idx = s.IndexOf("App_Data/", StringComparison.OrdinalIgnoreCase);
 
             if (idx >= 0)
                 return s.Substring(idx).Replace('/', '\\');
 
-            // 그 외는 원본 유지
             return s;
         }
 
-        private static (string BaseKey, int? Index) ParseKey(string key)
+        public static (string BaseKey, int? Index) ParseKey(string key)
         {
             if (string.IsNullOrWhiteSpace(key)) return ("", null);
             var i = key.LastIndexOf('_');
@@ -189,8 +212,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return (key, null);
         }
 
-        // ========= Preview 생성 =========
-        private static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
+        public static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
         {
             using var wb = new XLWorkbook(excelPath);
             var ws0 = wb.Worksheets.First();
@@ -286,7 +308,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 styles
             });
         }
-        
+
         private static string? ToHexIfRgb(IXLCell cell)
         {
             try
@@ -302,7 +324,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return null;
         }
 
-        private static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
+        public static bool TryParseJsonFlexible(string? json, out JsonDocument doc)
         {
             doc = null!;
             if (string.IsNullOrWhiteSpace(json)) return false;
@@ -327,10 +349,9 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             }
         }
 
-
-        private TimeZoneInfo ResolveCompanyTimeZone()
+        public TimeZoneInfo ResolveCompanyTimeZone()
         {
-            var compCd = User.FindFirstValue("compCd") ?? "";
+            var compCd = _user.FindFirstValue("compCd") ?? "";
 
             string? tzIdFromDb = null;
             try
@@ -377,15 +398,14 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return TimeZoneInfo.Utc;
         }
 
-        private string ResolveTimeZoneIdForCurrentUser()
+        public string ResolveTimeZoneIdForCurrentUser()
         {
-            var tzFromClaim = User?.Claims?.FirstOrDefault(c => c.Type == "TimeZoneId")?.Value;
+            var tzFromClaim = _user?.Claims?.FirstOrDefault(c => c.Type == "TimeZoneId")?.Value;
             if (!string.IsNullOrWhiteSpace(tzFromClaim)) return tzFromClaim;
             return "Korea Standard Time";
         }
 
-
-        private string ToLocalStringFromUtc(DateTime utc)
+        public string ToLocalStringFromUtc(DateTime utc)
         {
             if (utc.Kind != DateTimeKind.Utc)
                 utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
@@ -405,12 +425,11 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
 
-
-        private string GetCurrentUserEmail()
+        public string GetCurrentUserEmail()
         {
             try
             {
-                var uid = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var uid = _user?.FindFirstValue(ClaimTypes.NameIdentifier);
                 if (string.IsNullOrWhiteSpace(uid)) return string.Empty;
 
                 var cs = _cfg.GetConnectionString("DefaultConnection");
@@ -423,12 +442,11 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             catch { return string.Empty; }
         }
 
-
-        private string GetCurrentUserDisplayNameStrict()
+        public string GetCurrentUserDisplayNameStrict()
         {
             try
             {
-                var uid = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var uid = _user?.FindFirstValue(ClaimTypes.NameIdentifier);
                 if (string.IsNullOrWhiteSpace(uid)) return string.Empty;
 
                 var cs = _cfg.GetConnectionString("DefaultConnection");
@@ -447,7 +465,7 @@ WHERE p.UserId = @uid;", conn);
             catch { return string.Empty; }
         }
 
-        private string GetDisplayNameByEmailStrict(string? email)
+        public string GetDisplayNameByEmailStrict(string? email)
         {
             if (string.IsNullOrWhiteSpace(email)) return string.Empty;
 
@@ -471,14 +489,14 @@ WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
             catch { return string.Empty; }
         }
 
-        private static string FallbackNameFromEmail(string? email)
+        public static string FallbackNameFromEmail(string? email)
         {
             if (string.IsNullOrWhiteSpace(email)) return string.Empty;
             var at = email.IndexOf('@');
             return at > 0 ? email[..at] : email;
         }
 
-        private string ComposeAddress(string? email, string? displayName)
+        public string ComposeAddress(string? email, string? displayName)
         {
             if (string.IsNullOrWhiteSpace(email)) return string.Empty;
             var name = (displayName ?? string.Empty).Trim();
@@ -487,17 +505,17 @@ WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
             return $"{name} <{email.Trim()}>";
         }
 
-        private (string compCd, string? departmentId) GetUserCompDept()
+        public (string compCd, string? departmentId) GetUserCompDept()
         {
-            var comp = User.FindFirstValue("compCd");
-            var dept = User.FindFirstValue("departmentId");
+            var comp = _user.FindFirstValue("compCd");
+            var dept = _user.FindFirstValue("departmentId");
 
             if (!string.IsNullOrWhiteSpace(comp))
                 return (comp, string.IsNullOrWhiteSpace(dept) ? null : dept);
 
             try
             {
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                var userId = _user.FindFirstValue(ClaimTypes.NameIdentifier);
                 if (!string.IsNullOrEmpty(userId))
                 {
                     var cs = _cfg.GetConnectionString("DefaultConnection");
@@ -518,7 +536,8 @@ WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
             catch { }
             return ("", string.IsNullOrWhiteSpace(dept) ? null : dept);
         }
-        private static string CalculateViewerRole(
+
+        public static string CalculateViewerRole(
             string? createdBy,
             string viewerId,
             List<(int StepOrder, string? UserId, string Status)> approvals)
@@ -538,6 +557,5 @@ WHERE LTRIM(RTRIM(u.Email)) = @em OR u.NormalizedEmail = UPPER(@em);", conn);
             if (isApprover) return "Approver";
             return "Viewer";
         }
-
     }
 }
