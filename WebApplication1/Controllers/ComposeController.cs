@@ -1,10 +1,7 @@
-﻿// 2026.01.23 Added: DocController 분리용 스켈레톤 생성
-
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using DocumentFormat.OpenXml.Bibliography;
 using DocumentFormat.OpenXml.Office2010.Excel;
 using DocumentFormat.OpenXml.Spreadsheet;
-using Lib.Net.Http.WebPush;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -33,7 +30,7 @@ using System.Threading.Tasks;
 using WebApplication1.Data;
 using WebApplication1.Models;
 using WebApplication1.Services;
-using static WebApplication1.Controllers.DocController;
+using static WebApplication1.Controllers.DocControllerHelper;
 
 namespace WebApplication1.Controllers
 {
@@ -41,7 +38,7 @@ namespace WebApplication1.Controllers
     [Route("Doc")]
     public class ComposeController : Controller
     {
-        private readonly IStringLocalizer _S;
+        private readonly IStringLocalizer<SharedResource> _S;
         private readonly IConfiguration _cfg;
         private readonly IAntiforgery _antiforgery;
         private readonly IWebHostEnvironment _env;
@@ -50,11 +47,14 @@ namespace WebApplication1.Controllers
         private readonly ILogger _log;
         private readonly IEmailSender _emailSender;
         private readonly SmtpOptions _smtpOpt;
-        private static readonly object _attachSeqLock = new object();
+        private static readonly object _attachSeqLock = new();
+        private static readonly string[] _msgUploadFailed = new[] { "DOC_Err_UploadFailed" };
         private readonly IWebPushNotifier _webPushNotifier;
 
+        private readonly DocControllerHelper _helper;
+
         public ComposeController(
-            IStringLocalizer S,
+            IStringLocalizer<SharedResource> S,
             IConfiguration cfg,
             IAntiforgery antiforgery,
             IWebHostEnvironment env,
@@ -76,6 +76,9 @@ namespace WebApplication1.Controllers
             _smtpOpt = smtpOptions?.Value ?? new SmtpOptions();
             _log = log;
             _webPushNotifier = webPushNotifier;
+
+            // ★ 생성자 시점에 User를 "값"으로 박제하지 않고, 실행 시점에 평가되도록 Func로 전달
+            _helper = new DocControllerHelper(_cfg, _env, () => User);
         }
 
         [HttpGet("New")]
@@ -114,10 +117,7 @@ namespace WebApplication1.Controllers
                 catch { }
             }
 
-            vm.CompOptions = new List<SelectListItem>
-            {
-                new SelectListItem { Value = "", Text = _S["_CM_Select"].Value, Selected = true }
-            };
+            vm.CompOptions = [ new() { Value = "", Text = _S["_CM_Select"], Selected = true }];
 
             try
             {
@@ -143,11 +143,7 @@ namespace WebApplication1.Controllers
             }
             catch { }
 
-            vm.DepartmentOptions = new List<SelectListItem>
-            {
-                new SelectListItem { Value = "__SELECT__", Text = $"-- {_S["_CM_Select"]} --", Selected = true },
-                new SelectListItem { Value = "", Text = _S["_CM_Common"].Value, Selected = string.IsNullOrEmpty(userDept) }
-            };
+            vm.DepartmentOptions = [new() { Value = "__SELECT__", Text = $"-- {_S["_CM_Select"]} --", Selected = true }, new() { Value = "", Text = _S["_CM_Common"], Selected = string.IsNullOrEmpty(userDept) }];
 
             ViewBag.Templates = Array.Empty<(string code, string title)>();
             ViewBag.Kinds = Array.Empty<(string value, string text)>();
@@ -155,7 +151,8 @@ namespace WebApplication1.Controllers
             ViewBag.Sites = Array.Empty<(string value, string text)>();
             ViewBag.UserComp = userComp;
 
-            return View("Select", vm);
+            //return View("Select", vm);
+            return View("~/Views/Doc/Select.cshtml", vm);
         }
 
 
@@ -205,11 +202,11 @@ namespace WebApplication1.Controllers
 
                 // (기존, 빌드 에러) var orgNodes = await BuildOrgTreeNodesAsync(conn, langCode);
                 // (수정) BuildOrgTreeNodesAsync의 기존 시그니처에 맞춰 호출
-                var orgNodes = await BuildOrgTreeNodesAsync(langCode);
+                var orgNodes = await _helper.BuildOrgTreeNodesAsync(langCode);
 
                 ViewBag.OrgTreeNodes = orgNodes;
             }
-            catch (Exception ex)
+            catch
             {
                 ViewBag.OrgTreeNodes = Array.Empty<OrgTreeNode>();
             }
@@ -222,7 +219,8 @@ namespace WebApplication1.Controllers
             ViewBag.TemplateCode = templateCode;
             ViewBag.HideCellPicker = true;
 
-            return View("Compose");
+            //return View("Compose");
+            return View("~/Views/Doc/Compose.cshtml");
 
             static bool HasCells(string json)
             {
@@ -255,20 +253,19 @@ namespace WebApplication1.Controllers
             return Json(new { headerName = "RequestVerificationToken", token = tokens.RequestToken });
         }
 
-
         [HttpPost("Upload")]
         [RequestSizeLimit(50_000_000)]
         public async Task<IActionResult> Upload([FromQuery] string? docId, [FromForm] List<IFormFile> files)
         {
             if (files == null || files.Count == 0)
-                return BadRequest(new { messages = new[] { "DOC_Err_UploadFailed" }, detail = "no files" });
+                return BadRequest(new { messages = _msgUploadFailed, detail = "no files" });
 
             var trimmedDocId = string.IsNullOrWhiteSpace(docId) ? null : docId.Trim();
             var uploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
             // 정책: docId 없는 업로드는 허용하지 않음
             if (string.IsNullOrWhiteSpace(trimmedDocId))
-                return BadRequest(new { messages = new[] { "DOC_Err_UploadFailed" }, detail = "docId required" });
+                return BadRequest(new { messages = _msgUploadFailed, detail = "docId required" });
 
             // 1) 문서 메타(CompCd/DepartCD/작성월) 해석
             var meta = await ResolveDocMetaForAttachmentPathAsync(trimmedDocId!);
@@ -290,11 +287,11 @@ namespace WebApplication1.Controllers
             {
                 if (f == null || f.Length <= 0) continue;
 
-                var originalName = Path.GetFileName(f.FileName);
-                var ext = Path.GetExtension(originalName)?.ToLowerInvariant() ?? "";
+                var OriginalName = Path.GetFileName(f.FileName);
+                var ext = Path.GetExtension(OriginalName)?.ToLowerInvariant() ?? "";
                 if (string.IsNullOrWhiteSpace(ext)) ext = "";
 
-                var fileKey = Guid.NewGuid().ToString("N");
+                var FileKey = Guid.NewGuid().ToString("N");
 
                 // SHA256: DB varbinary(32)
                 byte[] shaBytes;
@@ -313,8 +310,8 @@ namespace WebApplication1.Controllers
                 }
 
                 var safeFileName = $"{trimmedDocId}_Attach{nextN}{ext}";
-                var relPath = Path.Combine(relDir, safeFileName);      // DB 저장용(상대경로)
-                var absPath = Path.Combine(absDir, safeFileName);      // 파일 저장용(절대경로)
+                var relPath = Path.Combine(relDir, safeFileName); // DB 저장용(상대경로)
+                var absPath = Path.Combine(absDir, safeFileName); // 파일 저장용(절대경로)
 
                 // 파일 저장
                 await using (var outStream = System.IO.File.Create(absPath))
@@ -322,39 +319,39 @@ namespace WebApplication1.Controllers
                     await f.CopyToAsync(outStream);
                 }
 
-                var contentType = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType;
+                var ContentType = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType;
 
                 // 4) DB 저장: StoragePath는 상대경로만 저장
                 try
                 {
                     await InsertDocumentFileRowAsync(
                         trimmedDocId!,
-                        fileKey,
-                        originalName,
-                        relPath,          // ★ 상대경로 저장
-                        contentType,
+                        FileKey,
+                        OriginalName,
+                        relPath,      // 상대경로 저장
+                        ContentType,
                         (long)f.Length,
-                        shaBytes,         // varbinary(32)
+                        shaBytes,     // varbinary(32)
                         uploadedBy
                     );
                 }
                 catch (SqlException se)
                 {
-                    _log.LogError(se, "Doc.Upload SQL failed docId={docId} fileKey={fileKey}", trimmedDocId, fileKey);
-                    return StatusCode(500, new { messages = new[] { "DOC_Err_UploadFailed" }, detail = se.Message });
+                    _log.LogError(se, "Doc.Upload SQL failed docId={docId} FileKey={FileKey}", trimmedDocId, FileKey);
+                    return StatusCode(500, new { messages = _msgUploadFailed, detail = se.Message });
                 }
                 catch (Exception ex)
                 {
-                    _log.LogError(ex, "Doc.Upload insert failed docId={docId} fileKey={fileKey}", trimmedDocId, fileKey);
-                    return StatusCode(500, new { messages = new[] { "DOC_Err_UploadFailed" }, detail = ex.Message });
+                    _log.LogError(ex, "Doc.Upload insert failed docId={docId} FileKey={FileKey}", trimmedDocId, FileKey);
+                    return StatusCode(500, new { messages = _msgUploadFailed, detail = ex.Message });
                 }
 
                 results.Add(new
                 {
-                    fileKey,
-                    originalName,
-                    contentType,
-                    byteSize = (long)f.Length,
+                    FileKey,
+                    OriginalName,
+                    ContentType,
+                    ByteSize = (long)f.Length,
                     docId = trimmedDocId,
                     storagePath = relPath.Replace('/', '\\') // UI/디버그 확인용(표시)
                 });
@@ -365,7 +362,7 @@ namespace WebApplication1.Controllers
         }
 
 
-        private async Task InsertDocumentFileRowAsync(string docId, string fileKey, string originalName, string storagePath, string contentType, long byteSize, byte[] sha256Bytes, string uploadedBy)
+        private async Task InsertDocumentFileRowAsync(string docId, string FileKey, string OriginalName, string storagePath, string ContentType, long ByteSize, byte[] sha256Bytes, string uploadedBy)
         {
             if (sha256Bytes == null || sha256Bytes.Length != 32)
                 throw new InvalidOperationException($"Sha256Bytes must be 32 bytes. actual={(sha256Bytes == null ? 0 : sha256Bytes.Length)}");
@@ -384,11 +381,11 @@ VALUES
 (@DocId, @FileKey, @OriginalName, @StoragePath, @ContentType, @ByteSize, @Sha256, @UploadedBy, SYSUTCDATETIME());";
 
             cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 100) { Value = docId });
-            cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 64) { Value = fileKey });
-            cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 510) { Value = originalName ?? "" });
+            cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 64) { Value = FileKey });
+            cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 510) { Value = OriginalName ?? "" });
             cmd.Parameters.Add(new SqlParameter("@StoragePath", SqlDbType.NVarChar, 800) { Value = storagePath ?? "" }); // ★ 상대경로
-            cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 254) { Value = contentType ?? "" });
-            cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = byteSize });
+            cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 254) { Value = ContentType ?? "" });
+            cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = ByteSize });
 
             cmd.Parameters.Add(new SqlParameter("@Sha256", SqlDbType.VarBinary, 32) { Value = sha256Bytes });
             cmd.Parameters.Add(new SqlParameter("@UploadedBy", SqlDbType.NVarChar, 128) { Value = uploadedBy ?? "" });
@@ -523,16 +520,16 @@ WHERE DocId = @DocId
             var tc = dto.TemplateCode!;
             var inputsMap = dto.Inputs ?? new Dictionary<string, string>();
 
-            var userCompDept = GetUserCompDept();
+            var userCompDept = _helper.GetUserCompDept();
             var compCd = string.IsNullOrWhiteSpace(userCompDept.compCd) ? "0000" : userCompDept.compCd!;
             var deptIdPart = string.IsNullOrWhiteSpace(userCompDept.departmentId) ? "0" : userCompDept.departmentId!;
 
             var (descriptorJson, _previewJsonFromTpl, title, versionId, excelPathRaw) = await _tpl.LoadMetaAsync(tc);
 
-            // ✅ 방어: DB에 개발환경 절대경로가 섞여도 App_Data 이후 상대경로로 정규화
+            // 방어: DB에 개발환경 절대경로가 섞여도 App_Data 이후 상대경로로 정규화
             excelPathRaw = NormalizeTemplateExcelPath(excelPathRaw);
 
-            var excelPath = ToContentRootAbsolute(excelPathRaw);
+            var excelPath = _helper.ToContentRootAbsolute(excelPathRaw);
 
             if (versionId <= 0 || string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
                 return BadRequest(new
@@ -744,7 +741,7 @@ WHERE DocId = @DocId
             string finalExcelFullPath = string.Empty;
             try
             {
-                finalExcelFullPath = ToContentRootAbsolute(outputPathForDb);
+                finalExcelFullPath = _helper.ToContentRootAbsolute(outputPathForDb);
 
                 var finalDir = Path.GetDirectoryName(finalExcelFullPath);
                 if (!string.IsNullOrWhiteSpace(finalDir))
@@ -886,7 +883,7 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
             }
 
             // ------------------------------------------------------------
-            // ✅ WebPush: A1(첫 결재자) + 공유자에게 "카운트" 알림 발송 (URL 없음, tag 고정)
+            // WebPush: A1(첫 결재자) + 공유자에게 "카운트" 알림 발송 (URL 없음, tag 고정)
             // - 커밋/저장 완료 이후에만 발송 (현재 위치 OK)
             // - 중복 알림 폭주 방지: tag 고정
             //   결재: badge-approval-pending
@@ -896,81 +893,21 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
             {
                 var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
 
-                async Task<int> GetApprovalPendingCountAsync(string targetUserId)
-                {
-                    await using var conn = new SqlConnection(cs);
-                    await conn.OpenAsync();
+                // 2026.02.04 Changed: 같은 try 블록 내에서 연결 1회만 열고 헬퍼에 전달
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
 
-                    var sql = @"
-SELECT COUNT(1)
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId
-  AND ISNULL(a.Status, N'') = N'Pending'
-  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
-  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
-
-                    await using var cmd = new SqlCommand(sql, conn);
-                    cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                    return Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                }
-
-                async Task<int> GetSharedUnreadCountAsync(string targetUserId)
-                {
-                    await using var conn = new SqlConnection(cs);
-                    await conn.OpenAsync();
-
-                    var sql = @"
-SELECT COUNT(1)
-FROM DocumentShares s
-WHERE s.UserId = @UserId
-  AND ISNULL(s.IsRevoked, 0) = 0
-  AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
-  AND NOT EXISTS (
-      SELECT 1
-      FROM DocumentViewLogs v
-      WHERE v.DocId = s.DocId
-        AND v.ViewerId = @UserId
-        AND ISNULL(v.ViewerRole, N'') = N'Shared'
-  );";
-
-                    await using var cmd = new SqlCommand(sql, conn);
-                    cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                    return Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                }
-
-                async Task<string> GetA1ApproverUserIdByDocAsync(string xDocId)
-                {
-                    // EnsureApprovalsAndSync + UserId 보정까지 끝난 이후라면
-                    // DocumentApprovals에서 StepOrder=1 UserId를 직접 읽는 게 가장 안전합니다.
-                    await using var conn = new SqlConnection(cs);
-                    await conn.OpenAsync();
-
-                    var sql = @"
-SELECT TOP (1) a.UserId
-FROM dbo.DocumentApprovals a
-WHERE a.DocId = @DocId
-  AND a.StepOrder = 1
-ORDER BY a.Id;";
-
-                    await using var cmd = new SqlCommand(sql, conn);
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = xDocId });
-
-                    var obj = await cmd.ExecuteScalarAsync();
-                    return (obj == null || obj == DBNull.Value) ? "" : (obj.ToString() ?? "").Trim();
-                }
-
-                // 1) A1 결재자에게 "결재 대기 N건" (tag 고정, URL 없음)
-                var a1UserId = await GetA1ApproverUserIdByDocAsync(docId);
+                // 1) A1 결재자에게 "결재 대기 N건" (tag 고정, url "/" 통일)
+                // - GetA1ApproverUserIdByDocAsync 는 이미 위에서 사용하던 쿼리 로직을 DocControllerHelper로 옮긴 것으로 가정
+                var a1UserId = await DocControllerHelper.GetA1ApproverUserIdByDocAsync(conn, docId);
                 if (!string.IsNullOrWhiteSpace(a1UserId))
                 {
-                    var n = await GetApprovalPendingCountAsync(a1UserId);
-
-                    await _webPushNotifier.SendToUserIdAsync(
-                        userId: a1UserId,
-                        title: "E-BOARD",
-                        body: $"{n}개의 문서가 결재 대기 중입니다.",
-                        url: "/",                 // URL 사용 안 함(기본값)
+                    await DocControllerHelper.SendApprovalPendingBadgeAsync(
+                        notifier: _webPushNotifier,
+                        S: _S,
+                        conn: conn,
+                        targetUserIds: new List<string> { a1UserId.Trim() },
+                        url: "/",
                         tag: "badge-approval-pending"
                     );
                 }
@@ -979,7 +916,7 @@ ORDER BY a.Id;";
                     _log.LogWarning("WebPush A1 userId not found docId={docId}", docId);
                 }
 
-                // 2) 공유자에게 "공유 중(미확인) N건" (tag 고정, URL 없음)
+                // 2) 공유자에게 "공유 중 미확인 N건" (tag 고정, url "/" 통일)
                 var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
                 var shareIds = (dto.SelectedRecipientUserIds ?? new List<string>())
                     .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -988,15 +925,14 @@ ORDER BY a.Id;";
                     .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
-                foreach (var uid in shareIds)
+                if (shareIds.Count > 0)
                 {
-                    var n = await GetSharedUnreadCountAsync(uid);
-
-                    await _webPushNotifier.SendToUserIdAsync(
-                        userId: uid,
-                        title: "E-BOARD",
-                        body: $"{n}개의 문서가 공유 중입니다.",
-                        url: "/",             // URL 사용 안 함(기본값)
+                    await DocControllerHelper.SendSharedUnreadBadgeAsync(
+                        notifier: _webPushNotifier,
+                        S: _S,
+                        conn: conn,
+                        targetUserIds: shareIds,
+                        url: "/",
                         tag: "badge-shared"
                     );
                 }
@@ -1023,8 +959,8 @@ ORDER BY a.Id;";
             });
         }
 
-        
-        private async Task<object?> SendSubmitMailAsync(string docId, string templateCode, string title, string authorName, List<string> toEmails, List<string>? ccEmails = null, List<string>? bccEmails = null, List<string>? diag = null)
+
+        private async Task<object?> SendSubmitMailAsync(ComposePostDto dto, string docId, string templateCode, string title, string authorName, List<string> toEmails, List<string>? ccEmails = null, List<string>? bccEmails = null, List<string>? diag = null)
         {
             if (dto?.Mail == null || dto.Mail.Send == false)
                 return new
@@ -1074,8 +1010,7 @@ ORDER BY a.Id;";
                                 {
                                     if (o.ValueKind == JsonValueKind.Number && o.TryGetInt32(out var oi))
                                         ord = oi;
-                                    else if (o.ValueKind == JsonValueKind.String &&
-                                             int.TryParse(o.GetString(), out var os))
+                                    else if (o.ValueKind == JsonValueKind.String && int.TryParse(o.GetString(), out var os))
                                         ord = os;
                                 }
                                 if (ord < minOrder) minOrder = ord;
@@ -1100,8 +1035,7 @@ ORDER BY a.Id;";
                                     {
                                         if (o.ValueKind == JsonValueKind.Number && o.TryGetInt32(out var oi))
                                             ord = oi;
-                                        else if (o.ValueKind == JsonValueKind.String &&
-                                                 int.TryParse(o.GetString(), out var os))
+                                        else if (o.ValueKind == JsonValueKind.String && int.TryParse(o.GetString(), out var os))
                                             ord = os;
                                     }
                                     if (ord != minOrder) continue;
@@ -1169,11 +1103,23 @@ ORDER BY a.Id;";
                                               .Select(s => s.Trim())
                                               .Distinct(StringComparer.OrdinalIgnoreCase);
 
-            var fromEmail = !string.IsNullOrWhiteSpace(dto?.Mail?.From) ? dto!.Mail!.From! : GetCurrentUserEmail();
-            var authorDisplay = GetCurrentUserDisplayNameStrict();
-            var fromAddress = ComposeAddress(fromEmail, authorDisplay);
+            //var fromEmail = !string.IsNullOrWhiteSpace(dto?.Mail?.From) ? dto!.Mail!.From! : _helper.GetCurrentUserEmail();
+            //var authorDisplay = _helper.GetCurrentUserDisplayNameStrict();
+            //var fromAddress = _helper.ComposeAddress(fromEmail, authorDisplay);
+
+            //var normalizedDesc = dto.DescriptorJson ?? ""; // 호출부에서 normalizedDesc 전달 중이라면, 여기서 그 값을 넣도록 호출부에 맞춰 조정
+            //var firstStepToEmails = ResolveFirstStepApproverEmails(normalizedDesc, toEmails);
+            var fromEmail = !string.IsNullOrWhiteSpace(dto?.Mail?.From) ? dto!.Mail!.From! : _helper.GetCurrentUserEmail();
+            var authorDisplay = _helper.GetCurrentUserDisplayNameStrict();
+            var fromAddress = _helper.ComposeAddress(fromEmail, authorDisplay);
+
+            // ✅ dto.DescriptorJson 프로퍼티가 없음 → 컴파일 에러 원인
+            // - 원래 의도는 "정규화된 descriptorJson"을 메일 로직에서 활용하려는 것이므로
+            // - 현재 스켈레톤에서는 빈 값으로 두고, 수신자 fallback(DocumentApprovals 조회) 로직이 동작하도록 둔다
+            var normalizedDesc = string.Empty;
 
             var firstStepToEmails = ResolveFirstStepApproverEmails(normalizedDesc, toEmails);
+
 
             if (!Norm(firstStepToEmails).Any())
             {
@@ -1184,19 +1130,19 @@ ORDER BY a.Id;";
                     await conn.OpenAsync();
 
                     await using var cmd = conn.CreateCommand();
-                    cmd.CommandText = @"ㅊ
-        SELECT DISTINCT
-               COALESCE(u.Email, a.ApproverValue) AS Email
-        FROM dbo.DocumentApprovals a
-        LEFT JOIN dbo.AspNetUsers u ON a.UserId = u.Id
-        WHERE a.DocId = @DocId
-          AND a.Status = N'Pending'
-          AND a.StepOrder = (
-                SELECT MIN(StepOrder)
-                FROM dbo.DocumentApprovals
-                WHERE DocId = @DocId
-                  AND Status = N'Pending'
-              );";
+                    cmd.CommandText = @"
+SELECT DISTINCT
+       COALESCE(u.Email, a.ApproverValue) AS Email
+FROM dbo.DocumentApprovals a
+LEFT JOIN dbo.AspNetUsers u ON a.UserId = u.Id
+WHERE a.DocId = @DocId
+  AND a.Status = N'Pending'
+  AND a.StepOrder = (
+        SELECT MIN(StepOrder)
+        FROM dbo.DocumentApprovals
+        WHERE DocId = @DocId
+          AND Status = N'Pending'
+      );";
                     cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
 
                     var fallbackEmails = new List<string>();
@@ -1220,12 +1166,12 @@ ORDER BY a.Id;";
             }
 
             var toList = firstStepToEmails;
-            var ccList = dto?.Mail?.CC ?? new List<string>();
-            var bccList = dto?.Mail?.BCC ?? new List<string>();
+            var ccList = dto?.Mail?.CC ?? (ccEmails ?? new List<string>());
+            var bccList = dto?.Mail?.BCC ?? (bccEmails ?? new List<string>());
 
-            List<string> toDisplay = Norm(toList).Select(e => ComposeAddress(e, GetDisplayNameByEmailStrict(e))).ToList();
-            List<string> ccDisplay = Norm(ccList).Select(e => ComposeAddress(e, GetDisplayNameByEmailStrict(e))).ToList();
-            List<string> bccDisplay = Norm(bccList).Select(e => ComposeAddress(e, GetDisplayNameByEmailStrict(e))).ToList();
+            List<string> toDisplay = Norm(toList).Select(e => _helper.ComposeAddress(e, _helper.GetDisplayNameByEmailStrict(e))).ToList();
+            List<string> ccDisplay = Norm(ccList).Select(e => _helper.ComposeAddress(e, _helper.GetDisplayNameByEmailStrict(e))).ToList();
+            List<string> bccDisplay = Norm(bccList).Select(e => _helper.ComposeAddress(e, _helper.GetDisplayNameByEmailStrict(e))).ToList();
 
             string subject, body;
             {
@@ -1240,8 +1186,8 @@ ORDER BY a.Id;";
                 else
                 {
                     var firstEmail = Norm(toList).FirstOrDefault();
-                    var recipientDisplay = GetDisplayNameByEmailStrict(firstEmail);
-                    var docTitle = string.IsNullOrWhiteSpace(title) ? tc : title!;
+                    var recipientDisplay = _helper.GetDisplayNameByEmailStrict(firstEmail);
+                    var docTitle = string.IsNullOrWhiteSpace(title) ? templateCode : title!;
                     var tplMail = BuildSubmissionMail(authorDisplay, docTitle, docId, recipientDisplay);
                     subject = string.IsNullOrWhiteSpace(reqSubj) ? tplMail.subject : reqSubj!;
                     body = string.IsNullOrWhiteSpace(reqBody) ? tplMail.bodyHtml : reqBody!;
@@ -1302,90 +1248,34 @@ ORDER BY a.Id;";
             };
         }
 
-        private async Task NotifySharesByWebPushAsync(SqlConnection conn, string docId, List<string> shareUserIds)
+        private async Task NotifySharesByWebPushAsync(SqlConnection conn, string docId, List<string> newlyAdded)
         {
-            if (conn == null) throw new ArgumentNullException(nameof(conn));
-            if (string.IsNullOrWhiteSpace(docId)) return;
-            if (shareUserIds == null || shareUserIds.Count == 0) return;
+            // ---- (기존 UpdateShares 주석은 호출부에 그대로 유지) ----
+            if (newlyAdded == null || newlyAdded.Count == 0) return;
 
-            var targets = shareUserIds
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (targets.Count == 0) return;
-
-            var subject = _cfg["WebPush:Subject"] ?? "mailto:admin@example.com";
-            var publicKey = _cfg["WebPush:PublicKey"];
-            var privateKey = _cfg["WebPush:PrivateKey"];
-            if (string.IsNullOrWhiteSpace(publicKey) || string.IsNullOrWhiteSpace(privateKey)) return;
-
-            var vapid = new Lib.Net.Http.WebPush.Authentication.VapidDetails(subject, publicKey, privateKey);
-            var client = new Lib.Net.Http.WebPush.WebPushClient();
-
-            var paramNames = new List<string>();
-            using var cmd = conn.CreateCommand();
-            for (int i = 0; i < targets.Count; i++)
+            try
             {
-                var pName = "@u" + i.ToString(CultureInfo.InvariantCulture);
-                paramNames.Add(pName);
-                cmd.Parameters.AddWithValue(pName, targets[i]);
-            }
+                var titleText = (_S?["PUSH_Share_Title"] ?? "E-BOARD").ToString();
+                // 예: 바디에 문서번호 포함이 필요하면 리소스가 포맷이면 S["PUSH_Share_Body", docId] 형태로 확장
+                var bodyText = (_S?["PUSH_Share_Body"] ?? "공유된 문서가 있습니다.").ToString();
 
-            cmd.CommandText = $@"
-SELECT Id, UserId, Endpoint, P256dh, Auth
-FROM dbo.WebPushSubscriptions WITH (NOLOCK)
-WHERE IsActive = 1
-  AND UserId IN ({string.Join(",", paramNames)})
-";
-
-            var subs = new List<(long Id, string UserId, string Endpoint, string P256dh, string Auth)>();
-            using (var rd = await cmd.ExecuteReaderAsync())
-            {
-                while (await rd.ReadAsync())
+                foreach (var uid in newlyAdded
+                             .Where(x => !string.IsNullOrWhiteSpace(x))
+                             .Select(x => x.Trim())
+                             .Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    subs.Add((
-                        rd.GetInt64(0),
-                        rd.GetString(1),
-                        rd.GetString(2),
-                        rd.GetString(3),
-                        rd.GetString(4)
-                    ));
+                    await _webPushNotifier.SendToUserIdAsync(
+                        userId: uid,
+                        title: titleText,
+                        body: bodyText,
+                        url: "/Doc/Detail?id=" + Uri.EscapeDataString(docId),
+                        tag: "badge-shared"
+                    );
                 }
             }
-
-            if (subs.Count == 0) return;
-
-            var payloadObj = new
+            catch (Exception exPush)
             {
-                title = "E-BOARD",
-                body = "작성된 문서가 공유되었습니다.",
-                tag = "badge-shared",
-                docId = docId
-            };
-            var payload = System.Text.Json.JsonSerializer.Serialize(payloadObj);
-
-            foreach (var s in subs)
-            {
-                var pushSub = new Lib.Net.Http.WebPush.PushSubscription(
-                    s.Endpoint,
-                    s.P256dh,
-                    s.Auth
-                );
-
-                try
-                {
-                    await client.SendNotificationAsync(pushSub, payload, vapid);
-                }
-                catch (Lib.Net.Http.WebPush.WebPushException)
-                {
-                    // 실패 처리(선택)
-                }
-                catch
-                {
-                    // 실패 처리(선택)
-                }
+                _log.LogWarning(exPush, "UpdateShares: push notify(shared) failed docId={docId}", docId);
             }
         }
 
@@ -1394,8 +1284,8 @@ WHERE IsActive = 1
         // ========= 입력값 → 엑셀 =========
         private async Task<string> GenerateExcelFromInputsAsync(long templateVersionId, string templateExcelFullPath, Dictionary<string, string> inputs, string? descriptorVersion)
         {
-            if (string.IsNullOrWhiteSpace(templateExcelPath) || !System.IO.File.Exists(templateExcelPath))
-                throw new FileNotFoundException("Template excel not found", templateExcelPath);
+            if (string.IsNullOrWhiteSpace(templateExcelFullPath) || !System.IO.File.Exists(templateExcelFullPath))
+                throw new FileNotFoundException("Template excel not found", templateExcelFullPath);
 
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
             var maps = new List<(string key, string a1, string type)>();
@@ -1410,7 +1300,7 @@ SELECT [Key], [Type], A1, CellRow, CellColumn
 FROM dbo.DocTemplateField
 WHERE VersionId = @vid
 ORDER BY Id;";
-                    cmd.Parameters.Add(new SqlParameter("@vid", SqlDbType.BigInt) { Value = versionId });
+                    cmd.Parameters.Add(new SqlParameter("@vid", SqlDbType.BigInt) { Value = templateVersionId });
 
                     await using var rd = await cmd.ExecuteReaderAsync();
                     while (await rd.ReadAsync())
@@ -1430,7 +1320,7 @@ ORDER BY Id;";
                 }
             }
 
-            using var wb = new XLWorkbook(templateExcelPath);
+            using var wb = new XLWorkbook(templateExcelFullPath);
             var ws = wb.Worksheets?.FirstOrDefault()
                      ?? throw new InvalidOperationException("Template has no worksheet");
 
@@ -2224,6 +2114,31 @@ VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, @UserId, 'Pending', SYSUTC
                 throw;
             }
         }
+        private static async Task<string?> TryResolveUserIdAsync(SqlConnection conn, SqlTransaction? tx, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+
+            await using var cmd = conn.CreateCommand();
+            if (tx != null) cmd.Transaction = tx;
+            cmd.CommandText = @"
+SELECT TOP 1 Id
+FROM dbo.AspNetUsers
+WHERE Id=@v OR UserName=@v OR NormalizedUserName=UPPER(@v) OR Email=@v OR NormalizedEmail=UPPER(@v);";
+            cmd.Parameters.Add(new SqlParameter("@v", SqlDbType.NVarChar, 256) { Value = value });
+            var id = (string?)await cmd.ExecuteScalarAsync();
+            if (!string.IsNullOrWhiteSpace(id)) return id;
+
+            await using var cmd2 = conn.CreateCommand();
+            if (tx != null) cmd2.Transaction = tx;
+            cmd2.CommandText = @"
+SELECT TOP 1 COALESCE(p.UserId, u.Id)
+FROM dbo.UserProfiles p
+LEFT JOIN dbo.AspNetUsers u ON u.Id = p.UserId
+WHERE p.UserId=@v OR p.Email=@v OR p.DisplayName=@v OR p.Name=@v;";
+            cmd2.Parameters.Add(new SqlParameter("@v", SqlDbType.NVarChar, 256) { Value = value });
+            id = (string?)await cmd2.ExecuteScalarAsync();
+            return string.IsNullOrWhiteSpace(id) ? null : id;
+        }
 
         private static async Task<int?> ResolveTemplateVersionIdAsync(SqlConnection conn, SqlTransaction tx, string templateCode)
         {
@@ -2652,7 +2567,7 @@ ORDER BY v.VersionNo DESC;";
         {
             var link = Url.Action("Detail", "Doc", new { id = docId }, Request.Scheme) ?? "";
 
-            var tz = ResolveCompanyTimeZone();
+            var tz = _helper.ResolveCompanyTimeZone();
             // createdAtLocalForMail 이 넘어오면 그대로 사용, 없으면 현재 시각을 회사 시간대로 변환
             var nowLocal = createdAtLocalForMail ?? TimeZoneInfo.ConvertTime(DateTime.UtcNow, tz);
 
@@ -2908,16 +2823,16 @@ ORDER BY StepOrder;";
         }
         public class ComposeAttachmentDto
         {
-            [JsonPropertyName("fileKey")]
-            public string? FileKey { get; set; }        // /DocFile/Upload 응답의 fileKey
+            [JsonPropertyName("FileKey")]
+            public string? FileKey { get; set; }        // /DocFile/Upload 응답의 FileKey
 
-            [JsonPropertyName("originalName")]
+            [JsonPropertyName("OriginalName")]
             public string? OriginalName { get; set; }   // 원본 파일명(표시용)
 
-            [JsonPropertyName("contentType")]
+            [JsonPropertyName("ContentType")]
             public string? ContentType { get; set; }
 
-            [JsonPropertyName("byteSize")]
+            [JsonPropertyName("ByteSize")]
             public long? ByteSize { get; set; }
         }
         public sealed class ApprovalsDto

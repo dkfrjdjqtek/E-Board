@@ -1,16 +1,52 @@
-﻿@* 2026.01.20 Changed: 뒤로가기(popstate/pageshow) 시에는 조건별 스냅샷을 항상 우선 복원하고 배지만 서버 최신으로 갱신하여 대기필터 결재후에도 리스트가 유지되도록 수정 *@
+﻿@* 2026.02.02 Changed: 일괄 승인 버튼 클릭 시 서버 BulkApprove로 실제 요청을 보내고 성공 시 리로드 없이 리스트와 배지를 부분 갱신하도록 보강 *@
+@* 2026.02.02 Changed 보드 후처리 MutationObserver가 스스로 DOM을 계속 변경해 무한 루프가 발생하는 문제를 차단하고 결재 진행 탭에서만 체크박스를 표시하도록 정리 *@
+@* 2026.02.02 Changed 보드 상태 결과 표시를 좌우 정렬로 통합하고 결과 컬럼을 열람 미열람으로 표시 *@
+@* 2026.02.02 Changed 보드 스크립트 캐시 방지 및 중복 초기화 제거 외부 스크립트 오류로 배지 갱신이 누락되는 문제를 방지하기 위해 BoardBadges 폴백 갱신 로직을 추가 *@
+@* 2026.01.30 Changed Board 페이지 inline script를 wwwroot/js/eb.doc.board.js로 분리하고 i18n JSON을 script 태그로 전달하도록 정리 *@
+@* 2026.01.30 Changed 선택탭 하단 라운딩을 제거하고 상단만 라운딩하여 안쪽 굽음과 삼각형 잔상과 선 끊김을 구조적으로 제거 하단선은 border bottom 단일화 *@
+@using System.Text.Json
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DOC_Board_Title"];
+
+    var __docBoardI18n = new
+    {
+        STATUS_LABELS = new
+        {
+            Pending = S["DOC_Status_Pending"].Value,
+            Approved = S["DOC_Status_Approved"].Value,
+            Rejected = S["DOC_Status_Rejected"].Value,
+            OnHold = S["DOC_Status_OnHold"].Value,
+            Recalled = S["DOC_Status_Recalled"].Value
+        },
+        READ_LABEL = S["DOC_Result_Viewed"].Value,
+        UNREAD_LABEL = S["DOC_Result_Unviewed"].Value,
+        LIST_LOADING = S["DOC_List_Loading"].Value,
+        LIST_EMPTY = S["DOC_List_Empty"].Value,
+        PAGINATION_PREV = S["DOC_Pagination_Prev"].Value,
+        PAGINATION_NEXT = S["DOC_Pagination_Next"].Value,
+        DOC_Toast_BulkApproved = S["DOC_Toast_BulkApproved"].Value,
+         BULK_FAIL = S["DOC_Toast_BulkApproveFailed"].Value
+
+    };
 }
+
 <style>
+    :root {
+        --tab-sel-border: 2px;
+        --tab-radius-top: 14px;
+        --tabbar-bg: #bfbfbf;
+        --tabline: #111827;
+        --tab-h: 44px;
+    }
+
     .doc-board-wrap {
         position: fixed;
-        top: var(--header-h, 56px);
+        top: var(--header-h,56px);
         right: 0;
-        bottom: var(--footer-h, 32px);
-        left: var(--sidebar-w, 270px);
-        padding: 0 24px;
+        bottom: var(--footer-h,32px);
+        left: var(--sidebar-w,270px);
+        padding: 0;
         box-sizing: border-box;
         overflow-y: auto;
         overflow-x: auto;
@@ -24,154 +60,296 @@
         margin-top: 16px;
         margin-bottom: 16px;
         width: 100%;
+        padding: 0 24px;
+        box-sizing: border-box;
+        min-width: 1176px;
     }
 
-    .doc-tabs {
+    .doc-tabs,
+    .doc-subtabs {
         display: flex;
-        gap: .25rem;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .doc-tab {
-        padding: .5rem .75rem;
-        cursor: pointer;
-        border: 1px solid transparent;
-        border-top-left-radius: .5rem;
-        border-top-right-radius: .5rem;
-        color: #fff;
-        background: #6b7280;
-        transition: filter .15s ease, border-color .15s ease, background .15s ease, color .15s ease;
-    }
-
-    .doc-tab:hover {
-        filter: brightness(1.25);
-    }
-
-    .doc-tab:focus-visible {
-        outline: 2px solid currentColor;
-        outline-offset: 2px;
-    }
-
-    .doc-tab[data-tab="created"] {
-        --sel: #111827;
-        background: linear-gradient(180deg,#4b5563,#111827);
-    }
-
-    .doc-tab[data-tab="approval"] {
-        --sel: #2563eb;
-        background: linear-gradient(180deg,#3b82f6,#1d4ed8);
-    }
-
-    .doc-tab[data-tab="shared"] {
-        --sel: #059669;
-        background: linear-gradient(180deg,#10b981,#047857);
-    }
-
-    .doc-tab[aria-selected="true"] {
-        color: #111827;
-        background: #fff;
-        border-color: var(--sel,#111827) var(--sel,#111827) #fff;
-        box-shadow: 0 1px 0 #fff inset;
+        gap: 10px;
+        align-items: flex-end;
+        padding: 12px 12px 0 12px;
+        background: var(--tabbar-bg);
         position: relative;
+        z-index: 2;
+        overflow: visible;
+        box-sizing: border-box;
+        border: 1px solid #cfcfcf;
+        border-bottom: var(--tab-sel-border) solid var(--tabline);
+        border-radius: 2px 2px 0 0;
+        box-shadow: inset 0 1px 0 #cfcfcf;
+        background-clip: padding-box;
     }
 
-    .doc-tab .badge {
-        margin-left: .35rem;
-        font-size: .75rem;
-        background: #ef4444;
-        color: #fff;
-        border-radius: 9999px;
-        padding: 0 .4rem;
+    .doc-subtabs {
+        display: none;
+        margin: -14px -14px 12px -14px;
+        padding: 12px calc(12px + 14px) 0 calc(12px + 14px);
+    }
+
+    .doc-tab,
+    .doc-subtab {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: var(--tab-h);
+        padding: 0 18px;
+        cursor: pointer;
+        background: var(--tabbar-bg);
+        color: var(--tabline);
+        border: 1px solid transparent;
+        border-radius: 2px;
+        font-weight: 400;
+        font-size: 16px;
+        line-height: 1;
+        margin: 0;
+        overflow: visible;
+        -webkit-appearance: none;
+        appearance: none;
+        box-sizing: border-box;
+        background-clip: padding-box;
+        position: relative;
+        z-index: 2;
+    }
+
+        .doc-tab:hover,
+        .doc-subtab:hover {
+            opacity: .92;
+        }
+
+        .doc-tab:focus,
+        .doc-subtab:focus {
+            outline: none;
+        }
+
+        .doc-tab:focus-visible,
+        .doc-subtab:focus-visible {
+            outline: 2px solid rgba(255,255,255,.35);
+            outline-offset: 2px;
+        }
+
+        .doc-tab[aria-selected="true"],
+        .doc-subtab[aria-selected="true"] {
+            background: #ffffff;
+            color: var(--tabline);
+            border: var(--tab-sel-border) solid var(--tabline);
+            border-radius: var(--tab-radius-top) var(--tab-radius-top) 0 0;
+            margin-bottom: calc(var(--tab-sel-border) * -1);
+            border-bottom-color: #ffffff;
+            background-clip: padding-box;
+            box-shadow: none;
+            z-index: 3;
+            font-weight: 700;
+            font-size: 17px;
+        }
+
+        .doc-tab .badge,
+        .doc-subtab .badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 8px;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1;
+            background: #ef4444;
+            color: #fff;
+            border-radius: 9999px;
+            position: relative;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+    .doc-sheet {
+        border: 0;
+        border-top: 0;
+        border-radius: 0 0 2px 2px;
+        background: #ffffff;
+        position: relative;
+        z-index: 1;
+        padding: 14px;
+        box-sizing: border-box;
     }
 
     .doc-filter {
         display: flex;
         flex-wrap: wrap;
-        gap: .5rem;
+        gap: 10px;
         align-items: center;
+        padding: 10px 10px;
+        border: 1px solid #e6e6e6;
+        border-radius: 2px;
+        background: #fff;
+        margin-bottom: 12px;
+        margin-left: -14px;
+        margin-right: -14px;
+        padding-left: 24px;
+        padding-right: 24px;
     }
 
-    .doc-filter select,
-    .doc-filter input {
-        padding: .375rem .5rem;
-        border: 1px solid #d1d5db;
-        border-radius: .375rem;
+        .doc-filter select,
+        .doc-filter input {
+            padding: 10px 12px;
+            border: 1px solid #cfcfcf;
+            border-radius: 2px;
+            background: #fff;
+            font-size: 15px;
+        }
+
+    #filterApply {
+        padding: 10px 14px;
+        border: 1px solid #2c2c2c;
+        border-radius: 2px;
+        background: #2c2c2c;
+        color: #fff;
+        font-weight: 900;
+        font-size: 15px;
+        line-height: 1.1;
+        cursor: pointer;
+    }
+
+        #filterApply:hover {
+            opacity: .92;
+        }
+
+    .doc-tablewrap {
+        border: 1px solid #e6e6e6;
+        border-radius: 2px;
+        background: #fff;
+        overflow-x: visible;
+        margin-left: -14px;
+        margin-right: -14px;
     }
 
     .doc-list {
         width: 100%;
         border-collapse: collapse;
         min-width: 1100px;
+        background: #fff;
+        font-size: 15px;
     }
 
-    .doc-list th {
-        padding: .6rem .625rem;
-        font-weight: 600;
-        color: #374151;
-        background: #f9fafb;
-        text-align: center;
-        border-bottom: 2px solid #d1d5db;
-    }
+        .doc-list th {
+            padding: 12px 10px;
+            font-weight: 900;
+            color: #2c2c2c;
+            background: #f4f4f4;
+            text-align: center; /* 헤더는 항상 중앙 */
+            border-bottom: 1px solid #d8d8d8;
+            font-size: 15px;
+            white-space: nowrap;
+        }
 
-    .doc-list td {
-        padding: .5rem .625rem;
-        border-bottom: 1px solid #e5e7eb;
-    }
+        .doc-list td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e6e6e6;
+            font-size: 15px;
+        }
 
-    .doc-list td:nth-child(1) { text-align: center; }
-    .doc-list td:nth-child(2),
-    .doc-list td:nth-child(3),
-    .doc-list td:nth-child(5) { text-align: left; }
-    .doc-list td:nth-child(4) { text-align: center; }
+        /* =========================================================
+           2026.02.03 Changed 테이블 바디 정렬을 모든 탭에 공통 적용
+           컬럼 순서 고정 가정
+           1 번호 2 문서제목 3 작성자 4 작성일시 5 상태 6 결과 7 진행
+           체크박스는 1열 내부에 들어가므로 컬럼 수는 변하지 않음
+           ========================================================= */
+        .doc-list tbody td:nth-child(1) {
+            text-align: center;
+        }
 
-    .doc-list thead th + th { position: relative; }
+        .doc-list tbody td:nth-child(2) {
+            text-align: left;
+        }
 
-    .doc-list thead th + th::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 30%;
-        bottom: 30%;
-        width: 1px;
-        background: rgba(0,0,0,.06);
-    }
+        .doc-list tbody td:nth-child(3) {
+            text-align: left;
+        }
 
-    .doc-title {
+        .doc-list tbody td:nth-child(4) {
+            text-align: center;
+        }
+
+        .doc-list tbody td:nth-child(5) {
+            text-align: center;
+        }
+
+        .doc-list tbody td:nth-child(6) {
+            text-align: center;
+        }
+
+        .doc-list tbody td:nth-child(7) {
+            text-align: center;
+        }
+
+    /* =========================================================
+           2026.02.03 Changed 상태 컬럼은 중앙 정렬 유지
+           기존 좌우 분리 표시를 중앙 모음 형태로 통일
+           ========================================================= */
+    .doc-status-join {
         display: inline-flex;
         align-items: center;
-        gap: .35rem;
+        justify-content: center;
+        gap: 10px;
+        width: auto;
+        max-width: 100%;
+        white-space: nowrap;
+        margin: 0 auto; /* td 중앙 정렬 보조 */
     }
 
-    .doc-title .meta {
-        color: #6b7280;
-        font-weight: 500;
-    }
+        .doc-status-join .st-left,
+        .doc-status-join .st-right {
+            flex: 0 0 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+    /* ********************************** */
 
     .doc-title a.doc-unread {
         font-weight: 900;
+        font-size: 17px;
+    }
+
+    
+    .doc-paging-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding-top: 12px;
+        position: relative;
     }
 
     .doc-paging {
         display: flex;
-        gap: .25rem;
+        gap: 8px;
         justify-content: center;
-        padding-top: .5rem;
+        padding-top: 0;
     }
 
-    .doc-paging button {
-        min-width: 32px;
-        height: 32px;
-        border: 1px solid #d1d5db;
-        background: #fff;
-        border-radius: .375rem;
-        cursor: pointer;
-    }
+        .doc-paging button {
+            min-width: 34px;
+            height: 34px;
+            border: 1px solid #cfcfcf;
+            background: #fff;
+            border-radius: 2px;
+            cursor: pointer;
+            font-weight: 400;
+            font-size: 15px;
+        }
 
-    .doc-paging button[aria-current="page"] {
-        background: #111827;
-        color: #fff;
-        border-color: #111827;
-    }
+            .doc-paging button[aria-current="page"] {
+                background: #2c2c2c;
+                color: #fff;
+                border-color: #2c2c2c;
+                font-weight: 400;
+            }
 
     .sr-only {
         position: absolute;
@@ -183,6 +361,79 @@
         clip: rect(0,0,0,0);
         border: 0;
     }
+
+    .doc-paging-tools {
+        position: absolute;
+        right: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+        .doc-paging-tools .chk-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .doc-paging-tools .btn-approve-bulk {
+            padding: 9px 14px;
+            border: 1px solid #2c2c2c;
+            border-radius: 2px;
+            background: #2c2c2c;
+            color: #fff;
+            font-weight: 900;
+            font-size: 14px;
+            line-height: 1.1;
+            cursor: pointer;
+        }
+
+            .doc-paging-tools .btn-approve-bulk[disabled] {
+                opacity: .45;
+                cursor: not-allowed;
+            }
+
+    .doc-no-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+        .doc-no-cell input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            transform: translateY(1px);
+        }
+
+        /* =========================================================
+       2026.02.04 Added: 화면 상단 중앙 토스트(고정)
+       ========================================================= */
+      #ebTopToastHost{
+  position:fixed; left:50%; transform:translateX(-50%);
+  top:calc(var(--header-h,56px) + 10px);
+  z-index:20000; pointer-events:none;
+  width:min(920px, calc(100vw - 24px));
+}
+.eb-topbar-toast{
+  pointer-events:auto;
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 16px;
+  border-radius:6px;
+  box-shadow:0 6px 22px rgba(0,0,0,.18);
+  font-weight:700; font-size:14px; line-height:1.2;
+}
+.eb-topbar-toast--success{ background:#198754; color:#fff; }
+.eb-topbar-toast--danger{ background:#dc3545; color:#fff; }
+.eb-topbar-toast__msg{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.eb-topbar-toast__close{
+  all:unset; cursor:pointer; width:28px; height:28px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px; color:currentColor; opacity:.95;
+}
+.eb-topbar-toast__close:hover{ background:rgba(255,255,255,.18); }
+.eb-topbar-toast__close svg{ width:14px; height:14px; display:block; }
 </style>
 
 <div class="doc-board-wrap">
@@ -192,661 +443,112 @@
          data-detail-url="/Doc/Detail/{docId}">
 
         <div class="doc-tabs" role="tablist" aria-label="@S["DOC_Board_Tablist_Aria"]">
-            <button class="doc-tab" role="tab" data-tab="created" aria-selected="true">
+            <button class="doc-tab" type="button" role="tab" data-tab="created" aria-selected="true">
                 @S["DOC_Tab_CreatedByMe"] <span class="badge" id="badge-created" hidden>0</span>
             </button>
-            <button class="doc-tab" role="tab" data-tab="approval">
+            <button class="doc-tab" type="button" role="tab" data-tab="approval" aria-selected="false">
                 @S["DOC_Tab_Approval"] <span class="badge" id="badge-approval" hidden>0</span>
             </button>
-            <button class="doc-tab" role="tab" data-tab="shared">
+            <button class="doc-tab" type="button" role="tab" data-tab="shared" aria-selected="false">
                 @S["DOC_Tab_SharedWithMe"] <span class="badge" id="badge-shared" hidden>0</span>
             </button>
         </div>
 
-        <div class="doc-filter">
-            <label class="sr-only" for="filterTitle">@S["DOC_Filter_Title_Label"]</label>
+        <div class="doc-sheet" id="docSheet">
 
-            <select id="filterTitle">
-                <option value="all">@S["DOC_Filter_Title_All"]</option>
+            <div class="doc-subtabs" id="createdSubtabs" role="tablist" aria-label="@S["DOC_Approval_SubTablist_Aria"]">
+                <button class="doc-subtab" type="button" role="tab" data-created-sub="ongoing" aria-selected="true">
+                    @S["DOC_Approval_Sub_Ongoing"]
+                </button>
+                <button class="doc-subtab" type="button" role="tab" data-created-sub="completed" aria-selected="false">
+                    @S["DOC_Approval_Sub_Completed"]
+                </button>
+            </div>
 
-                <option value="viewed" data-shared-only="true">@S["DOC_Result_Viewed"]</option>
-                <option value="unviewed" data-shared-only="true">@S["DOC_Result_Unviewed"]</option>
+            <div class="doc-subtabs" id="approvalSubtabs" role="tablist" aria-label="@S["DOC_Approval_SubTablist_Aria"]">
+                <button class="doc-subtab" type="button" role="tab" data-approval-sub="ongoing" aria-selected="true">
+                    @S["DOC_Approval_Sub_Ongoing"]
+                </button>
+                <button class="doc-subtab" type="button" role="tab" data-approval-sub="completed" aria-selected="false">
+                    @S["DOC_Approval_Sub_Completed"]
+                </button>
+            </div>
 
-                <option value="approved" data-nonshared-only="true">@S["DOC_Filter_Title_Approved"]</option>
-                <option value="rejected" data-nonshared-only="true">@S["DOC_Filter_Title_Rejected"]</option>
-                <option value="pending" data-nonshared-only="true">@S["DOC_Filter_Title_Pending"]</option>
-                <option value="onhold" data-nonshared-only="true">@S["DOC_Filter_Title_OnHold"]</option>
+            <div class="doc-subtabs" id="sharedSubtabs" role="tablist" aria-label="@S["DOC_Approval_SubTablist_Aria"]">
+                <button class="doc-subtab" type="button" role="tab" data-shared-sub="ongoing" aria-selected="true">
+                    @S["DOC_Approval_Sub_Ongoing"]
+                </button>
+                <button class="doc-subtab" type="button" role="tab" data-shared-sub="completed" aria-selected="false">
+                    @S["DOC_Approval_Sub_Completed"]
+                </button>
+            </div>
 
-                <option value="recalled" data-created-only="true" data-nonshared-only="true">@S["DOC_Filter_Title_Recalled"]</option>
-            </select>
+            <div class="doc-filter">
+                <label class="sr-only" for="filterTitle">@S["DOC_Filter_Title_Label"]</label>
+                <select id="filterTitle">
+                    <option value="all">@S["DOC_Filter_Title_All"]</option>
+                    <option value="viewed" data-shared-only="true">@S["DOC_Result_Viewed"]</option>
+                    <option value="unviewed" data-shared-only="true">@S["DOC_Result_Unviewed"]</option>
+                    <option value="approved" data-nonshared-only="true">@S["DOC_Filter_Title_Approved"]</option>
+                    <option value="rejected" data-nonshared-only="true">@S["DOC_Filter_Title_Rejected"]</option>
+                    <option value="pending" data-nonshared-only="true">@S["DOC_Filter_Title_Pending"]</option>
+                    <option value="onhold" data-nonshared-only="true">@S["DOC_Filter_Title_OnHold"]</option>
+                    <option value="recalled" data-created-only="true" data-nonshared-only="true">@S["DOC_Filter_Title_Recalled"]</option>
+                </select>
 
-            <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
-            <select id="filterSort">
-                <option value="created_desc">@S["DOC_Filter_Sort_CreatedDesc"]</option>
-                <option value="created_asc">@S["DOC_Filter_Sort_CreatedAsc"]</option>
-                <option value="title_asc">@S["DOC_Filter_Sort_TitleAsc"]</option>
-                <option value="title_desc">@S["DOC_Filter_Sort_TitleDesc"]</option>
-            </select>
+                <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
+                <select id="filterSort">
+                    <option value="created_desc">@S["DOC_Filter_Sort_CreatedDesc"]</option>
+                    <option value="created_asc">@S["DOC_Filter_Sort_CreatedAsc"]</option>
+                    <option value="title_asc">@S["DOC_Filter_Sort_TitleAsc"]</option>
+                    <option value="title_desc">@S["DOC_Filter_Sort_TitleDesc"]</option>
+                </select>
 
-            <label class="sr-only" for="filterQuery">@S["DOC_Filter_Search_Label"]</label>
-            <input id="filterQuery" type="search" placeholder="@S["DOC_Filter_Search_Placeholder"]" />
-            <button type="button" id="filterApply">@S["DOC_Filter_Apply"]</button>
+                <label class="sr-only" for="filterQuery">@S["DOC_Filter_Search_Label"]</label>
+                <input id="filterQuery" type="search" placeholder="@S["DOC_Filter_Search_Placeholder"]" />
+                <button type="button" id="filterApply">@S["DOC_Filter_Apply"]</button>
+            </div>
+
+            <div class="doc-tablewrap">
+                <table class="doc-list" aria-live="polite" id="docListTable">
+    <thead>
+        <tr>
+            <th style="width:72px">
+                <span id="docNoHeaderWrap">@S["DOC_Col_No"]</span>
+            </th>
+            <th>@S["DOC_Col_Title"]</th>
+            <th style="width:180px">@S["DOC_Col_Author"]</th>
+            <th style="width:160px">@S["DOC_Col_Date"]</th>
+            <th style="width:420px">@S["DOC_Col_Status"]</th>
+                            <th style="width:160px">@S["DOC_Result_Viewed"]</th>
+
+        </tr>
+    </thead>
+    <tbody id="docListBody">
+        <tr>
+            <td colspan="6">@S["DOC_List_Loading"]</td>
+        </tr>
+    </tbody>
+</table>
+            </div>
+
+            <div class="doc-paging-wrap">
+                <div class="doc-paging" id="docPaging" aria-label="@S["DOC_Pagination_Label"]"></div>
+
+                <div class="doc-paging-tools" id="docPagingTools" hidden>
+                    <label class="chk-all">
+                        <input type="checkbox" id="chkAllBottom" />
+                        <span>@S["DOC_Filter_Title_All"]</span>
+                    </label>
+                    <button type="button" class="btn-approve-bulk" id="btnApproveBulk" disabled>승인</button>
+                </div>
+            </div>
         </div>
 
-        <table class="doc-list" aria-live="polite">
-            <thead>
-                <tr>
-                    <th style="width:72px">@S["DOC_Col_No"]</th>
-                    <th>@S["DOC_Col_Title"]</th>
-                    <th style="width:180px">@S["DOC_Col_Author"]</th>
-                    <th style="width:160px">@S["DOC_Col_Date"]</th>
-                    <th style="width:420px">@S["DOC_Col_Status"]</th>
-                    <th style="width:160px">@S["DOC_Col_Result"]</th>
-                </tr>
-            </thead>
-            <tbody id="docListBody">
-                <tr>
-                    <td colspan="6">@S["DOC_List_Loading"]</td>
-                </tr>
-            </tbody>
-        </table>
+        <script type="application/json" id="docBoardI18n">@Html.Raw(JsonSerializer.Serialize(__docBoardI18n))</script>
+        <script src="~/js/eb.doc.board.js" asp-append-version="true"></script>
 
-        <div class="doc-paging" id="docPaging" aria-label="@S["DOC_Pagination_Label"]"></div>
+        
     </div>
 </div>
-
-<script>
-    (function () {
-        const root = document.getElementById('docBoard');
-        const apiList = root.dataset.apiList;
-        const apiBadges = root.dataset.apiBadges;
-        const detailUrl = root.dataset.detailUrl;
-
-        const tabs = Array.from(root.querySelectorAll('.doc-tab'));
-        const body = document.getElementById('docListBody');
-        const paging = document.getElementById('docPaging');
-
-        const filterTitle = document.getElementById('filterTitle') || { value: 'all' };
-        const filterSort = document.getElementById('filterSort');
-        const filterQuery = document.getElementById('filterQuery');
-        const btnApply = document.getElementById('filterApply');
-
-        const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-        const allowedTabs = ['created', 'approval', 'shared'];
-        const STORAGE_KEY = 'docBoardStateByTab';
-
-        // ------------------------------------------------------------
-        // 2026.01.20 Changed: Back 직후 리스트 유지 스냅샷(조건별)
-        // - popstate/pageshow에서는 "항상" 스냅샷 우선 복원
-        // - 배지는 서버 최신으로만 갱신
-        // ------------------------------------------------------------
-        const SNAPSHOT_PREFIX = 'docBoardSnapshot:'; // + stateKey
-
-        // shared 탭: Back 직후 "방금 열람한 문서" 굵기 해제용 오버라이드
-        const READ_OVERRIDE_KEY = 'docBoardReadOverrides_shared';   // { docId: unixTs }
-        const LAST_OPENED_KEY = 'docBoardLastOpened_shared';        // { docId, tab, at }
-
-        function readJson(key, fallback) {
-            try {
-                const s = window.sessionStorage.getItem(key);
-                if (!s) return fallback;
-                const o = JSON.parse(s);
-                return (o && typeof o === 'object') ? o : fallback;
-            } catch { return fallback; }
-        }
-
-        function writeJson(key, obj) {
-            try { window.sessionStorage.setItem(key, JSON.stringify(obj || {})); } catch { }
-        }
-
-        function decodeHtmlEntities(encoded) {
-            if (!encoded) return '';
-            const txt = document.createElement('textarea');
-            txt.innerHTML = encoded;
-            return txt.value;
-        }
-
-        const STATUS_LABELS = {
-            Pending: decodeHtmlEntities('@S["DOC_Status_Pending"]'),
-            Approved: decodeHtmlEntities('@S["DOC_Status_Approved"]'),
-            Rejected: decodeHtmlEntities('@S["DOC_Status_Rejected"]'),
-            OnHold: decodeHtmlEntities('@S["DOC_Status_OnHold"]'),
-            Recalled: decodeHtmlEntities('@S["DOC_Status_Recalled"]')
-        };
-
-        const READ_LABEL = decodeHtmlEntities('@S["DOC_Result_Viewed"]');
-        const UNREAD_LABEL = decodeHtmlEntities('@S["DOC_Result_Unviewed"]');
-
-        function getStatusBase(raw) {
-            if (!raw) return 'Pending';
-            const s = String(raw).trim().toUpperCase();
-            if (s.startsWith('PENDING')) return 'Pending';
-            if (s === 'APPROVE' || s.startsWith('APPROVED')) return 'Approved';
-            if (s === 'REJECT' || s.startsWith('REJECTED')) return 'Rejected';
-            if (s === 'HOLD' || s.startsWith('ONHOLD') || s.startsWith('ON HOLD')) return 'OnHold';
-            if (s === 'RECALL' || s.startsWith('RECALLED')) return 'Recalled';
-            return raw;
-        }
-
-        function formatStatus(raw, done, total) {
-            const base = getStatusBase(raw);
-            const label = STATUS_LABELS[base] || String(raw || '');
-            if (typeof total === 'number' && total > 0) {
-                const d = (typeof done === 'number' && done >= 0) ? done : 0;
-                return label + ' (' + d + '/' + total + ')';
-            }
-            return label;
-        }
-
-        function readStateMap() {
-            try {
-                const s = window.sessionStorage.getItem(STORAGE_KEY);
-                if (!s) return {};
-                const obj = JSON.parse(s);
-                return (obj && typeof obj === 'object') ? obj : {};
-            } catch { return {}; }
-        }
-
-        function writeStateMap(map) {
-            try { window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(map || {})); } catch { }
-        }
-
-        function saveStateToSession() {
-            const map = readStateMap();
-            map[state.tab] = {
-                tab: state.tab,
-                page: state.page,
-                pageSize: state.pageSize,
-                titleFilter: state.titleFilter,
-                sort: state.sort,
-                q: state.q
-            };
-            writeStateMap(map);
-        }
-
-        function setUrlFromState(replaceOnly) {
-            try {
-                const qs = new URLSearchParams(window.location.search || '');
-                qs.set('tab', state.tab);
-                qs.set('page', String(state.page || 1));
-                qs.set('pageSize', String(state.pageSize || 20));
-                qs.set('titleFilter', String(state.titleFilter || 'all'));
-                qs.set('sort', String(state.sort || 'created_desc'));
-                qs.set('q', String(state.q || ''));
-
-                const url = window.location.pathname + '?' + qs.toString();
-                if (replaceOnly) window.history.replaceState(null, '', url);
-                else window.history.pushState(null, '', url);
-            } catch { }
-        }
-
-        function readStateFromUrl() {
-            const qs = new URLSearchParams(window.location.search || '');
-            const tab = qs.get('tab');
-            const page = qs.get('page');
-            const pageSize = qs.get('pageSize');
-            const titleFilter = qs.get('titleFilter');
-            const sort = qs.get('sort');
-            const q = qs.get('q');
-
-            const out = {};
-            if (tab && allowedTabs.indexOf(tab) >= 0) out.tab = tab;
-
-            const p = parseInt(page || '', 10);
-            const ps = parseInt(pageSize || '', 10);
-            if (!isNaN(p) && p > 0) out.page = p;
-            if (!isNaN(ps) && ps > 0 && ps <= 100) out.pageSize = ps;
-
-            if (titleFilter) out.titleFilter = titleFilter;
-            if (sort) out.sort = sort;
-            if (q != null) out.q = q;
-
-            return out;
-        }
-
-        function readStateForTabFromSession(tab) {
-            const map = readStateMap();
-            const s = map && map[tab];
-            if (!s || typeof s !== 'object') return null;
-            return s;
-        }
-
-        function setOptionHidden(opt, hidden) {
-            if (!opt) return;
-            opt.hidden = !!hidden;
-            opt.disabled = !!hidden;
-        }
-
-        function normalizeTitleFilterByTab() {
-            const v = (filterTitle.value || 'all').toLowerCase();
-
-            if (state.tab === 'shared') {
-                if (v !== 'all' && v !== 'viewed' && v !== 'unviewed') {
-                    filterTitle.value = 'all';
-                }
-            } else {
-                if (v === 'viewed' || v === 'unviewed') {
-                    filterTitle.value = 'all';
-                }
-            }
-            state.titleFilter = filterTitle.value;
-        }
-
-        function applyTabUi() {
-            const isShared = state.tab === 'shared';
-
-            const sharedOnly = Array.from(filterTitle.querySelectorAll('option[data-shared-only="true"]'));
-            const nonSharedOnly = Array.from(filterTitle.querySelectorAll('option[data-nonshared-only="true"]'));
-            const createdOnly = Array.from(filterTitle.querySelectorAll('option[data-created-only="true"]'));
-
-            sharedOnly.forEach(o => setOptionHidden(o, !isShared));
-            nonSharedOnly.forEach(o => setOptionHidden(o, isShared));
-
-            if (state.tab === 'created') {
-                createdOnly.forEach(o => setOptionHidden(o, false));
-            } else {
-                createdOnly.forEach(o => setOptionHidden(o, true));
-            }
-
-            normalizeTitleFilterByTab();
-
-            tabs.forEach(x => {
-                x.setAttribute('aria-selected', x.dataset.tab === state.tab ? 'true' : 'false');
-            });
-        }
-
-        const state = {
-            tab: 'created',
-            page: 1,
-            pageSize: 20,
-            titleFilter: 'all',
-            sort: 'created_desc',
-            q: ''
-        };
-
-        function applyStateToControls() {
-            try {
-                filterTitle.value = state.titleFilter || 'all';
-                filterSort.value = state.sort || 'created_desc';
-                filterQuery.value = state.q || '';
-            } catch { }
-        }
-
-        function buildStateKey() {
-            const parts = [
-                state.tab || '',
-                state.page || 1,
-                state.pageSize || 20,
-                state.titleFilter || 'all',
-                state.sort || 'created_desc',
-                state.q || ''
-            ];
-            return parts.map(x => String(x)).join('|');
-        }
-
-        function saveSnapshot(res) {
-            try {
-                const key = SNAPSHOT_PREFIX + buildStateKey();
-                writeJson(key, { at: Date.now(), res: res || null });
-            } catch { }
-        }
-
-        function tryRestoreSnapshot() {
-            try {
-                const key = SNAPSHOT_PREFIX + buildStateKey();
-                const snap = readJson(key, null);
-                if (!snap || !snap.res) return null;
-                return snap.res;
-            } catch { return null; }
-        }
-
-        function markDocReadLocallyShared(docId) {
-            if (!docId) return;
-            const now = Date.now();
-
-            const map = readJson(READ_OVERRIDE_KEY, {});
-            map[String(docId)] = now;
-            writeJson(READ_OVERRIDE_KEY, map);
-
-            writeJson(LAST_OPENED_KEY, { docId: String(docId), tab: 'shared', at: now });
-        }
-
-        function isDocReadOverriddenShared(docId) {
-            if (!docId) return false;
-            const map = readJson(READ_OVERRIDE_KEY, {});
-            return !!map[String(docId)];
-        }
-
-        function applyReadOverrideToDomShared(docId) {
-            if (!docId) return;
-
-            const anchors = root.querySelectorAll('a.doc-unread');
-            anchors.forEach(a => {
-                const href = a.getAttribute('href') || '';
-                if (href.indexOf('/Doc/Detail/' + docId) >= 0) {
-                    a.classList.remove('doc-unread');
-                }
-            });
-        }
-
-        function applyLastOpenedReadOverrideShared() {
-            if (state.tab !== 'shared') return;
-
-            const last = readJson(LAST_OPENED_KEY, null);
-            if (!last || !last.docId) return;
-
-            applyReadOverrideToDomShared(String(last.docId));
-        }
-
-        function restoreInitialState() {
-            const fromUrl = readStateFromUrl();
-
-            let tab = fromUrl.tab || null;
-            if (!tab) {
-                try {
-                    const storedTab = window.sessionStorage.getItem('docBoardTab');
-                    if (storedTab && allowedTabs.indexOf(storedTab) >= 0) tab = storedTab;
-                } catch { }
-            }
-            if (!tab) tab = 'created';
-            state.tab = tab;
-
-            const fromSession = readStateForTabFromSession(state.tab) || {};
-
-            state.page = fromUrl.page || fromSession.page || 1;
-            state.pageSize = fromUrl.pageSize || fromSession.pageSize || 20;
-            state.titleFilter = fromUrl.titleFilter || fromSession.titleFilter || 'all';
-            state.sort = fromUrl.sort || fromSession.sort || 'created_desc';
-            state.q = (fromUrl.q != null && fromUrl.q !== '') ? fromUrl.q : (fromSession.q || '');
-
-            applyStateToControls();
-            applyTabUi();
-
-            setUrlFromState(true);
-            saveStateToSession();
-
-            try { window.sessionStorage.setItem('docBoardTab', state.tab); } catch { }
-        }
-
-        tabs.forEach(t => {
-            t.addEventListener('click', () => {
-                const nextTab = t.dataset.tab;
-                if (!nextTab || allowedTabs.indexOf(nextTab) < 0) return;
-
-                state.tab = nextTab;
-
-                const s = readStateForTabFromSession(state.tab);
-                if (s) {
-                    state.page = s.page || 1;
-                    state.pageSize = s.pageSize || 20;
-                    state.titleFilter = s.titleFilter || 'all';
-                    state.sort = s.sort || 'created_desc';
-                    state.q = s.q || '';
-                } else {
-                    state.page = 1;
-                    state.titleFilter = filterTitle.value || 'all';
-                    state.sort = filterSort.value || 'created_desc';
-                    state.q = filterQuery.value || '';
-                }
-
-                applyStateToControls();
-                applyTabUi();
-
-                try { window.sessionStorage.setItem('docBoardTab', state.tab); } catch { }
-                setUrlFromState(true);
-                saveStateToSession();
-
-                refreshBadges();
-                loadList();
-            });
-        });
-
-        filterQuery.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') btnApply.click();
-        });
-
-        btnApply.addEventListener('click', () => {
-            state.titleFilter = filterTitle.value;
-            state.sort = filterSort.value;
-            state.q = filterQuery.value || '';
-            state.pageSize = clamp(state.pageSize, 1, 100);
-            state.page = 1;
-
-            applyStateToControls();
-            applyTabUi();
-
-            setUrlFromState(true);
-            saveStateToSession();
-
-            loadList();
-        });
-
-        function buildRow(item, displayNo) {
-            const tr = document.createElement('tr');
-
-            const baseStatus = getStatusBase(item && (item.statusCode || item.status));
-
-            const overriddenReadShared = (state.tab === 'shared') && isDocReadOverriddenShared(item && item.docId);
-            const isUnreadShared = (state.tab === 'shared') && (!overriddenReadShared) && (item && item.isRead === false);
-
-            // 요구사항: 결재 문서함은 "대기"이면 제목 굵게 유지
-            const isPendingApproval = (state.tab === 'approval') && (baseStatus === 'Pending');
-
-            const isBoldTitle = isUnreadShared || isPendingApproval;
-
-            const tdNo = document.createElement('td');
-            tdNo.textContent = String(displayNo);
-
-            const tdTitle = document.createElement('td');
-            const wrapper = document.createElement('span');
-            wrapper.className = 'doc-title';
-
-            const link = document.createElement('a');
-            const tabQs = (state && state.tab) ? ('?tab=' + encodeURIComponent(state.tab)) : '';
-            link.href = detailUrl.replace('{docId}', item.docId) + tabQs;
-
-            link.title = item.templateTitle || '';
-            link.textContent = item.templateTitle || '';
-            if (isBoldTitle) link.classList.add('doc-unread');
-
-            link.addEventListener('click', () => {
-                try {
-                    if (state.tab === 'shared') markDocReadLocallyShared(item.docId);
-                } catch { }
-            });
-
-            wrapper.appendChild(link);
-
-            const commentCount = Number(item.commentCount || 0);
-            if (commentCount > 0) {
-                const meta = document.createElement('span');
-                meta.className = 'meta';
-                meta.textContent = ' (' + commentCount + ')';
-                wrapper.appendChild(meta);
-            }
-
-            tdTitle.appendChild(wrapper);
-
-            const tdAuthor = document.createElement('td');
-            tdAuthor.textContent = item.authorName || '';
-
-            const tdDate = document.createElement('td');
-            tdDate.textContent = item.createdAt || '';
-
-            const tdStatus = document.createElement('td');
-            tdStatus.textContent = (item.resultSummary || '').trim();
-
-            const tdResult = document.createElement('td');
-
-            if (state.tab === 'shared') {
-                const read = (item && item.isRead === true) || overriddenReadShared;
-                tdResult.textContent = read ? READ_LABEL : UNREAD_LABEL;
-            } else {
-                const total = typeof item.totalApprovers === 'number' ? item.totalApprovers : 0;
-                const done = typeof item.completedApprovers === 'number' ? item.completedApprovers : 0;
-                tdResult.textContent = formatStatus(item.statusCode || item.status, done, total);
-            }
-
-            tr.append(tdNo, tdTitle, tdAuthor, tdDate, tdStatus, tdResult);
-            return tr;
-        }
-
-        function renderList(res) {
-            body.innerHTML = '';
-
-            if (!res || !res.items || res.items.length === 0) {
-                const tr = document.createElement('tr');
-                const td = document.createElement('td');
-                td.colSpan = 6;
-                td.textContent = decodeHtmlEntities('@S["DOC_List_Empty"]');
-                tr.appendChild(td);
-                body.appendChild(tr);
-                paging.innerHTML = '';
-                return;
-            }
-
-            const total = Number(res.total ?? 0) ||
-                (res.page - 1) * res.pageSize + res.items.length;
-            const startIndex = (res.page - 1) * res.pageSize;
-
-            res.items.forEach((item, idx) => {
-                const displayNo = total - startIndex - idx;
-                body.appendChild(buildRow(item, displayNo));
-            });
-
-            applyLastOpenedReadOverrideShared();
-
-            const totalPages = Math.max(1, Math.ceil((res.total || 0) / res.pageSize));
-            paging.innerHTML = '';
-
-            const makeBtn = (label, page, current) => {
-                const b = document.createElement('button');
-                b.textContent = label;
-                if (current) b.setAttribute('aria-current', 'page');
-                b.addEventListener('click', () => {
-                    state.page = page;
-                    setUrlFromState(true);
-                    saveStateToSession();
-                    loadList();
-                });
-                return b;
-            };
-
-            const block = 10;
-            const blkIdx = Math.floor((state.page - 1) / block);
-            const start = blkIdx * block + 1;
-            const end = Math.min(totalPages, start + block - 1);
-
-            if (start > 1)
-                paging.appendChild(makeBtn(decodeHtmlEntities('@S["DOC_Pagination_Prev"]'), start - 1, false));
-            for (let p = start; p <= end; p++)
-                paging.appendChild(makeBtn(String(p), p, p === state.page));
-            if (end < totalPages)
-                paging.appendChild(makeBtn(decodeHtmlEntities('@S["DOC_Pagination_Next"]'), end + 1, false));
-        }
-
-        async function loadList() {
-            body.innerHTML = '<tr><td colspan="6">@S["DOC_List_Loading"]</td></tr>';
-
-            const params = new URLSearchParams({
-                tab: state.tab,
-                page: state.page,
-                pageSize: state.pageSize,
-                titleFilter: state.titleFilter,
-                sort: state.sort,
-                q: state.q
-            });
-
-            params.set('_ts', String(Date.now()));
-
-            const r = await fetch(apiList + '?' + params.toString(), {
-                method: 'GET',
-                cache: 'no-store',
-                headers: { 'Accept': 'application/json' }
-            });
-
-            const res = await r.json();
-            renderList(res);
-
-            // 조건별 스냅샷 저장 (Back 복원용)
-            saveSnapshot(res);
-
-            refreshBadges();
-        }
-
-        async function refreshBadges() {
-            try {
-                const url = apiBadges + (apiBadges.indexOf('?') >= 0 ? '&' : '?') + '_ts=' + Date.now();
-
-                const r = await fetch(url, {
-                    method: 'GET',
-                    cache: 'no-store',
-                    headers: { 'Accept': 'application/json' }
-                });
-
-                const data = await r.json();
-                setBadge('created', data.created ?? 0);
-                setBadge('approval', data.approvalPending ?? 0);
-                setBadge('shared', data.sharedUnread ?? 0);
-            } catch { }
-        }
-
-        function setBadge(kind, n) {
-            const el = document.getElementById('badge-' + kind);
-            if (!el) return;
-            if (typeof n === 'number' && n > 0) {
-                el.textContent = n;
-                el.hidden = false;
-            } else {
-                el.textContent = '0';
-                el.hidden = true;
-            }
-        }
-
-        function applyStateFromUrl() {
-            const u = readStateFromUrl();
-            if (u.tab && allowedTabs.indexOf(u.tab) >= 0) state.tab = u.tab;
-            state.page = u.page || 1;
-            state.pageSize = u.pageSize || 20;
-            state.titleFilter = u.titleFilter || 'all';
-            state.sort = u.sort || 'created_desc';
-            state.q = (u.q != null) ? u.q : '';
-
-            applyStateToControls();
-            applyTabUi();
-            saveStateToSession();
-        }
-
-        function restoreBySnapshotFirst() {
-            // Back 직후: "무조건" 스냅샷 우선
-            const snap = tryRestoreSnapshot();
-            if (snap) {
-                renderList(snap);
-                refreshBadges();
-                return;
-            }
-
-            // 스냅샷이 없을 때만 DB 재조회
-            loadList();
-            refreshBadges();
-        }
-
-        window.addEventListener('popstate', () => {
-            applyStateFromUrl();
-            restoreBySnapshotFirst();
-        });
-
-        window.addEventListener('pageshow', (e) => {
-            if (e && e.persisted) {
-                applyStateFromUrl();
-                restoreBySnapshotFirst();
-            }
-        });
-
-        restoreInitialState();
-
-        // 최초 진입은 DB 재조회
-        loadList();
-        refreshBadges();
-    })();
-</script>
+<div id="ebTopToastHost" aria-live="polite" aria-atomic="true"></div>

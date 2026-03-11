@@ -2,7 +2,7 @@
 // 2025.10.14 Added: IConfiguration 기반 연결 문자열 사용 ("DefaultConnection" 가정)
 // 주의: 테이블명은 요청에 맞춰 DocumentAuditLogs 로 반영
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace WebApplication1.Services

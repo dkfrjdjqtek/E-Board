@@ -1,15 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Globalization;
-using System.Security.Claims;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
+using NuGet.Packaging.Signing;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Globalization;
+using System.Linq; 
+using System.Security.Claims;
+using System.Threading.Tasks;
+using WebApplication1.Services;
 
 namespace WebApplication1.Controllers
 {
@@ -20,15 +24,33 @@ namespace WebApplication1.Controllers
         private readonly IConfiguration _cfg;
         private readonly ILogger<BoardController> _log;
         private readonly IStringLocalizer<SharedResource> _S;
+        private readonly IWebHostEnvironment _env; // Added
+        private readonly IWebPushNotifier _webPushNotifier; 
+        public sealed class BulkApproveDto
+        {
+            public List<string>? DocIds { get; set; }
+        }
+
+        private sealed class BulkApproveItemResult
+        {
+            public string DocId { get; set; } = "";
+            public string Result { get; set; } = "";   // approved | skipped | failed
+            public string? Status { get; set; }
+            public string? Reason { get; set; }        // not_my_turn | not_found | exception | bad_request
+        }
 
         public BoardController(
             IConfiguration cfg,
             ILogger<BoardController> log,
-            IStringLocalizer<SharedResource> S)
+            IStringLocalizer<SharedResource> S,
+            IWebHostEnvironment env,
+            IWebPushNotifier webPushNotifier) // Added
         {
             _cfg = cfg;
             _log = log;
             _S = S;
+            _env = env; // Added
+            _webPushNotifier = webPushNotifier;
         }
 
         [HttpGet("Board")]
@@ -37,16 +59,335 @@ namespace WebApplication1.Controllers
             return View("~/Views/Doc/Board.cshtml");
         }
 
-        // 2026.01.19 Changed: shared 탭의 titleFilter를 문서상태가 아닌 열람 미열람 기준으로 동작하도록 BoardData 쿼리 분기 추가
+        [HttpPost("BulkApprove")]
+        [ValidateAntiForgeryToken]
+        [Produces("application/json")]
+        public async Task<IActionResult> BulkApprove([FromBody] BulkApproveDto dto)
+        {
+            var DocIds = dto?.DocIds?
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>();
+
+            if (DocIds.Count == 0)
+                return BadRequest(new { messages = new[] { "DOC_Err_BadRequest" } });
+
+            if (DocIds.Count > 50)
+                return BadRequest(new { messages = new[] { "DOC_Err_BadRequest" } });
+
+            var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            if (string.IsNullOrWhiteSpace(approverId))
+                return Forbid();
+
+            var approverName =
+                (User?.FindFirstValue("name") ?? User?.FindFirstValue(ClaimTypes.Name) ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(approverName))
+                approverName = approverId;
+
+            string? approverDisplayText = null;
+            string? signatureRelativePath = null;
+
+            try
+            {
+                var csProfile = _cfg.GetConnectionString("DefaultConnection") ?? "";
+                await using (var connProfile = new SqlConnection(csProfile))
+                {
+                    await connProfile.OpenAsync();
+
+                    await using var up = connProfile.CreateCommand();
+                    up.CommandText = @"
+SELECT TOP (1)
+       u.DisplayName,
+       COALESCE(pl.Name, pm.Name, N'') AS PositionName,
+       COALESCE(dl.Name, dm.Name, N'') AS DepartmentName,
+       u.SignatureRelativePath AS SignaturePath
+FROM dbo.UserProfiles AS u
+LEFT JOIN dbo.DepartmentMasters     AS dm ON dm.CompCd = u.CompCd AND dm.Id       = u.DepartmentId
+LEFT JOIN dbo.DepartmentMasterLoc   AS dl ON dl.DepartmentId = dm.Id AND dl.LangCode = N'ko'
+LEFT JOIN dbo.PositionMasters       AS pm ON pm.CompCd = u.CompCd AND pm.Id       = u.PositionId
+LEFT JOIN dbo.PositionMasterLoc     AS pl ON pl.PositionId   = pm.Id AND pl.LangCode = N'ko'
+WHERE u.UserId = @uid;";
+                    up.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
+
+                    await using var r = await up.ExecuteReaderAsync();
+                    if (await r.ReadAsync())
+                    {
+                        var disp = r["DisplayName"] as string ?? string.Empty;
+                        var pos = r["PositionName"] as string ?? string.Empty;
+                        var dept = r["DepartmentName"] as string ?? string.Empty;
+                        var sig = r["SignaturePath"] as string ?? string.Empty;
+
+                        approverDisplayText = string.Join(" ",
+                            new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                        signatureRelativePath = string.IsNullOrWhiteSpace(sig) ? null : sig;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "BulkApprove: 프로필 스냅샷 조회 실패 uid={uid}", approverId);
+            }
+
+            var clientIp = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            var userAgent = Request?.Headers["User-Agent"].ToString();
+            if (!string.IsNullOrWhiteSpace(userAgent) && userAgent.Length > 1024)
+                userAgent = userAgent.Substring(0, 1024);
+
+            var results = new List<BulkApproveItemResult>(DocIds.Count);
+
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            static async Task InsertViewLogIfMissingAsync(SqlConnection conn2, string docId2, string viewerId2, string role2, string? ip2, string? ua2)
+            {
+                await using var cmd = conn2.CreateCommand();
+                cmd.CommandText = @"
+IF NOT EXISTS (
+    SELECT 1
+    FROM dbo.DocumentViewLogs v
+    WHERE v.DocId = @DocId
+      AND v.ViewerId = TRY_CONVERT(uniqueidentifier, @ViewerId)
+)
+BEGIN
+    INSERT INTO dbo.DocumentViewLogs (DocId, ViewerId, ViewerRole, ViewedAt, ClientIp, UserAgent)
+    VALUES (@DocId, TRY_CONVERT(uniqueidentifier, @ViewerId), @ViewerRole, SYSUTCDATETIME(), @ClientIp, @UserAgent);
+END";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 100) { Value = docId2 });
+                cmd.Parameters.Add(new SqlParameter("@ViewerId", SqlDbType.NVarChar, 64) { Value = viewerId2 });
+                cmd.Parameters.Add(new SqlParameter("@ViewerRole", SqlDbType.NVarChar, 40) { Value = role2 });
+                cmd.Parameters.Add(new SqlParameter("@ClientIp", SqlDbType.NVarChar, 128) { Value = (object?)ip2 ?? DBNull.Value });
+                cmd.Parameters.Add(new SqlParameter("@UserAgent", SqlDbType.NVarChar, 1024) { Value = (object?)ua2 ?? DBNull.Value });
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // ===== 2026.02.03 Added: 일괄 승인 후 다음 결재자에게 "총 결재 대기 건수" 알림을 1회만 보내기 위한 수신자 수집 =====
+            var nextApproverIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // ===== 2026.02.03 Added: 작성 후 푸시 방식과 동일한 Pending 건수 계산 로컬 함수 =====
+            async Task<int> GetApprovalPendingCountAsync(string targetUserId)
+            {
+                await using var connCnt = new SqlConnection(cs);
+                await connCnt.OpenAsync();
+
+                var sqlCnt = @"
+SELECT COUNT(1)
+FROM DocumentApprovals a
+JOIN Documents d ON a.DocId = d.DocId
+WHERE a.UserId = @UserId
+  AND ISNULL(a.Status, N'') = N'Pending'
+  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
+
+                await using var cmdCnt = new SqlCommand(sqlCnt, connCnt);
+                cmdCnt.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+                return Convert.ToInt32(await cmdCnt.ExecuteScalarAsync());
+            }
+
+            foreach (var docId in DocIds)
+            {
+                var item = new BulkApproveItemResult { DocId = docId };
+
+                try
+                {
+                    // 0) 문서 존재 + OutputPath 확인
+                    string outXlsx = string.Empty;
+                    await using (var cmdOut = conn.CreateCommand())
+                    {
+                        cmdOut.CommandText = @"
+SELECT TOP (1) OutputPath
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+                        cmdOut.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+                        var obj = await cmdOut.ExecuteScalarAsync();
+                        outXlsx = (obj as string) ?? string.Empty;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(outXlsx) && !System.IO.Path.IsPathRooted(outXlsx))
+                    {
+                        outXlsx = System.IO.Path.Combine(
+                            _env.ContentRootPath,
+                            outXlsx.TrimStart('\\', '/')
+                        );
+                    }
+
+                    if (string.IsNullOrWhiteSpace(outXlsx) || !System.IO.File.Exists(outXlsx))
+                    {
+                        item.Result = "skipped";
+                        item.Reason = "not_found";
+                        results.Add(item);
+                        continue;
+                    }
+
+                    // 1) 현재 사용자가 담당인 Pending 단계 StepOrder 계산 (내 차례 아니면 스킵)
+                    int? currentStep = null;
+                    await using (var findStep = conn.CreateCommand())
+                    {
+                        findStep.CommandText = @"
+SELECT TOP (1) StepOrder
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND ISNULL(Status,N'Pending') LIKE N'Pending%'
+  AND (
+        UserId = @UserId
+        OR ApproverValue = @UserId
+      )
+ORDER BY StepOrder;";
+                        findStep.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                        findStep.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = approverId });
+
+                        var stepObj = await findStep.ExecuteScalarAsync();
+                        if (stepObj != null && stepObj != DBNull.Value)
+                            currentStep = Convert.ToInt32(stepObj);
+                    }
+
+                    if (currentStep == null)
+                    {
+                        item.Result = "skipped";
+                        item.Reason = "not_my_turn";
+                        results.Add(item);
+                        continue;
+                    }
+
+                    var step = currentStep.Value;
+
+                    // 2) 현재 단계 승인 처리
+                    await using (var u = conn.CreateCommand())
+                    {
+                        u.CommandText = @"
+UPDATE dbo.DocumentApprovals
+SET Action              = N'approve',
+    ActedAt             = SYSUTCDATETIME(),
+    ActorName           = @actor,
+    Status              = N'Approved',
+    UserId              = COALESCE(UserId, @uid),
+    ApproverDisplayText = COALESCE(@displayText, ApproverDisplayText),
+    SignaturePath       = COALESCE(@sigPath, SignaturePath)
+WHERE DocId = @id AND StepOrder = @step;";
+                        u.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = approverName });
+                        u.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
+                        u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
+                        u.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = step });
+                        u.Parameters.Add(new SqlParameter("@displayText", SqlDbType.NVarChar, 400) { Value = (object?)approverDisplayText ?? DBNull.Value });
+                        u.Parameters.Add(new SqlParameter("@sigPath", SqlDbType.NVarChar, 400) { Value = (object?)signatureRelativePath ?? DBNull.Value });
+
+                        var affected = await u.ExecuteNonQueryAsync();
+                        if (affected <= 0)
+                        {
+                            item.Result = "failed";
+                            item.Reason = "bad_request";
+                            results.Add(item);
+                            continue;
+                        }
+                    }
+
+                    // 3) 다음 결재자 존재 여부만 판단해서 Documents.Status 갱신
+                    var next = step + 1;
+
+                    var hasNext = false;
+                    await using (var chk = conn.CreateCommand())
+                    {
+                        chk.CommandText = @"
+SELECT TOP (1) 1
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId AND StepOrder = @NextStep;";
+                        chk.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                        chk.Parameters.Add(new SqlParameter("@NextStep", SqlDbType.Int) { Value = next });
+
+                        var o = await chk.ExecuteScalarAsync();
+                        hasNext = (o != null && o != DBNull.Value);
+                    }
+
+                    var newStatus = hasNext ? $"PendingA{next}" : "Approved";
+
+                    await using (var u2 = conn.CreateCommand())
+                    {
+                        u2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
+                        u2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = newStatus });
+                        u2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
+                        await u2.ExecuteNonQueryAsync();
+                    }
+
+                    await InsertViewLogIfMissingAsync(conn, docId, approverId, "Approval", clientIp, userAgent);
+
+                    // ===== 2026.02.03 Added: 다음 결재자 UserId 수집(개별 URL 알림 금지, 총 건수 알림만) =====
+                    if (hasNext)
+                    {
+                        await using var cmdNext = conn.CreateCommand();
+                        cmdNext.CommandText = @"
+SELECT DISTINCT a.UserId
+FROM dbo.DocumentApprovals a
+WHERE a.DocId = @DocId
+  AND a.StepOrder = @NextStep
+  AND ISNULL(a.UserId, N'') <> N'';";
+                        cmdNext.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                        cmdNext.Parameters.Add(new SqlParameter("@NextStep", SqlDbType.Int) { Value = next });
+
+                        await using var rr = await cmdNext.ExecuteReaderAsync();
+                        while (await rr.ReadAsync())
+                        {
+                            var uid = (rr[0] as string ?? string.Empty).Trim();
+                            if (!string.IsNullOrWhiteSpace(uid))
+                                nextApproverIds.Add(uid);
+                        }
+                    }
+
+                    item.Result = "approved";
+                    item.Status = newStatus;
+                    results.Add(item);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "BulkApprove: failed docId={docId}", docId);
+                    item.Result = "failed";
+                    item.Reason = "exception";
+                    results.Add(item);
+                }
+            }
+
+            // ===== 2026.02.03 Added: 일괄 승인 후 다음 결재자에게 결재 대기 총 건수 알림 1회 리프레시 발송 =====
+            try
+            {
+                foreach (var uid in nextApproverIds)
+                {
+                    var n = await GetApprovalPendingCountAsync(uid);
+
+                    await _webPushNotifier.SendToUserIdAsync(
+                        userId: uid,
+                        title: "E-BOARD",
+                        body: $"{n}개의 문서가 결재 대기 중입니다.",
+                        url: "/",
+                        tag: "badge-approval-pending"
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "BulkApprove: WebPush notify(next approver) failed");
+            }
+
+            var approved = results.Count(x => x.Result == "approved");
+            var skipped = results.Count(x => x.Result == "skipped");
+            var failed = results.Count(x => x.Result == "failed");
+
+            return Json(new
+            {
+                ok = true,
+                totals = new { approved, skipped, failed },
+                results
+            });
+        }
+
+
+        // 2026.01.30 Changed: shared 탭은 DocumentShares.CreatedAt(공유 시각) 기준으로 정렬/표시되도록 ORDER BY 및 SELECT CreatedAt 소스를 s.CreatedAt로 분기
+        // 2026.02.02 Changed: shared 탭 IsRead 산출을 DocumentViewLogs 기반에서 DocumentShares.IsRead 기반으로 통일하여 배지와 목록 미열람 표시가 동일하게 동작하도록 수정
         [HttpGet("BoardData")]
-        public async Task<IActionResult> BoardData(
-            string tab = "created",
-            int page = 1,
-            int pageSize = 20,
-            string titleFilter = "all",
-            string sort = "created_desc",
-            string? q = null,
-            string approvalView = "all")
+        public async Task<IActionResult> BoardData(string tab = "created", int page = 1, int pageSize = 20, string titleFilter = "all", string sort = "created_desc", string? q = null, string approvalView = "all", string approvalSub = "ongoing", string createdSub = "ongoing", string sharedSub = "ongoing")
         {
             if (page < 1) page = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 20;
@@ -66,13 +407,9 @@ namespace WebApplication1.Controllers
 
             string whereSearch = string.IsNullOrWhiteSpace(q) ? "" : " AND d.TemplateTitle LIKE @Q ";
 
-            // ✅ titleFilter: shared 탭은 "열람/미열람" 기준으로 별도 처리해야 함
-            // - 기존 값(approved/rejected/...)은 created/approval에서만 사용
-            // - shared에서는 viewed/unviewed(또는 read/unread) 값을 사용하도록 분기
             string whereTitleFilter = "";
             if (string.Equals(tab, "shared", StringComparison.OrdinalIgnoreCase))
             {
-                // shared에서는 상태필터를 쓰지 않음(문서 상태가 아니라 열람 여부가 목적)
                 whereTitleFilter = "";
             }
             else
@@ -82,51 +419,118 @@ namespace WebApplication1.Controllers
                     "approved" => " AND ISNULL(d.Status, N'') LIKE N'Approved%' ",
                     "rejected" => " AND ISNULL(d.Status, N'') LIKE N'Rejected%' ",
                     "pending" => " AND ISNULL(d.Status, N'') LIKE N'Pending%' ",
-                    "onhold" => " AND ISNULL(d.Status, N'') LIKE N'OnHold%' ",
+                    "onhold" => " AND (ISNULL(d.Status, N'') LIKE N'PendingHold%' OR ISNULL(d.Status, N'') LIKE N'OnHold%') ",
                     "recalled" => " AND ISNULL(d.Status, N'') LIKE N'Recalled%' ",
                     _ => ""
                 };
             }
 
+            const string outerApplyStepAgg = @"
+OUTER APPLY(
+    SELECT
+        COUNT(1) AS TotalSteps,
+        SUM(CASE WHEN (ISNULL(da.Action,N'')=N'Approved' OR ISNULL(da.Status,N'')=N'Approved') THEN 1 ELSE 0 END) AS DoneSteps,
+        MAX(CASE WHEN (ISNULL(da.Action,N'')=N'Rejected' OR ISNULL(da.Status,N'') LIKE N'Rejected%') THEN 1 ELSE 0 END) AS HasRejected
+    FROM DocumentApprovals da
+    WHERE da.DocId = d.DocId
+) stepAgg";
+
+            string whereCreatedSub = "";
+            {
+                var sub = (createdSub ?? string.Empty).Trim().ToLowerInvariant();
+                if (sub == "completed")
+                    whereCreatedSub =
+                        " AND (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%' OR ISNULL(d.Status, N'') LIKE N'Recalled%' OR ISNULL(d.Status, N'') LIKE N'Recall%') ";
+                else if (sub == "ongoing")
+                    whereCreatedSub =
+                        " AND NOT (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%' OR ISNULL(d.Status, N'') LIKE N'Recalled%' OR ISNULL(d.Status, N'') LIKE N'Recall%') ";
+            }
+
+            string whereSharedSub = "";
+            {
+                var sub = (sharedSub ?? string.Empty).Trim().ToLowerInvariant();
+                if (sub == "completed")
+                {
+                    whereSharedSub = @"
+ AND (
+        ISNULL(d.Status, N'') LIKE N'Approved%' 
+     OR ISNULL(d.Status, N'') LIKE N'Rejected%'
+     OR ISNULL(stepAgg.HasRejected, 0) = 1
+     OR (ISNULL(stepAgg.TotalSteps, 0) > 0 AND ISNULL(stepAgg.DoneSteps, 0) >= ISNULL(stepAgg.TotalSteps, 0))
+ )";
+                }
+                else if (sub == "ongoing")
+                {
+                    whereSharedSub = @"
+ AND NOT (
+        ISNULL(d.Status, N'') LIKE N'Approved%' 
+     OR ISNULL(d.Status, N'') LIKE N'Rejected%'
+     OR ISNULL(stepAgg.HasRejected, 0) = 1
+     OR (ISNULL(stepAgg.TotalSteps, 0) > 0 AND ISNULL(stepAgg.DoneSteps, 0) >= ISNULL(stepAgg.TotalSteps, 0))
+ )";
+                }
+            }
+
             const string outerApplyResultActor = @"
-OUTER APPLY (
+OUTER APPLY(
     SELECT
         CASE
-            WHEN ISNULL(d.Status, N'') LIKE N'Recalled%' THEN N'Recalled'
-            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'  THEN N'Pending'
-            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%'  THEN N'Rejected'
-            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%'    THEN N'OnHold'
-            WHEN ISNULL(d.Status, N'') LIKE N'Approved%'  THEN N'Approved'
+            WHEN ISNULL(d.Status, N'') LIKE N'Recalled%'       THEN N'Recalled'
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%'   THEN N'OnHold'
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'       THEN N'Pending'
+            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%'       THEN N'Rejected'
+            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%'         THEN N'OnHold'
+            WHEN ISNULL(d.Status, N'') LIKE N'Approved%'       THEN N'Approved'
             ELSE N''
         END AS ResultVerbKey,
         CASE
             WHEN ISNULL(d.Status, N'') LIKE N'Recalled%' THEN COALESCE(upC.DisplayName, N'')
-            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%' THEN (
-                SELECT TOP (1) COALESCE(upN.DisplayName, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN(
+                SELECT TOP(1) COALESCE(upN.DisplayName, N'')
                 FROM DocumentApprovals daN
                 LEFT JOIN UserProfiles upN ON upN.UserId = daN.UserId
                 WHERE daN.DocId = d.DocId
-                  AND daN.StepOrder = TRY_CONVERT(int, SUBSTRING(ISNULL(d.Status, N''), 9, 10))
+                  AND daN.StepOrder = TRY_CONVERT(int,
+                    CASE
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN SUBSTRING(ISNULL(d.Status, N''), 13, 10)
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'     THEN SUBSTRING(ISNULL(d.Status, N''), 9, 10)
+                        ELSE NULL
+                    END
+                )
                 ORDER BY daN.StepOrder ASC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%' THEN (
-                SELECT TOP (1) COALESCE(upR.DisplayName, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%' THEN(
+                SELECT TOP(1) COALESCE(upN.DisplayName, N'')
+                FROM DocumentApprovals daN
+                LEFT JOIN UserProfiles upN ON upN.UserId = daN.UserId
+                WHERE daN.DocId = d.DocId
+                  AND daN.StepOrder = TRY_CONVERT(int,
+                    CASE
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN SUBSTRING(ISNULL(d.Status, N''), 13, 10)
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'     THEN SUBSTRING(ISNULL(d.Status, N''), 9, 10)
+                        ELSE NULL
+                    END
+                )
+                ORDER BY daN.StepOrder ASC
+            )
+            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%' THEN(
+                SELECT TOP(1) COALESCE(upR.DisplayName, N'')
                 FROM DocumentApprovals daR
                 LEFT JOIN UserProfiles upR ON upR.UserId = daR.UserId
                 WHERE daR.DocId = d.DocId
                   AND (ISNULL(daR.Action, N'') = N'Rejected' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
                 ORDER BY ISNULL(daR.ActedAt, '1900-01-01') DESC, ISNULL(daR.StepOrder, 0) DESC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN (
-                SELECT TOP (1) COALESCE(upH.DisplayName, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN(
+                SELECT TOP(1) COALESCE(upH.DisplayName, N'')
                 FROM DocumentApprovals daH
                 LEFT JOIN UserProfiles upH ON upH.UserId = daH.UserId
                 WHERE daH.DocId = d.DocId
                   AND (ISNULL(daH.Action, N'') = N'OnHold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%')
                 ORDER BY ISNULL(daH.ActedAt, '1900-01-01') DESC, ISNULL(daH.StepOrder, 0) DESC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN (
-                SELECT TOP (1) COALESCE(upA.DisplayName, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN(
+                SELECT TOP(1) COALESCE(upA.DisplayName, N'')
                 FROM DocumentApprovals daA
                 LEFT JOIN UserProfiles upA ON upA.UserId = daA.UserId
                 WHERE daA.DocId = d.DocId
@@ -137,18 +541,40 @@ OUTER APPLY (
         END AS ResultActorName,
         CASE
             WHEN ISNULL(d.Status, N'') LIKE N'Recalled%' THEN COALESCE(pmCLoc.Name, pmC.Name, N'')
-            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%' THEN (
-                SELECT TOP (1) COALESCE(pmNLoc.Name, pmN.Name, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN(
+                SELECT TOP(1) COALESCE(pmNLoc.Name, pmN.Name, N'')
                 FROM DocumentApprovals daN
                 LEFT JOIN UserProfiles upN ON upN.UserId = daN.UserId
                 LEFT JOIN PositionMasters pmN ON pmN.CompCd = upN.CompCd AND pmN.Id = upN.PositionId
                 LEFT JOIN PositionMasterLoc pmNLoc ON pmNLoc.PositionId = pmN.Id AND pmNLoc.LangCode = @LangCode
                 WHERE daN.DocId = d.DocId
-                  AND daN.StepOrder = TRY_CONVERT(int, SUBSTRING(ISNULL(d.Status, N''), 9, 10))
+                  AND daN.StepOrder = TRY_CONVERT(int,
+                    CASE
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN SUBSTRING(ISNULL(d.Status, N''), 13, 10)
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'     THEN SUBSTRING(ISNULL(d.Status, N''), 9, 10)
+                        ELSE NULL
+                    END
+                )
                 ORDER BY daN.StepOrder ASC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%' THEN (
-                SELECT TOP (1) COALESCE(pmRLoc.Name, pmR.Name, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'PendingA%' THEN(
+                SELECT TOP(1) COALESCE(pmNLoc.Name, pmN.Name, N'')
+                FROM DocumentApprovals daN
+                LEFT JOIN UserProfiles upN ON upN.UserId = daN.UserId
+                LEFT JOIN PositionMasters pmN ON pmN.CompCd = upN.CompCd AND pmN.Id = upN.PositionId
+                LEFT JOIN PositionMasterLoc pmNLoc ON pmNLoc.PositionId = pmN.Id AND pmNLoc.LangCode = @LangCode
+                WHERE daN.DocId = d.DocId
+                  AND daN.StepOrder = TRY_CONVERT(int,
+                    CASE
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN SUBSTRING(ISNULL(d.Status, N''), 13, 10)
+                        WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'     THEN SUBSTRING(ISNULL(d.Status, N''), 9, 10)
+                        ELSE NULL
+                    END
+                )
+                ORDER BY daN.StepOrder ASC
+            )
+            WHEN ISNULL(d.Status, N'') LIKE N'Rejected%' THEN(
+                SELECT TOP(1) COALESCE(pmRLoc.Name, pmR.Name, N'')
                 FROM DocumentApprovals daR
                 LEFT JOIN UserProfiles upR ON upR.UserId = daR.UserId
                 LEFT JOIN PositionMasters pmR ON pmR.CompCd = upR.CompCd AND pmR.Id = upR.PositionId
@@ -157,8 +583,8 @@ OUTER APPLY (
                   AND (ISNULL(daR.Action, N'') = N'Rejected' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
                 ORDER BY ISNULL(daR.ActedAt, '1900-01-01') DESC, ISNULL(daR.StepOrder, 0) DESC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN (
-                SELECT TOP (1) COALESCE(pmHLoc.Name, pmH.Name, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN(
+                SELECT TOP(1) COALESCE(pmHLoc.Name, pmH.Name, N'')
                 FROM DocumentApprovals daH
                 LEFT JOIN UserProfiles upH ON upH.UserId = daH.UserId
                 LEFT JOIN PositionMasters pmH ON pmH.CompCd = upH.CompCd AND pmH.Id = upH.PositionId
@@ -167,8 +593,8 @@ OUTER APPLY (
                   AND (ISNULL(daH.Action, N'') = N'OnHold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%')
                 ORDER BY ISNULL(daH.ActedAt, '1900-01-01') DESC, ISNULL(daH.StepOrder, 0) DESC
             )
-            WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN (
-                SELECT TOP (1) COALESCE(pmALoc.Name, pmA.Name, N'')
+            WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN(
+                SELECT TOP(1) COALESCE(pmALoc.Name, pmA.Name, N'')
                 FROM DocumentApprovals daA
                 LEFT JOIN UserProfiles upA ON upA.UserId = daA.UserId
                 LEFT JOIN PositionMasters pmA ON pmA.CompCd = upA.CompCd AND pmA.Id = upA.PositionId
@@ -186,21 +612,12 @@ OUTER APPLY (
 ) rs";
 
             const string outerApplyIsReadAny = @"
-OUTER APPLY (
-    SELECT TOP (1) 1 AS HasLog
+OUTER APPLY(
+    SELECT TOP(1) 1 AS HasLog
     FROM DocumentViewLogs v2
     WHERE v2.DocId = d.DocId
-      AND v2.ViewerId = @UserId
+      AND v2.ViewerId = TRY_CONVERT(uniqueidentifier, @UserId)
 ) vAny";
-
-            const string outerApplyIsReadShared = @"
-OUTER APPLY (
-    SELECT TOP (1) 1 AS HasLog
-    FROM DocumentViewLogs v2
-    WHERE v2.DocId = d.DocId
-      AND v2.ViewerId = @UserId
-      AND ISNULL(v2.ViewerRole, N'') = N'Shared'
-) vShared";
 
             string sqlCount;
             string sqlList;
@@ -211,33 +628,32 @@ OUTER APPLY (
                 sqlCount = @"
 SELECT COUNT(1)
 FROM Documents d
-WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + ";";
+" + outerApplyStepAgg + @"
+WHERE d.CreatedBy = @UserId" + whereCreatedSub + whereSearch + whereTitleFilter + "; ";
 
                 sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       ISNULL(d.Status, N'') AS Status,
-       up.DisplayName AS AuthorName,
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
-       ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
-       ISNULL(rs.ResultActorName, N'') AS ResultActorName,
-       ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
-       CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
+SELECT
+    d.DocId,
+    d.TemplateTitle,
+    d.CreatedAt,
+    ISNULL(d.Status, N'') AS Status,
+    up.DisplayName AS AuthorName,
+    (SELECT COUNT(1) FROM DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
+    CAST(0 AS bit) AS HasAttachment,
+    ISNULL(stepAgg.TotalSteps,0) AS TotalSteps,
+    ISNULL(stepAgg.DoneSteps,0) AS CompletedSteps,
+    ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
+    ISNULL(rs.ResultActorName, N'') AS ResultActorName,
+    ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM Documents d
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
+" + outerApplyStepAgg + @"
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
-WHERE d.CreatedBy = @UserId" + whereSearch + whereTitleFilter + $@"
+WHERE d.CreatedBy = @UserId" + whereCreatedSub + whereSearch + whereTitleFilter + $@"
 {orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
             }
             else if (tab == "approval")
             {
@@ -248,6 +664,17 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                     _ => ""
                 };
 
+                string whereApprovalSub = "";
+                var sub = (approvalSub ?? string.Empty).Trim().ToLowerInvariant();
+                if (sub == "completed")
+                {
+                    whereApprovalSub = " AND (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%') ";
+                }
+                else if (sub == "ongoing")
+                {
+                    whereApprovalSub = " AND NOT (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%') ";
+                }
+
                 const string whereRecalledFilter = @"
   AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%'
   AND ISNULL(a.Status, N'') NOT LIKE N'Recalled%'";
@@ -256,37 +683,55 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
 SELECT COUNT(1)
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + ";";
+WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalSub + whereApprovalView + whereSearch + whereTitleFilter + "; ";
 
+                // 핵심: StatusCode는 "내가 현재 대기(현재 step==내 step)" 또는 "내가 보류"일 때만 Pending으로 내려서 볼드 대상 제한
                 sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       CASE 
-           WHEN ISNULL(a.Action, N'') <> N'' THEN a.Action 
-           ELSE ISNULL(d.Status, N'') 
-       END AS Status,
-       up.DisplayName AS AuthorName,
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
-       ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
-       ISNULL(rs.ResultActorName, N'') AS ResultActorName,
-       ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
-       CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
+SELECT
+    d.DocId,
+    d.TemplateTitle,
+    d.CreatedAt,
+
+    -- 표시용 상태(기존 유지)
+    CASE WHEN ISNULL(a.Action, N'') <> N'' THEN a.Action ELSE ISNULL(d.Status, N'') END AS Status,
+
+    -- 볼드 판정용(내 대기 또는 내 보류만 Pending)
+    CASE
+        WHEN (ISNULL(a.Action, N'') = N'OnHold' OR ISNULL(a.Status, N'') LIKE N'OnHold%') THEN N'Pending'
+        WHEN (
+                ISNULL(a.Action, N'') = N''
+            AND (
+                    ISNULL(d.Status, N'') LIKE N'PendingA%'
+                 OR ISNULL(d.Status, N'') LIKE N'PendingHoldA%'
+                )
+            AND a.StepOrder = TRY_CONVERT(int,
+                CASE
+                    WHEN ISNULL(d.Status, N'') LIKE N'PendingHoldA%' THEN SUBSTRING(ISNULL(d.Status, N''), 13, 10)
+                    WHEN ISNULL(d.Status, N'') LIKE N'PendingA%'     THEN SUBSTRING(ISNULL(d.Status, N''), 9, 10)
+                    ELSE NULL
+                END
+            )
+        ) THEN N'Pending'
+        ELSE N''
+    END AS StatusCode,
+
+    up.DisplayName AS AuthorName,
+    (SELECT COUNT(1) FROM DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
+    CAST(0 AS bit) AS HasAttachment,
+    (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId) AS TotalSteps,
+    (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId AND (ISNULL(da.Action, N'') = N'Approved' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
+    ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
+    ISNULL(rs.ResultActorName, N'') AS ResultActorName,
+    ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
-WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalView + whereSearch + whereTitleFilter + $@"
+WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalSub + whereApprovalView + whereSearch + whereTitleFilter + $@"
 {orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
             }
             else
             {
@@ -294,71 +739,52 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
  AND ISNULL(s.IsRevoked, 0) = 0
  AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())";
 
-                // ✅ shared 열람 미열람 필터(Count용: EXISTS/NOT EXISTS)
                 string whereSharedReadCount = "";
+                string whereSharedReadList = "";
                 var tf = (titleFilter ?? string.Empty).Trim().ToLowerInvariant();
                 if (tf == "viewed" || tf == "read")
                 {
-                    whereSharedReadCount = @"
- AND EXISTS (
-     SELECT 1
-     FROM DocumentViewLogs v
-     WHERE v.DocId = s.DocId
-       AND v.ViewerId = @UserId
-       AND ISNULL(v.ViewerRole, N'') = N'Shared'
- )";
+                    whereSharedReadCount = " AND vAny.HasLog IS NOT NULL ";
+                    whereSharedReadList = " AND vAny.HasLog IS NOT NULL ";
                 }
                 else if (tf == "unviewed" || tf == "unread")
                 {
-                    whereSharedReadCount = @"
- AND NOT EXISTS (
-     SELECT 1
-     FROM DocumentViewLogs v
-     WHERE v.DocId = s.DocId
-       AND v.ViewerId = @UserId
-       AND ISNULL(v.ViewerRole, N'') = N'Shared'
- )";
+                    whereSharedReadCount = " AND vAny.HasLog IS NULL ";
+                    whereSharedReadList = " AND vAny.HasLog IS NULL ";
                 }
-
-                // ✅ shared 열람 미열람 필터(List용: OUTER APPLY vShared 결과 사용)
-                string whereSharedReadList = "";
-                if (tf == "viewed" || tf == "read")
-                    whereSharedReadList = " AND vShared.HasLog IS NOT NULL ";
-                else if (tf == "unviewed" || tf == "unread")
-                    whereSharedReadList = " AND vShared.HasLog IS NULL ";
 
                 sqlCount = @"
 SELECT COUNT(1)
 FROM DocumentShares s
 JOIN Documents d ON s.DocId = d.DocId
-WHERE s.UserId = @UserId" + whereShareActive + whereSharedReadCount + whereSearch + whereTitleFilter + ";";
+" + outerApplyStepAgg + @"
+" + outerApplyIsReadAny + @"
+WHERE s.UserId = @UserId" + whereShareActive + whereSharedSub + whereSharedReadCount + whereSearch + whereTitleFilter + "; ";
 
                 sqlList = @"
-SELECT d.DocId,
-       d.TemplateTitle,
-       d.CreatedAt,
-       ISNULL(d.Status, N'') AS Status,
-       up.DisplayName AS AuthorName,
-       (SELECT COUNT(1)
-          FROM DocumentComments c
-         WHERE c.DocId = d.DocId
-           AND c.IsDeleted = 0) AS CommentCount,
-       CAST(0 AS bit) AS HasAttachment,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId) AS TotalSteps,
-       (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId
-           AND (ISNULL(da.Action, N'') = N'Approved' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
-       ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
-       ISNULL(rs.ResultActorName, N'') AS ResultActorName,
-       ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
-       CAST(CASE WHEN vShared.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
+SELECT
+    d.DocId,
+    d.TemplateTitle,
+    d.CreatedAt,
+    ISNULL(d.Status, N'') AS Status,
+    up.DisplayName AS AuthorName,
+    (SELECT COUNT(1) FROM DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
+    CAST(0 AS bit) AS HasAttachment,
+    ISNULL(stepAgg.TotalSteps,0) AS TotalSteps,
+    ISNULL(stepAgg.DoneSteps,0) AS CompletedSteps,
+    ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
+    ISNULL(rs.ResultActorName, N'') AS ResultActorName,
+    ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM DocumentShares s
 JOIN Documents d ON s.DocId = d.DocId
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
+" + outerApplyStepAgg + @"
 " + outerApplyResultActor + @"
-" + outerApplyIsReadShared + @"
-WHERE s.UserId = @UserId" + whereShareActive + whereSharedReadList + whereSearch + whereTitleFilter + $@"
+" + outerApplyIsReadAny + @"
+WHERE s.UserId = @UserId" + whereShareActive + whereSharedSub + whereSharedReadList + whereSearch + whereTitleFilter + $@"
 {orderBy}
-OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
             }
 
             string TemplateKey(string verbKey)
@@ -420,13 +846,25 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                 int ordIsRead = -1;
                 try { ordIsRead = rdr.GetOrdinal("IsRead"); } catch { ordIsRead = -1; }
 
+                int ordStatusCode = -1;
+                try { ordStatusCode = rdr.GetOrdinal("StatusCode"); } catch { ordStatusCode = -1; }
+
                 while (await rdr.ReadAsync())
                 {
-                    var createdAtLocal = (rdr["CreatedAt"] is DateTime utc)
-                        ? ToLocalStringFromUtc(utc)
-                        : string.Empty;
+                    var createdAtLocal = (rdr["CreatedAt"] is DateTime utc) ? ToLocalStringFromUtc(utc) : string.Empty;
 
                     var rawStatus = rdr["Status"]?.ToString() ?? string.Empty;
+
+                    // approval 탭에서만 내려오는 StatusCode를 우선 사용(내 대기/내 보류만 Pending)
+                    var rawStatusCode = rawStatus;
+                    if (ordStatusCode >= 0 && rdr[ordStatusCode] != DBNull.Value)
+                    {
+                        rawStatusCode = rdr[ordStatusCode]?.ToString() ?? string.Empty;
+                    }
+                    if (string.IsNullOrWhiteSpace(rawStatusCode))
+                    {
+                        rawStatusCode = rawStatus;
+                    }
 
                     var totalSteps = rdr["TotalSteps"] is int ts ? ts : Convert.ToInt32(rdr["TotalSteps"]);
                     var completedSteps = rdr["CompletedSteps"] is int cs ? cs : Convert.ToInt32(rdr["CompletedSteps"]);
@@ -438,9 +876,13 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
 
                     var resultSummary = BuildResultSummarySentence(verbKey, actorName, actorPos);
 
-                    bool? isRead = null;
+                    var isRead = false;
                     if (ordIsRead >= 0 && rdr[ordIsRead] != DBNull.Value)
-                        isRead = Convert.ToInt32(rdr[ordIsRead]) == 1;
+                    {
+                        var v = rdr[ordIsRead];
+                        if (v is bool b) isRead = b;
+                        else isRead = Convert.ToInt32(v) == 1;
+                    }
 
                     items.Add(new
                     {
@@ -448,8 +890,10 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                         templateTitle = rdr["TemplateTitle"]?.ToString() ?? string.Empty,
                         authorName = rdr["AuthorName"]?.ToString() ?? string.Empty,
                         createdAt = createdAtLocal,
-                        status = rawStatus,
-                        statusCode = rawStatus,
+
+                        status = rawStatus,         // 표시용(보류/승인/반려 등 그대로)
+                        statusCode = rawStatusCode, // 볼드 판정용(내 대기/내 보류만 Pending)
+
                         totalApprovers = totalSteps,
                         completedApprovers = completedSteps,
                         commentCount = commentCount,
@@ -477,11 +921,13 @@ SELECT COUNT(1)
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
 WHERE a.UserId = @UserId
-  AND ISNULL(a.Status, N'') = N'Pending'
-  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+  AND ISNULL(a.Status, N'') LIKE N'Pending%'
+  AND (
+        ISNULL(d.Status, N'') = N'PendingA'     + CAST(a.StepOrder AS nvarchar(10))
+     OR ISNULL(d.Status, N'') = N'PendingHoldA' + CAST(a.StepOrder AS nvarchar(10))
+  )
   AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
 
-            // created: 내가 만든 문서 중 열람로그가 한 번도 없으면 미열람으로 계산
             var sqlCreatedUnread = @"
 SELECT COUNT(1)
 FROM Documents d
@@ -493,20 +939,13 @@ WHERE d.CreatedBy = @UserId
         AND v.ViewerId = @UserId
   );";
 
-            // shared: 공유 문서함 미열람은 ViewerRole=Shared 열람로그만 기준으로 계산
             var sqlSharedUnread = @"
 SELECT COUNT(1)
 FROM DocumentShares s
 WHERE s.UserId = @UserId
   AND ISNULL(s.IsRevoked, 0) = 0
   AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
-  AND NOT EXISTS (
-      SELECT 1
-      FROM DocumentViewLogs v
-      WHERE v.DocId = s.DocId
-        AND v.ViewerId = @UserId
-        AND ISNULL(v.ViewerRole, N'') = N'Shared'
-  );";
+  AND ISNULL(s.IsRead, 0) = 0;";
 
             int approvalPending = 0;
             int sharedUnread = 0;
@@ -532,7 +971,6 @@ WHERE s.UserId = @UserId
 
             return Json(new { created = createdUnread, approvalPending, sharedUnread });
         }
-
         private static string ToLocalStringFromUtc(DateTime utc)
         {
             try

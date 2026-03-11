@@ -1210,7 +1210,7 @@
     <value>Unviewed</value>
   </data>
   <data name="PUSH_SummaryTitle" xml:space="preserve">
-    <value>E-BOARD</value>
+    <value>E-Board</value>
   </data>
   <data name="PUSH_CreatedUnread" xml:space="preserve">
     <value>Unread submissions {0}</value>
@@ -1226,5 +1226,35 @@
   </data>
   <data name="PUSH_ApprovalReject" xml:space="preserve">
     <value>Submission rejected</value>
+  </data>
+  <data name="DOC_Approval_Sub_Ongoing" xml:space="preserve">
+    <value>Ongoing</value>
+  </data>
+  <data name="DOC_Approval_Sub_Completed" xml:space="preserve">
+    <value>Completed</value>
+  </data>
+  <data name="DOC_Toast_BulkApproved" xml:space="preserve">
+    <value>{0} documents have been approved.</value>
+  </data>
+  <data name="DTL_Section_Cooperations" xml:space="preserve">
+    <value>Cooperation</value>
+  </data>
+  <data name="DTL_ApproverType_Person" xml:space="preserve">
+    <value>Person (User)</value>
+  </data>
+  <data name="DTL_ApproverType_Role" xml:space="preserve">
+    <value>Role (Position/Group)</value>
+  </data>
+  <data name="DTL_ApproverType_Rule" xml:space="preserve">
+    <value>Rule (Condition)</value>
+  </data>
+  <data name="DTL_Col_ApproverType" xml:space="preserve">
+    <value>Type</value>
+  </data>
+  <data name="DTL_Col_AssignValue" xml:space="preserve">
+    <value>Assign</value>
+  </data>
+  <data name="_CM_Open" xml:space="preserve">
+    <value>Open</value>
   </data>
 </root>

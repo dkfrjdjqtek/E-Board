@@ -33,10 +33,10 @@ namespace WebApplication1.Controllers
 
         private sealed class UploadItemResult
         {
-            public string? fileKey { get; init; }
-            public string? originalName { get; init; }
-            public string? contentType { get; init; }
-            public long? byteSize { get; init; }
+            public string? FileKey { get; init; }
+            public string? OriginalName { get; init; }
+            public string? ContentType { get; init; }
+            public long? ByteSize { get; init; }
             public string? error { get; init; }
         }
 
@@ -45,7 +45,7 @@ namespace WebApplication1.Controllers
         [RequestSizeLimit(50_000_000)]
         [Consumes("multipart/form-data")]
         [Produces("application/json")]
-        public async Task<IActionResult> Upload([FromQuery] string? docId, [FromQuery] long? commentId)
+        public IActionResult Upload([FromQuery] string? docId, [FromQuery] long? commentId)
         {
             return StatusCode(410, new
             {
@@ -53,131 +53,131 @@ namespace WebApplication1.Controllers
                 detail = "DocFile.Upload disabled. Use /Doc/Upload."
             });
 
-            if (Request.Form?.Files == null || Request.Form.Files.Count == 0)
-                return BadRequest(new { messages = new[] { "DOC_File_Err_NoFiles" } });
+//            if (Request.Form?.Files == null || Request.Form.Files.Count == 0)
+//                return BadRequest(new { messages = new[] { "DOC_File_Err_NoFiles" } });
              
-            // 정책: docId 없는 Upload 호출은 절대 허용하지 않음(파일 저장/DB 저장 전 차단)
-            if (string.IsNullOrWhiteSpace(docId))
-                return BadRequest(new { messages = new[] { "DOC_File_Err_DocIdRequired" } });
+//            // 정책: docId 없는 Upload 호출은 절대 허용하지 않음(파일 저장/DB 저장 전 차단)
+//            if (string.IsNullOrWhiteSpace(docId))
+//                return BadRequest(new { messages = new[] { "DOC_File_Err_DocIdRequired" } });
 
-            var maxSize = _cfg.GetValue<long?>("Files:MaxBytes") ?? 50_000_000L;
+//            var maxSize = _cfg.GetValue<long?>("Files:MaxBytes") ?? 50_000_000L;
 
-            // 기본 허용 확장자: 기존 + 모든 이미지 확장자 계열 추가
-            var defaultAllowed = ".pdf,.txt,.docx,.xlsx"
-                               + ",.png,.jpg,.jpeg,.gif,.bmp,.webp,.tif,.tiff,.svg,.ico,.heic,.heif";
+//            // 기본 허용 확장자: 기존 + 모든 이미지 확장자 계열 추가
+//            var defaultAllowed = ".pdf,.txt,.docx,.xlsx"
+//                               + ",.png,.jpg,.jpeg,.gif,.bmp,.webp,.tif,.tiff,.svg,.ico,.heic,.heif";
 
-            var allowedExt = (_cfg.GetValue<string>("Files:AllowedExtensions") ?? defaultAllowed)
-                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                                .Select(x => x.StartsWith('.') ? x.ToLowerInvariant() : "." + x.ToLowerInvariant())
-                                .Distinct()
-                                .ToArray();
+//            var allowedExt = (_cfg.GetValue<string>("Files:AllowedExtensions") ?? defaultAllowed)
+//                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+//                                .Select(x => x.StartsWith('.') ? x.ToLowerInvariant() : "." + x.ToLowerInvariant())
+//                                .Distinct()
+//                                .ToArray();
 
-            var storeRoot = Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "uploads");
-            Directory.CreateDirectory(storeRoot);
+//            var storeRoot = Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "uploads");
+//            Directory.CreateDirectory(storeRoot);
 
-            var items = new System.Collections.Generic.List<UploadItemResult>();
+//            var items = new System.Collections.Generic.List<UploadItemResult>();
 
-            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-            var hasDb = !string.IsNullOrWhiteSpace(cs);
+//            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+//            var hasDb = !string.IsNullOrWhiteSpace(cs);
 
-            foreach (var file in Request.Form.Files)
-            {
-                var originalName = Path.GetFileName(file.FileName ?? "");
-                var ext = Path.GetExtension(originalName).ToLowerInvariant();
+//            foreach (var file in Request.Form.Files)
+//            {
+//                var OriginalName = Path.GetFileName(file.FileName ?? "");
+//                var ext = Path.GetExtension(OriginalName).ToLowerInvariant();
 
-                if (!allowedExt.Contains(ext))
-                {
-                    items.Add(new UploadItemResult { error = "DOC_File_Err_ExtensionNotAllowed", originalName = originalName });
-                    continue;
-                }
-                if (file.Length <= 0)
-                {
-                    items.Add(new UploadItemResult { error = "DOC_File_Err_Empty", originalName = originalName });
-                    continue;
-                }
-                if (file.Length > maxSize)
-                {
-                    items.Add(new UploadItemResult { error = "DOC_File_Err_TooLarge", originalName = originalName });
-                    continue;
-                }
+//                if (!allowedExt.Contains(ext))
+//                {
+//                    items.Add(new UploadItemResult { error = "DOC_File_Err_ExtensionNotAllowed", OriginalName = OriginalName });
+//                    continue;
+//                }
+//                if (file.Length <= 0)
+//                {
+//                    items.Add(new UploadItemResult { error = "DOC_File_Err_Empty", OriginalName = OriginalName });
+//                    continue;
+//                }
+//                if (file.Length > maxSize)
+//                {
+//                    items.Add(new UploadItemResult { error = "DOC_File_Err_TooLarge", OriginalName = OriginalName });
+//                    continue;
+//                }
 
-                var fileKey = $"F_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}{ext}";
-                var dayFolderName = DateTime.UtcNow.ToString("yyyyMMdd");
-                var safeFolder = Path.Combine(storeRoot, dayFolderName);
-                Directory.CreateDirectory(safeFolder);
+//                var FileKey = $"F_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}{ext}";
+//                var dayFolderName = DateTime.UtcNow.ToString("yyyyMMdd");
+//                var safeFolder = Path.Combine(storeRoot, dayFolderName);
+//                Directory.CreateDirectory(safeFolder);
 
-                var savePath = Path.Combine(safeFolder, fileKey);
+//                var savePath = Path.Combine(safeFolder, FileKey);
 
-                using (var fs = new FileStream(savePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
-                {
-                    await file.CopyToAsync(fs);
-                }
+//                using (var fs = new FileStream(savePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+//                {
+//                    await file.CopyToAsync(fs);
+//                }
 
-                string? sha256Hex = null;
-                try
-                {
-                    using var sha = SHA256.Create();
-                    await using var rs = new FileStream(savePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                    var hash = await sha.ComputeHashAsync(rs);
-                    sha256Hex = Convert.ToHexString(hash).ToLowerInvariant();
-                }
-                catch
-                {
-                    sha256Hex = null;
-                }
+//                string? sha256Hex = null;
+//                try
+//                {
+//                    using var sha = SHA256.Create();
+//                    await using var rs = new FileStream(savePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+//                    var hash = await sha.ComputeHashAsync(rs);
+//                    sha256Hex = Convert.ToHexString(hash).ToLowerInvariant();
+//                }
+//                catch
+//                {
+//                    sha256Hex = null;
+//                }
 
-                var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
-                var storagePath = Path.Combine(dayFolderName, fileKey).Replace('\\', '/');
+//                var ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+//                var storagePath = Path.Combine(dayFolderName, FileKey).Replace('\\', '/');
 
-                if (hasDb)
-                {
-                    var uploaderId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+//                if (hasDb)
+//                {
+//                    var uploaderId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-                    await using var conn = new SqlConnection(cs);
-                    await conn.OpenAsync();
+//                    await using var conn = new SqlConnection(cs);
+//                    await conn.OpenAsync();
 
-                    await using var cmd = conn.CreateCommand();
-                    cmd.CommandText = @"
-INSERT INTO dbo.DocumentFiles
-    (DocId, CommentId, FileKey, OriginalName, StoragePath, ContentType, ByteSize, Sha256, UploadedBy, UploadedAt)
-VALUES
-    (@DocId, @CommentId, @FileKey, @OriginalName, @StoragePath, @ContentType, @ByteSize, @Sha256, @UploadedBy, SYSUTCDATETIME());";
+//                    await using var cmd = conn.CreateCommand();
+//                    cmd.CommandText = @"
+//INSERT INTO dbo.DocumentFiles
+//    (DocId, CommentId, FileKey, OriginalName, StoragePath, ContentType, ByteSize, Sha256, UploadedBy, UploadedAt)
+//VALUES
+//    (@DocId, @CommentId, @FileKey, @OriginalName, @StoragePath, @ContentType, @ByteSize, @Sha256, @UploadedBy, SYSUTCDATETIME());";
 
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId! });
-                    cmd.Parameters.Add(new SqlParameter("@CommentId", SqlDbType.BigInt) { Value = (object?)commentId ?? DBNull.Value });
-                    cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 200) { Value = fileKey });
-                    cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 260) { Value = originalName });
-                    cmd.Parameters.Add(new SqlParameter("@StoragePath", SqlDbType.NVarChar, 400) { Value = storagePath });
-                    cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 200) { Value = contentType });
-                    cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = file.Length });
-                    cmd.Parameters.Add(new SqlParameter("@Sha256", SqlDbType.NVarChar, 64) { Value = (object?)sha256Hex ?? DBNull.Value });
-                    cmd.Parameters.Add(new SqlParameter("@UploadedBy", SqlDbType.NVarChar, 450) { Value = (object?)uploaderId ?? DBNull.Value });
+//                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId! });
+//                    cmd.Parameters.Add(new SqlParameter("@CommentId", SqlDbType.BigInt) { Value = (object?)commentId ?? DBNull.Value });
+//                    cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 200) { Value = FileKey });
+//                    cmd.Parameters.Add(new SqlParameter("@OriginalName", SqlDbType.NVarChar, 260) { Value = OriginalName });
+//                    cmd.Parameters.Add(new SqlParameter("@StoragePath", SqlDbType.NVarChar, 400) { Value = storagePath });
+//                    cmd.Parameters.Add(new SqlParameter("@ContentType", SqlDbType.NVarChar, 200) { Value = ContentType });
+//                    cmd.Parameters.Add(new SqlParameter("@ByteSize", SqlDbType.BigInt) { Value = file.Length });
+//                    cmd.Parameters.Add(new SqlParameter("@Sha256", SqlDbType.NVarChar, 64) { Value = (object?)sha256Hex ?? DBNull.Value });
+//                    cmd.Parameters.Add(new SqlParameter("@UploadedBy", SqlDbType.NVarChar, 450) { Value = (object?)uploaderId ?? DBNull.Value });
 
-                    await cmd.ExecuteNonQueryAsync();
-                }
+//                    await cmd.ExecuteNonQueryAsync();
+//                }
 
-                items.Add(new UploadItemResult
-                {
-                    fileKey = fileKey,
-                    originalName = originalName,
-                    contentType = contentType,
-                    byteSize = file.Length
-                });
-            }
+//                items.Add(new UploadItemResult
+//                {
+//                    FileKey = FileKey,
+//                    OriginalName = OriginalName,
+//                    ContentType = ContentType,
+//                    ByteSize = file.Length
+//                });
+//            }
 
-            var errs = items.Where(x => x.error != null).ToArray();
-            var oks = items.Where(x => x.error == null).ToArray();
+//            var errs = items.Where(x => x.error != null).ToArray();
+//            var oks = items.Where(x => x.error == null).ToArray();
 
-            if (oks.Length == 0)
-                return BadRequest(new { messages = errs.Select(e => e.error!).Distinct().ToArray() });
+//            if (oks.Length == 0)
+//                return BadRequest(new { messages = errs.Select(e => e.error!).Distinct().ToArray() });
 
-            return Json(new { items = oks, errors = errs });
+//            return Json(new { items = oks, errors = errs });
         }
 
-        [HttpGet("Download/{fileKey}")]
-        public IActionResult Download([FromRoute] string fileKey)
+        [HttpGet("Download/{FileKey}")]
+        public IActionResult Download([FromRoute] string FileKey)
         {
-            if (string.IsNullOrWhiteSpace(fileKey) || fileKey.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            if (string.IsNullOrWhiteSpace(FileKey) || FileKey.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
                 return BadRequest(new { messages = new[] { "DOC_File_Err_InvalidKey" } });
 
             var root = Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "uploads");
@@ -187,7 +187,7 @@ VALUES
             string? path = null;
             foreach (var dayDir in Directory.EnumerateDirectories(root))
             {
-                var candidate = Path.Combine(dayDir, fileKey);
+                var candidate = Path.Combine(dayDir, FileKey);
                 if (System.IO.File.Exists(candidate))
                 {
                     path = candidate;
@@ -198,32 +198,32 @@ VALUES
             if (path == null)
                 return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
 
-            var contentType = "application/octet-stream";
-            var ext = Path.GetExtension(fileKey).ToLowerInvariant();
-            if (ext is ".png") contentType = "image/png";
-            else if (ext is ".jpg" or ".jpeg") contentType = "image/jpeg";
-            else if (ext is ".gif") contentType = "image/gif";
-            else if (ext is ".bmp") contentType = "image/bmp";
-            else if (ext is ".webp") contentType = "image/webp";
-            else if (ext is ".tif" or ".tiff") contentType = "image/tiff";
-            else if (ext is ".svg") contentType = "image/svg+xml";
-            else if (ext is ".ico") contentType = "image/x-icon";
-            else if (ext is ".pdf") contentType = "application/pdf";
-            else if (ext is ".txt") contentType = "text/plain";
+            var ContentType = "application/octet-stream";
+            var ext = Path.GetExtension(FileKey).ToLowerInvariant();
+            if (ext is ".png") ContentType = "image/png";
+            else if (ext is ".jpg" or ".jpeg") ContentType = "image/jpeg";
+            else if (ext is ".gif") ContentType = "image/gif";
+            else if (ext is ".bmp") ContentType = "image/bmp";
+            else if (ext is ".webp") ContentType = "image/webp";
+            else if (ext is ".tif" or ".tiff") ContentType = "image/tiff";
+            else if (ext is ".svg") ContentType = "image/svg+xml";
+            else if (ext is ".ico") ContentType = "image/x-icon";
+            else if (ext is ".pdf") ContentType = "application/pdf";
+            else if (ext is ".txt") ContentType = "text/plain";
 
             var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-            return File(stream, contentType, fileKey);
+            return File(stream, ContentType, FileKey);
         }
 
         [HttpDelete("Remove")]
         [ValidateAntiForgeryToken]
         [Produces("application/json")]
-        public IActionResult Remove([FromQuery] string fileKey)
+        public IActionResult Remove([FromQuery] string FileKey)
         {
             if (!User.IsInRole("Admin"))
                 return Forbid();
 
-            if (string.IsNullOrWhiteSpace(fileKey))
+            if (string.IsNullOrWhiteSpace(FileKey))
                 return BadRequest(new { messages = new[] { "DOC_File_Err_InvalidKey" } });
 
             var root = Path.Combine(_env.ContentRootPath ?? AppContext.BaseDirectory, "App_Data", "uploads");
@@ -232,7 +232,7 @@ VALUES
             {
                 foreach (var dayDir in Directory.EnumerateDirectories(root))
                 {
-                    var p = Path.Combine(dayDir, fileKey);
+                    var p = Path.Combine(dayDir, FileKey);
                     if (System.IO.File.Exists(p))
                     {
                         System.IO.File.Delete(p);

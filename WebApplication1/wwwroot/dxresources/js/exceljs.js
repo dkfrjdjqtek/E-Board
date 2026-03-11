@@ -10798,8 +10798,8 @@ var CoreXform = /*#__PURE__*/function (_BaseXform) {
       'cp:contentStatus': new StringXform({
         tag: 'cp:contentStatus'
       }),
-      'cp:contentType': new StringXform({
-        tag: 'cp:contentType'
+      'cp:ContentType': new StringXform({
+        tag: 'cp:ContentType'
       }),
       'dcterms:created': new DateXform({
         tag: 'dcterms:created',
@@ -10833,7 +10833,7 @@ var CoreXform = /*#__PURE__*/function (_BaseXform) {
       this.map['cp:revision'].render(xmlStream, model.revision);
       this.map['cp:version'].render(xmlStream, model.version);
       this.map['cp:contentStatus'].render(xmlStream, model.contentStatus);
-      this.map['cp:contentType'].render(xmlStream, model.contentType);
+      this.map['cp:ContentType'].render(xmlStream, model.ContentType);
       this.map['dcterms:created'].render(xmlStream, model.created);
       this.map['dcterms:modified'].render(xmlStream, model.modified);
       xmlStream.closeNode();
@@ -10896,7 +10896,7 @@ var CoreXform = /*#__PURE__*/function (_BaseXform) {
             lastPrinted: this.map['cp:lastPrinted'].model,
             revision: this.map['cp:revision'].model,
             contentStatus: this.map['cp:contentStatus'].model,
-            contentType: this.map['cp:contentType'].model,
+            ContentType: this.map['cp:ContentType'].model,
             created: this.map['dcterms:created'].model,
             modified: this.map['dcterms:modified'].model
           };

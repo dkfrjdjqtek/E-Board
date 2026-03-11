@@ -1,0 +1,2836 @@
+/**
+* DevExpress AspNetCore Spreadsheet (dx-aspnetcore-spreadsheet.css)
+* Version: 25.2.4
+* Copyright (c) 2012 - 2026 Developer Express Inc. ALL RIGHTS RESERVED
+* License: https://www.devexpress.com/Support/EULAs
+*/
+@charset "UTF-8";
+.dx-ribbon .dx-toolbar .dx-toolbar-items-container {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  box-sizing: content-box;
+}
+
+.dx-ribbon .dx-tab-text {
+  font-weight: 500;
+}
+
+.dx-ribbon .dx-texteditor.dx-editor-filled,
+.dx-toolbar-menu-section .dx-texteditor.dx-editor-filled {
+  background-color: transparent;
+}
+
+.dx-ribbon .dx-toolbar .dx-toolbar-items-container .dx-numberbox {
+  box-sizing: border-box;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.dx-ribbon .dx-tabs {
+  border-width: 0;
+}
+.dx-ribbon .dx-multiview-wrapper {
+  border-left-width: 0;
+  border-right-width: 0;
+}
+.dx-ribbon.dx-tabpanel[class*="generic."] > .dx-tabpanel-tabs > .dx-tabs > .dx-tabs-wrapper, .dx-ribbon.dx-tabpanel[class*="generic."] > .dx-tabpanel-tabs > .dx-tabs > .dx-tabs-scrollable > .dx-scrollable-wrapper > .dx-scrollable-container > .dx-scrollable-content > .dx-tabs-wrapper {
+  border-block-start: none;
+  -webkit-border-before: none;
+}
+.dx-ribbon.dx-tabpanel[class*="generic."] > .dx-tabpanel-tabs > .dx-tabs > .dx-tabs-wrapper::after, .dx-ribbon.dx-tabpanel[class*="generic."] > .dx-tabpanel-tabs > .dx-tabs > .dx-tabs-scrollable > .dx-scrollable-wrapper > .dx-scrollable-container > .dx-scrollable-content > .dx-tabs-wrapper::after {
+  border-inline-start: none;
+  -webkit-border-start: none;
+  border-inline-end: none;
+  -webkit-border-end: none;
+}
+.dx-ribbon.dx-tabpanel[class*="generic."] > .dx-tabpanel-tabs > .dx-tabs > .dx-tabs-nav-button {
+  border-left-width: 0;
+  border-right-width: 0;
+  border-top-width: 0;
+}
+
+.dx-ribbon .dx-toolbar .dx-toolbar-item {
+  padding: 0;
+}
+
+.dx-ribbon .dx-toolbar-item .dx-button {
+  margin-left: 1px;
+  margin-right: 1px;
+}
+
+.dx-ribbon .dx-toolbar-item .dx-selectbox {
+  margin: 0 6px;
+}
+
+.dx-ribbon .dx-toolbar-before {
+  padding-left: 8px;
+}
+
+.dx-ribbon .dx-r-separator,
+.dx-toolbar-menu-section .dx-r-separator {
+  border-style: solid;
+  border-width: 0;
+}
+
+.dx-ribbon .dx-r-separator-container {
+  height: 2.6em;
+}
+
+.dx-ribbon .dx-r-separator {
+  margin: 0 7px 0 8px;
+  border-right-width: 1px;
+  height: 100%;
+}
+
+.dx-toolbar-menu-section .dx-r-separator {
+  margin: 0 -16px 0 -16px;
+  border-bottom-width: 1px;
+  height: 0;
+}
+
+.dx-ribbon-item.dx-colorbox .dx-colorbox-color-result-preview {
+  cursor: pointer;
+}
+
+.dx-toolbar-menu-section .dx-ribbon-item.dx-numberbox,
+.dx-toolbar-menu-section .dx-ribbon-item.dx-colorbox,
+.dx-toolbar-menu-section .dx-ribbon-item.dx-selectbox,
+.dx-toolbar-menu-section .dx-ribbon-item .dx-menu-items-container,
+.dx-toolbar-menu-section .dx-ribbon-item .dx-menu-items-container .dx-menu-item-wrapper {
+  width: 100% !important;
+}
+
+.dx-ribbon .dx-menu .dx-menu-item .dx-menu-item-content {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.dx-ribbon[class*=material] .dx-menu-base.dx-ribbon-item :not(.dx-submenu) .dx-menu-item .dx-menu-item-content .dx-menu-item-text {
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.dx-ribbon[class*=material] .dx-dropdowneditor.dx-editor-filled::after {
+  border-bottom-color: transparent;
+}
+.dx-ribbon[class*=material] .dx-menu-item-content {
+  display: flex;
+  align-items: center;
+}
+.dx-ribbon[class*=material][class*=compact] .dx-menu-base .dx-icon {
+  font-size: 16px;
+}
+.dx-ribbon[class*=material]:not([class*=compact]) .dx-menu-base .dx-icon {
+  font-size: 18px;
+}
+
+.dx-ribbon .dx-menu-base.dx-ribbon-item.dx-showTextInMenu :not(.dx-submenu) .dx-menu-item .dx-menu-item-content .dx-menu-item-text, .dx-ribbon .dx-menu-base.dx-ribbon-item.dx-showTextInMenu :not(.dx-submenu) .dx-menu-item .dx-menu-item-content .dx-menu-item-popout:before {
+  display: none;
+}
+
+.dx-toolbar-menu-section .dx-menu-base.dx-ribbon-item.dx-showTextInMenu :not(.dx-submenu) .dx-menu-item .dx-menu-item-content .dx-menu-item-text {
+  display: inline;
+}
+
+.dx-menu.dx-ribbon-item .dx-menu-item.dx-menu-item-has-text.dx-menu-item-has-icon .dx-icon {
+  margin-right: 12px;
+}
+
+.dx-ribbon .dx-menu.dx-ribbon-item.dx-showTextInMenu .dx-menu-item.dx-menu-item-has-text.dx-menu-item-has-icon .dx-icon {
+  margin-right: 0;
+}
+
+.dx-ribbon .dx-toolbar-menu-container .dx-dropdownmenu-button {
+  margin-right: 10px;
+  border-width: 0;
+}
+
+.dx-ribbon input.dx-colorbox-input {
+  color: transparent;
+  user-select: none;
+}
+
+@font-face {
+  font-family: "dxss-icons";
+  src: url("./icons/dxss-icons.woff2") format("woff2"), url("./icons/dxss-icons.woff") format("woff"), url("./icons/dxss-icons.ttf") format("truetype");
+}
+.dxss-icon-UnfreezePanes:before, .dxss-icon-FreezeTopRow:before, .dxss-icon-FreezePanes:before, .dxss-icon-FreezeFirstColumn:before, .dxss-icon-FullScreen:before, .dxss-icon-TableConvertToRange:before, .dxss-icon-ShowHideComment:before, .dxss-icon-InsertComment:before, .dxss-icon-EditComment:before, .dxss-icon-DeleteComment:before, .dxss-icon-InsertTable:before, .dxss-icon-Hyperlink:before, .dxss-icon-InsertFloatingObjectImage:before, .dxss-icon-PivotTable:before, .dxss-icon-CreateStockChartVolumeOpenHighLowClose:before, .dxss-icon-CreateStockChartVolumeHighLowClose:before, .dxss-icon-CreateStockChartOpenHighLowClose:before, .dxss-icon-CreateStockChartHighLowClose:before, .dxss-icon-CreateStackedLineChartNoMarkers:before, .dxss-icon-CreateStackedLineChart:before, .dxss-icon-CreateStackedBarChart:before, .dxss-icon-CreateStackedBar3DChart:before, .dxss-icon-CreateStackedAreaChart:before, .dxss-icon-CreateStackedArea3DChart:before, .dxss-icon-CreateScatterChartSmoothLinesAndMarkers:before, .dxss-icon-CreateScatterChartSmoothLines:before, .dxss-icon-CreateScatterChartMarkersOnly:before, .dxss-icon-CreateScatterChartLinesAndMarkers:before, .dxss-icon-CreateScatterChartLines:before, .dxss-icon-CreateRotatedStackedPyramidBar3DChart:before, .dxss-icon-CreateRotatedStackedCylinderBar3DChart:before, .dxss-icon-CreateRotatedStackedConeBar3DChart:before, .dxss-icon-CreateRotatedStackedBarChart:before, .dxss-icon-CreateRotatedStackedBar3DChart:before, .dxss-icon-CreateRotatedPyramidBar3DChart:before, .dxss-icon-CreateRotatedFullStackedPyramidBar3DChart:before, .dxss-icon-CreateRotatedFullStackedCylinderBar3DChart:before, .dxss-icon-CreateRotatedFullStackedConeBar3DChart:before, .dxss-icon-CreateRotatedFullStackedBarChart:before, .dxss-icon-CreateRotatedFullStackedBar3DChart:before, .dxss-icon-CreateRotatedCylinderBar3DChart:before, .dxss-icon-CreateRotatedConeBar3DChart:before, .dxss-icon-CreateRotatedBarChart:before, .dxss-icon-CreateRotatedBar3DChart:before, .dxss-icon-CreateRadarLineChartNoMarkers:before, .dxss-icon-CreateRadarLineChartFilled:before, .dxss-icon-CreateRadarLineChart:before, .dxss-icon-CreatePyramidStackedBar3DChart:before, .dxss-icon-CreatePyramidManhattanBarChart:before, .dxss-icon-CreatePyramidFullStackedBar3DChart:before, .dxss-icon-CreatePyramidBar3DChart:before, .dxss-icon-CreatePieChart:before, .dxss-icon-CreatePie3DChart:before, .dxss-icon-CreateManhattanBarChart:before, .dxss-icon-CreateLineChartNoMarkers:before, .dxss-icon-CreateLineChart:before, .dxss-icon-CreateLine3DChart:before, .dxss-icon-CreateFullStackedLineChartNoMarkers:before, .dxss-icon-CreateFullStackedLineChart:before, .dxss-icon-CreateFullStackedBarChart:before, .dxss-icon-CreateFullStackedBar3DChart:before, .dxss-icon-CreateFullStackedAreaChart:before, .dxss-icon-CreateFullStackedArea3DChart:before, .dxss-icon-CreateExplodedPieChart:before, .dxss-icon-CreateExplodedPie3DChart:before, .dxss-icon-CreateExplodedDoughnutChart:before, .dxss-icon-CreateDoughnutChart:before, .dxss-icon-CreateCylinderStackedBar3DChart:before, .dxss-icon-CreateCylinderManhattanBarChart:before, .dxss-icon-CreateCylinderFullStackedBar3DChart:before, .dxss-icon-CreateCylinderBar3DChart:before, .dxss-icon-CreateConeStackedBar3DChart:before, .dxss-icon-CreateConeManhattanBarChart:before, .dxss-icon-CreateConeFullStackedBar3DChart:before, .dxss-icon-CreateConeBar3DChart:before, .dxss-icon-CreateBubbleChart:before, .dxss-icon-CreateBubble3DChart:before, .dxss-icon-CreateBarChart:before, .dxss-icon-CreateBar3DChart:before, .dxss-icon-CreateAreaChart:before, .dxss-icon-CreateArea3DChart:before, .dxss-icon-ChartGroupScatter:before, .dxss-icon-ChartGroupPie:before, .dxss-icon-ChartGroupOther:before, .dxss-icon-ChartGroupLine:before, .dxss-icon-ChartGroupColumn:before, .dxss-icon-ChartGroupBar:before, .dxss-icon-ChartGroupArea:before, .dxss-icon-Undo:before, .dxss-icon-Redo:before, .dxss-icon-FormatAsTable:before, .dxss-icon-PrintDialog:before, .dxss-icon-FormatNumberPercent:before, .dxss-icon-FormatNumberIncreaseDecimal:before, .dxss-icon-FormatNumberDecreaseDecimal:before, .dxss-icon-FormatNumberCurrency:before, .dxss-icon-FormatNumberCommaStyle:before, .dxss-icon-Underline:before, .dxss-icon-Strikeout:before, .dxss-icon-LineColor:before, .dxss-icon-Italic:before, .dxss-icon-FontSizeIncrease:before, .dxss-icon-FontSizeDecrease:before, .dxss-icon-FontColor:before, .dxss-icon-FillBackground:before, .dxss-icon-BorderTopAndBottomThick:before, .dxss-icon-BorderTopAndBottom:before, .dxss-icon-BorderTop:before, .dxss-icon-BordersOutsideThick:before, .dxss-icon-BordersOutside:before, .dxss-icon-BordersAll:before, .dxss-icon-BorderRight:before, .dxss-icon-BorderNone:before, .dxss-icon-BorderLineStyle:before, .dxss-icon-BorderLeft:before, .dxss-icon-BorderBottomThick:before, .dxss-icon-BorderBottom:before, .dxss-icon-Bold:before, .dxss-icon-SortDesc:before, .dxss-icon-SortAsc:before, .dxss-icon-SortAndFilter:before, .dxss-icon-FormatCells:before, .dxss-icon-Find:before, .dxss-icon-EditingFillUp:before, .dxss-icon-EditingFillRight:before, .dxss-icon-EditingFillLeft:before, .dxss-icon-EditingFillDown:before, .dxss-icon-Delete_Hyperlink:before, .dxss-icon-ClearFormats:before, .dxss-icon-ClearAll:before, .dxss-icon-Paste:before, .dxss-icon-Cut:before, .dxss-icon-Copy:before, .dxss-icon-RemoveSheetRows:before, .dxss-icon-RemoveSheetColumns:before, .dxss-icon-RemoveSheet:before, .dxss-icon-RemoveCellsCommandGroup:before, .dxss-icon-InsertSheetRows:before, .dxss-icon-InsertSheetColumns:before, .dxss-icon-InsertSheet:before, .dxss-icon-InsertCellsCommandGroup:before, .dxss-icon-Format:before, .dxss-icon-IndentIncrease:before, .dxss-icon-IndentDecrease:before, .dxss-icon-FormatWrapText:before, .dxss-icon-EditingUnmergeCells:before, .dxss-icon-EditingMergeCellsAcross:before, .dxss-icon-EditingMergeCells:before, .dxss-icon-EditingMergeAndCenterCells:before, .dxss-icon-AlignTopCenter:before, .dxss-icon-AlignRight:before, .dxss-icon-AlignMiddleCenter:before, .dxss-icon-AlignLeft:before, .dxss-icon-AlignCenter:before, .dxss-icon-AlignBottomCenter:before, .dxss-icon-FunctionSum:before, .dxss-icon-FunctionsText:before, .dxss-icon-FunctionsStatistical:before, .dxss-icon-FunctionsMore:before, .dxss-icon-FunctionsMathAndTrigonometry:before, .dxss-icon-FunctionsLookupAndReference:before, .dxss-icon-FunctionsLogical:before, .dxss-icon-FunctionsInformation:before, .dxss-icon-FunctionsFinancial:before, .dxss-icon-FunctionsEngineering:before, .dxss-icon-FunctionsDateAndTime:before, .dxss-icon-FunctionsCompatibility:before, .dxss-icon-CalculationOptions:before, .dxss-icon-CalculateSheet:before, .dxss-icon-CalculateNow:before, .dxss-icon-ReapplyFilter:before, .dxss-icon-Filter:before, .dxss-icon-ClearFilter:before, .dxss-icon-DataValidation:before, .dxss-icon-ClearValidationCircles:before, .dxss-icon-CircleInvalidData:before, .dxss-icon-ChartTitleNone:before, .dxss-icon-ChartTitleGroup:before, .dxss-icon-ChartTitleCenteredOverlay:before, .dxss-icon-ChartTitleAbove:before, .dxss-icon-ChartLegend_Top:before, .dxss-icon-ChartLegend_RightOverlay:before, .dxss-icon-ChartLegend_Right:before, .dxss-icon-ChartLegend_None:before, .dxss-icon-ChartLegend_LeftOverlay:before, .dxss-icon-ChartLegend_Left:before, .dxss-icon-ChartLegend_Bottom:before, .dxss-icon-ChartLabels_OutsideEnd:before, .dxss-icon-ChartLabels_None:before, .dxss-icon-ChartLabels_InsideEnd:before, .dxss-icon-ChartLabels_InsideCenter:before, .dxss-icon-ChartLabels_InsideBase:before, .dxss-icon-ChartAxisTitleVertical_VerticalText:before, .dxss-icon-ChartAxisTitleVertical_RotatedText:before, .dxss-icon-ChartAxisTitleVertical_None:before, .dxss-icon-ChartAxisTitleVertical_HorizonlalText:before, .dxss-icon-ChartAxisTitleVertical:before, .dxss-icon-ChartAxisTitleHorizontal_None:before, .dxss-icon-ChartAxisTitleHorizontal:before, .dxss-icon-ChartAxisTitleGroup:before, .dxss-icon-ChartVerticalAxis_Thousands:before, .dxss-icon-ChartVerticalAxis_None:before, .dxss-icon-ChartVerticalAxis_Millions:before, .dxss-icon-ChartVerticalAxis_LogScale:before, .dxss-icon-ChartVerticalAxis_Default:before, .dxss-icon-ChartVerticalAxis_Billions:before, .dxss-icon-ChartUpDownBars_None:before, .dxss-icon-ChartHorizontalAxis_WithoutLabeling:before, .dxss-icon-ChartHorizontalAxis_RightToLeft:before, .dxss-icon-ChartHorizontalAxis_None:before, .dxss-icon-ChartHorizontalAxis_LeftToRight:before, .dxss-icon-ChartHorizontalAxis_Default:before, .dxss-icon-ChartGridlinesVertical_None:before, .dxss-icon-ChartGridlinesVertical_Minor:before, .dxss-icon-ChartGridlinesVertical_MajorMinor:before, .dxss-icon-ChartGridlinesVertical_Major:before, .dxss-icon-ChartGridlinesHorizontal_None:before, .dxss-icon-ChartGridlinesHorizontal_Minor:before, .dxss-icon-ChartGridlinesHorizontal_MajorMinor:before, .dxss-icon-ChartGridlinesHorizontal_Major:before, .dxss-icon-ChartGridlines:before, .dxss-icon-ChartAxesGroup:before, .dxss-icon-FloatingObjectSendToBack:before, .dxss-icon-FloatingObjectSendBackward:before, .dxss-icon-FloatingObjectBringToFront:before, .dxss-icon-FloatingObjectBringForward:before, .dxss-icon-ChartSwitchRowColumn:before, .dxss-icon-ChartSelectData:before, .dxss-icon-ChartChangeType:before, .dxss-icon-ChartChangeStyle:before, .dxss-icon-ChartChangeLayout:before {
+  font-family: "dxss-icons";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: normal;
+  text-decoration: none;
+  text-transform: none;
+}
+
+.dxss-icon-ChartChangeLayout:before {
+  content: "";
+}
+
+.dxss-icon-ChartChangeStyle:before {
+  content: "";
+}
+
+.dxss-icon-ChartChangeType:before {
+  content: "";
+}
+
+.dxss-icon-ChartSelectData:before {
+  content: "";
+}
+
+.dxss-icon-ChartSwitchRowColumn:before {
+  content: "";
+}
+
+.dxss-icon-FloatingObjectBringForward:before {
+  content: "";
+}
+
+.dxss-icon-FloatingObjectBringToFront:before {
+  content: "";
+}
+
+.dxss-icon-FloatingObjectSendBackward:before {
+  content: "";
+}
+
+.dxss-icon-FloatingObjectSendToBack:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxesGroup:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlines:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesHorizontal_Major:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesHorizontal_MajorMinor:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesHorizontal_Minor:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesHorizontal_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesVertical_Major:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesVertical_MajorMinor:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesVertical_Minor:before {
+  content: "";
+}
+
+.dxss-icon-ChartGridlinesVertical_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartHorizontalAxis_Default:before {
+  content: "";
+}
+
+.dxss-icon-ChartHorizontalAxis_LeftToRight:before {
+  content: "";
+}
+
+.dxss-icon-ChartHorizontalAxis_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartHorizontalAxis_RightToLeft:before {
+  content: "";
+}
+
+.dxss-icon-ChartHorizontalAxis_WithoutLabeling:before {
+  content: "";
+}
+
+.dxss-icon-ChartUpDownBars_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_Billions:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_Default:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_LogScale:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_Millions:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartVerticalAxis_Thousands:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleGroup:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleHorizontal:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleHorizontal_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleVertical:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleVertical_HorizonlalText:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleVertical_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleVertical_RotatedText:before {
+  content: "";
+}
+
+.dxss-icon-ChartAxisTitleVertical_VerticalText:before {
+  content: "";
+}
+
+.dxss-icon-ChartLabels_InsideBase:before {
+  content: "";
+}
+
+.dxss-icon-ChartLabels_InsideCenter:before {
+  content: "";
+}
+
+.dxss-icon-ChartLabels_InsideEnd:before {
+  content: "";
+}
+
+.dxss-icon-ChartLabels_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartLabels_OutsideEnd:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_Bottom:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_Left:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_LeftOverlay:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_None:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_Right:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_RightOverlay:before {
+  content: "";
+}
+
+.dxss-icon-ChartLegend_Top:before {
+  content: "";
+}
+
+.dxss-icon-ChartTitleAbove:before {
+  content: "";
+}
+
+.dxss-icon-ChartTitleCenteredOverlay:before {
+  content: "";
+}
+
+.dxss-icon-ChartTitleGroup:before {
+  content: "";
+}
+
+.dxss-icon-ChartTitleNone:before {
+  content: "";
+}
+
+.dxss-icon-CircleInvalidData:before {
+  content: "";
+}
+
+.dxss-icon-ClearValidationCircles:before {
+  content: "";
+}
+
+.dxss-icon-DataValidation:before {
+  content: "";
+}
+
+.dxss-icon-ClearFilter:before {
+  content: "";
+}
+
+.dxss-icon-Filter:before {
+  content: "";
+}
+
+.dxss-icon-ReapplyFilter:before {
+  content: "";
+}
+
+.dxss-icon-CalculateNow:before {
+  content: "";
+}
+
+.dxss-icon-CalculateSheet:before {
+  content: "";
+}
+
+.dxss-icon-CalculationOptions:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsCompatibility:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsDateAndTime:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsEngineering:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsFinancial:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsInformation:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsLogical:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsLookupAndReference:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsMathAndTrigonometry:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsMore:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsStatistical:before {
+  content: "";
+}
+
+.dxss-icon-FunctionsText:before {
+  content: "";
+}
+
+.dxss-icon-FunctionSum:before {
+  content: "";
+}
+
+.dxss-icon-AlignBottomCenter:before {
+  content: "";
+}
+
+.dxss-icon-AlignCenter:before {
+  content: "";
+}
+
+.dxss-icon-AlignLeft:before {
+  content: "";
+}
+
+.dxss-icon-AlignMiddleCenter:before {
+  content: "";
+}
+
+.dxss-icon-AlignRight:before {
+  content: "";
+}
+
+.dxss-icon-AlignTopCenter:before {
+  content: "";
+}
+
+.dxss-icon-EditingMergeAndCenterCells:before {
+  content: "";
+}
+
+.dxss-icon-EditingMergeCells:before {
+  content: "";
+}
+
+.dxss-icon-EditingMergeCellsAcross:before {
+  content: "";
+}
+
+.dxss-icon-EditingUnmergeCells:before {
+  content: "";
+}
+
+.dxss-icon-FormatWrapText:before {
+  content: "";
+}
+
+.dxss-icon-IndentDecrease:before {
+  content: "";
+}
+
+.dxss-icon-IndentIncrease:before {
+  content: "";
+}
+
+.dxss-icon-Format:before {
+  content: "";
+}
+
+.dxss-icon-InsertCellsCommandGroup:before {
+  content: "";
+}
+
+.dxss-icon-InsertSheet:before {
+  content: "";
+}
+
+.dxss-icon-InsertSheetColumns:before {
+  content: "";
+}
+
+.dxss-icon-InsertSheetRows:before {
+  content: "";
+}
+
+.dxss-icon-RemoveCellsCommandGroup:before {
+  content: "";
+}
+
+.dxss-icon-RemoveSheet:before {
+  content: "";
+}
+
+.dxss-icon-RemoveSheetColumns:before {
+  content: "";
+}
+
+.dxss-icon-RemoveSheetRows:before {
+  content: "";
+}
+
+.dxss-icon-Copy:before {
+  content: "";
+}
+
+.dxss-icon-Cut:before {
+  content: "";
+}
+
+.dxss-icon-Paste:before {
+  content: "";
+}
+
+.dxss-icon-ClearAll:before {
+  content: "";
+}
+
+.dxss-icon-ClearFormats:before {
+  content: "";
+}
+
+.dxss-icon-Delete_Hyperlink:before {
+  content: "";
+}
+
+.dxss-icon-EditingFillDown:before {
+  content: "";
+}
+
+.dxss-icon-EditingFillLeft:before {
+  content: "";
+}
+
+.dxss-icon-EditingFillRight:before {
+  content: "";
+}
+
+.dxss-icon-EditingFillUp:before {
+  content: "";
+}
+
+.dxss-icon-Find:before {
+  content: "";
+}
+
+.dxss-icon-FormatCells:before {
+  content: "";
+}
+
+.dxss-icon-SortAndFilter:before {
+  content: "";
+}
+
+.dxss-icon-SortAsc:before {
+  content: "";
+}
+
+.dxss-icon-SortDesc:before {
+  content: "";
+}
+
+.dxss-icon-Bold:before {
+  content: "";
+}
+
+.dxss-icon-BorderBottom:before {
+  content: "";
+}
+
+.dxss-icon-BorderBottomThick:before {
+  content: "";
+}
+
+.dxss-icon-BorderLeft:before {
+  content: "";
+}
+
+.dxss-icon-BorderLineStyle:before {
+  content: "";
+}
+
+.dxss-icon-BorderNone:before {
+  content: "";
+}
+
+.dxss-icon-BorderRight:before {
+  content: "";
+}
+
+.dxss-icon-BordersAll:before {
+  content: "";
+}
+
+.dxss-icon-BordersOutside:before {
+  content: "";
+}
+
+.dxss-icon-BordersOutsideThick:before {
+  content: "";
+}
+
+.dxss-icon-BorderTop:before {
+  content: "";
+}
+
+.dxss-icon-BorderTopAndBottom:before {
+  content: "";
+}
+
+.dxss-icon-BorderTopAndBottomThick:before {
+  content: "";
+}
+
+.dxss-icon-FillBackground:before {
+  content: "";
+}
+
+.dxss-icon-FontColor:before {
+  content: "";
+}
+
+.dxss-icon-FontSizeDecrease:before {
+  content: "";
+}
+
+.dxss-icon-FontSizeIncrease:before {
+  content: "";
+}
+
+.dxss-icon-Italic:before {
+  content: "";
+}
+
+.dxss-icon-LineColor:before {
+  content: "";
+}
+
+.dxss-icon-Strikeout:before {
+  content: "";
+}
+
+.dxss-icon-Underline:before {
+  content: "";
+}
+
+.dxss-icon-FormatNumberCommaStyle:before {
+  content: "";
+}
+
+.dxss-icon-FormatNumberCurrency:before {
+  content: "";
+}
+
+.dxss-icon-FormatNumberDecreaseDecimal:before {
+  content: "";
+}
+
+.dxss-icon-FormatNumberIncreaseDecimal:before {
+  content: "";
+}
+
+.dxss-icon-FormatNumberPercent:before {
+  content: "";
+}
+
+.dxss-icon-PrintDialog:before {
+  content: "";
+}
+
+.dxss-icon-FormatAsTable:before {
+  content: "";
+}
+
+.dxss-icon-Redo:before {
+  content: "";
+}
+
+.dxss-icon-Undo:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupArea:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupBar:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupColumn:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupLine:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupOther:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupPie:before {
+  content: "";
+}
+
+.dxss-icon-ChartGroupScatter:before {
+  content: "";
+}
+
+.dxss-icon-CreateArea3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateAreaChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateBubble3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateBubbleChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateConeBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateConeFullStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateConeManhattanBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateConeStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateCylinderBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateCylinderFullStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateCylinderManhattanBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateCylinderStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateDoughnutChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateExplodedDoughnutChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateExplodedPie3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateExplodedPieChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedArea3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedAreaChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedLineChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateFullStackedLineChartNoMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateLine3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateLineChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateLineChartNoMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateManhattanBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePie3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePieChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePyramidBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePyramidFullStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePyramidManhattanBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreatePyramidStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRadarLineChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRadarLineChartFilled:before {
+  content: "";
+}
+
+.dxss-icon-CreateRadarLineChartNoMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedConeBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedCylinderBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedFullStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedFullStackedBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedFullStackedConeBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedFullStackedCylinderBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedFullStackedPyramidBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedPyramidBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedStackedBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedStackedConeBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedStackedCylinderBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateRotatedStackedPyramidBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateScatterChartLines:before {
+  content: "";
+}
+
+.dxss-icon-CreateScatterChartLinesAndMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateScatterChartMarkersOnly:before {
+  content: "";
+}
+
+.dxss-icon-CreateScatterChartSmoothLines:before {
+  content: "";
+}
+
+.dxss-icon-CreateScatterChartSmoothLinesAndMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedArea3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedAreaChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedBar3DChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedBarChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedLineChart:before {
+  content: "";
+}
+
+.dxss-icon-CreateStackedLineChartNoMarkers:before {
+  content: "";
+}
+
+.dxss-icon-CreateStockChartHighLowClose:before {
+  content: "";
+}
+
+.dxss-icon-CreateStockChartOpenHighLowClose:before {
+  content: "";
+}
+
+.dxss-icon-CreateStockChartVolumeHighLowClose:before {
+  content: "";
+}
+
+.dxss-icon-CreateStockChartVolumeOpenHighLowClose:before {
+  content: "";
+}
+
+.dxss-icon-PivotTable:before {
+  content: "";
+}
+
+.dxss-icon-InsertFloatingObjectImage:before {
+  content: "";
+}
+
+.dxss-icon-Hyperlink:before {
+  content: "";
+}
+
+.dxss-icon-InsertTable:before {
+  content: "";
+}
+
+.dxss-icon-DeleteComment:before {
+  content: "";
+}
+
+.dxss-icon-EditComment:before {
+  content: "";
+}
+
+.dxss-icon-InsertComment:before {
+  content: "";
+}
+
+.dxss-icon-ShowHideComment:before {
+  content: "";
+}
+
+.dxss-icon-TableConvertToRange:before {
+  content: "";
+}
+
+.dxss-icon-FullScreen:before {
+  content: "";
+}
+
+.dxss-icon-FreezeFirstColumn:before {
+  content: "";
+}
+
+.dxss-icon-FreezePanes:before {
+  content: "";
+}
+
+.dxss-icon-FreezeTopRow:before {
+  content: "";
+}
+
+.dxss-icon-UnfreezePanes:before {
+  content: "";
+}
+/*Main container*/
+.dxssControlSys {
+	width: 1000px;
+	height: 500px;
+	min-height: 300px;
+	-webkit-tap-highlight-color: rgba(0,0,0,0);
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	user-select: none;
+	-ms-user-select: none;
+	-ms-touch-action: pinch-zoom;
+	-moz-box-sizing: border-box;
+	-webkit-box-sizing: border-box;
+	box-sizing: border-box;
+	background-color: white;
+}
+.dxssControlSys .dxrSys .dxm-item .dxm-content .dxalink:focus {
+    outline: none;
+}
+.dxss-rit {
+    display: inline-table;
+}
+.dxss-md,
+.dxss-sctb,
+.dxss-tb,
+.dxss-cctb {
+	border-style: hidden!important;
+}
+
+.dxss-fullscreen {
+    left: 0 !important;
+    position: fixed !important;
+    border-top-width: 0 !important;
+    border-left-width: 0 !important;
+    border-right-width: 0 !important;
+    border-bottom-width: 0 !important;
+}
+
+/* DX Spreadsheet Main Div */
+.dxss-md {
+	position: relative;
+	z-index: 0;
+	-moz-box-sizing: border-box;
+	-webkit-box-sizing: border-box;
+	box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* DX Spreadsheet Grid Row */
+.dxss-gr {
+	position: absolute;
+	z-index: 1;
+	left: 0;
+	width: 100%;
+	height: 0;
+	border-top: 1px solid #d4d4d4;
+}
+
+/* DX Spreadsheet Single Cell Text Box */
+.dxss-sctb {
+	position: absolute;
+	z-index: 4;
+    overflow: hidden;
+}
+
+/* DX Spreadsheet Complex Cell Text Box */
+.dxss-cctb {
+	position: absolute;
+	z-index: 4;
+	overflow: hidden;
+}
+
+/* DX Spreadsheet Text Box Background only */
+.dxss-tbg {
+	position: absolute;
+	z-index: 3;
+}
+
+/* DX Spreadsheet Drawing Box */
+.dxss-db {
+	position: absolute;
+	z-index: 9; /* To be above the selection and edition*/
+	cursor: move;
+    touch-action: none;
+}
+
+/* DX Spreadsheet Text Box content*/
+.dxss-tb {
+	z-index: 5;
+	white-space: pre;
+    pointer-events: auto;
+}
+.dxss-tw {
+    position: absolute;
+}
+/* DX Spreadsheet Fill Text Box Container*/
+.dxss-ftc {
+    position: absolute;
+}
+/* DX Spreadsheet Merged Cells */
+.dxss-mc {
+	position: absolute;
+	z-index: 2;
+	background-color: white;
+}
+/* DX Spreadsheet Default Cell Style*/
+.dxss-dcs,
+.dxss-ddcs {
+    font-family: Calibri;
+    font-size: 11pt;
+    vertical-align: bottom;
+    padding: 0px 0px 0px 2px;
+    display: table-cell;
+}
+.dxss-dcs {
+    text-align: left;
+}
+.dxss-ddcs {
+    text-align: right;
+}
+/* DX Spreadsheet Comment Indicator */
+.dxss-ci:before
+{
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 1px;
+    display: block;
+    width: 0;
+    border-left: 5px solid transparent;
+    border-top: 5px solid #FF0000;
+}
+/* DX Spreadsheet Comment Container */
+.dxss-cc {
+    background-color: #ffffe1;
+    position: absolute;
+    z-index: 101;
+    padding: 2px;
+    border: 1px solid black;
+    cursor: move;
+    box-sizing: border-box;
+}
+.dxss-cc.highlighted {
+    border-color: #217346;
+    z-index:102;
+}
+.dxss-ccte {
+    position: absolute;
+    z-index: 101;
+    cursor: move;
+    box-sizing: border-box;
+}
+/* DX Spreadsheet Connection Line */
+.dxss-cl {
+    z-index: 101;
+    padding: 0px;
+    margin: 0px;
+    background-color: black;
+    line-height: 1px;
+    position: absolute;
+    height: 1px;
+}
+.dxss-cl.highlighted {
+    background-color: #217346;
+    z-index:102;
+}
+
+/* DX Spreadsheet Fill Handle Element */
+.dxss-fh 
+{
+	position: absolute;
+	right: -4px;
+	top: -2px;
+	width: 5px;
+	height: 5px;
+	cursor: crosshair;
+	border: solid 1px #FFF;
+	background-color: #7493C0;
+}
+
+/* DX Spreadsheet Dynamic Selection Element */
+.dxss-cdse {
+	position: absolute;
+	z-index: 7;
+	border: 2px solid;
+}
+.dxss-cdse.highlighted {
+    border-style: dashed;
+}
+.dxss-cdse.marker {
+    z-index: 8;
+}
+.dxss-cdse.marker.nw, .dxss-cdse.marker.se {
+    cursor: nwse-resize;
+}
+.dxss-cdse.marker.ne, .dxss-cdse.marker.sw {
+    cursor: nesw-resize;
+}
+.dxss-cdse.color0 {
+    border-color: #5F8CED;
+    background-color: rgba(95, 140, 237, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1F5F8CED', endColorstr='#1F5F8CED');
+}
+.dxss-cdse.color1 {
+    border-color: #EB5E60;
+    background-color: rgba(235, 94, 96, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1FEB5E60', endColorstr='#1FEB5E60');
+}
+.dxss-cdse.color2 {
+    border-color: #8D61C2;
+    background-color: rgba(141, 97, 194, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1F8D61C2', endColorstr='#1F8D61C2');
+}
+.dxss-cdse.color3 {
+    border-color: #2D9639;
+    background-color: rgba(45, 150, 57, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1F2D9639', endColorstr='#1F2D9639');
+}
+.dxss-cdse.color4 {
+    border-color: #BF4C91;
+    background-color: rgba(191, 76, 145, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1FBF4C91', endColorstr='#1FBF4C91');
+}
+.dxss-cdse.color5 {
+    border-color: #E38222;
+    background-color: rgba(227, 130, 34, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1FE38222', endColorstr='#1FE38222');
+}
+.dxss-cdse.color6 {
+    border-color: #377F9E;
+    background-color: rgba(55, 127, 158, .12);
+    filter: progid:DXImageTransform.Microsoft.gradient(GradientType=0,startColorstr='#1F377F9E', endColorstr='#1F377F9E');
+}
+
+/* DX Spreadsheet Cell Active Selected Element */
+.dxss-case {
+	position: absolute;
+	z-index: 2;
+}
+/* DX Spreadsheet Cell Range Selected Element */
+.dxss-crse {
+	position: absolute;
+	z-index: 7;
+	background-color: #2291FF;
+	opacity: .25;
+	filter: alpha(opacity=25);
+	pointer-events: none;
+}
+/* DX Spreadsheet Top Range Border Element */
+.dxss-trbe {
+	position: absolute;
+	z-index: 8;
+	border-top: 2px solid #7493C0;
+    cursor: move;
+}
+/* DX Spreadsheet Right Range Border Element */
+.dxss-rrbe {
+	position: absolute;
+	z-index: 8;
+	border-right: 2px solid #7493C0;
+    cursor: move;
+}
+/* DX Spreadsheet Selection Movement Border Element */
+.dxss-sbe {
+    position: absolute;
+	z-index: 9;
+	border: 3px solid #7493C0;
+    cursor: move;
+    box-sizing: border-box;
+}
+/* DX Spreadsheet Touch Selection Element */
+.dxss-tse {
+	position: absolute;
+	width: 15px;
+	height: 15px;
+	z-index: 9;
+	border-radius: 50%;
+	border: 2px solid #7493C0;
+	background: white;
+}
+
+/* DX Spreadsheet Bottom Range Border Element */
+.dxss-brbe {
+	position: absolute;
+	z-index: 8;
+	border-bottom: 2px solid #7493C0;
+    cursor: move;
+}
+/* DX Spreadsheet Left Range Border Element */
+.dxss-lrbe {
+	position: absolute;
+	z-index: 8;
+	border-left: 2px solid #7493C0;
+    cursor: move;
+}
+/* DX Spreadsheet Cell Selected border */
+.dxss-csb {
+	position: absolute;
+	z-index: 8;
+	border: 2px solid #7493C0;
+}
+/* DX Spreadsheet Drawing Box Selected border */
+.dxss-dbse {
+	position: absolute;
+	z-index: 100; /* To be above the dxss-db */
+	border: 1px solid #5A93D3;
+    cursor: move;
+}
+
+/* DX Spreadsheet Comment Box Selected element */
+.dxss-cbse {
+	position: absolute;
+	z-index: 101; /* To be above the dxss-db */
+	border: 1px solid #5A93D3;
+    cursor: move;
+}
+
+/* DX Spreadsheet Copied range style */
+.dxss-crs {
+	position: absolute;
+	z-index: 12;
+	pointer-events: none;
+	border-style: dotted;
+	border-color: #7493C0;
+	border-width: 3px;
+	box-sizing: border-box;
+}
+
+.dxss-crs.dxss-crsb {
+	background-color: rgba(255, 255, 255, 0.4);
+}
+
+/* DX Spreadsheet AutoFilter image */
+.dxss-grid .dxss-sctb .dxss-afi,
+.dxss-grid .dxss-cctb .dxss-afi,
+.dxss-grid .dxss-tbg .dxss-afi 
+{
+    position: absolute;
+    right: 0;
+    bottom: 1px;
+    cursor: pointer;
+    background-color: white;
+    z-index: 5;
+    color: #727272;
+}
+
+/* DX Spreadsheet DropDownButton */
+.dxssControlSys .dxss-ddb {
+    position: absolute;
+    cursor: pointer;
+    background-color: white;
+    z-index: 9;
+}
+
+.dxss-ddb > use {
+    pointer-events: none;
+}
+
+/* DX Spreadsheet InvalidDataCircle */
+.dxss-idc
+{
+    position: absolute;
+    border: 1px solid red;
+    border-radius: 100%;
+    z-index: 4;
+}
+
+.dxss-pm
+{
+    position: absolute;
+    z-index: 9;
+    display: table;
+    background-color: #FFFFE1;
+    cursor: default;
+    border: 1px solid black;
+    max-width: 168px;
+    height:50px;
+    padding: 5px;
+}
+.dxss-pm div:first-child
+{
+    font-weight: bold;
+    white-space: pre;
+}
+/* DX Spreadsheet DropDown panel */
+.dxss-ddp
+{
+    position: absolute;
+    background-color: white;
+    border: 1px solid black;
+    max-height: 152px;
+    overflow: auto;
+    z-index: 9;
+    cursor: default;
+}
+.dxss-ddp table
+{
+    width: 100%;
+}
+.dxss-ddp tr:hover 
+{
+    background-color: #1d85cd;
+}
+.dxss-ddp td 
+{
+    height: 17px;
+    padding-left: 4px;
+}
+
+/* DX Spreadsheet Cell Editor Element */
+.dxss-cee,
+.dxss-ctve {
+	position: absolute;		   /*the same -dxss-cfe */
+	z-index: 1000;
+    resize: none;
+    height: 1em;
+    outline: none;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+}
+/* DX Spreadsheet Inplace Comment Editor Element */
+.dxss-icee {
+	font-family: Tahoma;
+    font-size: 12px;
+	border: none;
+	z-index: 1000;
+    background-color: #ffffe1 ;
+    resize: none;
+    height: 100% !important;
+    width: 100% !important;
+    outline: none;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;    
+    box-sizing:border-box
+}
+.dxss-icee.noselect {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+.dxssControlSys .dxss-fbw > .dxss-cee,
+.dxssControlSys .dxss-fbw > .dxss-ctve {
+    border: 0;
+}
+.dxssControlSys .dxss-cee {
+    border: 1px solid white;
+    padding: 0 2px 0 0!important;
+}
+.dxss-md .dxss-ctve {
+    padding: 0 2px 0 0!important;
+}
+
+.dxssControlSys .dxss-fb {
+    box-sizing: content-box;
+}
+.dxss-fb .dxeTextBoxSys .dxeEditAreaSys {
+    visibility: hidden;
+}
+.dxss-fb .dxm-ltr {
+    float: left;
+    display: inline-block;
+}
+.dxss-fbw {
+    overflow: hidden;
+    height: 100%;
+    padding: 3px 3px 2px 3px;
+    box-sizing: border-box;
+}
+.dxss-fbw textarea {
+    position: static;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+.dxss-fbw table {
+    width: 100%;
+}
+.dxss-fbw .dxeTextBoxSys {
+    display: none;
+}
+.dxssControlSys .dxm-ltr .dxss-fbMenu {
+    padding: 0;
+}
+.dxssControlSys .dxss-fbMenu > ul {
+    height: 100%;
+}
+.dxssControlSys .dxss-fbMenu .dxm-item {
+    border-width: 0;
+    height: 100%;
+}
+.dxss-funcLB {
+    position: absolute;
+    visibility: hidden;
+    display: none;
+    -ms-touch-action: pinch-zoom;
+    touch-action: pinch-zoom;
+}
+.dxss-hint {
+    position: absolute;
+	white-space: pre;
+    pointer-events: none;
+}
+.dxss-hint.dxss-funcInfo {
+    white-space: nowrap;
+}
+
+.dxss-cbse .corner, 
+.dxss-dbse .corner {
+    border: 1px solid #989898;
+    position: absolute;
+    width: 9px!important;
+    height: 9px;
+    background-color: #F2FAFB;
+    z-index: 9;
+    margin-top: -6px;
+    margin-left: -6px;
+    border-radius: 5px;
+}
+.dxss-cbse .cornerTouch,
+.dxss-dbse .cornerTouch 
+{
+	border: 1px solid #989898;
+    position: absolute;
+	width: 15px!important;
+	height: 15px;
+	margin-top: -9px;
+    margin-left: -9px;
+    border-radius: 50%;
+}
+.corner.ne,
+.corner.e,
+.corner.se {
+	margin-left: -5px;
+}
+.cornerTouch.ne,
+.cornerTouch.e,
+.cornerTouch.se {
+	margin-left: -8px;
+}
+.corner.sw,
+.corner.s,
+.corner.se {
+	margin-top: -5px;
+}
+.cornerTouch.sw,
+.cornerTouch.s,
+.cornerTouch.se {
+	margin-top: -8px;
+}
+
+.corner.n,
+.corner.e,
+.corner.s,
+.corner.w {
+	border-radius: 3px
+}
+
+.corner.nw {
+    left: 0;
+    top: 0;
+    cursor:nw-resize;
+}
+.corner.ne {
+    left: 100%;
+    top: 0;
+    cursor:ne-resize;
+}
+.corner.se {
+    left: 100%;
+    top: 100%;
+    cursor:se-resize;
+}
+.corner.sw {
+    left: 0;
+    top: 100%;
+    cursor:sw-resize;
+}
+
+.corner.n {
+    left: 50%;
+    top:0;
+    cursor:n-resize;
+}
+.corner.e {
+    left: 100%;
+    top:50%;
+    cursor:e-resize;
+}
+.corner.s {
+    left: 50%;
+    top:100%;
+    cursor:s-resize;
+}
+.corner.w {
+    left: 0;
+    top:50%;
+    cursor:w-resize;
+}
+
+.dxss-cbse .corner.nw.cornerTouch {
+    margin-left: -17px;
+    margin-top: -17px;
+}
+.dxss-cbse .corner.w.cornerTouch {
+    margin-left: -17px;
+}
+.dxss-cbse .corner.sw.cornerTouch {
+    margin-left: -17px;
+}
+.dxss-cbse .corner.n.cornerTouch {
+    margin-top: -17px;
+}
+.dxss-cbse .corner.ne.cornerTouch {
+    margin-top: -17px;
+}
+
+.dxss-cbse .corner.nw {
+    margin-left: -12px;
+    margin-top: -12px;
+    border-radius: 3px;
+}
+.dxss-cbse .corner.w {
+    margin-left: -12px;
+    border-radius: 3px;
+}
+.dxss-cbse .corner.sw {
+    margin-left: -12px;
+    margin-top: 0px;
+    border-radius: 3px;
+}
+
+.dxss-cbse .corner.n {
+    margin-top: -12px;
+    border-radius: 3px;
+}
+.dxss-cbse .corner.ne {
+    margin-top: -12px;
+    margin-left: 0px;
+    border-radius: 3px;
+}
+
+.dxss-cbse .corner.e {
+    margin-left: 0px;
+    border-radius: 3px;
+}
+.dxss-cbse .corner.se {
+    margin-left: 0px;
+    margin-top: 0px;
+    border-radius: 3px;
+}
+
+.dxss-cbse .corner.s {
+    margin-top: 0px;
+    border-radius: 3px;
+}
+
+.dxss-colHeader,
+.dxss-rowHeader,
+.dxss-grid
+{
+    position: absolute;
+	z-index: 1;
+    overflow: hidden;
+    width: 0;
+    height: 0;
+	border-right: 1px solid #d4d4d4;
+	border-bottom: 1px solid #d4d4d4;
+    touch-action: none;
+}
+.dxss-rowHeader.dxss-hidden,
+.dxss-colHeader.dxss-hidden {
+    display: none;
+}
+.dxss-colHeader .dxss-htd,
+.dxss-rowHeader .dxss-htd {
+	cursor: pointer;
+}
+.dxss-colHeader.resizing .dxss-htd,
+.dxss-colHeader.resizing .dxss-v
+{
+	cursor: w-resize;
+}
+.dxss-rowHeader.resizing .dxss-htd,
+.dxss-rowHeader.resizing .dxss-h  
+{
+	cursor: n-resize;
+}
+.dxss-colHeader
+{
+    border-bottom: 1px solid #d4d4d4;
+	border-left: 1px solid #d4d4d4;
+}
+.dxss-rowHeader
+{
+    border-right: 1px solid #d4d4d4;
+	border-top: 1px solid #d4d4d4;
+    overflow-anchor: none;
+}
+.dxss-fc
+{
+    width: 1000000px;
+    clear: both;
+}
+.dxss-ts,
+.dxss-bs
+{
+    width: 1px;
+    height: 50000px;
+}
+.dxss-ls,
+.dxss-rs
+{
+    height: 2px; /*T366198*/
+    width: 50000px;
+}
+.dxss-ls,
+.dxss-rs,
+.dxss-tc
+{
+    float: left;
+}
+.dxss-bs
+{
+    clear: both;
+}
+.dxss-tc
+{
+    position: relative;
+}
+
+.dxss-sc
+{
+    position: absolute;
+    overflow: scroll;
+    width: 0;
+    height: 0;
+}
+
+.dxss-ssb {
+    position: absolute;
+    left: 0;
+    top: 0; 
+    cursor: pointer;
+    z-index: 1;
+}
+.dxss-ssbi {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 0 12px 12px;
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    pointer-events: none;
+}
+
+.dxss-gt
+{
+    float: left;
+    position: relative;
+    min-height: 1px;
+}
+.dxss-ht
+{
+    position: relative;
+}
+.dxss-fc .dxss-ht
+{
+    float: left;
+}
+.dxss-htd
+{
+    position: absolute;
+    text-align: center;
+    overflow: hidden;
+}
+.dxss-htd:hover {
+    background-color: #f1f1f1;
+}
+
+.dxss-htd.dxss-hlh:hover {
+    background-color: #e1e1e1;
+}
+
+.dxss-rowHeader .dxss-tc
+{
+    width: 100%;
+    float: none;
+}
+.dxss-rowHeader .dxss-ht
+{
+    width: 100%;
+}
+.dxss-rowHeader .dxss-htd
+{
+    left: 0;
+    width: 100%;
+}
+.dxss-colHeader .dxss-htd
+{
+    top: 0;
+    height: 100%;
+}
+/* Vertical extended area*/
+.dxss-vea
+{
+	width: 1px;
+	display: block;
+}
+/* Horizontal extended area*/
+.dxss-hea
+{
+	height: 1px;
+	display: inline;
+}
+
+/* Grid Lines */
+.dxss-gl
+{
+    width: 100%;
+    height: 100%;
+}
+.dxss-gl .dxss-v,
+.dxss-gl .dxss-h
+{
+    position: absolute;
+    z-index: 1;
+    border-style: solid;
+    border-color: #d4d4d4;
+    border-width: 0;
+}
+.dxss-gl .dxss-v
+{
+    top: 0;
+	width: 0;
+	height: 100%;
+    border-left-width: 1px;
+}
+.dxss-gl .dxss-h
+{
+    left: 0;
+	width: 100%;
+	height: 0;
+    border-top-width: 1px;
+}
+.dxss-ht .dxss-h.db
+{
+	height: 3px;
+	border-bottom-width: 1px;
+	margin-top: -2px;
+}
+.dxss-ht .dxss-v.db
+{
+	width: 3px;
+	border-right-width: 1px;
+	margin-left: -2px;
+}
+
+.dxss-hideGridLines .dxss-grid .dxss-gl .dxss-h,
+.dxss-hideGridLines .dxss-grid .dxss-gl .dxss-v 
+{
+	border: none;
+}
+.dxss-hh .dxss-colHeader,
+.dxss-hh .dxss-rowHeader
+{
+    border: none;
+}
+
+.dxss-fap {
+    position: absolute;
+    margin: 21px 6px 0 0;
+    z-index: 1000;
+}
+.dxss-fapb {    
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+}
+
+.dxss-ab {
+    background-color: #13a10e;
+}
+.dxss-cb {
+    background-color: #e81123;
+}
+.dxss-fapb > div {
+    margin: auto;
+    -ms-transform: rotate(45deg);
+    -webkit-transform: rotate(45deg);
+    transform: rotate(45deg);
+}
+.dxss-ab .dxss-fbi {
+    width: 19px;
+    height: 14px;
+}
+.dxss-cb .dxss-fbi {
+    width: 14px;
+    height: 14px;
+}
+.dxss-fapb > div > div {
+    position: absolute;
+    background-color: #fff;
+}
+.dxss-ab .dxss-fbs {
+    width: 2px;
+    height: 19px;
+    left: 17px;
+    top: 3px;
+}
+.dxss-ab .dxss-fbk {
+    width: 7px;
+    height: 2px;
+    left: 12px;
+    top: 20px;
+}
+
+.dxss-cb .dxss-fbs {
+    width: 2px;
+    height: 19px;
+    left: 13px;
+    top: 5px;
+}
+
+.dxss-cb .dxss-fbk {
+    width: 19px;
+    height: 2px;
+    left: 5px;
+    top: 13px;
+}
+/* Resizing */
+.dxss-hrg,
+.dxss-vrg
+{
+    position: absolute;
+    background: #7493C0;
+    z-index: 2;
+}
+.dxss-tre 
+{
+	position: absolute;
+	width: 20px;
+	height: 20px;
+    z-index: 2;
+    pointer-events: none;
+}
+.dxss-tre.tre-hor
+{
+	-webkit-transform: rotate(90deg);
+    -ms-transform: rotate(90deg);
+}
+
+.dxss-rmc,
+.dxss-rmcv,
+.dxss-rmch
+{
+    position: absolute;
+}
+.dxss-rowHeader .dxss-rmc,
+.dxss-rmch
+{
+    width: 100%;
+}
+.dxss-colHeader .dxss-rmc,
+.dxss-rmcv
+{
+    height: 100%;
+}
+.dxss-rmch
+{
+    left: 0;
+}
+.dxss-rmcv
+{
+    top: 0;
+}
+
+.dxssControlSys .dxr-itemDisabled img,
+.dxssControlSys .dxr-itemDisabled .dxr-img16,
+.dxssControlSys .dxr-itemDisabled .dxr-img32
+{
+	opacity: .35;
+	filter: alpha(opacity=35);
+}
+/* Multy line text container*/
+.dxss-mltc {
+    display: table-cell;
+    height: inherit;
+    pointer-events: none;
+}
+.dxss-wrap 
+{
+	-moz-hyphens: auto;
+    -webkit-hyphens: auto;
+    -ms-hyphens: auto;
+    hyphens: auto;
+    word-break: break-word;
+    word-wrap: break-word;
+	white-space: pre-wrap;
+}
+
+/* DX Spreadsheet Borders */
+
+.dxss-bt-t,
+.dxss-bt-h,
+.dxss-bt-d,
+.dxss-bt-da,
+.dxss-bt-ddd,
+.dxss-bt-ddd,
+.dxss-bt-m,
+.dxss-bt-md,
+.dxss-bt-mdd,
+.dxss-bt-mddd,
+.dxss-bt-sdd,
+.dxss-bt-dbl,
+.dxss-bt-tk {
+	position: absolute;
+	z-index: 6;
+	border-color: black;
+	border-width: 1px;
+	border-left-style: solid;
+	border-top-style: solid;
+}
+
+.dxss-bt-m,
+.dxss-bt-md,
+.dxss-bt-mdd,
+.dxss-bt-mddd,
+.dxss-bt-sdd {
+	border-width: 2px;
+}
+.dxss-bt-dbl,
+.dxss-bt-tk {
+	border-width: 3px;
+}
+
+.dxss-bt-da,
+.dxss-bt-md,
+.dxss-bt-mdd,
+.dxss-bt-sdd {
+	border-left-style: dashed;
+	border-top-style: dashed;
+}
+.dxss-bt-d,
+.DashDotDot,
+.dxss-bt-mddd {
+	border-left-style: dotted;
+	border-top-style: dotted;
+}
+.dxss-bt-dbl {
+	border-left-style: double;
+	border-top-style: double;
+}
+
+.dxss-v.dxss-bt-t,
+.dxss-v.dxss-bt-h,
+.dxss-v.dxss-bt-d,
+.dxss-v.dxss-bt-da,
+.dxss-v.dxss-bt-ddd,
+.dxss-v.dxss-bt-ddd,
+.dxss-v.dxss-bt-m,
+.dxss-v.dxss-bt-md,
+.dxss-v.dxss-bt-mdd,
+.dxss-v.dxss-bt-mddd,
+.dxss-v.dxss-bt-sdd,
+.dxss-v.dxss-bt-dbl,
+.dxss-v.dxss-bt-tk {
+	border-top-style: none;
+}
+
+.dxss-h.dxss-bt-t,
+.dxss-h.dxss-bt-h,
+.dxss-h.dxss-bt-d,
+.dxss-h.dxss-bt-da,
+.dxss-h.dxss-bt-ddd,
+.dxss-h.dxss-bt-ddd,
+.dxss-h.dxss-bt-m,
+.dxss-h.dxss-bt-md,
+.dxss-h.dxss-bt-mdd,
+.dxss-h.dxss-bt-mddd,
+.dxss-h.dxss-bt-sdd,
+.dxss-h.dxss-bt-dbl,
+.dxss-h.dxss-bt-tk {
+	border-left-style: none;
+}
+.dxss-supportFrame
+{
+	top: -100px;
+	left: -100px;
+	overflow: hidden;
+	position: absolute;
+	border-style: none;
+}
+.dxss-hlh
+{
+	background-color: #e1e1e1;
+}
+.dxssControlSys .dxm-disabled .dxm-pImage
+{
+	opacity: 0.2;
+}
+.dxss-ch-container {
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 120%;
+}
+.dxss-ch-container .dxss-ch-text {
+    font-weight: 700;
+}
+/*Tab sample strip control*/
+.dxssControlSys .dxtc-bottom .dxss-tcer 
+{
+	display: none;
+}
+/* Cell Editing */
+.dxssControlSys .dxss-inputTarget {
+	padding: 0;
+	outline: none;
+	height: 0;
+    width: 0;
+    left: 0;
+    top: 0;
+	position: absolute;
+    z-index: 1000;
+}
+.dxssControlSys.icbem .dxss-inputTarget {
+	border: 2px solid #7493C0;
+}
+.dxssControlSys.fbem .dxss-inputTarget {
+	border: none;
+}
+.dxssControlSys.nem .dxss-inputTarget {
+	width: 0!important;
+	height: 0!important;
+	border: 0!important;
+}
+.dxss-vfbe,
+.dxss-hfbe {
+    position: absolute;
+    z-index: 1;
+    background-color: #818181;
+    pointer-events: none;
+}
+.dxss-ast {
+    width: 30px;
+}
+.dxss-ast-circle {
+    width: 16px;
+    height: 16px;
+
+    box-sizing: border-box;
+    margin-top: 4px;
+    margin-left: 10px;
+}
+.dxss-ast-btn {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    margin-top: 3px;
+    margin-left: 3px;
+}
+.dxss-ast-btn:before,
+.dxss-ast-btn:after {
+    content: "";
+    position: absolute;
+    transition: transform 0.25s ease-out;
+}
+.dxss-ast-btn:before {
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 100%;
+    margin-left: -1px;
+}
+.dxss-ast-btn:after {
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    margin-top: -1px;
+}
+
+/* bootstrap fix */
+.dxss-ctve,
+.dxss-inputTarget,
+.dxss-case,
+.dxss-rrbe,
+.dxss-trbe,
+.dxss-brbe,
+.dxss-lrbe,
+.dxss-cdse,
+.dxss-dbse,
+.dxss-fh,
+.dxss-ddb
+{
+    -webkit-box-sizing: content-box;
+    -moz-box-sizing: content-box;
+    box-sizing: content-box;
+}
+.dxssControlSys > .dx-tabs {
+	display: block;
+	border: 0!important;
+}
+.dxssControlSys .dxss-first-sheet-tab:after {
+	border-left: 0 !important;
+}
+.dxssControlSys > .dx-tabs .dx-tab.dx-state-focused:after {
+	border-bottom: 0!important;
+}
+
+.dxss-funcLB {
+    width: 150px;
+    background-color: white;
+    border: 1px solid #A0A0A0;
+    z-index: 1;
+}
+
+.dx-img16
+{
+    width: 16px;
+    height: 16px;
+}
+.dxss-ddb
+{
+    border: 1px solid #d4d4d4;
+}
+
+.dxss-svg-container {
+    display: block;
+    visibility: hidden;
+    position: absolute;
+    left: -10px;
+    top: -10px;
+    width: 1px;
+    height: 1px;
+}
+
+/*Insert picture dialog*/
+.dxss-dialogFormWrapper .dxss-imagePreviewCell {
+    display: table;
+    text-align: center;
+    width: 100%;
+    height: 170px;
+}
+.dxss-dialogFormWrapper .dxss-previewImage {
+    width: 100%;
+    height: 100px;
+}
+.dxss-dialogFormWrapper .dxss-imagePreviewText {
+    display: table-cell;
+    vertical-align: middle;
+}
+.dxss-insertPictureUploader .dx-fileuploader-upload-button,
+.dxss-insertPictureUploader .dx-fileuploader-button-container {
+    display: none;
+}
+.dxss-insertPictureUploader .dx-fileuploader-wrapper {
+    padding-left: 0;
+}
+.dxss-insertPictureUploader.dx-fileuploader-dragover .dx-fileuploader-input-container {
+    height: 200px;
+}
+/*Change table Style dialog*/
+.dxss-tableStyle svg {
+    width: 86px;
+    height: 66px;
+}
+
+.dxss-tableStyleButton.dx-button .dx-button-content {
+    padding: 8px;
+}
+
+/*Dialog labels vertical align middle*/
+.dxss-form-item-middle .dx-box-item-content {
+    justify-content: center;
+}
+
+/*Dialog labels horizontal align left*/
+.dx-single-column-item-content .dxss-dialog-item-label-left .dx-field-item-content {
+    max-width: 80px;
+}
+.dxMobileUI .dx-single-column-item-content .dxss-dialog-item-label-left .dx-field-item-content {
+    max-width: 110px;
+}
+
+
+/*Dialogs with tabs*/
+.dxss-dialogWithTabs .dx-popup-content {
+    padding: 0;
+}
+.dxss-dialogWithTabs .dx-tabpanel .dx-multiview-wrapper {
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+}
+.dxss-dialogWithTabs .dx-tabs {
+    border: none;
+}
+.dxss-button-like-popup-bottom .dx-button {
+    min-width: 100px;
+}
+.dxss-dialogWithTabs .dx-numberbox-spin-touch-friendly {
+    min-width: 110px;
+}
+.dx-layout-manager-one-col .dxss-button-one-col-center {
+    text-align: center !important;
+}
+.dx-layout-manager-one-col .dxss-button-one-col-center .dx-button {
+    min-width: 150px;
+}
+.dxss-dialogWithTabs .dx-numberbox-spin-touch-friendly {
+    min-width: 110px;
+}
+.dx-layout-manager-one-col .dxss-button-one-col-center {
+    text-align: center !important;
+}
+.dx-layout-manager-one-col .dxss-button-one-col-center .dx-button {
+    min-width: 150px;
+}
+.dxss-dialogWithTabs .dx-popup-bottom {
+    border-top: 1px solid #ddd;
+}
+.dxssControl 
+{
+	border-style: solid;
+	border-width: 1px;
+	font: 12px Tahoma, Geneva, sans-serif;
+}
+.dxss-fullscreen {
+    z-index: 1001 !important;
+}
+/*.dxssControl.generic-light,
+.dxssControl.generic-light-compact
+{
+    border-color: #ddd;
+}*/
+.dxssControl.generic-light,
+.dxssControl.generic-light-compact,
+.dxssControl.generic-softblue
+{
+    background-color: #f7f7f7;
+}
+.dxssControl.generic-dark,
+.dxssControl.generic-dark-compact
+{
+    background-color: #323232;
+}
+.dxssControl.generic-contrast,
+.dxssControl.generic-contrast-compact
+{
+    background-color: #000000;
+}
+.dxssControl.generic-darkmoon
+{
+    background-color: #4c5d7b;
+}
+.dxssControl.generic-carmine
+{
+    background-color: #fafafa;
+}
+.dxssControl.generic-darkviolet
+{
+    background-color: #17171f;
+}
+.dxssControl.generic-greenmist
+{
+    background-color: #f5f5f5;
+}
+.dxssControl[class*='material-'][class*='-dark']
+{
+    background-color: #363640;
+}
+.dxssControl .dxss-md
+{
+    background-color: #FFFFFF;
+}
+
+/* CellPosHint */
+.dxss-cell-pos-hint > .dx-popup-normal {
+    background-color: #7493C0 !important;
+    color: white;
+    border-color: #7493C0 !important;
+    border-radius: 0 !important;
+    height: 19px;
+    line-height: 19px;
+}
+.dxss-cell-pos-hint .dx-popover-arrow {
+    display: none;
+    width: 4px !important;
+}
+.dxss-cell-pos-hint .dx-popup-content {
+    padding: 0px 10px;
+}
+/* DX Spreadsheet Cell Editor Element, Formula Bar, IntelliSense elements */
+.dxssControl .dxss-ctve {
+    border: 2px solid #7493C0; /*the same -dxss-cfe */
+    /*ANCxSpreadsheet test*/
+    background-color: red !important;
+    border: 10px dashed red !important;
+    display: block;
+}
+/* Hint */
+.dxssControl .dxss-hint {
+    border: 1px solid #A8A8A8;
+    background-color: white;
+    padding: 3px 8px 4px 8px;
+    border-radius: 3px;
+    -webkit-border-radius: 3px;
+    -moz-border-radius: 3px;
+    -o-border-radius: 3px;
+    -khtml-border-radius: 3px;
+    -webkit-box-shadow: rgba(0, 0, 0, 0.1) 0 1px 3px;
+    -moz-box-shadow: rgba(0, 0, 0, 0.1) 0 1px 3px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.dxssControl .dxss-hint.dxss-funcInfo {
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+
+/* --------------Select-All----------------- */
+.dxss-ssbi {
+    border-color: transparent;
+    border-bottom-color: #cecece;
+}
+.dxss-ssb:hover .dxss-ssbi {
+    border-bottom-color: #a8a8a8;
+}
+/* --------------Select-All------------------*/
+.dxss-ast-circle:hover .dxss-ast-btn:before,
+.dxss-ast-circle:hover .dxss-ast-btn:after {
+    background-color: #979797;
+}
+.dxss-ast-btn:before,
+.dxss-ast-btn:after {
+    background-color: #757575;
+}
+.dxss-ast {
+    border-top: 1px solid #A8A8A8;
+}
+/* Sheet tabs */
+.dxss-tab-container
+{
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    width: 100%;
+    display: flex;
+}
+
+.dxss-tabs
+{
+    width: auto !important;
+    max-width: 100%;
+    border-bottom: none !important;
+    border-left: none !important;
+    border-top: none !important;
+}
+
+.dx-button.dxss-plus-button
+{
+    margin: auto;
+    border: none;
+    border-radius: 0;
+    margin: auto auto auto 10px;
+    height: 100%;
+    vertical-align: middle;
+}
+.dxss-tab-container .dxss-tabs .dx-tabs-wrapper
+{
+    border-bottom: none;
+}
+
+.dxss-plus-button-container .dxss-plus-button .dx-button-content
+{
+    border-radius: 0;
+}
+div[class*='generic-'] .dxss-plus-button .dx-icon
+{
+    font-size: 14px;
+}
+div[class*='generic-'][class*='-compact'] .dxss-plus-button .dx-icon
+{
+    font-size: 12px;
+}
+div[class*='generic-'] .dxss-tabs-wrapper
+{
+    max-width: calc(100% - 55px);
+}
+
+div[class*='generic-'] .dxss-tabs-wrapper .dx-tab-text {
+    height: 25px;
+}
+
+div[class*='generic-'][class*='-compact'] .dxss-tabs-wrapper .dx-tab-text {
+    height: 21px;
+}
+
+div[class*='material-'] .dxss-tabs-wrapper .dx-tab-text {
+    height: 24px;
+}
+
+div[class*='generic-'][class*='-compact'] .dxss-tabs-wrapper
+{
+    max-width: calc(100% - 44px);
+}
+div[class*='material-'] .dxss-tabs-wrapper
+{
+    max-width: calc(100% - 66px);
+}
+.generic-light .dxss-plus-button,
+.generic-softblue .dxss-plus-button,
+.generic-light-compact .dxss-plus-button
+{
+    background-color: #f7f7f7;
+}
+.generic-dark .dxss-plus-button,
+.generic-dark-compact .dxss-plus-button
+{
+    background-color: #323232;
+}
+.generic-contrast .dxss-plus-button,
+.generic-contrast-compact .dxss-plus-button
+{
+    background-color: #000000;
+}
+.generic-carmine .dxss-plus-button
+{
+    background-color: #fafafa;
+}
+.generic-darkmoon .dxss-plus-button
+{
+    background-color: #4c5d7b;
+}
+.generic-darkviolet .dxss-plus-button
+{
+    background-color: #1e1e28;
+}
+.generic-greenmist .dxss-plus-button
+{
+    background-color: #ededed;
+}
+div[class*='material-'] .dxss-plus-button
+{
+    background-color: #f5f5f5;
+}
+div[class*='material-'][class*='-dark'] .dxss-plus-button
+{
+    background-color: #363640;
+}
+
+div[class*='generic-'] .dxss-tab-container
+{
+    border-top-style: solid;
+    border-top-width: 1px;
+}
+.generic-light .dxss-tab-container,
+.generic-light-compact .dxss-tab-container
+{
+    border-color: #ddd;
+}
+.generic-dark .dxss-tab-container,
+.generic-dark-compact .dxss-tab-container
+{
+    border-color: #4d4d4d;
+}
+.generic-contrast .dxss-tab-container,
+.generic-contrast-compact .dxss-tab-container
+{
+    border-color: #FFFFFF;
+}
+
+.generic-carmine .dxss-tab-container
+{
+    border-color: #dee1e3;
+}
+.generic-darkmoon .dxss-tab-container
+{
+    border-color: #596980;
+}
+.generic-softblue .dxss-tab-container
+{
+    border-color: #e8eaeb;
+}
+.generic-darkviolet .dxss-tab-container
+{
+    border-color: #343840;
+}
+.generic-greenmist .dxss-tab-container
+{
+    border-color: #dedede;
+}
+/* Toggle button style */
+.generic-light .dx-button.dx-button-success,
+.generic-light-compact .dx-button.dx-button-success,
+.generic-softblue .dx-button.dx-button-success
+{
+    background-color: #e6e6e6;
+}
+.generic-dark .dx-button.dx-button-success,
+.generic-dark-compact .dx-button.dx-button-success
+{
+    background-color: #444444;
+}
+.generic-contrast .dx-button.dx-button-success,
+.generic-contrast-compact .dx-button.dx-button-success
+{
+    background-color: #ffffff;
+}
+.generic-carmine .dx-button.dx-button-success
+{
+    background-color: #f8b1a4;
+}
+.generic-darkmoon .dx-button.dx-button-success
+{
+    background-color: #596e92;
+}
+.generic-darkviolet .dx-button.dx-button-success
+{
+    background-color: #573199;
+}
+.generic-greenmist .dx-button.dx-button-success
+{
+    background-color: #dcdcdc;
+}
+div[class*='material-'][class*='-light'] .dx-button.dx-button-success
+{
+    background-color: #e0e0e0;
+}
+div[class*='material-'][class*='-dark'] .dx-button.dx-button-success
+{
+    background-color: #525261;
+}
+
+/* Dialogs */
+div[class*='generic-'] .dxss-insertHyperlinkDialog
+{
+    min-height: 210px;
+}
+div[class*='generic-'] .dxss-insertHyperlinkDialog.dxss-mv
+{
+    min-height: 286px;
+}
+div[class*='generic-'][class*='-compact'] .dxss-insertHyperlinkDialog
+{
+    min-height: 164px;
+}
+div[class*='generic-'][class*='-compact'] .dxss-insertHyperlinkDialog.dxss-mv
+{
+    min-height: 228px;
+}
+div[class*='material-'] .dxss-insertHyperlinkDialog
+{
+    min-height: 256px;
+}
+div[class*='material-'] .dxss-insertHyperlinkDialog.dxss-mv
+{
+    min-height: 392px;
+}
+
+.dxss-dialogFormWrapper .dx-tile
+{
+    border: none;
+}
+/*Find and replace dialog*/
+.dxss-findAndReplaceDialog .dx-layout-manager .dx-field-item:not(.dx-first-col) {
+    padding-left: 0px;
+}
+.dxss-findAndReplaceDialog .dx-layout-manager .dx-field-item:not(.dx-last-col) {
+    padding-right: 10px;
+}
+
+.dxss-chartType svg,
+.dxss-chartLayoutPreset svg {
+    width: 32px;
+    height: 32px;
+}
+
+.dxss-chartType,
+.dxss-chartLayoutPreset
+{
+    top: 50%;
+    transform: translateY(-50%);
+    position: relative;
+}
+
+.dxss-chartCategory
+{
+    display: flex;
+    align-items: center;
+}
+.dxss-chartCategory svg
+{
+    width: 18px;
+    height: 18px;
+    margin-right: 4px;
+}
+
+.dxss-chartStyle svg
+{
+    width: 93px;
+    height: 56px;
+}
+
+.dxss-chartStyle
+{
+    top: 50%;
+    transform: translateY(-50%);
+    position: relative;
+}
+
+/*Insert picture dialog*/
+.dxss-dialogFormWrapper .dxss-imagePreviewCell {
+    color: #878787;
+    border: dashed 1px #cac8c8;
+}
+
+/* Auto filter dialogs */
+.dxss-date-cell-container {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    width: 100%;
+    display: table-row;
+}
+
+.dxss-date-cell-container > div {
+    display: table-cell;
+    vertical-align: middle;
+}
+
+.dxss-date-cell-container .dxss-calendar-button-container {
+    padding-left: 4px;
+}
+
+.dxIE .dxss-date-cell-container .dx-selectbox {
+    max-width: 172px;
+}

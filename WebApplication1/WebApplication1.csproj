@@ -1,5 +1,4 @@
-﻿<!-- 2026.01.20 Changed: DevExpress 패키지 정리 메타 패키지 DevExpress.AspNetCore 및 미사용 가능성이 큰 DevExpress.Xpo 제거 Core Resources Spreadsheet 22.2.12 고정 유지 -->
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
@@ -30,19 +29,64 @@
 
 		<Message Importance="high" Text="EB InformationalVersion=$(InformationalVersion) / GitExe=$(GitExe)" />
 	</Target>
+  
+  <!-- =========================================================
+       DevExpress Spreadsheet (npm) dist -> wwwroot/publish 자동 복사
+       - node_modules가 솔루션 루트(E-Board\node_modules)에 생성되는 전제
+       - WebApplication1.csproj 기준으로 ..\node_modules\... 경로를 사용
+       ========================================================= -->
+
+    <Target Name="EB_CopyDevExSpreadsheetDist_ToWwwroot" AfterTargets="Build">
+    <PropertyGroup>
+      <_DxSheetDistDir>$(ProjectDir)..\node_modules\devexpress-aspnetcore-spreadsheet\dist</_DxSheetDistDir>
+      <_DxSheetWwwrootDir>$(ProjectDir)wwwroot\devex-spreadsheet\dist\</_DxSheetWwwrootDir>
+    </PropertyGroup>
+
+    <ItemGroup Condition="Exists('$(_DxSheetDistDir)')">
+      <_DxSheetDistFiles Include="$(_DxSheetDistDir)\**\*.*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(_DxSheetWwwrootDir)" Condition="'@(_DxSheetDistFiles)' != ''" />
+
+    <Copy
+      SourceFiles="@(_DxSheetDistFiles)"
+      DestinationFiles="@(_DxSheetDistFiles->'$(_DxSheetWwwrootDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true"
+      Condition="'@(_DxSheetDistFiles)' != ''" />
+  </Target>
+
+  <Target Name="EB_CopyDevExSpreadsheetDist_ToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_DxSheetDistDir>$(ProjectDir)..\node_modules\devexpress-aspnetcore-spreadsheet\dist</_DxSheetDistDir>
+      <_DxSheetPublishDir>$(PublishDir)devex-spreadsheet\dist\</_DxSheetPublishDir>
+    </PropertyGroup>
+
+    <ItemGroup Condition="Exists('$(_DxSheetDistDir)')">
+      <_DxSheetDistFiles Include="$(_DxSheetDistDir)\**\*.*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(_DxSheetPublishDir)" Condition="'@(_DxSheetDistFiles)' != ''" />
+
+    <Copy
+      SourceFiles="@(_DxSheetDistFiles)"
+      DestinationFiles="@(_DxSheetDistFiles->'$(_DxSheetPublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true"
+      Condition="'@(_DxSheetDistFiles)' != ''" />
+  </Target>
+	
+	<ItemGroup>
+		<Compile Remove="Controllers\DocController.cs" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="ClosedXML" Version="0.105.0" />
 
-		<!-- DevExpress: 22.2.12로 유지 (Spreadsheet 동작에 필요한 최소 구성) -->
-		<PackageReference Include="DevExpress.AspNetCore.Core" Version="22.2.12" />
-		<PackageReference Include="DevExpress.AspNetCore.Resources" Version="22.2.12" />
-		<PackageReference Include="DevExpress.AspNetCore.Spreadsheet" Version="22.2.12" />
+		<!-- DevExpress v25.2.3 -->
+		<!-- 핵심: MapDevExpressControls/Html.DevExpress() 확장 메서드는 DevExpress.AspNetCore(통합)에 포함되는 케이스가 있어 추가 필요 -->
+		<PackageReference Include="DevExpress.AspNetCore.Common" Version="25.2.3" />
+		<PackageReference Include="DevExpress.AspNetCore.Core" Version="25.2.3" />
+		<PackageReference Include="DevExpress.AspNetCore.Spreadsheet" Version="25.2.3" />
 
-		<!-- 2026.01.20 Changed: 아래 패키지는 제거해야 한다
-		     - DevExtreme.AspNet.Core 22.2.12는 NuGet에 없어 25.x로 강제 상승하며 DevExpress.Data 25.x를 요구해 충돌한다 -->
-		<!-- <PackageReference Include="DevExtreme.AspNet.Core" Version="..." /> -->
-		<!-- <PackageReference Include="DevExpress.Data" Version="..." /> -->
 
 		<PackageReference Include="Fido2" Version="3.*" />
 		<PackageReference Include="Lib.Net.Http.WebPush" Version="3.3.1" />

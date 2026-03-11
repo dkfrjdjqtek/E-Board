@@ -9407,7 +9407,7 @@ jQuery.extend( {
 		global: true,
 		processData: true,
 		async: true,
-		contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+		ContentType: "application/x-www-form-urlencoded; charset=UTF-8",
 
 		/*
 		timeout: 0,
@@ -9720,7 +9720,7 @@ jQuery.extend( {
 
 		// Change '%20' to '+' if this is encoded form body content (gh-2658)
 		} else if ( s.data && s.processData &&
-			( s.contentType || "" ).indexOf( "application/x-www-form-urlencoded" ) === 0 ) {
+			( s.ContentType || "" ).indexOf( "application/x-www-form-urlencoded" ) === 0 ) {
 			s.data = s.data.replace( r20, "+" );
 		}
 
@@ -9735,8 +9735,8 @@ jQuery.extend( {
 		}
 
 		// Set the correct header, if data is being sent
-		if ( s.data && s.hasContent && s.contentType !== false || options.contentType ) {
-			jqXHR.setRequestHeader( "Content-Type", s.contentType );
+		if ( s.data && s.hasContent && s.ContentType !== false || options.ContentType ) {
+			jqXHR.setRequestHeader( "Content-Type", s.ContentType );
 		}
 
 		// Set the Accepts header for the server, depending on the dataType
@@ -9967,7 +9967,7 @@ jQuery.ajaxPrefilter( function( s ) {
 	var i;
 	for ( i in s.headers ) {
 		if ( i.toLowerCase() === "content-type" ) {
-			s.contentType = s.headers[ i ] || "";
+			s.ContentType = s.headers[ i ] || "";
 		}
 	}
 } );
@@ -10326,7 +10326,7 @@ jQuery.ajaxPrefilter( "json jsonp", function( s, originalSettings, jqXHR ) {
 		jsonProp = s.jsonp !== false && ( rjsonp.test( s.url ) ?
 			"url" :
 			typeof s.data === "string" &&
-				( s.contentType || "" )
+				( s.ContentType || "" )
 					.indexOf( "application/x-www-form-urlencoded" ) === 0 &&
 				rjsonp.test( s.data ) && "data"
 		);

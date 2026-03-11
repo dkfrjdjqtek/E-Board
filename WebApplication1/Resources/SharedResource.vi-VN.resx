@@ -1210,7 +1210,7 @@
     <value>Chưa xem</value>
   </data>
   <data name="PUSH_SummaryTitle" xml:space="preserve">
-    <value>E-BOARD</value>
+    <value>E-Board</value>
   </data>
   <data name="PUSH_CreatedUnread" xml:space="preserve">
     <value>Bản đã gửi chưa xem {0}</value>
@@ -1226,5 +1226,35 @@
   </data>
   <data name="PUSH_ApprovalReject" xml:space="preserve">
     <value>Hồ sơ đã gửi bị từ chối</value>
+  </data>
+  <data name="DOC_Approval_Sub_Ongoing" xml:space="preserve">
+    <value>Đang xử lý</value>
+  </data>
+  <data name="DOC_Approval_Sub_Completed" xml:space="preserve">
+    <value>Đã hoàn thành</value>
+  </data>
+  <data name="DOC_Toast_BulkApproved" xml:space="preserve">
+    <value>{0} tài liệu đã được phê duyệt.</value>
+  </data>
+  <data name="DTL_Section_Cooperations" xml:space="preserve">
+    <value>Phối hợp</value>
+  </data>
+  <data name="DTL_ApproverType_Person" xml:space="preserve">
+    <value>Cá nhân (Người dùng)</value>
+  </data>
+  <data name="DTL_ApproverType_Role" xml:space="preserve">
+    <value>Vai trò (Chức vụ/Nhóm)</value>
+  </data>
+  <data name="DTL_ApproverType_Rule" xml:space="preserve">
+    <value>Quy tắc (Điều kiện)</value>
+  </data>
+  <data name="DTL_Col_ApproverType" xml:space="preserve">
+    <value>Loại</value>
+  </data>
+  <data name="DTL_Col_AssignValue" xml:space="preserve">
+    <value>Phân công</value>
+  </data>
+  <data name="_CM_Open" xml:space="preserve">
+    <value>Mở</value>
   </data>
 </root>

@@ -1,0 +1,153 @@
+﻿@* 2026.01.29 Added: 기존 Bootstrap 탭을 카드형 Browse 스타일로 표현하는 UI 템플릿 추가 *@
+@inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+
+<style>
+    /* ---- Browse-style Tabs (like sample image) ---- */
+    .eb-browse {
+        width: 360px; /* 필요시 100%로 */
+        border: 1px solid #cfcfcf;
+        border-radius: 2px;
+        background: #efefef;
+        box-shadow: 0 1px 0 rgba(0,0,0,.06);
+    }
+
+    .eb-browse__header {
+        padding: 10px 12px 6px 12px;
+        font-weight: 700;
+        letter-spacing: .2px;
+        color: #2c2c2c;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+    }
+
+    .eb-browse__sub {
+        font-weight: 600;
+        font-size: 12px;
+        color: #6a6a6a;
+    }
+
+    .eb-browse__body {
+        padding: 10px 12px 12px 12px;
+    }
+
+    .eb-browse__tabs {
+        display: inline-flex;
+        gap: 6px;
+        padding: 0;
+        margin: 0 0 10px 0;
+        list-style: none;
+    }
+
+        .eb-browse__tabs .nav-link {
+            border: 1px solid #2c2c2c;
+            border-radius: 2px;
+            background: #2c2c2c;
+            color: #fff;
+            padding: 7px 12px;
+            font-weight: 700;
+            font-size: 12px;
+            line-height: 1;
+            text-transform: uppercase;
+        }
+
+            .eb-browse__tabs .nav-link:hover {
+                opacity: .92;
+            }
+
+            .eb-browse__tabs .nav-link.active {
+                background: #1f1f1f;
+                border-color: #1f1f1f;
+            }
+
+    .eb-browse__panel {
+        background: #fff;
+        border: 1px solid #cfcfcf;
+        border-radius: 2px;
+        padding: 8px 10px;
+    }
+
+    .eb-browse__list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .eb-browse__item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 11px 4px;
+        border-bottom: 1px solid #e6e6e6;
+    }
+
+        .eb-browse__item:last-child {
+            border-bottom: 0;
+        }
+
+    .eb-browse__title {
+        color: #222;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .eb-browse__meta {
+        color: #777;
+        font-size: 12px;
+        font-weight: 600;
+    }
+</style>
+
+<div class="eb-browse">
+    <div class="eb-browse__header">
+        <span>@S["TAB_BrowseSite_Title"]</span>
+        <span class="eb-browse__sub">@S["TAB_BrowseSite_Subtitle"]</span>
+    </div>
+
+    <div class="eb-browse__body">
+        <ul class="eb-browse__tabs nav" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ebtab-topics" type="button" role="tab" aria-controls="ebtab-topics" aria-selected="true">
+                    @S["TAB_Topics"]
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#ebtab-archives" type="button" role="tab" aria-controls="ebtab-archives" aria-selected="false">
+                    @S["TAB_Archives"]
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#ebtab-pages" type="button" role="tab" aria-controls="ebtab-pages" aria-selected="false">
+                    @S["TAB_Pages"]
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content eb-browse__panel">
+            <div class="tab-pane fade show active" id="ebtab-topics" role="tabpanel">
+                <ul class="eb-browse__list">
+                    <li class="eb-browse__item">
+                        <a class="eb-browse__title" href="#">@S["TAB_Topic_HTMLTechniques"]</a>
+                        <span class="eb-browse__meta">@S["TAB_PostCount_4"]</span>
+                    </li>
+                    <li class="eb-browse__item">
+                        <a class="eb-browse__title" href="#">@S["TAB_Topic_CSSStyling"]</a>
+                        <span class="eb-browse__meta">@S["TAB_PostCount_32"]</span>
+                    </li>
+                    <li class="eb-browse__item">
+                        <a class="eb-browse__title" href="#">@S["TAB_Topic_FlashTutorials"]</a>
+                        <span class="eb-browse__meta">@S["TAB_PostCount_2"]</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="tab-pane fade" id="ebtab-archives" role="tabpanel">
+                <div class="py-2">@S["TAB_Archives_EmptyOrContent"]</div>
+            </div>
+
+            <div class="tab-pane fade" id="ebtab-pages" role="tabpanel">
+                <div class="py-2">@S["TAB_Pages_EmptyOrContent"]</div>
+            </div>
+        </div>
+    </div>
+</div>

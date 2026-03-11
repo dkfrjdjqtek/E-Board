@@ -1,4 +1,5 @@
-﻿@* 2026.01.22 Changed 로그인 직후 1회 BoardBadges 기반 배지 요약 토스트 표시 정리 중복 호출 제거 리소스 문자열 안전 직렬화 *@
+﻿<!-- 2026.02.23 Changed: DisableDxAll 플래그는 유지하면서 UseDxSpreadsheet 플래그가 켜진 화면에서는 dx spreadsheet 리소스가 누락되지 않도록 head에서 조건부 로드하여 DevExpress AspNetCore Spreadsheet undefined 오류를 방지 -->
+@* 2026.02.09 Changed: Spreadsheet 페이지에서 dx.all.js 중복 로드(E0024) 방지 및 페이지별로 DevExtreme 스크립트 로드 순서를 통제하도록 DisableDxAll 플래그를 적용 *@
 @using System.Reflection
 @using System.Text.RegularExpressions
 @using System.Text.Json
@@ -13,19 +14,54 @@
     <!-- Bootstrap -->
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" />
-
-    <!-- Google Fonts: Noto Sans KR -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    @* 2026.01.20 Changed DevExtreme 리소스는 dxresources 정적 파일로 직접 로드 *@
+    <!-- DevExtreme (static dxresources) -->
     <link rel="stylesheet" href="~/dxresources/css/dx.common.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/dxresources/css/dx.light.css" asp-append-version="true" />
+
+    @{
+        var __disableDxAll = (ViewData["DisableDxAll"] as bool?) ?? false;
+
+        // DX Spreadsheet 위젯을 실제로 렌더링하는 화면에서만 켜는 플래그
+        // 예: ViewData["UseDxSpreadsheet"] = true;
+        var __useDxSpreadsheet = (ViewData["UseDxSpreadsheet"] as bool?) ?? false;
+    }
+
+    @if (!__disableDxAll)
+    {
+        <!-- 중요: DevExtreme(dx.all.js)는 한 페이지에서 1회만 로드되어야 합니다(E0024 방지). -->
+        <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
+    }
+
+    @* ✅ Spreadsheet 초기화 스크립트가 찍히는 화면인데 DxHead가 빠져도 동작하도록, (DisableDxAll이 아닌 경우에 한해) 레이아웃에서 Spreadsheet 리소스를 보장 로드 *@
+    @if (__useDxSpreadsheet && !__disableDxAll)
+    {
+        <script>
+            (function () {
+                try {
+                    window.DevExpress = window.DevExpress || {};
+                    window.DevExpress.trial = window.DevExpress.trial || {};
+                    if (typeof window.DevExpress.trial.registerTrialPanelComponents !== 'function') {
+                        window.DevExpress.trial.registerTrialPanelComponents = function () { };
+                    }
+                } catch (e) { }
+            })();
+        </script>
+
+        <link rel="stylesheet" href="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.css" asp-append-version="true" />
+        <script src="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.js" asp-append-version="true"></script>
+    }
 
     <!-- site -->
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/WebApplication1.styles.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/_custom.css" asp-append-version="true" />
+
     @RenderSection("Styles", required: false)
+
+    @* 기존 규칙 유지: DisableDxAll=true 인 페이지는 이 섹션에서 dx.all.js/스프레드시트 리소스를 직접 로드하는 방식도 허용 *@
+    @RenderSection("DxHead", required: false)
 </head>
 <body>
 
@@ -91,9 +127,6 @@
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
 
-    @* 2026.01.20 Changed DevExtreme 서버헬퍼 대신 dxresources 스크립트를 직접 로드 *@
-    <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
-
     <script src="~/js/eb.push.js" asp-append-version="true"></script>
     <script src="~/js/eb-validate.js" asp-append-version="true"></script>
 
@@ -118,7 +151,6 @@
                     try { return Promise.resolve(p); } catch (e) { return Promise.reject(e); }
                 }
 
-                // 2026.01.22 Changed 로그인 세션 1회 배지 요약 토스트
                 function showLoginBadgeToast(summaryText) {
                     try {
                         if (!summaryText) return;
@@ -183,7 +215,6 @@
                             return;
                         }
 
-                        // 리소스 문자열은 JS로 안전 전달하기 위해 JSON 직렬화로 주입
                         var fmtCreated  = @Html.Raw(JsonSerializer.Serialize(S["PUSH_CreatedUnread"].Value ?? "작성 미열람 {0}건"));
                         var fmtApproval = @Html.Raw(JsonSerializer.Serialize(S["PUSH_ApprovalPending"].Value ?? "결재 대기 {0}건"));
                         var fmtShared   = @Html.Raw(JsonSerializer.Serialize(S["PUSH_SharedUnread"].Value ?? "공유 미확인 {0}건"));
@@ -205,56 +236,17 @@
                 }
 
                 window.addEventListener('load', function () {
-                    // 1) 웹 푸시 구독 보장 1회
                     safeCall(EBPush.ensureSubscribed({ sendToServer: true }))
-                        .catch(function (e) {
-                            console.warn('[EBPush] ensureSubscribed failed:', e);
-                        });
+                        .catch(function (e) { console.warn('[EBPush] ensureSubscribed failed:', e); });
 
-                    // 2) 5분 주기 Ping 1회
                     if (!window.__EBPUSH_PING_TIMER__) {
                         window.__EBPUSH_PING_TIMER__ = window.setInterval(function () {
                             safeCall(EBPush.ping()).catch(function () { });
                         }, 5 * 60 * 1000);
                     }
 
-                    // 3) 로그인 직후 세션 1회 배지 요약 토스트
                     safeCall(tryShowLoginBadgeOnce()).catch(function () { });
                 });
-
-                async function runUnregisterBestEffort() {
-                    try { await EBPush.unregister({ unsubscribeClient: true }); } catch { }
-                }
-
-                // 로그아웃 직전 현재 단말만 비활성화
-                document.addEventListener('click', function (ev) {
-                    var t = ev.target;
-
-                    var el = t && t.closest ? t.closest('[data-eb-logout]') : null;
-                    if (el) {
-                        ev.preventDefault();
-                        var href = el.getAttribute('href');
-                        var form = el.closest && el.closest('form');
-
-                        Promise.resolve(runUnregisterBestEffort())
-                            .finally(function () {
-                                if (form) form.submit();
-                                else if (href) window.location.href = href;
-                                else el.click();
-                            });
-                        return;
-                    }
-
-                    var submitBtn = t && t.closest ? t.closest('button[type="submit"], input[type="submit"]') : null;
-                    if (submitBtn) {
-                        var f = submitBtn.closest('form');
-                        if (f && f.action && (f.action.indexOf('Logout') >= 0 || f.action.indexOf('/logout') >= 0)) {
-                            ev.preventDefault();
-                            Promise.resolve(runUnregisterBestEffort())
-                                .finally(function () { f.submit(); });
-                        }
-                    }
-                }, true);
             })();
         </script>
     }

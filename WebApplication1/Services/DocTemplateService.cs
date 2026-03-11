@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Linq;
+using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using ClosedXML.Excel;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -15,15 +16,20 @@ namespace WebApplication1.Services
     {
         private readonly IConfiguration _cfg;
         private readonly ILogger<DocTemplateService> _log;
+        private readonly IWebHostEnvironment _env;
 
-        public DocTemplateService(IConfiguration cfg, ILogger<DocTemplateService> log)
+        public DocTemplateService(
+            IConfiguration cfg,
+            ILogger<DocTemplateService> log,
+            IWebHostEnvironment env)
         {
             _cfg = cfg;
             _log = log;
+            _env = env;
         }
 
         public async Task<(string descriptorJson, string previewJson, string templateTitle, long versionId, string? excelFilePath)>
-    LoadMetaAsync(string templateCode)
+            LoadMetaAsync(string templateCode)
         {
             if (string.IsNullOrWhiteSpace(templateCode)) return ("{}", "{}", "", 0L, null);
 
@@ -40,15 +46,19 @@ namespace WebApplication1.Services
             {
                 await conn.OpenAsync();
 
-                // 1) 최신 버전 메타
                 using (var cmd1 = conn.CreateCommand())
                 {
                     cmd1.CommandText = @"
-SELECT TOP 1 m.DocName, v.Id AS VersionId, v.DescriptorJson, v.PreviewJson, v.ExcelFilePath
+SELECT TOP 1
+       m.DocName,
+       v.Id AS VersionId,
+       v.DescriptorJson,
+       v.PreviewJson,
+       v.ExcelFilePath
 FROM DocTemplateMaster m
 JOIN DocTemplateVersion v ON v.TemplateId = m.Id
 WHERE m.DocCode = @code
-ORDER BY v.VersionNo DESC;";
+ORDER BY v.VersionNo DESC, v.Id DESC;";
                     cmd1.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode });
 
                     using var rd1 = await cmd1.ExecuteReaderAsync();
@@ -66,7 +76,6 @@ ORDER BY v.VersionNo DESC;";
                     }
                 }
 
-                // 2) fields
                 var inputs = new List<object>();
                 using (var cmd2 = conn.CreateCommand())
                 {
@@ -95,21 +104,18 @@ ORDER BY Id;";
                     }
                 }
 
-                // 3) Approvals  ← 위에 제시한 코드
                 var approvals = new List<object>();
-
                 using (var cmd3 = conn.CreateCommand())
                 {
                     cmd3.CommandText = @"
-        SELECT *
-        FROM dbo.DocTemplateApproval
-        WHERE VersionId = @vid
-        ORDER BY Slot;";
+SELECT *
+FROM dbo.DocTemplateApproval
+WHERE VersionId = @vid
+ORDER BY Slot;";
                     cmd3.Parameters.Add(new SqlParameter("@vid", SqlDbType.BigInt) { Value = versionId });
 
                     using var rd3 = await cmd3.ExecuteReaderAsync();
 
-                    // 동적으로 컬럼 ordinal 찾기
                     int ordSlot = GetOrdinalOrThrow(rd3, "Slot");
                     int ordType = GetOrdinalOrMinusOne(rd3, "ApproverType", "Type");
                     int ordValue = GetOrdinalOrMinusOne(rd3, "ApproverValue", "Value");
@@ -136,7 +142,6 @@ ORDER BY Id;";
                     }
                 }
 
-                // 4) descriptorJson 조합
                 descriptorJson = JsonSerializer.Serialize(new
                 {
                     inputs,
@@ -145,28 +150,85 @@ ORDER BY Id;";
                 });
             }
 
-            // 5) previewJson
-            if (string.IsNullOrWhiteSpace(previewJson) && !string.IsNullOrWhiteSpace(excelPath))
+            if (!string.IsNullOrWhiteSpace(excelPath))
             {
-                try { previewJson = BuildPreviewJsonFromExcel(excelPath); }
+                excelPath = NormalizeTemplateExcelPath(excelPath);
+
+                var normalized = excelPath.Replace('/', Path.DirectorySeparatorChar)
+                                          .Replace('\\', Path.DirectorySeparatorChar);
+
+                if (!Path.IsPathRooted(normalized))
+                    normalized = Path.Combine(_env.ContentRootPath, normalized);
+
+                excelPath = normalized;
+            }
+
+            bool needPreviewRebuild =
+                !IsPreviewJsonUsable(previewJson);
+
+            if (needPreviewRebuild && !string.IsNullOrWhiteSpace(excelPath) && File.Exists(excelPath))
+            {
+                try
+                {
+                    previewJson = BuildPreviewJsonFromExcel(excelPath);
+                }
                 catch (Exception ex)
                 {
                     _log.LogWarning(ex, "PreviewJson build failed. excelPath={Path}", excelPath);
                     previewJson = "{}";
                 }
             }
-            if (string.IsNullOrWhiteSpace(previewJson)) previewJson = "{}";
+
+            if (string.IsNullOrWhiteSpace(previewJson))
+                previewJson = "{}";
 
             return (descriptorJson, previewJson, templateTitle, versionId, excelPath);
         }
 
-        // ===== Helpers =====
+        private static string NormalizeTemplateExcelPath(string? raw)
+        {
+            var s = (raw ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(s)) return s;
+
+            if (s.StartsWith("App_Data\\", StringComparison.OrdinalIgnoreCase) ||
+                s.StartsWith("App_Data/", StringComparison.OrdinalIgnoreCase))
+                return s.Replace('/', '\\');
+
+            var idx = s.IndexOf("App_Data\\", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) idx = s.IndexOf("App_Data/", StringComparison.OrdinalIgnoreCase);
+
+            return idx >= 0 ? s.Substring(idx).Replace('/', '\\') : s;
+        }
+
+        private static bool IsPreviewJsonUsable(string? previewJson)
+        {
+            var s = (previewJson ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            if (s == "{}" || s == "null" || s == "[]") return false;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(s);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+
+                if (!doc.RootElement.TryGetProperty("cells", out var cells)) return false;
+                if (cells.ValueKind != JsonValueKind.Array) return false;
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         static int GetOrdinalOrThrow(System.Data.Common.DbDataReader r, string name)
         {
             for (int i = 0; i < r.FieldCount; i++)
                 if (string.Equals(r.GetName(i), name, StringComparison.OrdinalIgnoreCase)) return i;
             throw new InvalidOperationException($"Column '{name}' not found.");
         }
+
         static int GetOrdinalOrMinusOne(System.Data.Common.DbDataReader r, params string[] candidates)
         {
             for (int i = 0; i < r.FieldCount; i++)
@@ -175,8 +237,9 @@ ORDER BY Id;";
                 foreach (var c in candidates)
                     if (string.Equals(n, c, StringComparison.OrdinalIgnoreCase)) return i;
             }
-            return -1; // 없으면 -1
+            return -1;
         }
+
         private static string MapFieldType(string? t)
         {
             var s = (t ?? "").Trim().ToLowerInvariant();
@@ -205,13 +268,11 @@ ORDER BY Id;";
             return $"{letters}{row}";
         }
 
-        /// <summary>엑셀에서 간단 미리보기 JSON 생성(값/병합/열폭/간단 스타일)</summary>
         private static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26)
         {
             using var wb = new XLWorkbook(excelPath);
             var ws0 = wb.Worksheets.First();
 
-            // cells
             var cells = new List<List<string>>(maxRows);
             for (int r = 1; r <= maxRows; r++)
             {
@@ -220,7 +281,6 @@ ORDER BY Id;";
                 cells.Add(row);
             }
 
-            // merges
             var merges = new List<int[]>();
             foreach (var mr in ws0.MergedRanges)
             {
@@ -228,15 +288,14 @@ ORDER BY Id;";
                 int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
                 int r2 = a.LastAddress.RowNumber, c2 = a.LastAddress.ColumnNumber;
                 if (r1 > maxRows || c1 > maxCols) continue;
-                r2 = Math.Min(r2, maxRows); c2 = Math.Min(c2, maxCols);
+                r2 = Math.Min(r2, maxRows);
+                c2 = Math.Min(c2, maxCols);
                 if (r1 <= r2 && c1 <= c2) merges.Add(new[] { r1, c1, r2, c2 });
             }
 
-            // col widths
             var colW = new List<double>(maxCols);
             for (int c = 1; c <= maxCols; c++) colW.Add(ws0.Column(c).Width);
 
-            // very light Styles
             var styles = new Dictionary<string, object>();
             for (int r = 1; r <= maxRows; r++)
             {

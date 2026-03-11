@@ -12120,8 +12120,8 @@ function defaultHttpResponseTransform(data, headers) {
     var tempData = data.replace(JSON_PROTECTION_PREFIX, '').trim();
 
     if (tempData) {
-      var contentType = headers('Content-Type');
-      var hasJsonContentType = contentType && (contentType.indexOf(APPLICATION_JSON) === 0);
+      var ContentType = headers('Content-Type');
+      var hasJsonContentType = ContentType && (ContentType.indexOf(APPLICATION_JSON) === 0);
 
       if (hasJsonContentType || isJsonLike(tempData)) {
         try {

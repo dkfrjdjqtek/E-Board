@@ -1210,7 +1210,7 @@
     <value>미열람</value>
   </data>
   <data name="PUSH_SummaryTitle" xml:space="preserve">
-    <value>E-BOARD</value>
+    <value>E-Board</value>
   </data>
   <data name="PUSH_CreatedUnread" xml:space="preserve">
     <value>작성 미열람 {0}건</value>
@@ -1226,5 +1226,35 @@
   </data>
   <data name="PUSH_ApprovalReject" xml:space="preserve">
     <value>상신 문서가 반려되었습니다</value>
+  </data>
+  <data name="DOC_Approval_Sub_Ongoing" xml:space="preserve">
+    <value>진행 문서함</value>
+  </data>
+  <data name="DOC_Approval_Sub_Completed" xml:space="preserve">
+    <value>완료 문서함</value>
+  </data>
+  <data name="DOC_Toast_BulkApproved" xml:space="preserve">
+    <value>{0}건의 문서가 결재되었습니다.</value>
+  </data>
+  <data name="DTL_Section_Cooperations" xml:space="preserve">
+    <value>협조란</value>
+  </data>
+  <data name="DTL_ApproverType_Person" xml:space="preserve">
+    <value>개인(사용자)</value>
+  </data>
+  <data name="DTL_ApproverType_Role" xml:space="preserve">
+    <value>역할(직책/그룹)</value>
+  </data>
+  <data name="DTL_ApproverType_Rule" xml:space="preserve">
+    <value>규칙(조건)</value>
+  </data>
+  <data name="DTL_Col_ApproverType" xml:space="preserve">
+    <value>유형</value>
+  </data>
+  <data name="DTL_Col_AssignValue" xml:space="preserve">
+    <value>할당</value>
+  </data>
+  <data name="_CM_Open" xml:space="preserve">
+    <value>열기</value>
   </data>
 </root>

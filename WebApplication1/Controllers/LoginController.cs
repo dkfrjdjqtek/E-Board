@@ -1,4 +1,5 @@
-﻿// 2025.09.17 Changed: Login(POST) 초입에 서버측 Required 가드 추가(Username/Password 비었을 때 즉시 에러 스탬핑); 기존 흐름/리소스/헬퍼 유지
+﻿// 2026.01.26 Changed: LoginNotifications 컴파일 에러 해결을 위해 ClaimTypes FindFirstValue using 추가 및 배지 카운트 쿼리 메서드 구현 IConfiguration 주입 추가
+// 2025.09.17 Changed: Login(POST) 초입에 서버측 Required 가드 추가(Username/Password 비었을 때 즉시 에러 스탬핑); 기존 흐름/리소스/헬퍼 유지
 // 2025.09.16 Changed: EBValidate가 소비할 필드별 에러와 요약을 ViewData로 전달하는 로직 추가
 // 2025.09.16 Changed: 로그인 실패 시 View 반환 전에 EBValidate 데이터 Stamp 호출
 // 2025.09.16 Added: StampEbValidateData 헬퍼 추가
@@ -13,6 +14,11 @@ using Microsoft.Extensions.Localization;
 using System.Linq;
 using System.Collections.Generic;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Authentication;
+using System.Security.Claims;
+using Microsoft.Data.SqlClient;
+using System.Data;
 
 namespace WebApplication1.Controllers
 {
@@ -22,14 +28,17 @@ namespace WebApplication1.Controllers
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IStringLocalizer<SharedResource> _S;
+        private readonly IConfiguration _cfg;
 
         public AccountController(SignInManager<ApplicationUser> signInManager,
                                  UserManager<ApplicationUser> userManager,
-                                 IStringLocalizer<SharedResource> S)
+                                 IStringLocalizer<SharedResource> S,
+                                 IConfiguration cfg)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _S = S;
+            _cfg = cfg;
         }
 
         [Authorize]
@@ -48,6 +57,59 @@ namespace WebApplication1.Controllers
                 approvalPending,
                 sharedUnread
             });
+        }
+
+        private async Task<int> GetApprovalPendingCountAsync(string userId)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs) || string.IsNullOrWhiteSpace(userId)) return 0;
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            // 결재 대기: DocumentApprovals 기준 Pending
+            // 문서 상태가 PendingA 로 시작하는 경우만 포함(회수/완료/반려 제외 효과)
+            var sql = @"
+SELECT COUNT(1)
+FROM dbo.DocumentApprovals a
+JOIN dbo.Documents d ON d.DocId = a.DocId
+WHERE a.UserId = @UserId
+  AND ISNULL(a.Status, N'') = N'Pending'
+  AND ISNULL(d.Status, N'') LIKE N'PendingA%';";
+
+            await using var cmd = new SqlCommand(sql, conn);
+            cmd.CommandType = CommandType.Text;
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+
+            var obj = await cmd.ExecuteScalarAsync();
+            if (obj == null || obj == DBNull.Value) return 0;
+            return int.TryParse(obj.ToString(), out var n) ? n : 0;
+        }
+
+        private async Task<int> GetSharedUnreadCountAsync(string userId)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs) || string.IsNullOrWhiteSpace(userId)) return 0;
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            // 공유 미확인: DocumentShares IsRead 기준(만료/회수 제외)
+            var sql = @"
+SELECT COUNT(1)
+FROM dbo.DocumentShares s
+WHERE s.UserId = @UserId
+  AND ISNULL(s.IsRevoked, 0) = 0
+  AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
+  AND ISNULL(s.IsRead, 0) = 0;";
+
+            await using var cmd = new SqlCommand(sql, conn);
+            cmd.CommandType = CommandType.Text;
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
+
+            var obj = await cmd.ExecuteScalarAsync();
+            if (obj == null || obj == DBNull.Value) return 0;
+            return int.TryParse(obj.ToString(), out var n) ? n : 0;
         }
 
         // 2025.12.15 Added: returnUrl 정규화 Login 자기자신 및 초대리셋 경유 URL 차단

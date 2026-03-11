@@ -1,4 +1,4 @@
-﻿@* 2025.12.29 Changed: 문서 첨부 이미지 파일은 섹션 내 썸네일(최대 600px)로 표시하고 클릭 시 원본 팝업 오버레이로 표시 *@
+﻿﻿@* 2025.12.29 Changed: 문서 첨부 이미지 파일은 섹션 내 썸네일(최대 600px)로 표시하고 클릭 시 원본 팝업 오버레이로 표시 *@
 @* 2025.12.29 Changed: 문서 첨부파일(DocumentFiles) 목록을 "문서 렌더링(프리뷰) 끝" ~ "댓글 그룹박스 위"에 표시하도록 추가 (기존 로직/주석 유지) *@
 @* 2025.12.29 Changed: 댓글 첨부파일 표시 링크를 /Doc/{fileKey} 우선 + /Doc/Download/{fileKey} 대체 링크 동시 제공으로 보강 (기존 로직/주석 유지) *@
 @* 2025.12.05 Changed: 승인 서명 스탬프 compCd UserId 기반 경로 적용 승인자 캡션 공통 함수 사용 상세 타이틀을 "작성자님의 문서명"으로 표시 상단 문서 메타 영역 숨김 댓글 파일 업로드 UI 비활성화 및 null 요소 이벤트 바인딩 오류 제거 *@
@@ -686,19 +686,19 @@
          data-creator-name="@creatorName"
          data-status="@status"
          data-created-at="@(
-        (ViewBag.CreatedAtText as string)
-        ?? (ViewBag.CreatedAt != null ? Convert.ToString(ViewBag.CreatedAt) : null)
-        ?? (ViewBag.UpdatedAtText as string)
-        ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
-        ?? string.Empty
-     )"
+                 (ViewBag.CreatedAtText as string)
+                 ?? (ViewBag.CreatedAt != null ? Convert.ToString(ViewBag.CreatedAt) : null)
+                 ?? (ViewBag.UpdatedAtText as string)
+                 ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
+                 ?? string.Empty
+          )"
          data-recalled-at="@(
-        (ViewBag.RecalledAtText as string)
-        ?? (ViewBag.RecalledAt != null ? Convert.ToString(ViewBag.RecalledAt) : null)
-        ?? (ViewBag.UpdatedAtText as string)
-        ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
-        ?? string.Empty
-     )"
+                 (ViewBag.RecalledAtText as string)
+                 ?? (ViewBag.RecalledAt != null ? Convert.ToString(ViewBag.RecalledAt) : null)
+                 ?? (ViewBag.UpdatedAtText as string)
+                 ?? (ViewBag.UpdatedAt != null ? Convert.ToString(ViewBag.UpdatedAt) : null)
+                 ?? string.Empty
+          )"
          style="padding-left: 16px; padding-right: 24px; max-width: 100%;">
 
         <!-- 상단 타이틀 + 메타 + 액션 -->
@@ -952,11 +952,11 @@
                 @S["DOC_Label_Attachments"]
                 <span class="doc-section-sub">
                     @(
-                        string.Format(
-                        S["DOC_Label_AttachmentsCount"].Value ?? "{0}",
-                        (documentFiles?.Count ?? 0)
-                        )
-                        )
+                                        string.Format(
+                                        S["DOC_Label_AttachmentsCount"].Value ?? "{0}",
+                                        (documentFiles?.Count ?? 0)
+                                        )
+                                        )
                 </span>
             </div>
 
@@ -993,7 +993,7 @@
                                     </div>
                                 </div>
 
-                                
+
                                 @if (isImg)
                                 {
                                     <div class="doc-attach-imgwrap">
@@ -1024,13 +1024,13 @@
                         var orgNodes = ViewBag.OrgTreeNodes as IEnumerable<OrgTreeNode> ?? Array.Empty<OrgTreeNode>();
                     }
                     @await Html.PartialAsync(
-                             "_OrgMultiSelectCombo",
-                             orgNodes,
-                             new Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary(ViewData)
-                    {
-                        ["ControlId"] = "doc-recipient-select-detail",
-                        ["FieldName"] = "SelectedRecipientUserIds"
-                    })
+                    "_OrgMultiSelectCombo",
+                                        orgNodes,
+                                        new Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary(ViewData)
+                                        {
+                                            ["ControlId"] = "doc-recipient-select-detail",
+                                            ["FieldName"] = "SelectedRecipientUserIds"
+                                        })
                 </div>
 
                 <button type="button"
@@ -1109,19 +1109,19 @@
                 <button type="button"
                         class="btn btn-sm btn-success btn-approve"
                         data-approve
-                @(canApprove ? "" : "disabled")>
+                        @(canApprove ? "" : "disabled")>
                     @S["DOC_Btn_Approve"]
                 </button>
                 <button type="button"
                         class="btn btn-sm btn-warning btn-hold"
                         data-hold
-                @(canHold ? "" : "disabled")>
+                        @(canHold ? "" : "disabled")>
                     @S["DOC_Btn_Hold"]
                 </button>
                 <button type="button"
                         class="btn btn-sm btn-danger btn-reject"
                         data-reject
-                @(canReject ? "" : "disabled")>
+                        @(canReject ? "" : "disabled")>
                     @S["DOC_Btn_Reject"]
                 </button>
             </div>
@@ -2838,4 +2838,3 @@
         })();
     </script>
 }
-

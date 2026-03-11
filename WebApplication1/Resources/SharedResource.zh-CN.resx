@@ -1210,7 +1210,7 @@
     <value>未查看</value>
   </data>
   <data name="PUSH_SummaryTitle" xml:space="preserve">
-    <value>E-BOARD</value>
+    <value>E-Board</value>
   </data>
   <data name="PUSH_CreatedUnread" xml:space="preserve">
     <value>我提交未查看 {0}</value>
@@ -1226,5 +1226,35 @@
   </data>
   <data name="PUSH_ApprovalReject" xml:space="preserve">
     <value>提交的文档已被驳回</value>
+  </data>
+  <data name="DOC_Approval_Sub_Ongoing" xml:space="preserve">
+    <value>进行中</value>
+  </data>
+  <data name="DOC_Approval_Sub_Completed" xml:space="preserve">
+    <value>已完成</value>
+  </data>
+  <data name="DOC_Toast_BulkApproved" xml:space="preserve">
+    <value>{0} 份文档已通过审批。</value>
+  </data>
+  <data name="DTL_Section_Cooperations" xml:space="preserve">
+    <value>协作栏</value>
+  </data>
+  <data name="DTL_ApproverType_Person" xml:space="preserve">
+    <value>个人（用户）</value>
+  </data>
+  <data name="DTL_ApproverType_Role" xml:space="preserve">
+    <value>角色（职位/组）</value>
+  </data>
+  <data name="DTL_ApproverType_Rule" xml:space="preserve">
+    <value>规则（条件）</value>
+  </data>
+  <data name="DTL_Col_ApproverType" xml:space="preserve">
+    <value>类型</value>
+  </data>
+  <data name="DTL_Col_AssignValue" xml:space="preserve">
+    <value>分配</value>
+  </data>
+  <data name="_CM_Open" xml:space="preserve">
+    <value>打开</value>
   </data>
 </root>
