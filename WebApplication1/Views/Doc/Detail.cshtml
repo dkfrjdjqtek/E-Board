@@ -23,11 +23,11 @@
 @functions {
     public class __DocFileVm
     {
-        public string? fileKey { get; set; }
-        public string? originalName { get; set; }
-        public string? contentType { get; set; }
-        public long byteSize { get; set; }
-        public string? uploadedAtText { get; set; }
+        public string? FileKey { get; set; }
+        public string? OriginalName { get; set; }
+        public string? ContentType { get; set; }
+        public long ByteSize { get; set; }
+        public string? UploadedAtText { get; set; }
     }
 
     private static bool __IsImageAttachment(string? contentType, string? originalName)
@@ -969,11 +969,11 @@
                 <div class="list-group list-group-flush">
                     @foreach (var f in documentFiles)
                     {
-                        var fk = (f?.fileKey ?? string.Empty).Trim();
+                        var fk = (f?.FileKey ?? string.Empty).Trim();
                         if (string.IsNullOrWhiteSpace(fk)) { continue; }
 
-                        var on = (f?.originalName ?? fk).Trim();
-                        var ct = (f?.contentType ?? string.Empty).Trim();
+                        var on = (f?.OriginalName ?? fk).Trim();
+                        var ct = (f?.ContentType ?? string.Empty).Trim();
 
                         var href1 = "/Doc/Download/" + Uri.EscapeDataString(fk);
 
@@ -981,7 +981,6 @@
 
                         <div class="list-group-item d-flex flex-wrap align-items-start justify-content-between gap-2">
                             <div class="me-2" style="min-width: 240px; max-width: 75%;">
-                                <!-- 2025.12.30 Changed: 다운로드 버튼을 파일명 앞으로 이동 -->
                                 <div class="d-flex align-items-center gap-2" style="min-width:0;">
                                     <a class="btn btn-sm btn-outline-secondary"
                                        href="@href1"
@@ -993,7 +992,6 @@
                                     </div>
                                 </div>
 
-
                                 @if (isImg)
                                 {
                                     <div class="doc-attach-imgwrap">
@@ -1004,8 +1002,6 @@
                                     </div>
                                 }
                             </div>
-
-                            @* 2025.12.30 Changed: 우측 버튼 영역 제거(대체 다운로드 포함) *@
                         </div>
                     }
                 </div>

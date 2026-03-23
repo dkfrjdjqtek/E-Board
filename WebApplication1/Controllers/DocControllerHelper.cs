@@ -222,56 +222,91 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
         // ============================================================
         // PREVIEW BUILDER (스타일 포함)
         // ============================================================
-        public static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 50, int maxCols = 26, Microsoft.Extensions.Logging.ILogger? log = null)
+        public static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 500, int maxCols = 100, Microsoft.Extensions.Logging.ILogger? log = null)
         {
             if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
                 return "{}";
-
             try
             {
                 using var wb = new XLWorkbook(excelPath);
                 var ws = wb.Worksheets.First();
-
                 var cells = new List<List<string>>(maxRows);
                 var merges = new List<int[]>();
                 var colW = new List<double>(maxCols);
                 var rowH = new List<double>(maxRows);
                 var styles = new Dictionary<string, object>(maxRows * maxCols);
-
                 double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
                 double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
 
-                for (int r = 1; r <= maxRows; r++)
+                // ★ 실제 사용 행/열 계산 (빈 셀 제외, 병합 포함)
+                int actualMaxC = 1;
+                int actualMaxR = 1;
+                foreach (var row in ws.RowsUsed(XLCellsUsedOptions.AllContents))
                 {
-                    var row = new List<string>(maxCols);
-                    for (int c = 1; c <= maxCols; c++)
+                    var rowNum = row.RowNumber();
+                    if (rowNum > actualMaxR) actualMaxR = rowNum;
+
+                    var last = row.LastCellUsed(XLCellsUsedOptions.AllContents);
+                    if (last != null && last.Address.ColumnNumber > actualMaxC)
+                        actualMaxC = last.Address.ColumnNumber;
+                }
+                foreach (var mr in ws.MergedRanges)
+                {
+                    var lastR = mr.RangeAddress.LastAddress.RowNumber;
+                    var lastC = mr.RangeAddress.LastAddress.ColumnNumber;
+                    if (lastR > actualMaxR) actualMaxR = lastR;
+                    if (lastC > actualMaxC) actualMaxC = lastC;
+                }
+                // maxRows/maxCols는 안전 상한으로만 사용
+                actualMaxR = Math.Min(actualMaxR, maxRows);
+                actualMaxC = Math.Min(actualMaxC, maxCols);
+
+                // cells: actualMaxR x actualMaxC 만큼만 생성
+                for (int r = 1; r <= actualMaxR; r++)
+                {
+                    var row = new List<string>(actualMaxC);
+                    for (int c = 1; c <= actualMaxC; c++)
                         row.Add(ws.Cell(r, c).GetFormattedString());
                     cells.Add(row);
                 }
 
+                // merges: actualMaxR/actualMaxC 범위로 클리핑
                 foreach (var mr in ws.MergedRanges)
                 {
                     var a = mr.RangeAddress;
                     int r1 = a.FirstAddress.RowNumber, c1 = a.FirstAddress.ColumnNumber;
-                    int r2 = Math.Min(a.LastAddress.RowNumber, maxRows);
-                    int c2 = Math.Min(a.LastAddress.ColumnNumber, maxCols);
-                    if (r1 <= r2 && c1 <= c2)
+                    int r2 = Math.Min(a.LastAddress.RowNumber, actualMaxR);
+                    int c2 = Math.Min(a.LastAddress.ColumnNumber, actualMaxC);
+                    if (r1 > r2 || c1 > c2) continue;
+
+                    // ★ 시작 셀에 내용 또는 테두리가 있는 경우만 포함
+                    var firstCell = ws.Cell(r1, c1);
+                    var hasContent = !string.IsNullOrWhiteSpace(firstCell.GetFormattedString());
+                    var st = firstCell.Style.Border;
+                    var hasBorder = st.LeftBorder != XLBorderStyleValues.None
+                                 || st.RightBorder != XLBorderStyleValues.None
+                                 || st.TopBorder != XLBorderStyleValues.None
+                                 || st.BottomBorder != XLBorderStyleValues.None;
+
+                    if (hasContent || hasBorder)
                         merges.Add(new[] { r1, c1, r2, c2 });
                 }
 
-                for (int c = 1; c <= maxCols; c++)
+                // colW: actualMaxC 열까지만
+                for (int c = 1; c <= actualMaxC; c++)
                     colW.Add(ws.Column(c).Width <= 0 ? defaultColChar : ws.Column(c).Width);
 
-                for (int r = 1; r <= maxRows; r++)
+                // rowH: actualMaxR 행까지만
+                for (int r = 1; r <= actualMaxR; r++)
                     rowH.Add(ws.Row(r).Height <= 0 ? defaultRowPt : ws.Row(r).Height);
 
-                for (int r = 1; r <= maxRows; r++)
+                // styles: actualMaxR x actualMaxC 만큼만 생성
+                for (int r = 1; r <= actualMaxR; r++)
                 {
-                    for (int c = 1; c <= maxCols; c++)
+                    for (int c = 1; c <= actualMaxC; c++)
                     {
                         var cell = ws.Cell(r, c);
                         var st = cell.Style;
-
                         styles[$"{r},{c}"] = new
                         {
                             font = new
@@ -303,8 +338,8 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 return JsonSerializer.Serialize(new
                 {
                     sheet = ws.Name,
-                    rows = maxRows,
-                    cols = maxCols,
+                    rows = actualMaxR,   // ★ 실제 행 수
+                    cols = actualMaxC,   // ★ 실제 열 수
                     cells,
                     merges,
                     colW,
@@ -318,6 +353,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 return "{}";
             }
         }
+
         private static string? ToHexIfRgb(IXLCell cell)
         {
             try

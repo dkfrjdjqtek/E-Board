@@ -1,5 +1,4 @@
-﻿@* 2026.03.11 Changed: 선택 셀 변경 시마다 DX readOnly를 재동기화하여 매핑 셀 편집이 다시 가능하도록 수정함 *@
-@using System.IO
+﻿@using System.IO
 @using System.Text.Json
 @using System.Text.Encodings.Web
 @using WebApplication1.Models
@@ -16,7 +15,7 @@
     Layout = isAjax ? null : "~/Views/Shared/_Layout.cshtml";
 
     var templateCode = (string?)ViewBag.TemplateCode
-                       ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);
+    ?? (Context?.Request?.Query["templateCode"].ToString() ?? string.Empty);
     var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
     var descJson = (string?)ViewBag.DescriptorJson ?? "{}";
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
@@ -100,13 +99,19 @@ else
         right: 0 !important;
         bottom: var(--footer-h, 32px) !important;
         overflow-y: auto !important;
-        overflow-x: hidden !important;
+        overflow-x: auto !important;
         overscroll-behavior: contain !important;
         box-sizing: border-box !important;
         background: #fff !important;
         z-index: 10000 !important;
         padding: 16px 24px 24px 16px !important;
+        opacity: 0;
+        transition: opacity 0.2s ease;
     }
+
+        #doc-scroll.dx-page-ready {
+            opacity: 1;
+        }
 
     .page-header {
         display: flex;
@@ -327,32 +332,32 @@ else
 
         <script>
             window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
-            {
-                        DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
-                        DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
-                        DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
-                        DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
-                        DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
-                        DOC_Submit_Button = S["DOC_Submit_Button"].Value,
-                        DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
-                        ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
-                        ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
-                        ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
-                        ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
-                        ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
-                        DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
-                        DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
-                        DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
-                        DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
-                        _CM_Select = S["_CM_Select"].Value,
-                        _CM_Delete = S["_CM_Delete"].Value,
-                        _CM_Open = S["_CM_Open"].Value,
-                        _CM_Save = S["_CM_Save"].Value,
-                        _CM_Error = S["_CM_Error"].Value,
-                        DTL_Type_Text = S["DTL_Type_Text"].Value,
-                        DTL_Type_Date = S["DTL_Type_Date"].Value,
-                        DTL_Type_Num = S["DTL_Type_Num"].Value
-            }));
+                {
+                            DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+                            DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+                            DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
+                            DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
+                            DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+                            DOC_Submit_Button = S["DOC_Submit_Button"].Value,
+                            DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
+                            ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
+                            ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
+                            ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
+                            ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
+                            ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
+                            DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
+                            DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
+                            DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
+                            DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
+                            _CM_Select = S["_CM_Select"].Value,
+                            _CM_Delete = S["_CM_Delete"].Value,
+                            _CM_Open = S["_CM_Open"].Value,
+                            _CM_Save = S["_CM_Save"].Value,
+                            _CM_Error = S["_CM_Error"].Value,
+                            DTL_Type_Text = S["DTL_Type_Text"].Value,
+                            DTL_Type_Date = S["DTL_Type_Date"].Value,
+                            DTL_Type_Num = S["DTL_Type_Num"].Value
+                }));
             window.__tplFromServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(templateCode ?? string.Empty));
             window.__dxOpenRel = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(openRel ?? string.Empty));
             window.__dxCallbackUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
@@ -396,7 +401,8 @@ else
         <div class="doc-share-area">
             <label class="form-label">@S["DOC_Label_Recipients"]</label>
             @{
-                var orgNodes = ViewBag.OrgTreeNodes as IEnumerable<OrgTreeNode> ?? Array.Empty<OrgTreeNode>();
+                var orgNodes = ViewBag.OrgTreeNodes as IEnumerable<OrgTreeNode>
+                ?? Array.Empty<OrgTreeNode>();
             }
             @await Html.PartialAsync(
             "_OrgMultiSelectCombo",
@@ -436,10 +442,8 @@ else
             const $ = (q, r = document) => r.querySelector(q);
             const $alert = () => document.getElementById('doc-alert');
 
-            // ── 서버에서 주입된 UI Culture (DOM 파싱 불필요)
             const SERVER_UI_CULTURE = '@System.Globalization.CultureInfo.CurrentUICulture.Name';
 
-            // ── 상태
             const state = {
                 dxEditing: false,
                 dxDirtySinceLastSync: false,
@@ -457,8 +461,8 @@ else
                 dateA1Set: new Set(),
                 datePickerOpen: false,
                 lastDatePopupA1: '',
-                lastWrapAppliedA1: '',   // 호환 유지용 (autoWrap 제거 후 잔류)
-                previewExtent: null,     // computePreviewExtent 최초 호출 시 설정
+                lastWrapAppliedA1: '',
+                previewExtent: null,
                 dateDefaultsApplied: false,
                 dateBridgeBound: false,
                 lastDateAnchorEl: null
@@ -529,20 +533,16 @@ else
             function getTemplateCode() {
                 const d1 = document.getElementById('doc-scroll')?.dataset?.templateCode?.trim();
                 if (d1) return d1;
-
                 const form = document.getElementById('doc-form');
                 const v1 = form?.querySelector('input[name=TemplateCode]')?.value?.trim();
                 if (v1) return v1;
-
                 const v1b = form?.querySelector('input[name=templateCode]')?.value?.trim();
                 if (v1b) return v1b;
-
                 try {
                     const qs = new URLSearchParams(location.search);
                     const v2 = (qs.get('templateCode') || '').trim();
                     if (v2) return v2;
                 } catch { }
-
                 return (window.__tplFromServer || '').trim();
             }
 
@@ -615,15 +615,12 @@ else
             function expandRangeToSingles(a1) {
                 const one = normalizeSingleA1(a1);
                 if (one) return [one];
-
                 const rg = tryParseRange(a1);
                 if (!rg) return [];
-
-                const left  = Math.min(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
-                const right = Math.max(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
-                const top   = Math.min(rg.r1, rg.r2);
+                const left   = Math.min(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
+                const right  = Math.max(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
+                const top    = Math.min(rg.r1, rg.r2);
                 const bottom = Math.max(rg.r1, rg.r2);
-
                 const out = [];
                 for (let c = left; c <= right; c++)
                     for (let r = top; r <= bottom; r++)
@@ -637,7 +634,6 @@ else
 
             function excelColWidthToPx(w) {
                 const n = Number(w);
-                // n < 0 는 caller 쪽에서 걸러지므로 Math.max 불필요
                 if (!isFinite(n) || n < 0) return 0;
                 return Math.floor(n * 7 + 5);
             }
@@ -657,15 +653,16 @@ else
                 );
             }
 
-            function computePreviewExtent(preview, descriptor) {
+            function computePreviewExtent(preview) {
                 const p = preview || {};
-                const styles  = p.styles || {};
-                const cells   = Array.isArray(p.cells)  ? p.cells  : [];
-                const merges  = Array.isArray(p.merges) ? p.merges : [];
-                const rowH    = Array.isArray(p.rowH)   ? p.rowH   : [];
-                const colW    = Array.isArray(p.colW)   ? p.colW   : [];
+                const styles = p.styles || {};
+                const cells = Array.isArray(p.cells) ? p.cells : [];
+                const merges = Array.isArray(p.merges) ? p.merges : [];
+                const rowH = Array.isArray(p.rowH) ? p.rowH : [];
+                const colW = Array.isArray(p.colW) ? p.colW : [];
 
                 let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+                let contentMergeMaxC = 0;
 
                 function mark(r, c) {
                     minR = Math.min(minR, r); maxR = Math.max(maxR, r);
@@ -675,8 +672,11 @@ else
                 for (let r = 1; r <= cells.length; r++) {
                     const row = Array.isArray(cells[r - 1]) ? cells[r - 1] : [];
                     for (let c = 1; c <= row.length; c++) {
-                        if (row[c - 1] !== '' && row[c - 1] != null) mark(r, c);
-                        if (hasVisibleStyle(styles[`${r},${c}`])) mark(r, c);
+                        const v = row[c - 1];
+                        if (v !== null && v !== undefined && v !== '' && String(v).trim() !== '') {
+                            mark(r, c);
+                            if (c > contentMergeMaxC) contentMergeMaxC = c;
+                        }
                     }
                 }
 
@@ -686,30 +686,51 @@ else
                     const r2 = parseInt(m[2], 10) || 0, c2 = parseInt(m[3], 10) || 0;
                     if (r1 > 0 && c1 > 0) mark(r1, c1);
                     if (r2 > 0 && c2 > 0) mark(r2, c2);
+                    if (c2 > contentMergeMaxC) contentMergeMaxC = c2;
                 }
 
-                for (const f of (Array.isArray(descriptor?.inputs) ? descriptor.inputs : [])) {
-                    for (const a1 of expandRangeToSingles(f?.a1 || '')) {
-                        const mm = String(a1).match(/^([A-Z]+)(\d+)$/);
-                        if (mm) mark(parseInt(mm[2], 10), colLettersToNumber(mm[1]));
+                if (contentMergeMaxC > 0) {
+                    for (let r = 1; r <= cells.length; r++) {
+                        for (let c = 1; c <= contentMergeMaxC; c++) {
+                            const st = styles[`${r},${c}`];
+                            if (!st) continue;
+                            const b = st.border || {};
+                            if ((b.l && b.l !== 'None') || (b.r && b.r !== 'None') ||
+                                (b.t && b.t !== 'None') || (b.b && b.b !== 'None')) {
+                                mark(r, c);
+                            }
+                        }
                     }
                 }
 
-                if (!isFinite(minR) || !isFinite(minC)) { minR = 1; maxR = 1; minC = 1; maxC = 1; }
+                if (!isFinite(minR) || !isFinite(minC)) {
+                    minR = 1; maxR = Math.max(1, p.rows || 1);
+                    minC = 1; maxC = Math.max(1, p.cols || 1);
+                }
 
                 const maxColsFromCells = Math.max(...cells.map(r => Array.isArray(r) ? r.length : 0), 1);
                 maxC = Math.min(Math.max(maxC, 1), maxColsFromCells);
+                const effectiveMaxC = Math.min(Math.max(contentMergeMaxC || maxC || 1, 1), maxColsFromCells);
                 minC = Math.max(minC, 1);
 
-                let width = 0;
-                for (let c = minC; c <= maxC; c++) width += excelColWidthToPx(colW[c - 1] ?? 8.43);
+                state._effectiveMaxC = effectiveMaxC;
+
+                let colSum = 0;
+                for (let c = minC; c <= effectiveMaxC; c++) {
+                    colSum += Math.floor((Number(colW[c - 1] ?? 8.43) * 7 + 5) / 7) * 7 + 2;
+                }
+                state._colSum = colSum;
 
                 let height = 0;
-                for (let r = minR; r <= maxR; r++) height += ptToPx(rowH[r - 1] ?? 15);
+                for (let r = minR; r <= maxR; r++) {
+                    height += ((Number(rowH[r - 1]) || 0) * 96 / 72);
+                }
+
+                console.log(`[DX] contentMergeMaxC=${contentMergeMaxC}, effectiveMaxC=${effectiveMaxC}, colSum=${colSum}`);
 
                 return {
-                    width:  Math.max(900, Math.ceil(width  + Math.max(24, Math.min(72, Math.ceil(width  * 0.02))))),
-                    height: Math.max(520, Math.ceil(height + Math.max(24, Math.min(72, Math.ceil(height * 0.02)))))
+                    width:  Math.max(600, Math.ceil(colSum + 30 + 16)),
+                    height: Math.max(520, Math.ceil(height + Math.max(80, Math.min(200, Math.ceil(height * 0.05)))))
                 };
             }
 
@@ -718,8 +739,8 @@ else
             // ──────────────────────────────────────────
 
             function buildEditableMap(descriptor) {
-                const map    = new Map();
-                const byA1   = new Map();
+                const map     = new Map();
+                const byA1    = new Map();
                 const dateSet = new Set();
 
                 for (const f of (Array.isArray(descriptor?.inputs) ? descriptor.inputs : [])) {
@@ -742,19 +763,27 @@ else
             }
 
             // ──────────────────────────────────────────
-            // DevExtreme 인스턴스
+            // DevExtreme 인스턴스 — 항상 최상위 window 기준
             // ──────────────────────────────────────────
 
             function getDxInstance() {
+                // ★ 핵심: iframe 내부에서 호출되어도 항상 top window 기준으로 탐색
+                const topWin = window.top || window;
+                try {
+                    if (topWin.dxComposeSheet) return topWin.dxComposeSheet;
+                    if (topWin.dxSpreadsheet) return topWin.dxSpreadsheet;
+                    if (topWin.dxSheet)       return topWin.dxSheet;
+                    if (topWin.DevExpress?.Spreadsheet?.getInstance) {
+                        return topWin.DevExpress.Spreadsheet.getInstance('dxComposeSheet')
+                            || topWin.DevExpress.Spreadsheet.getInstance('dxSpreadsheet')
+                            || topWin.DevExpress.Spreadsheet.getInstance('dxSheet');
+                    }
+                } catch { }
+                // 현재 window 폴백
                 try {
                     if (window.dxComposeSheet) return window.dxComposeSheet;
                     if (window.dxSpreadsheet) return window.dxSpreadsheet;
                     if (window.dxSheet)       return window.dxSheet;
-                    if (window.DevExpress?.Spreadsheet?.getInstance) {
-                        return DevExpress.Spreadsheet.getInstance('dxComposeSheet')
-                            || DevExpress.Spreadsheet.getInstance('dxSpreadsheet')
-                            || DevExpress.Spreadsheet.getInstance('dxSheet');
-                    }
                 } catch { }
                 return null;
             }
@@ -783,17 +812,6 @@ else
                 return sel;
             }
 
-            function tryGetCellValueByIndex(inst, col0, row0) {
-                if (!inst) return '';
-                try {
-                    if (typeof inst.getCellValue === 'function') {
-                        const v = inst.getCellValue(col0, row0);
-                        return v == null ? '' : v;
-                    }
-                } catch { }
-                return '';
-            }
-
             function trySetCellValueByIndex(inst, col0, row0, value) {
                 if (!inst) return false;
                 try {
@@ -815,7 +833,6 @@ else
             function tryReadCellValue(inst, a1) {
                 if (!inst || !a1) return { ok: false, value: '' };
 
-                // 직접 API 시도 (A1 문자열)
                 for (const fn of ['getCellValue', 'GetCellValue', 'getValue', 'GetValue', 'getCellText', 'GetCellText']) {
                     try {
                         if (typeof inst[fn] === 'function') {
@@ -825,7 +842,6 @@ else
                     } catch { }
                 }
 
-                // 인덱스 기반 fallback
                 const rc = rowColFromA1(a1);
                 if (rc && typeof inst.getCellValue === 'function') {
                     try {
@@ -870,7 +886,7 @@ else
                 tryAdd('documentChanged', () => state.dxDirtySinceLastSync = true);
                 tryAdd('selectionChanged', () => refreshActiveSelection(inst));
 
-                tryAdd('cellBeginEdit', function (s, e) {
+                tryAdd('CellBeginEdit', function (s, e) {
                     refreshActiveSelection(inst);
                     const a1   = state.activeA1 || '';
                     const meta = a1 ? state.editableByA1.get(a1) : null;
@@ -887,24 +903,215 @@ else
                     state.dxEditing = true;
                 });
 
-                tryAdd('cellEndEdit', () => {
+                tryAdd('CellEndEdit', () => {
                     state.dxEditing = false;
                     state.dxDirtySinceLastSync = true;
                     refreshActiveSelection(inst);
-                    // autoWrap 제거됨
                 });
 
-                tryAdd('cellCancelEdit', () => {
+                tryAdd('CellCancelEdit', () => {
                     state.dxEditing = false;
                     refreshActiveSelection(inst);
                 });
 
-                try {
-                    if (typeof inst.option === 'function')
-                        inst.option('protectionWarning', e => { if (e) e.cancel = true; });
-                } catch { }
+                tryAdd('protectionWarning', function (s, e) {
+                    try { if (e && typeof e === 'object') e.cancel = true; } catch { }
+                });
             }
 
+            // ──────────────────────────────────────────
+            // ★ 키 차단 — iframe 내부에서도 동작하도록
+            //   getDxInstance()가 top window 기준으로 수정됐으므로
+            //   iframe keydown 핸들러에서도 inst/state 정상 접근 가능
+            // ──────────────────────────────────────────
+
+            function installKeyBlocker(target) {
+                if (!target || target.__keyBlockerBound) return;
+                target.__keyBlockerBound = true;
+
+                target.addEventListener('keydown', function (e) {
+
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'a') return;
+
+                    const isDelete = e.key === 'Delete' || e.key === 'Backspace';
+                    const isCut    = (e.ctrlKey || e.metaKey) && e.key === 'x';
+                    const isUndo   = (e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y');
+
+                    if (!isDelete && !isCut && !isUndo) return;
+
+                    // ★ 편집 중(셀 내부 커서)이면 무조건 DX에 맡김
+                    if (state.dxEditing) return;
+
+                    // ★ 추가: activeElement가 실제 input/contenteditable 안에 있으면 편집 중으로 간주
+                    const ae = document.activeElement
+                            || (typeof target.activeElement !== 'undefined' ? target.activeElement : null);
+                    if (ae) {
+                        const tag = (ae.tagName || '').toLowerCase();
+                        if (tag === 'input' || tag === 'textarea') return;
+                        if (ae.getAttribute('contenteditable') === 'true') return;
+                        // iframe 내부 document의 activeElement 체크
+                        try {
+                            const itFrame = document.getElementById('dxComposeSheet_IT');
+                            if (itFrame) {
+                                const iDoc = itFrame.contentDocument || itFrame.contentWindow?.document;
+                                if (iDoc) {
+                                    const iAe = iDoc.activeElement;
+                                    if (iAe) {
+                                        const iTag = (iAe.tagName || '').toLowerCase();
+                                        if (iTag === 'input' || iTag === 'textarea') return;
+                                        if (iAe.getAttribute('contenteditable') === 'true') return;
+                                        // dxss-cell-editor 등 편집 관련 클래스
+                                        if (iAe.closest && iAe.closest('.dxss-cell-editor, .dxss-input-bar, [class*="dxss-edit"]')) return;
+                                    }
+                                }
+                            }
+                        } catch { }
+                    }
+
+                    const inst = getDxInstance();
+                    if (inst) refreshActiveSelection(inst);
+
+                    const activeA1 = state.activeA1 || '';
+
+                    if (isDelete || isCut) {
+                        const inst2 = getDxInstance();
+                        if (!inst2) return;
+
+                        let sel = null;
+                        try {
+                            if (typeof inst2.getSelection === 'function') sel = inst2.getSelection();
+                            else if (typeof inst2.GetSelection === 'function') sel = inst2.GetSelection();
+                        } catch { }
+                        if (!sel) sel = state.activeSelection;
+
+                        const r1 = Number(sel?.topRowIndex    ?? sel?.activeCellRowIndex    ?? -1);
+                        const r2 = Number(sel?.bottomRowIndex ?? sel?.activeCellRowIndex    ?? -1);
+                        const c1 = Number(sel?.leftColumnIndex  ?? sel?.activeCellColumnIndex ?? -1);
+                        const c2 = Number(sel?.rightColumnIndex ?? sel?.activeCellColumnIndex ?? -1);
+
+                        const isRangeSelection = (r2 - r1) > 0 || (c2 - c1) > 0;
+
+                        if (isRangeSelection) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+
+                            dxBatchUpdate(inst2, () => {
+                                let cleared = false;
+                                for (const [a1, meta] of state.editableByA1.entries()) {
+                                    if (String(meta.type || '').toLowerCase() === 'date') continue;
+                                    const rc = rowColFromA1(a1);
+                                    if (!rc) continue;
+                                    const r0 = rc.row1 - 1;
+                                    const c0 = rc.col1 - 1;
+                                    const inRange = (r2 - r1 > 200)
+                                        ? true
+                                        : (r0 >= r1 && r0 <= r2 && c0 >= c1 && c0 <= c2);
+                                    if (inRange) {
+                                        trySetCellValueByIndex(inst2, c0, r0, '');
+                                        cleared = true;
+                                    }
+                                }
+                                if (cleared) {
+                                    tryInvokeDxEditorCommit(inst2);
+                                    state.dxDirtySinceLastSync = true;
+                                }
+                            });
+                            return;
+                        }
+
+                        // 단일 셀 모드
+                        if (activeA1 && state.dateA1Set.has(activeA1)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                            return;
+                        }
+
+                        if (activeA1 && state.editableByA1.has(activeA1)) return; // DX가 처리
+                        if (!activeA1 && state.editableByA1.size > 0) return;
+
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                        return;
+                    }
+
+                    if (isUndo) {
+                        if (activeA1 && state.editableByA1.has(activeA1) && !state.dateA1Set.has(activeA1)) return;
+                        if (!activeA1) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                    }
+
+                }, true);
+            }
+
+            function dxBatchUpdate(inst, fn) {
+                const wrap = document.getElementById('dxComposeWrap');
+                const frame = document.getElementById('dxComposeSheet_IT');
+
+                // ── 렌더링 레이어를 GPU 합성 레이어로 분리
+                // ── 브라우저가 해당 레이어를 별도로 관리하여 리페인트 전파 차단
+                if (wrap) {
+                    wrap.style.transform = 'translateZ(0)';
+                    wrap.style.isolation = 'isolate';
+                    wrap.style.contain  = 'strict';
+                }
+                if (frame) {
+                    frame.style.transform = 'translateZ(0)';
+                }
+
+                try {
+                    fn();
+                } finally {
+                    requestAnimationFrame(() => {
+                        if (wrap) {
+                            wrap.style.transform = '';
+                            wrap.style.isolation = '';
+                            wrap.style.contain   = '';
+                        }
+                        if (frame) {
+                            frame.style.transform = '';
+                        }
+                    });
+                }
+            }
+
+        function selectionContainsAnyEditable() {
+                    const inst = getDxInstance();
+            if (!inst) return false;
+
+            let sel = null;
+            try {
+                if (typeof inst.getSelection === 'function') sel = inst.getSelection();
+                else if (typeof inst.GetSelection === 'function') sel = inst.GetSelection();
+            } catch { }
+            if (!sel) sel = state.activeSelection;
+            if (!sel) return false;
+
+            // ★ 실제 DX 프로퍼티명으로 수정
+            const r1 = Number(sel.topRowIndex    ?? sel.startRowIndex    ?? sel.activeCellRowIndex    ?? -1);
+            const r2 = Number(sel.bottomRowIndex ?? sel.endRowIndex      ?? sel.activeCellRowIndex    ?? -1);
+            const c1 = Number(sel.leftColumnIndex  ?? sel.startColumnIndex ?? sel.activeCellColumnIndex ?? -1);
+            const c2 = Number(sel.rightColumnIndex ?? sel.endColumnIndex   ?? sel.activeCellColumnIndex ?? -1);
+
+            if (r1 < 0 || c1 < 0) return state.editableByA1.size > 0;
+
+            // ★ 전체 시트 선택(Ctrl+A) 또는 대범위 → editableByA1 있으면 바로 통과
+            if ((r2 - r1) > 200 || (c2 - c1) > 200) {
+                return state.editableByA1.size > 0;
+            }
+
+            for (let r = r1; r <= r2; r++) {
+                for (let c = c1; c <= c2; c++) {
+                    const a1 = a1FromRowCol(r + 1, c + 1);
+                    if (state.editableByA1.has(a1) && !state.dateA1Set.has(a1)) return true;
+                }
+            }
+            return false;
+        }
             // ──────────────────────────────────────────
             // 에디터 플러시 / idle 대기
             // ──────────────────────────────────────────
@@ -972,7 +1179,6 @@ else
                     if (ae && host && host.contains(ae) && typeof ae.blur === 'function') ae.blur();
                 } catch { }
 
-                // 이중 대기 → 단일로 축소 (원본 대비 ~400ms 절감)
                 tryInvokeDxEditorCommit(inst);
                 await waitForDxIdle(1500);
 
@@ -992,7 +1198,6 @@ else
             // 날짜 처리
             // ──────────────────────────────────────────
 
-            // SERVER_UI_CULTURE 직접 사용 (DOM 파싱 로직 제거)
             function getCurrentUiCulture() {
                 return SERVER_UI_CULTURE || 'ko-KR';
             }
@@ -1006,7 +1211,7 @@ else
                     case 'vi-VN':
                     case 'id-ID': return `${parseInt(dd, 10)}/${parseInt(mm, 10)}/${y}`;
                     case 'zh-CN': return `${y}/${parseInt(mm, 10)}/${parseInt(dd, 10)}`;
-                    default:      return `${y}-${mm}-${dd}`;   // ko-KR 등
+                    default:      return `${y}-${mm}-${dd}`;
                 }
             }
 
@@ -1016,15 +1221,12 @@ else
 
                 let m;
 
-                // YYYY-MM-DD
                 m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
                 if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
 
-                // YYYY/MM/DD or YYYY.MM.DD
                 m = s.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})\.?$/);
                 if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
 
-                // DD/MM/YYYY or MM/DD/YYYY (culture 의존)
                 m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
                 if (m) {
                     const [month, day] = getCurrentUiCulture() === 'en-US'
@@ -1033,7 +1235,6 @@ else
                     return `${m[3]}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                 }
 
-                // YYYY. MM. DD.
                 m = s.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?$/);
                 if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
 
@@ -1094,7 +1295,7 @@ else
             }
 
             // ──────────────────────────────────────────
-            // DatePicker 브리지 (hidden input[type=date])
+            // DatePicker 브리지
             // ──────────────────────────────────────────
 
             function resolveDateAnchorElement(rawTarget) {
@@ -1198,8 +1399,8 @@ else
                 try {
                     if (typeof bridge.showPicker === 'function') bridge.showPicker();
                     else bridge.click();
-                } catch (e) {
-                    console.warn('[DXDBG] showPicker failed', e);
+                } catch (ex) {
+                    console.warn('[DXDBG] showPicker failed', ex);
                     state.datePickerOpen = false;
                     hideDateBridgeOffscreen();
                 }
@@ -1259,50 +1460,75 @@ else
             // ──────────────────────────────────────────
 
             function applyDxWrapSize() {
-                const ext  = computePreviewExtent(state.preview, state.descriptor);
+                const ext = computePreviewExtent(state.preview);
+                const wrap = document.getElementById('dxComposeWrap');
+                if (!wrap) return;
+                state.previewExtent = ext;
+                wrap.style.setProperty('width',     ext.width  + 'px', 'important');
+                wrap.style.setProperty('min-width', ext.width  + 'px', 'important');
+                wrap.style.setProperty('max-width', ext.width  + 'px', 'important');
+                wrap.style.setProperty('height',    ext.height + 'px', 'important');
+                wrap.style.setProperty('min-height',ext.height + 'px', 'important');
+                wrap.style.setProperty('overflow',  'hidden',          'important');
+            }
+
+            // function clampDxHorizontalExtent() {
+            //     const wrap  = document.getElementById('dxComposeWrap');
+            //     const outer = document.getElementById('doc-scroll');
+            //     if (!wrap || !outer) return;
+
+            //     const inner =
+            //         document.getElementById('dxComposeSheet_ScrollContainer')
+            //         || document.getElementById('dxComposeSheet_Grid')
+            //         || $('[id$="_ScrollContainer"]', wrap)
+            //         || $('[id$="_Grid"]', wrap);
+
+            //     const grid =
+            //         document.getElementById('dxComposeSheet_Grid')
+            //         || $('[id$="_Grid"]', wrap);
+
+            //     const w = Math.ceil(state.previewExtent?.width || wrap.clientWidth || 900);
+
+            //     Object.assign(wrap.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px' });
+
+            //     if (grid)  Object.assign(grid.style,  { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
+            //     if (inner) {
+            //         Object.assign(inner.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
+            //         inner.scrollLeft = 0;
+            //     }
+
+            //     wrap.querySelectorAll('.dxss-page, .dxss-page-border, .dxss-print-area').forEach(el => {
+            //         Object.assign(el.style, { maxWidth: w+'px', overflow: 'hidden', marginRight: '0' });
+            //     });
+
+            //     outer.style.overflowX = 'hidden';
+            // }
+
+            function clampDxHorizontalExtent() {
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap) return;
 
-                state.previewExtent = ext;
-                Object.assign(wrap.style, {
-                    width:     ext.width  + 'px',
-                    minWidth:  ext.width  + 'px',
-                    maxWidth:  ext.width  + 'px',
-                    height:    ext.height + 'px',
-                    minHeight: ext.height + 'px'
-                });
-            }
+                const rh = document.getElementById('dxComposeSheet_RowHeader')
+                        || $('[id$="_RowHeader"]', wrap);
+                const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
+                const colSum = Number(state._colSum || 0);
+                const previewWidth = Number(state.previewExtent?.width || 0);
 
-            function clampDxHorizontalExtent() {
-                const wrap  = document.getElementById('dxComposeWrap');
-                const outer = document.getElementById('doc-scroll');
-                if (!wrap || !outer) return;
+                const finalWidth = colSum > 0 ? rhW + colSum + 24
+                                 : previewWidth > 0 ? previewWidth : 900;
+
+                Object.assign(wrap.style, {
+                    width:    finalWidth + 'px',
+                    minWidth: finalWidth + 'px',
+                    maxWidth: finalWidth + 'px'
+                });
 
                 const inner =
                     document.getElementById('dxComposeSheet_ScrollContainer')
                     || document.getElementById('dxComposeSheet_Grid')
                     || $('[id$="_ScrollContainer"]', wrap)
                     || $('[id$="_Grid"]', wrap);
-
-                const grid =
-                    document.getElementById('dxComposeSheet_Grid')
-                    || $('[id$="_Grid"]', wrap);
-
-                const w = Math.ceil(state.previewExtent?.width || wrap.clientWidth || 900);
-
-                Object.assign(wrap.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px' });
-
-                if (grid)  Object.assign(grid.style,  { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
-                if (inner) {
-                    Object.assign(inner.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
-                    inner.scrollLeft = 0;
-                }
-
-                wrap.querySelectorAll('.dxss-page, .dxss-page-border, .dxss-print-area').forEach(el => {
-                    Object.assign(el.style, { maxWidth: w+'px', overflow: 'hidden', marginRight: '0' });
-                });
-
-                outer.style.overflowX = 'hidden';
+                if (inner) { inner.scrollLeft = 0; inner.scrollTop = 0; }
             }
 
             function installOuterScrollOnly() {
@@ -1332,7 +1558,7 @@ else
                         if (!wrap.contains(e.target)) return;
                         e.preventDefault();
                         lockInnerScroll();
-                        if (e.deltaY) outer.scrollTop  += e.deltaY;
+                        if (e.deltaY) outer.scrollTop += e.deltaY;
                         if (e.deltaX) outer.scrollLeft += e.deltaX;
                     }, { capture: true, passive: false });
                 }
@@ -1428,7 +1654,7 @@ else
             }
 
             function renderAttachListFromInput() {
-                const box       = document.getElementById('doc-attach-list');
+                const box = document.getElementById('doc-attach-list');
                 if (!box) return;
 
                 const fileInput = document.getElementById('doc-attachments');
@@ -1569,13 +1795,30 @@ else
                 };
             }
 
+            function buildCooperationsForPost() {
+                const cooperations = Array.isArray(state.descriptor?.cooperations)
+                    ? state.descriptor.cooperations
+                    : (Array.isArray(state.descriptor?.Cooperations)
+                        ? state.descriptor.Cooperations
+                        : []);
+                let seq = 1;
+                return {
+                    steps: cooperations.map(c => ({
+                        roleKey:      c?.roleKey || c?.RoleKey || `C${seq++}`,
+                        approverType: String(c?.approverType || c?.ApproverType || 'Person').trim() || 'Person',
+                        lineType:     String(c?.lineType || c?.LineType || 'Cooperation').trim() || 'Cooperation',
+                        value:        String(c?.value || c?.ApproverValue || c?.approverValue || '').trim()
+                    }))
+                };
+            }
+
             function buildRequestBody(templateCode, inputs) {
                 const selectedIds = collectSelectedRecipientUserIds();
                 return {
                     templateCode,
                     inputs,
                     approvals: buildApprovalsForPost(),
-                    // buildMailForPost() 인라인화 (고정값)
+                    cooperations: buildCooperationsForPost(),  // ★ 추가
                     mail: { to: [], cc: [], bcc: [], subject: '', body: '', send: true, from: null },
                     SelectedRecipientUserIds: selectedIds,
                     selectedRecipientUserIds: selectedIds
@@ -1651,70 +1894,76 @@ else
                     } catch {
                         location.href = '/Doc/Detail?id=' + encodeURIComponent(docId);
                     }
-                } catch (e) {
-                    console.error(e);
+                } catch (ex) {
+                    console.error(ex);
                     err('DOC_Err_SaveFailed');
                     submitBtn.disabled = false;
                 }
             }
 
             // ──────────────────────────────────────────
-            // 붙여넣기 인터셉트 + 배경색 복원
-            //
-            // DX Spreadsheet는 숨겨진 dxComposeSheet_IT iframe에서
-            // Ctrl+V keydown을 자체 처리한 뒤 50~100ms 후 셀을 재렌더링하여
-            // 서버에서 주입한 배경색(#EAF6FF)을 초기화한다.
-            //
-            // 해결 전략:
-            //   1. IT iframe keydown에서 클립보드를 미리 읽어둠
-            //   2. keyup에서 DX가 넣은 값을 우리 값(plain text)으로 즉시 교체
-            //   3. 120ms 후 배경색 복원 (DX 재렌더링 완료 이후)
+            // 배경색 복원
             // ──────────────────────────────────────────
 
-            // ──────────────────────────────────────────
-            // 붙여넣기 인터셉트 + 배경색 복원 (MutationObserver 방식)
-            //
-            // DX는 dxComposeSheet_IT iframe에서 Ctrl+V를 처리한 뒤
-            // 50~100ms 후 셀 DOM을 완전히 새로 생성(재렌더링)하여 배경색을 초기화함.
-            //
-            // 해결 전략:
-            //   1. keydown에서 클립보드를 미리 읽어둠
-            //   2. keyup에서 DX가 넣은 값을 plain text로 덮어씀
-            //   3. MutationObserver로 tb 요소 생성을 실시간 감지 → 즉시 배경색 주입
-            //   4. targetIds는 초기 렌더링 완료 후 배경색 기준으로 확정
-            // ──────────────────────────────────────────
+            const EDITABLE_BG     = '#EAF6FF';
+            const EDITABLE_BG_RGB = 'rgb(234, 246, 255)';
 
-            const EDITABLE_BG    = '#EAF6FF';          // 서버 BuildComposeDxEditableWorkbookAsync와 동일
-            const EDITABLE_BG_RGB = 'rgb(234, 246, 255)'; // #EAF6FF의 computed 값
+            let _bgCtbIds = new Set();
 
-            // ── 배경색 복원 대상 ID 셋 (초기 렌더링 시 확정)
-            let _bgTargetIds = new Set();
-            let _bgObserverReady = false;
-
-            function paintCellBg(el) {
-                if (!el || !el.id) return;
-                if (!_bgTargetIds.has(el.id)) return;
-                el.style.setProperty('background-color', EDITABLE_BG, 'important');
-                el.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
-                    ftc.style.setProperty('background-color', EDITABLE_BG, 'important');
-                });
+            function paintCtbBg(el) {
+                if (!el) return;
+                if (el.id && _bgCtbIds.has(el.id)) {
+                    el.style.setProperty('background-color', EDITABLE_BG, 'important');
+                    el.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
+                        ftc.style.setProperty('background-color', EDITABLE_BG, 'important');
+                    });
+                    return;
+                }
+                if (el.classList && el.classList.contains('dxss-ftc')) {
+                    const ctb = el.closest('[id*="dxComposeSheet_ctb."]');
+                    if (ctb && _bgCtbIds.has(ctb.id)) {
+                        el.style.setProperty('background-color', EDITABLE_BG, 'important');
+                    }
+                }
             }
 
-            function buildBgTargetIds() {
+            function buildBgCtbIds() {
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap) return false;
 
                 const found = new Set();
-                wrap.querySelectorAll('[id*="dxComposeSheet_tb."]').forEach(function (el) {
+
+                wrap.querySelectorAll('[id*="dxComposeSheet_ctb."]').forEach(function (el) {
                     const cs = window.getComputedStyle(el).backgroundColor;
                     if (cs === EDITABLE_BG_RGB) found.add(el.id);
                 });
 
+                wrap.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
+                    const cs = window.getComputedStyle(ftc).backgroundColor;
+                    if (cs === EDITABLE_BG_RGB) {
+                        const ctb = ftc.closest('[id*="dxComposeSheet_ctb."]');
+                        if (ctb) found.add(ctb.id);
+                    }
+                });
+
                 if (found.size > 0) {
-                    _bgTargetIds = found;
+                    _bgCtbIds = found;
                     return true;
                 }
                 return false;
+            }
+
+            function restoreAllBg() {
+                const wrap = document.getElementById('dxComposeWrap');
+                if (!wrap || !_bgCtbIds.size) return;
+                _bgCtbIds.forEach(function (id) {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.style.setProperty('background-color', EDITABLE_BG, 'important');
+                    el.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
+                        ftc.style.setProperty('background-color', EDITABLE_BG, 'important');
+                    });
+                });
             }
 
             function installCellColorObserver() {
@@ -1722,32 +1971,53 @@ else
                 if (!wrap || wrap.__colorObserverBound) return;
 
                 function tryStart() {
-                    if (!buildBgTargetIds()) return false;
+                    if (!buildBgCtbIds()) return false;
 
                     wrap.__colorObserverBound = true;
-                    _bgObserverReady = true;
 
                     const observer = new MutationObserver(function (mutations) {
+                        let needsRestore = false;
+
                         for (const mut of mutations) {
-                            // 새로 추가된 노드 처리
-                            for (const node of mut.addedNodes) {
-                                if (node.nodeType !== 1) continue;
-                                if (node.id && node.id.includes('dxComposeSheet_tb.')) {
-                                    paintCellBg(node);
-                                }
-                                if (typeof node.querySelectorAll === 'function') {
-                                    node.querySelectorAll('[id*="dxComposeSheet_tb."]')
-                                        .forEach(paintCellBg);
+                            if (mut.addedNodes.length > 0) {
+                                for (const node of mut.addedNodes) {
+                                    if (node.nodeType !== 1) continue;
+
+                                    if (node.id && node.id.includes('dxComposeSheet_ctb.')) {
+                                        paintCtbBg(node);
+                                        continue;
+                                    }
+
+                                    if (typeof node.querySelectorAll === 'function') {
+                                        const ctbs = node.querySelectorAll('[id*="dxComposeSheet_ctb."]');
+                                        ctbs.forEach(paintCtbBg);
+
+                                        if (node.classList && node.classList.contains('dxss-ftc')) {
+                                            needsRestore = true;
+                                        }
+
+                                        if (node.querySelectorAll('.dxss-ftc').length > 0) {
+                                            needsRestore = true;
+                                        }
+                                    }
                                 }
                             }
-                            // style 속성 변경된 노드 처리
+
                             if (mut.type === 'attributes' && mut.attributeName === 'style') {
                                 const el = mut.target;
-                                if (el.id && el.id.includes('dxComposeSheet_tb.')) {
-                                    paintCellBg(el);
+                                if (el.id && el.id.includes('dxComposeSheet_ctb.') && _bgCtbIds.has(el.id)) {
+                                    paintCtbBg(el);
+                                }
+                                if (el.classList && el.classList.contains('dxss-ftc')) {
+                                    const ctb = el.closest('[id*="dxComposeSheet_ctb."]');
+                                    if (ctb && _bgCtbIds.has(ctb.id)) {
+                                        el.style.setProperty('background-color', EDITABLE_BG, 'important');
+                                    }
                                 }
                             }
                         }
+
+                        if (needsRestore) restoreAllBg();
                     });
 
                     observer.observe(wrap, {
@@ -1761,16 +2031,18 @@ else
                     return true;
                 }
 
-                // 즉시 시도
                 if (tryStart()) return;
 
-                // DX 렌더링 완료 전이면 재시도 (최대 10초)
                 let retries = 0;
                 const retryTimer = setInterval(function () {
                     retries++;
                     if (tryStart() || retries >= 20) clearInterval(retryTimer);
                 }, 500);
             }
+
+            // ──────────────────────────────────────────
+            // 붙여넣기 가드 (Ctrl+V plain text)
+            // ──────────────────────────────────────────
 
             function installPasteGuard() {
                 function tryBind() {
@@ -1782,61 +2054,127 @@ else
 
                     itFrame.__pasteGuardBound = true;
 
-                    let lastCtrlV        = false;
-                    let clipboardSnapshot = '';
+                    if (!iDoc.__keyBlockerBound) {
+                        installKeyBlocker(iDoc);
+                    }
 
-                    // keydown: 클립보드만 미리 읽어둠 (DX가 먼저 처리하므로 차단 불가)
-                    iDoc.addEventListener('keydown', async function (e) {
-                        if (!((e.ctrlKey || e.metaKey) && e.key === 'v')) return;
-
-                        refreshActiveSelection(getDxInstance());
-                        const a1   = state.activeA1 || '';
-                        const meta = state.editableByA1.get(a1);
-
-                        if (!meta || String(meta.type || '').toLowerCase() === 'date') {
-                            lastCtrlV = false;
-                            return;
-                        }
-
-                        lastCtrlV = true;
-                        try {
-                            clipboardSnapshot = await navigator.clipboard.readText();
-                        } catch {
-                            clipboardSnapshot = '';
-                        }
-                    }, true);
-
-                    // keyup: DX가 값을 넣은 직후 — plain text로 덮어씀
-                    // MutationObserver가 재렌더링을 감지해 배경색을 자동 복원
-                    iDoc.addEventListener('keyup', function (e) {
-                        if (e.key !== 'v' || !lastCtrlV) return;
-                        lastCtrlV = false;
-
-                        const plain = clipboardSnapshot;
-                        clipboardSnapshot = '';
-                        if (!plain) return;
-
+                    // ★ paste 이벤트로 교체 — clipboard API 불필요, focus 조건 없음
+                    iDoc.addEventListener('paste', function (e) {
                         const inst = getDxInstance();
                         if (!inst) return;
-
                         refreshActiveSelection(inst);
                         const a1   = state.activeA1 || '';
                         const meta = state.editableByA1.get(a1);
-                        if (!meta || String(meta.type || '').toLowerCase() === 'date') return;
+
+                        // 편집 불가 셀이거나 날짜 셀이면 붙여넣기 차단
+                        if (!meta || String(meta.type || '').toLowerCase() === 'date') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                            return;
+                        }
+
+                        // ★ clipboardData에서 직접 읽음 — focus 권한 불필요
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+
+                        const plain = e.clipboardData?.getData('text/plain') ?? '';
+                        if (!plain) return;
 
                         const rc = rowColFromA1(a1);
                         if (!rc) return;
 
-                        // 줄 단위로 편집 가능 셀에만 입력 (범위 초과 시 중단)
-                        const lines = plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-                        for (let i = 0; i < lines.length; i++) {
+                        const rawLines = plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+
+                        let groupLastRow = rc.row1;
+                        {
+                            let checkRow = rc.row1 + 1;
+                            while (true) {
+                                const nextA1   = a1FromRowCol(checkRow, rc.col1);
+                                const nextMeta = state.editableByA1.get(nextA1);
+                                if (!nextMeta) break;
+                                if (String(nextMeta.type || '').toLowerCase() === 'date') break;
+                                groupLastRow = checkRow;
+                                checkRow++;
+                            }
+                        }
+                        const maxRows = groupLastRow - rc.row1 + 1;
+
+                        function getActiveCellMetrics() {
+                            const styles    = (state.preview || {}).styles || {};
+                            const activeRc  = rowColFromA1(state.activeA1 || '');
+                            const row1      = activeRc ? activeRc.row1 : 9;
+                            const col1      = activeRc ? activeRc.col1 : 3;
+                            const cellStyle = styles[row1 + ',' + col1] || {};
+                            const fontName  = cellStyle.font?.name || '굴림체';
+                            const fontSize  = cellStyle.font?.size || 11;
+                            const fontPx    = fontSize * 96 / 72;
+                            const bold      = cellStyle.font?.bold ? 'bold ' : '';
+                            const font      = bold + fontPx + 'px ' + fontName;
+
+                            const wrapEl = document.getElementById('dxComposeWrap');
+                            let width = 0;
+                            if (wrapEl) {
+                                wrapEl.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
+                                    const bg = window.getComputedStyle(ftc).backgroundColor;
+                                    if (bg !== 'rgb(234, 246, 255)') return;
+                                    const ctb = ftc.closest('[id*="dxComposeSheet_ctb."]');
+                                    if (!ctb) return;
+                                    const tbEl = document.getElementById(ctb.id.replace('_ctb.', '_tb.'));
+                                    if (!tbEl) return;
+                                    const w = parseInt(tbEl.style.width);
+                                    if (w > 100 && w < 700 && w > width) width = w;
+                                });
+                            }
+                            if (!width) width = 565;
+                            return { width, font };
+                        }
+
+                        function measureTextWidth(text, font) {
+                            if (!measureTextWidth._canvas) {
+                                measureTextWidth._canvas = document.createElement('canvas');
+                            }
+                            const ctx = measureTextWidth._canvas.getContext('2d');
+                            ctx.font = font;
+                            return ctx.measureText(text).width;
+                        }
+
+                        function wrapTextToWidth(text, maxWidth, font) {
+                            if (!text) return [''];
+                            const result = [];
+                            let current = '';
+                            for (let i = 0; i < text.length; i++) {
+                                const ch = text[i];
+                                const testLine = current + ch;
+                                if (measureTextWidth(testLine, font) > maxWidth && current.length > 0) {
+                                    result.push(current);
+                                    current = ch;
+                                } else {
+                                    current = testLine;
+                                }
+                            }
+                            if (current) result.push(current);
+                            return result.length > 0 ? result : [''];
+                        }
+
+                        const { width: cellWidth, font: cellFont } = getActiveCellMetrics();
+                        const maxWidth = Math.max(50, cellWidth - 4);
+
+                        const wrappedLines = [];
+                        for (const rawLine of rawLines) {
+                            if (!rawLine) { wrappedLines.push(''); continue; }
+                            const subLines = wrapTextToWidth(rawLine, maxWidth, cellFont);
+                            for (const sl of subLines) wrappedLines.push(sl);
+                        }
+
+                        for (let i = 0; i < Math.min(wrappedLines.length, maxRows); i++) {
                             const targetA1   = a1FromRowCol(rc.row1 + i, rc.col1);
                             const targetMeta = state.editableByA1.get(targetA1);
                             if (!targetMeta) break;
                             if (String(targetMeta.type || '').toLowerCase() === 'date') continue;
-                            trySetCellValueByIndex(inst, rc.col1 - 1, rc.row1 - 1 + i, lines[i]);
+                            trySetCellValueByIndex(inst, rc.col1 - 1, rc.row1 - 1 + i, wrappedLines[i]);
                         }
-
                         tryInvokeDxEditorCommit(inst);
                         state.dxDirtySinceLastSync = true;
 
@@ -1864,6 +2202,82 @@ else
                 });
             }
 
+                    // ── hookDxReady: DetailDX의 applySize 패턴 그대로 (WBC 대신 colSum 사용)
+            function hookDxReady() {
+                installOuterScrollOnly();
+
+                function applySize() {
+                    const wrap = document.getElementById('dxComposeWrap');
+                    const scroll = document.getElementById('doc-scroll');
+                    if (!wrap) return;
+
+                    installOuterScrollOnly();
+
+                    const wbc = document.getElementById('dxComposeSheet_WBC')
+                             || document.querySelector('#dxComposeWrap [id$="_WBC"]');
+
+                    // ★ DetailDX와 완전 동일: WBC offsetWidth 우선
+                    let finalWidth = (wbc && wbc.offsetWidth > 100) ? wbc.offsetWidth + 20 : 0;
+                    if (finalWidth <= 0) {
+                        const rh = document.getElementById('dxComposeSheet_RowHeader')
+                                || document.querySelector('#dxComposeWrap [id$="_RowHeader"]');
+                        const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
+                        const colSum = Number(state._colSum || 0);
+                        const previewWidth = Number(state.previewExtent?.width || 0);
+                        finalWidth = colSum > 0 ? rhW + colSum + 24
+                                   : previewWidth > 0 ? previewWidth : 900;
+                    }
+                    if (finalWidth <= 0) return;
+
+                    const finalHeight = (wbc && wbc.offsetHeight > 100)
+                        ? wbc.offsetHeight + 40
+                        : Number(state.previewExtent?.height || 520);
+
+                    wrap.style.setProperty('width',      finalWidth  + 'px', 'important');
+                    wrap.style.setProperty('min-width',  finalWidth  + 'px', 'important');
+                    wrap.style.setProperty('max-width',  finalWidth  + 'px', 'important');
+                    wrap.style.setProperty('height',     finalHeight + 'px', 'important');
+                    wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
+                    wrap.style.setProperty('overflow',   'hidden',           'important');
+
+                    console.log('[DX] applySize finalWidth=', finalWidth, 'finalHeight=', finalHeight);
+
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            try {
+                                if (scroll) {
+                                    scroll.setAttribute('tabindex', '0');
+                                    scroll.focus({ preventScroll: true });
+                                }
+                            } catch(e) {}
+                            if (scroll) scroll.classList.add('dx-page-ready');
+                        });
+                    });
+                }
+
+                const wrap = document.getElementById('dxComposeWrap');
+                if (!wrap) return;
+
+                let applied = false;
+                function tryApply() {
+                    if (applied) return;
+                    const wbc = document.getElementById('dxComposeSheet_WBC')
+                             || document.querySelector('#dxComposeWrap [id$="_WBC"]');
+                    if (wbc && wbc.offsetWidth > 0 && wbc.offsetHeight > 0) {
+                        applied = true;
+                        observer.disconnect();
+                        applySize();
+                    }
+                }
+
+                const observer = new MutationObserver(function () {
+                    tryApply();
+                });
+
+                observer.observe(wrap, { childList: true, subtree: true, attributes: true });
+                tryApply();
+            }
+
             function hookDxReadyLoop() {
                 let tries = 0;
                 (function tick() {
@@ -1874,10 +2288,20 @@ else
                         refreshActiveSelection(inst);
                         initDefaultDateValues();
                         bindDatePickerOpenBridge();
-                        installPasteGuard();
-                        installCellColorObserver(); // 배경색 감시 (중복 방지됨)
+                        installCellColorObserver();
                     }
-                    clampDxHorizontalExtent();
+
+                    const itFrame = document.getElementById('dxComposeSheet_IT');
+                    if (itFrame) {
+                        const iDoc = itFrame.contentDocument || itFrame.contentWindow?.document;
+                        if (iDoc && !iDoc.__keyBlockerBound) {
+                            installKeyBlocker(iDoc);
+                        }
+                        if (!itFrame.__pasteGuardBound) {
+                            installPasteGuard();
+                        }
+                    }
+
                     installOuterScrollOnly();
                     if (tries < 24) setTimeout(tick, 150);
                 })();
@@ -1889,10 +2313,19 @@ else
                 state.preview    = readJson('PreviewJson')    || {};
                 buildEditableMap(state.descriptor);
 
+                // ★ state와 핵심 함수를 전역에 노출 (디버깅 및 iframe 접근용)
+                window.__COMPOSE_STATE      = state;
+                window.__COMPOSE_A1FromRC   = a1FromRowCol;
+                window.__COMPOSE_EditableByA1 = () => state.editableByA1;
+
                 applyDxWrapSize();
+                hookDxReady();
                 installDatePickerBridge();
                 hookAttachmentUi();
                 hookCancel();
+
+                installKeyBlocker(document);
+
                 hookDxReadyLoop();
 
                 const saveBtn = document.getElementById('btn-save');
@@ -1907,4 +2340,3 @@ else
         })();
     </script>
 }
-

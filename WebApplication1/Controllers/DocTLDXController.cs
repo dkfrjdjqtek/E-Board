@@ -1,4 +1,4 @@
-﻿// 2026.03.09 Changed DX 템플릿 저장 흐름을 정리하여 PreviewJson 재생성 저장 순서 버전 파일명 반영 경로 보정 헬퍼 중복 제거를 적용함
+﻿// 2026.03.23 Changed: 승인 descriptor 처리와 동일하게 협조 descriptor 파싱 저장 정규화를 추가하여 템플릿 저장 시 Cooperations 정보가 누락되지 않도록 수정함
 using ClosedXML.Excel;
 using DevExpress.AspNetCore.Spreadsheet;
 using Microsoft.AspNetCore.Authorization;
@@ -602,8 +602,10 @@ namespace WebApplication1.Controllers
         {
             public string? Title { get; set; }
             public int MaxApprovalSlot { get; set; }
+            public int MaxCooperationSlot { get; set; }
             public List<FieldDef> Fields { get; set; } = new();
             public List<ApprovalDef> Approvals { get; set; } = new();
+            public List<ApprovalDef> Cooperations { get; set; } = new();
         }
 
         private static Dictionary<string, string> ParseCommentTags(string text)
@@ -689,6 +691,35 @@ namespace WebApplication1.Controllers
                         });
 
                         if (s > result.MaxApprovalSlot) result.MaxApprovalSlot = s;
+                        continue;
+                    }
+
+                    if (tags.TryGetValue("Cooperation", out var coopSlotStr) &&
+                        int.TryParse(coopSlotStr, out int coopSlot) &&
+                        tags.TryGetValue("Part", out var coopPart) &&
+                        !string.IsNullOrWhiteSpace(coopPart))
+                    {
+                        result.Cooperations.Add(new ApprovalDef
+                        {
+                            Slot = coopSlot,
+                            Part = coopPart.Trim(),
+                            Cell = ToCellRef(cell)
+                        });
+
+                        if (coopSlot > result.MaxCooperationSlot) result.MaxCooperationSlot = coopSlot;
+                        continue;
+                    }
+
+                    if (tags.TryGetValue("CooperationKey", out var ck) && TryParseCooperationKey(ck, out int cs, out string cp))
+                    {
+                        result.Cooperations.Add(new ApprovalDef
+                        {
+                            Slot = cs,
+                            Part = cp,
+                            Cell = ToCellRef(cell)
+                        });
+
+                        if (cs > result.MaxCooperationSlot) result.MaxCooperationSlot = cs;
                     }
                 }
             }
@@ -700,6 +731,13 @@ namespace WebApplication1.Controllers
                 .ToList();
 
             result.Approvals = result.Approvals
+                .GroupBy(a => new { a.Slot, Part = a.Part.ToLowerInvariant() })
+                .Select(g => g.Last())
+                .OrderBy(a => a.Slot)
+                .ThenBy(a => a.Part, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            result.Cooperations = result.Cooperations
                 .GroupBy(a => new { a.Slot, Part = a.Part.ToLowerInvariant() })
                 .Select(g => g.Last())
                 .OrderBy(a => a.Slot)
@@ -743,6 +781,21 @@ namespace WebApplication1.Controllers
             if (string.IsNullOrWhiteSpace(input)) return false;
 
             var m = Regex.Match(input, @"^A(\d+)_(\w+)$", RegexOptions.IgnoreCase);
+            if (!m.Success) return false;
+
+            slot = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            part = m.Groups[2].Value;
+            return true;
+        }
+
+        private static bool TryParseCooperationKey(string input, out int slot, out string part)
+        {
+            slot = 0;
+            part = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(input)) return false;
+
+            var m = Regex.Match(input, @"^C(\d+)_(\w+)$", RegexOptions.IgnoreCase);
             if (!m.Success) return false;
 
             slot = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
@@ -843,7 +896,8 @@ namespace WebApplication1.Controllers
                 Title = title,
                 ApprovalCount = meta.ApprovalCount ?? 0,
                 Fields = parsed.Fields,
-                Approvals = parsed.Approvals
+                Approvals = parsed.Approvals,
+                Cooperations = parsed.Cooperations
             };
 
             var descriptorJsonPretty = JsonSerializer.Serialize(descriptor, new JsonSerializerOptions { WriteIndented = true });
@@ -1334,6 +1388,34 @@ namespace WebApplication1.Controllers
                 model.Approvals[i] = a;
             }
 
+            var coops = model.Cooperations ??= new List<ApprovalDef>();
+            for (int i = 0; i < model.Cooperations.Count; i++)
+            {
+                var c = model.Cooperations[i] ?? new ApprovalDef();
+                c.Cell ??= new CellRef();
+
+                c.ApproverType = string.IsNullOrWhiteSpace(c.ApproverType) ? "Person" : c.ApproverType;
+                if (c.ApproverType != "Person" && c.ApproverType != "Role" && c.ApproverType != "Rule")
+                    c.ApproverType = "Person";
+
+                c.ApproverValue ??= string.Empty;
+
+                if (c.ApproverType == "Rule")
+                {
+                    try { using var _ = JsonDocument.Parse(c.ApproverValue); }
+                    catch { return BadRequest($"Cooperations[{i}] 규칙 JSON이 올바르지 않습니다."); }
+                }
+
+                if ((c.ApproverType == "Person" || c.ApproverType == "Role") &&
+                    string.IsNullOrWhiteSpace(c.ApproverValue))
+                {
+                    return BadRequest($"Cooperations[{i}] {(c.ApproverType == "Person" ? "사용자ID" : "역할코드")}를 입력해 주세요.");
+                }
+
+                if (c.Slot <= 0) c.Slot = 1;
+                model.Cooperations[i] = c;
+            }
+
             var fileSetStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
             var tempExcelPath = CreateRevisionExcelPath(
@@ -1559,7 +1641,7 @@ UPDATE dbo.DocTemplateFile
                 JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true })
             );
 
-            Debug.WriteLine($"[DocTLDX][MapSave] saved docCode={docCodeToSave} templateId={outTemplateId} versionId={outVersionId} versionNo={outVersionNo} fields={(model.Fields?.Count ?? 0)} approvals={(model.Approvals?.Count ?? 0)} elapsed={swAll.ElapsedMilliseconds}ms");
+            Debug.WriteLine($"[DocTLDX][MapSave] saved docCode={docCodeToSave} templateId={outTemplateId} versionId={outVersionId} versionNo={outVersionNo} fields={(model.Fields?.Count ?? 0)} approvals={(model.Approvals?.Count ?? 0)} cooperations={(model.Cooperations?.Count ?? 0)} elapsed={swAll.ElapsedMilliseconds}ms");
             Debug.WriteLine($"[DocTLDX][MapSave] spreadsheetStateNull={(spreadsheetState == null)}");
             Debug.WriteLine($"[DocTLDX][MapSave] fileSetStamp={fileSetStamp}");
             Debug.WriteLine($"[DocTLDX][MapSave] tempExcelPath={tempExcelPath}");

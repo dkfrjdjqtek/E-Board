@@ -1,5 +1,4 @@
-﻿// 2026.03.10 Changed: DX Compose 컨트롤러에서 DevExpress Workbook 문서 API 사용을 제거하고 매핑 셀 강조색 날짜포맷 줄바꿈 잠금만 ClosedXML로 적용하도록 수정함
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using DevExpress.AspNetCore.Spreadsheet;
 using DevExpress.Spreadsheet;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -189,6 +188,159 @@ namespace WebApplication1.Controllers
             return SpreadsheetRequestProcessor.GetResponse(HttpContext);
         }
 
+        [HttpPost("BatchEditDX")]
+        [ValidateAntiForgeryToken]
+        [Produces("application/json")]
+        public IActionResult BatchEditDX([FromBody] DxBatchEditRequest request)
+        {
+            if (request == null || request.SpreadsheetState == null)
+            {
+                return BadRequest(new
+                {
+                    messages = new[] { "DOC_Err_SaveFailed" },
+                    stage = "batch-arg",
+                    detail = "spreadsheetState missing"
+                });
+            }
+
+            var ops = request.Operations?
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.A1))
+                .ToList() ?? new List<DxBatchEditOperation>();
+
+            if (ops.Count == 0)
+            {
+                return Json(new
+                {
+                    ok = true,
+                    changed = 0
+                });
+            }
+
+            try
+            {
+                var spreadsheet = SpreadsheetRequestProcessor.GetSpreadsheetFromState(request.SpreadsheetState);
+                if (spreadsheet == null)
+                {
+                    return BadRequest(new
+                    {
+                        messages = new[] { "DOC_Err_SaveFailed" },
+                        stage = "batch-state",
+                        detail = "spreadsheet session not found"
+                    });
+                }
+
+                var workbook = spreadsheet.Document;
+                if (workbook == null || workbook.Worksheets.Count == 0)
+                {
+                    return BadRequest(new
+                    {
+                        messages = new[] { "DOC_Err_SaveFailed" },
+                        stage = "batch-doc",
+                        detail = "workbook not available"
+                    });
+                }
+
+                DevExpress.Spreadsheet.Worksheet ws;
+                try
+                {
+                    ws = workbook.Worksheets.ActiveWorksheet;
+                }
+                catch
+                {
+                    ws = workbook.Worksheets[0];
+                }
+
+                var changed = 0;
+
+                foreach (var op in ops)
+                {
+                    var a1 = NormalizeBatchA1(op.A1);
+                    if (string.IsNullOrWhiteSpace(a1)) continue;
+
+                    try
+                    {
+                        var cell = ws.Cells[a1];
+
+                        if (op.Clear)
+                        {
+                            cell.Value = string.Empty;
+                            changed++;
+                            continue;
+                        }
+
+                        var rawType = (op.Type ?? string.Empty).Trim();
+                        var rawValue = op.Value ?? string.Empty;
+
+                        if (string.Equals(rawType, "Date", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (DateTime.TryParse(rawValue, out var dt))
+                            {
+                                cell.Value = dt;
+                                cell.NumberFormat = GetExcelDateFormatByCulture(CultureInfo.CurrentUICulture);
+                            }
+                            else
+                            {
+                                cell.Value = rawValue;
+                            }
+                        }
+                        else if (string.Equals(rawType, "Num", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(rawType, "Number", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var normalized = rawValue.Replace(",", string.Empty);
+                            if (decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec))
+                            {
+                                cell.Value = dec;
+                            }
+                            else
+                            {
+                                cell.Value = rawValue;
+                            }
+                        }
+                        else
+                        {
+                            cell.Value = rawValue;
+                        }
+
+                        if (op.Wrap.HasValue)
+                            cell.Alignment.WrapText = op.Wrap.Value;
+
+                        changed++;
+                    }
+                    catch (Exception exCell)
+                    {
+                        _log.LogDebug(exCell, "BatchEditDX cell apply skipped a1={a1}", a1);
+                    }
+                }
+
+                spreadsheet.Save();
+
+                return Json(new
+                {
+                    ok = true,
+                    changed
+                });
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "BatchEditDX failed");
+                return BadRequest(new
+                {
+                    messages = new[] { "DOC_Err_SaveFailed" },
+                    stage = "batch",
+                    detail = ex.Message
+                });
+            }
+        }
+
+        private static string NormalizeBatchA1(string? raw)
+        {
+            var s = (raw ?? string.Empty).Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            var m = Regex.Match(s, @"^([A-Z]+)(\d+)$", RegexOptions.CultureInvariant);
+            if (!m.Success) return string.Empty;
+            return $"{m.Groups[1].Value}{int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)}";
+        }
+
         private sealed class ComposeDxEditableField
         {
             public string Key { get; set; } = string.Empty;
@@ -197,9 +349,9 @@ namespace WebApplication1.Controllers
         }
 
         private async Task<string> BuildComposeDxEditableWorkbookAsync(
-    string templateCode,
-    string sourceExcelFullPath,
-    string descriptorJson)
+            string templateCode,
+            string sourceExcelFullPath,
+            string descriptorJson)
         {
             var outRoot = Path.Combine(_env.ContentRootPath, "App_Data", "DocDxCompose");
             Directory.CreateDirectory(outRoot);
@@ -212,24 +364,25 @@ namespace WebApplication1.Controllers
             System.IO.File.Copy(sourceExcelFullPath, outPath, true);
 
             var editableFields = ParseEditableFields(descriptorJson);
-            if (editableFields.Count == 0)
-                return outPath;
 
             using (var wb = new XLWorkbook(outPath))
             {
                 var ws = wb.Worksheets.FirstOrDefault();
                 if (ws != null)
                 {
+                    if (ws.IsProtected)
+                        ws.Unprotect();
+
+                    ws.Cells().Style.Protection.Locked = true;
+
                     foreach (var f in editableFields)
                     {
-                        if (string.IsNullOrWhiteSpace(f.A1))
-                            continue;
+                        if (string.IsNullOrWhiteSpace(f.A1)) continue;
 
                         try
                         {
                             var range = ws.Range(f.A1);
-
-                            // 편집 가능 셀 표시만 유지
+                            range.Style.Protection.Locked = false;
                             range.Style.Fill.BackgroundColor = XLColor.FromHtml("#EAF6FF");
 
                             if (string.Equals(f.Type, "Date", StringComparison.OrdinalIgnoreCase))
@@ -240,6 +393,7 @@ namespace WebApplication1.Controllers
                                     if (firstCell != null)
                                     {
                                         firstCell.Value = DateTime.Today;
+                                        firstCell.Style.DateFormat.Format = "yyyy-mm-dd";
                                     }
                                 }
                                 catch (Exception ex)
@@ -253,6 +407,10 @@ namespace WebApplication1.Controllers
                             _log.LogDebug(ex, "ComposeDX unlock/style skipped a1={a1}", f.A1);
                         }
                     }
+
+                    ws.Protect(allowedElements:
+                        XLSheetProtectionElements.SelectLockedCells |
+                        XLSheetProtectionElements.SelectUnlockedCells);
                 }
 
                 wb.SaveAs(outPath);
@@ -261,6 +419,7 @@ namespace WebApplication1.Controllers
             await Task.CompletedTask;
             return outPath;
         }
+
         private static List<ComposeDxEditableField> ParseEditableFields(string descriptorJson)
         {
             var list = new List<ComposeDxEditableField>();
@@ -310,6 +469,94 @@ namespace WebApplication1.Controllers
                 .GroupBy(x => $"{x.Key}||{x.A1}", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
+        }
+
+        private static string ResolveApproverValueToEmail(SqlConnection conn, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return value;
+
+            // 이미 이메일 형식이면 그대로 반환
+            if (value.Contains('@')) return value;
+
+            try
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT TOP 1 Email
+FROM dbo.AspNetUsers
+WHERE Id = @v OR UserName = @v OR NormalizedUserName = UPPER(@v);";
+                cmd.Parameters.Add(new SqlParameter("@v", SqlDbType.NVarChar, 256) { Value = value });
+                var email = cmd.ExecuteScalar() as string;
+                return !string.IsNullOrWhiteSpace(email) ? email.Trim() : value;
+            }
+            catch { return value; }
+        }
+
+        private string LoadCooperationsDirectFromLegacyDb(string templateCode)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs)) return "[]";
+            try
+            {
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1 v.DescriptorJson
+FROM dbo.DocTemplateVersion v
+JOIN dbo.DocTemplateMaster m ON m.Id = v.TemplateId
+WHERE m.DocCode = @code
+ORDER BY v.VersionNo DESC;", conn);
+                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode });
+                var raw = cmd.ExecuteScalar() as string;
+                if (string.IsNullOrWhiteSpace(raw)) return "[]";
+
+                using var doc = JsonDocument.Parse(raw);
+                var root = doc.RootElement;
+
+                JsonElement coopEl;
+                bool found = root.TryGetProperty("Cooperations", out coopEl)
+                          || root.TryGetProperty("cooperations", out coopEl);
+
+                if (!found || coopEl.ValueKind != JsonValueKind.Array || coopEl.GetArrayLength() == 0)
+                    return "[]";
+
+                var list = new List<Dictionary<string, object>>();
+                int seq = 1;
+                foreach (var c in coopEl.EnumerateArray())
+                {
+                    string? val = null;
+                    if (c.TryGetProperty("ApproverValue", out var av) && av.ValueKind == JsonValueKind.String)
+                        val = av.GetString();
+                    if (string.IsNullOrWhiteSpace(val) && c.TryGetProperty("value", out var vv) && vv.ValueKind == JsonValueKind.String)
+                        val = vv.GetString();
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+
+                    val = val.Trim();
+
+                    // ★ userId(GUID)이면 Email로 변환
+                    val = ResolveApproverValueToEmail(conn, val);
+
+                    string typ = "Person";
+                    if (c.TryGetProperty("ApproverType", out var at) && at.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(at.GetString()))
+                        typ = at.GetString()!;
+                    else if (c.TryGetProperty("approverType", out var at2) && at2.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(at2.GetString()))
+                        typ = at2.GetString()!;
+
+                    list.Add(new Dictionary<string, object>
+                    {
+                        ["roleKey"] = $"C{seq}",
+                        ["approverType"] = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person",
+                        ["lineType"] = "Cooperation",
+                        ["value"] = val
+                    });
+                    seq++;
+                }
+
+                return list.Count > 0 ? JsonSerializer.Serialize(list) : "[]";
+            }
+            catch { return "[]"; }
         }
 
         [HttpPost("CreateDX")]
@@ -432,6 +679,7 @@ namespace WebApplication1.Controllers
                 diag = new List<string> { "recipients resolve error" };
             }
 
+            // ── approvals 처리 ──────────────────────────────────────────────────
             var approvalsJson = ExtractApprovalsJson(normalizedDesc);
 
             bool approvalsHasAnyValue = false;
@@ -564,6 +812,142 @@ namespace WebApplication1.Controllers
                 }
             }
 
+            // ── cooperations 처리 ★ 수정 ────────────────────────────────────────
+            // 1순위: dto.Cooperations.Steps (JS buildCooperationsForPost()에서 전송)
+            // 2순위: normalizedDesc의 cooperations 배열 (descriptor 기반 fallback)
+            var cooperationsJson = "[]";
+
+            if (dto.Cooperations?.Steps is { Count: > 0 })
+            {
+                var coopList = new List<Dictionary<string, object>>();
+                int seq = 1;
+                foreach (var st in dto.Cooperations.Steps)
+                {
+                    if (string.IsNullOrWhiteSpace(st?.Value)) continue;
+                    coopList.Add(new Dictionary<string, object>
+                    {
+                        ["roleKey"] = !string.IsNullOrWhiteSpace(st.RoleKey) ? st.RoleKey : $"C{seq}",
+                        ["approverType"] = string.IsNullOrWhiteSpace(st.ApproverType) ? "Person" : st.ApproverType,
+                        ["lineType"] = string.IsNullOrWhiteSpace(st.LineType) ? "Cooperation" : st.LineType,
+                        ["value"] = st.Value.Trim()
+                    });
+                    seq++;
+                }
+                if (coopList.Count > 0)
+                    cooperationsJson = JsonSerializer.Serialize(coopList);
+            }
+
+            // dto에 협조자가 없으면 descriptor에서 추출 (fallback)
+            if (cooperationsJson == "[]")
+                cooperationsJson = ExtractCooperationsJson(normalizedDesc);
+
+            // ★★★ 여전히 비어있으면 DocTemplateVersion 원본에서 직접 읽어 복원
+            if (cooperationsJson == "[]" || cooperationsJson.Trim() == "[]")
+            {
+                cooperationsJson = LoadCooperationsDirectFromLegacyDb(tc);
+            }
+
+            // descriptor 기반 cooperations 유효성 확인 후 정규화
+            bool cooperationsHasAnyValue = false;
+            bool cooperationsParsedOk = false;
+
+            if (!string.IsNullOrWhiteSpace(cooperationsJson) && cooperationsJson.Trim() != "[]")
+            {
+                try
+                {
+                    using var cj = JsonDocument.Parse(cooperationsJson);
+                    if (cj.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        cooperationsParsedOk = true;
+                        foreach (var c in cj.RootElement.EnumerateArray())
+                        {
+                            if (EnumerateCooperationValues(c).Any(v => !string.IsNullOrWhiteSpace(v)))
+                            {
+                                cooperationsHasAnyValue = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    cooperationsParsedOk = false;
+                    cooperationsHasAnyValue = false;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(cooperationsJson)
+                && cooperationsJson.Trim() != "[]"
+                && cooperationsParsedOk
+                && cooperationsHasAnyValue)
+            {
+                try
+                {
+                    using var cj = JsonDocument.Parse(cooperationsJson);
+                    if (cj.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var list = new List<Dictionary<string, object>>();
+                        int seq = 1;
+
+                        foreach (var c in cj.RootElement.EnumerateArray())
+                        {
+                            var approverValue = EnumerateCooperationValues(c)
+                                .Select(v => (v ?? string.Empty).Trim())
+                                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+
+                            if (string.IsNullOrWhiteSpace(approverValue))
+                                continue;
+
+                            var item = new Dictionary<string, object>();
+
+                            string at = "Person";
+                            if (c.TryGetProperty("approverType", out var at1) && at1.ValueKind == JsonValueKind.String)
+                                at = string.IsNullOrWhiteSpace(at1.GetString()) ? at : at1.GetString()!;
+                            else if (c.TryGetProperty("ApproverType", out var at2) && at2.ValueKind == JsonValueKind.String)
+                                at = string.IsNullOrWhiteSpace(at2.GetString()) ? at : at2.GetString()!;
+
+                            string roleKey = string.Empty;
+                            if (c.TryGetProperty("roleKey", out var rk1) && rk1.ValueKind == JsonValueKind.String)
+                                roleKey = rk1.GetString() ?? string.Empty;
+                            else if (c.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String)
+                                roleKey = rk2.GetString() ?? string.Empty;
+
+                            var normalizedRoleKey = string.IsNullOrWhiteSpace(roleKey) ? $"C{seq}" : roleKey.Trim();
+
+                            string lineType = NormalizeCooperationLineType(null);
+                            if (c.TryGetProperty("lineType", out var lt1) && lt1.ValueKind == JsonValueKind.String)
+                                lineType = NormalizeCooperationLineType(lt1.GetString());
+                            else if (c.TryGetProperty("LineType", out var lt2) && lt2.ValueKind == JsonValueKind.String)
+                                lineType = NormalizeCooperationLineType(lt2.GetString());
+
+                            item["roleKey"] = normalizedRoleKey;
+                            item["approverType"] = at;
+                            item["lineType"] = lineType;
+                            item["value"] = approverValue;
+
+                            list.Add(item);
+                            seq++;
+                        }
+
+                        cooperationsJson = JsonSerializer.Serialize(list);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "CreateDX cooperation json normalize failed tc={tc}", tc);
+                    cooperationsJson = "[]";
+                }
+            }
+            else
+            {
+                cooperationsJson = "[]";
+            }
+
+            normalizedDesc = UpsertDescriptorApprovalAndCooperationArrays(
+                normalizedDesc,
+                approvalsJson,
+                cooperationsJson);
+
             try
             {
                 var pair = await SaveDocumentWithCollisionGuardAsync(
@@ -574,6 +958,7 @@ namespace WebApplication1.Controllers
                     outputPath: outputPathForDb,
                     inputs: inputsMap,
                     approvalsJson: approvalsJson,
+                    cooperationsJson: cooperationsJson,
                     descriptorJson: normalizedDesc,
                     userId: User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
                     userName: User?.Identity?.Name ?? string.Empty,
@@ -637,6 +1022,7 @@ namespace WebApplication1.Controllers
             {
                 await EnsureApprovalsAndSyncAsync(docId, tc);
                 await FillDocumentApprovalsFromEmailsAsync(docId, toEmails);
+                await EnsureCooperationsAndSyncAsync(docId, cooperationsJson);
             }
             catch (Exception ex)
             {
@@ -665,6 +1051,30 @@ WHERE a.DocId = @DocId
             catch (Exception ex)
             {
                 _log.LogWarning(ex, "CreateDX Post-fix UserId update failed docId={docId}", docId);
+            }
+
+            try
+            {
+                var cs = _cfg.GetConnectionString("DefaultConnection");
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var fix = conn.CreateCommand();
+                fix.CommandText = @"
+UPDATE c
+   SET c.UserId = u.Id
+FROM dbo.DocumentCooperations c
+JOIN dbo.AspNetUsers u
+  ON (c.ApproverValue = u.Email OR c.ApproverValue = u.UserName OR c.ApproverValue = u.Id)
+WHERE c.DocId = @DocId
+  AND c.UserId IS NULL
+  AND c.ApproverValue IS NOT NULL AND LTRIM(RTRIM(c.ApproverValue)) <> N'';";
+                fix.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                await fix.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "CreateDX Post-fix cooperation UserId update failed docId={docId}", docId);
             }
 
             try
@@ -810,6 +1220,7 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
             });
         }
 
+
         private async Task<string> GenerateExcelFromInputsAsync(long templateVersionId, string templateExcelFullPath, Dictionary<string, string> inputs, string? descriptorVersion)
         {
             if (string.IsNullOrWhiteSpace(templateExcelFullPath) || !System.IO.File.Exists(templateExcelFullPath))
@@ -943,6 +1354,27 @@ ORDER BY Id;";
                 _ => "yyyy-mm-dd"
             };
         }
+
+        private string? LoadRawDescriptorFromDb(string templateCode)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs) || string.IsNullOrWhiteSpace(templateCode)) return null;
+            try
+            {
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1 v.DescriptorJson
+FROM dbo.DocTemplateVersion v
+JOIN dbo.DocTemplateMaster m ON m.Id = v.TemplateId
+WHERE m.DocCode = @code
+ORDER BY v.VersionNo DESC;", conn);
+                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode });
+                return cmd.ExecuteScalar() as string;
+            }
+            catch { return null; }
+        }
+
         private string BuildDescriptorJsonWithFlowGroups(string templateCode, string rawDescriptorJson)
         {
             var normalized = ConvertDescriptorIfNeeded(rawDescriptorJson);
@@ -955,14 +1387,23 @@ ORDER BY Id;";
             DescriptorDto desc;
             try
             {
-                desc = JsonSerializer.Deserialize<DescriptorDto>(normalized) ?? new DescriptorDto();
+                desc = JsonSerializer.Deserialize<DescriptorDto>(
+                    normalized,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new DescriptorDto();
             }
-            catch
-            {
-                desc = new DescriptorDto();
-            }
+            catch { desc = new DescriptorDto(); }
 
             desc.Approvals = RebuildApprovalsFromLegacyDescriptor(rawDescriptorJson, desc.Approvals);
+            desc.Cooperations = RebuildCooperationsFromLegacyDescriptor(rawDescriptorJson, desc.Cooperations);
+
+            // ★★★ 추가: cooperations가 여전히 비어있으면 DB 원본에서 직접 복원
+            if (desc.Cooperations == null || desc.Cooperations.Count == 0)
+            {
+                var dbOriginal = LoadRawDescriptorFromDb(templateCode);
+                if (!string.IsNullOrWhiteSpace(dbOriginal))
+                    desc.Cooperations = RebuildCooperationsFromLegacyDescriptor(dbOriginal, null);
+            }
+
             desc.FlowGroups = groups;
 
             var json = JsonSerializer.Serialize(
@@ -973,18 +1414,20 @@ ORDER BY Id;";
                     WriteIndented = false
                 });
 
-            return DedupApprovalsJsonByStep(json);
+            var dedup = DedupApprovalsJsonByStep(json);
+            return UpsertDescriptorApprovalAndCooperationArrays(dedup, ExtractApprovalsJson(dedup), ExtractCooperationsJson(dedup));
         }
 
         private static string ConvertDescriptorIfNeeded(string? json)
         {
-            const string EMPTY = "{\"inputs\":[],\"approvals\":[],\"version\":\"converted\"}";
+            const string EMPTY = "{\"inputs\":[],\"approvals\":[],\"cooperations\":[],\"version\":\"converted\"}";
             if (!TryParseJsonFlexible(json, out var doc)) return EMPTY;
 
             try
             {
                 var root = doc.RootElement;
-                if (root.TryGetProperty("inputs", out _)) return json!;
+                if (root.TryGetProperty("inputs", out _))
+                    return UpsertDescriptorApprovalAndCooperationArrays(json!, ExtractApprovalsJson(json!), ExtractCooperationsJson(json!));
 
                 var inputs = new List<(string key, string type, string a1)>();
                 if (root.TryGetProperty("Fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Array)
@@ -1025,10 +1468,32 @@ ORDER BY Id;";
                     }
                 }
 
+                var cooperations = new List<object>();
+                if (root.TryGetProperty("Cooperations", out var coopEl) && coopEl.ValueKind == JsonValueKind.Array)
+                {
+                    int index = 0;
+                    foreach (var c in coopEl.EnumerateArray())
+                    {
+                        var typ = c.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
+                        var val = c.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
+
+                        cooperations.Add(new
+                        {
+                            roleKey = $"C{index + 1}",
+                            approverType = MapApproverType(typ),
+                            lineType = "Cooperation",
+                            value = val ?? string.Empty
+                        });
+
+                        index++;
+                    }
+                }
+
                 var obj = new
                 {
                     inputs = inputs.Select(x => new { key = x.key, type = x.type, required = false, a1 = x.a1 }).ToList(),
                     approvals,
+                    cooperations,
                     version = "converted"
                 };
 
@@ -1083,6 +1548,58 @@ ORDER BY Id;";
                         roleKey = $"A{index}",
                         approverType = mappedType,
                         required = false,
+                        value = val ?? string.Empty
+                    });
+
+                    index++;
+                }
+
+                if (list.Count == 0) return current;
+                return list;
+            }
+            catch
+            {
+                return current;
+            }
+            finally
+            {
+                doc.Dispose();
+            }
+        }
+
+        private static List<object>? RebuildCooperationsFromLegacyDescriptor(string? legacyJson, List<object>? current)
+        {
+            if (!TryParseJsonFlexible(legacyJson, out var doc))
+                return current;
+
+            try
+            {
+                var root = doc.RootElement;
+                JsonElement coopEl;
+                bool found = root.TryGetProperty("Cooperations", out coopEl)
+                          || root.TryGetProperty("cooperations", out coopEl);
+                if (!found || coopEl.ValueKind != JsonValueKind.Array || coopEl.GetArrayLength() == 0)
+                    return current;
+
+                var list = new List<object>();
+                int index = 1;
+
+                foreach (var c in coopEl.EnumerateArray())
+                {
+                    var typ = c.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person")
+        : c.TryGetProperty("approverType", out var at2) ? (at2.GetString() ?? "Person")
+        : "Person";
+                    var val = c.TryGetProperty("ApproverValue", out var av) ? av.GetString()
+                            : c.TryGetProperty("value", out var vv) ? vv.GetString()
+                            : c.TryGetProperty("approverValue", out var vv2) ? vv2.GetString()
+                            : null;
+                    var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
+
+                    list.Add(new
+                    {
+                        roleKey = $"C{index}",
+                        approverType = mappedType,
+                        lineType = "Cooperation",
                         value = val ?? string.Empty
                     });
 
@@ -1291,6 +1808,143 @@ ORDER BY [Key], A1;", conn);
             }
 
             return "[]";
+        }
+
+        private static string NormalizeCooperationLineType(string? raw)
+        {
+            var s = (raw ?? string.Empty).Trim();
+            return string.IsNullOrWhiteSpace(s) ? "Cooperation" : s;
+        }
+
+        private static IEnumerable<string> EnumerateCooperationValues(JsonElement c)
+        {
+            if (c.ValueKind != JsonValueKind.Object)
+                yield break;
+
+            if (c.TryGetProperty("value", out var v1) && v1.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v1.GetString()))
+                yield return v1.GetString()!.Trim();
+
+            if (c.TryGetProperty("approverValue", out var v2) && v2.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v2.GetString()))
+                yield return v2.GetString()!.Trim();
+
+            if (c.TryGetProperty("ApproverValue", out var v3) && v3.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v3.GetString()))
+                yield return v3.GetString()!.Trim();
+
+            if (c.TryGetProperty("email", out var e1) && e1.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e1.GetString()))
+                yield return e1.GetString()!.Trim();
+
+            if (c.TryGetProperty("mail", out var e2) && e2.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e2.GetString()))
+                yield return e2.GetString()!.Trim();
+
+            if (c.TryGetProperty("Email", out var e3) && e3.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e3.GetString()))
+                yield return e3.GetString()!.Trim();
+
+            if (c.TryGetProperty("emails", out var emails) && emails.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var e in emails.EnumerateArray())
+                {
+                    if (e.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e.GetString()))
+                        yield return e.GetString()!.Trim();
+                }
+            }
+
+            if (c.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object)
+            {
+                if (user.TryGetProperty("email", out var ue1) && ue1.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue1.GetString()))
+                    yield return ue1.GetString()!.Trim();
+                else if (user.TryGetProperty("mail", out var ue2) && ue2.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue2.GetString()))
+                    yield return ue2.GetString()!.Trim();
+                else if (user.TryGetProperty("Email", out var ue3) && ue3.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue3.GetString()))
+                    yield return ue3.GetString()!.Trim();
+                else if (user.TryGetProperty("id", out var uid) && uid.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uid.GetString()))
+                    yield return uid.GetString()!.Trim();
+            }
+
+            if (c.TryGetProperty("users", out var users) && users.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var u in users.EnumerateArray())
+                {
+                    if (u.ValueKind != JsonValueKind.Object) continue;
+
+                    if (u.TryGetProperty("email", out var ue1) && ue1.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue1.GetString()))
+                        yield return ue1.GetString()!.Trim();
+                    else if (u.TryGetProperty("mail", out var ue2) && ue2.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue2.GetString()))
+                        yield return ue2.GetString()!.Trim();
+                    else if (u.TryGetProperty("Email", out var ue3) && ue3.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue3.GetString()))
+                        yield return ue3.GetString()!.Trim();
+                    else if (u.TryGetProperty("id", out var uid) && uid.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uid.GetString()))
+                        yield return uid.GetString()!.Trim();
+                }
+            }
+        }
+
+        private static string ExtractCooperationsJson(string descriptorJson)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(descriptorJson);
+                if (doc.RootElement.TryGetProperty("cooperations", out var arr)) return arr.GetRawText();
+                if (doc.RootElement.TryGetProperty("Cooperations", out var arr2)) return arr2.GetRawText();
+            }
+            catch
+            {
+            }
+
+            return "[]";
+        }
+
+        private static string UpsertDescriptorApprovalAndCooperationArrays(string? json, string? approvalsJson, string? cooperationsJson)
+        {
+            try
+            {
+                var root = System.Text.Json.Nodes.JsonNode.Parse(
+                    string.IsNullOrWhiteSpace(json)
+                        ? "{\"inputs\":[],\"approvals\":[],\"cooperations\":[],\"version\":\"converted\"}"
+                        : json!) as System.Text.Json.Nodes.JsonObject;
+
+                if (root == null)
+                {
+                    return string.IsNullOrWhiteSpace(json)
+                        ? "{\"inputs\":[],\"approvals\":[],\"cooperations\":[],\"version\":\"converted\"}"
+                        : json!;
+                }
+
+                System.Text.Json.Nodes.JsonNode? ParseArrayOrEmpty(string? raw)
+                {
+                    if (string.IsNullOrWhiteSpace(raw))
+                        return System.Text.Json.Nodes.JsonNode.Parse("[]");
+
+                    try
+                    {
+                        var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
+                        return node is System.Text.Json.Nodes.JsonArray
+                            ? node
+                            : System.Text.Json.Nodes.JsonNode.Parse("[]");
+                    }
+                    catch
+                    {
+                        return System.Text.Json.Nodes.JsonNode.Parse("[]");
+                    }
+                }
+
+                root["approvals"] = ParseArrayOrEmpty(approvalsJson);
+                root["cooperations"] = ParseArrayOrEmpty(cooperationsJson);
+                if (root.ContainsKey("Approvals")) root.Remove("Approvals");
+                if (root.ContainsKey("Cooperations")) root.Remove("Cooperations");
+                if (root["version"] == null) root["version"] = "converted";
+
+                return root.ToJsonString(new JsonSerializerOptions
+                {
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    WriteIndented = false
+                });
+            }
+            catch
+            {
+                return string.IsNullOrWhiteSpace(json)
+                    ? "{\"inputs\":[],\"approvals\":[],\"cooperations\":[],\"version\":\"converted\"}"
+                    : json!;
+            }
         }
 
         private (List<string> emails, List<string> diag) GetInitialRecipients(ComposePostDto dto, string normalizedDesc, IConfiguration cfg, string? docId = null, string? templateCode = null)
@@ -1544,6 +2198,7 @@ WHERE a.DocId     = @DocId
             string outputPath,
             Dictionary<string, string> inputs,
             string approvalsJson,
+            string cooperationsJson,
             string descriptorJson,
             string userId,
             string userName,
@@ -1584,6 +2239,7 @@ WHERE a.DocId     = @DocId
                         outputPath,
                         inputs,
                         approvalsJson,
+                        cooperationsJson,
                         descriptorJson,
                         userId,
                         userName,
@@ -1635,6 +2291,7 @@ WHERE a.DocId     = @DocId
             string outputPath,
             Dictionary<string, string> inputs,
             string approvalsJson,
+            string cooperationsJson,
             string descriptorJson,
             string userId,
             string userName,
@@ -1671,6 +2328,11 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                     if (obj != null && obj != DBNull.Value && int.TryParse(obj.ToString(), out var vid))
                         effectiveTemplateVersionId = vid;
                 }
+
+                descriptorJson = UpsertDescriptorApprovalAndCooperationArrays(
+                    descriptorJson,
+                    approvalsJson,
+                    cooperationsJson);
 
                 await using (var cmd = conn.CreateCommand())
                 {
@@ -1836,6 +2498,123 @@ VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, @UserId, 'Pending', SYSUTC
                         acmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
 
                         await acmd.ExecuteNonQueryAsync();
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    static string NormCoop(string? s) => (s ?? string.Empty).Trim();
+
+                    static IEnumerable<string> ExtractCoopCandidateValues(JsonElement c)
+                    {
+                        string? val = null;
+                        if (c.TryGetProperty("ApproverValue", out var pAV) && pAV.ValueKind == JsonValueKind.String) val = pAV.GetString();
+                        if (string.IsNullOrWhiteSpace(val) && c.TryGetProperty("value", out var pV) && pV.ValueKind == JsonValueKind.String) val = pV.GetString();
+                        if (string.IsNullOrWhiteSpace(val) && c.TryGetProperty("Value", out var pV2) && pV2.ValueKind == JsonValueKind.String) val = pV2.GetString();
+                        if (!string.IsNullOrWhiteSpace(val)) yield return val!.Trim();
+
+                        if (c.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(em.GetString()))
+                            yield return em.GetString()!.Trim();
+
+                        if (c.TryGetProperty("emails", out var emails) && emails.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var e in emails.EnumerateArray())
+                                if (e.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e.GetString()))
+                                    yield return e.GetString()!.Trim();
+                        }
+
+                        if (c.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object)
+                        {
+                            if (user.TryGetProperty("email", out var ue) && ue.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue.GetString()))
+                                yield return ue.GetString()!.Trim();
+                            else if (user.TryGetProperty("mail", out var um) && um.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(um.GetString()))
+                                yield return um.GetString()!.Trim();
+                            else if (user.TryGetProperty("Email", out var uE) && uE.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uE.GetString()))
+                                yield return uE.GetString()!.Trim();
+                            else if (user.TryGetProperty("id", out var uid) && uid.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uid.GetString()))
+                                yield return uid.GetString()!.Trim();
+                        }
+
+                        if (c.TryGetProperty("users", out var users) && users.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var u in users.EnumerateArray())
+                            {
+                                if (u.ValueKind != JsonValueKind.Object) continue;
+
+                                if (u.TryGetProperty("email", out var ue) && ue.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ue.GetString()))
+                                    yield return ue.GetString()!.Trim();
+                                else if (u.TryGetProperty("mail", out var um) && um.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(um.GetString()))
+                                    yield return um.GetString()!.Trim();
+                                else if (u.TryGetProperty("Email", out var uE) && uE.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uE.GetString()))
+                                    yield return uE.GetString()!.Trim();
+                                else if (u.TryGetProperty("id", out var uid) && uid.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(uid.GetString()))
+                                    yield return uid.GetString()!.Trim();
+                            }
+                        }
+                    }
+
+                    using var cj = JsonDocument.Parse(cooperationsJson ?? "[]");
+                    var arr = cj.RootElement;
+
+                    var toInsert = new List<(string lineType, string roleKey, string approverValue)>();
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    int seq = 1;
+
+                    foreach (var el in arr.EnumerateArray())
+                    {
+                        if (el.ValueKind != JsonValueKind.Object) continue;
+
+                        string roleKey = string.Empty;
+                        if (el.TryGetProperty("roleKey", out var rk) && rk.ValueKind == JsonValueKind.String) roleKey = rk.GetString() ?? string.Empty;
+                        else if (el.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
+
+                        string lineType = "Cooperation";
+                        if (el.TryGetProperty("lineType", out var lt1) && lt1.ValueKind == JsonValueKind.String)
+                            lineType = string.IsNullOrWhiteSpace(lt1.GetString()) ? "Cooperation" : lt1.GetString()!;
+                        else if (el.TryGetProperty("LineType", out var lt2) && lt2.ValueKind == JsonValueKind.String)
+                            lineType = string.IsNullOrWhiteSpace(lt2.GetString()) ? "Cooperation" : lt2.GetString()!;
+
+                        var roleKeyNorm = string.IsNullOrWhiteSpace(roleKey) ? $"C{seq}" : roleKey.Trim();
+                        var approverVal = ExtractCoopCandidateValues(el)
+                            .Select(NormCoop)
+                            .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+
+                        if (string.IsNullOrWhiteSpace(approverVal))
+                        {
+                            seq++;
+                            continue;
+                        }
+
+                        var key = $"{lineType}|{roleKeyNorm}|{approverVal}";
+                        if (!seen.Add(key))
+                        {
+                            seq++;
+                            continue;
+                        }
+
+                        toInsert.Add((lineType, roleKeyNorm, approverVal));
+                        seq++;
+                    }
+
+                    foreach (var item in toInsert)
+                    {
+                        string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
+
+                        await using var ccmd = conn.CreateCommand();
+                        ccmd.Transaction = (SqlTransaction)tx;
+                        ccmd.CommandText = @"
+INSERT INTO dbo.DocumentCooperations (DocId, LineType, RoleKey, ApproverValue, UserId, Status, CreatedAt)
+VALUES (@DocId, @LineType, @RoleKey, @ApproverValue, @UserId, 'Pending', SYSUTCDATETIME());";
+                        ccmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                        ccmd.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = item.lineType });
+                        ccmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = item.roleKey });
+                        ccmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = item.approverValue });
+                        ccmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
+
+                        await ccmd.ExecuteNonQueryAsync();
                     }
                 }
                 catch
@@ -2016,6 +2795,101 @@ VALUES
             }
         }
 
+
+        private async Task EnsureCooperationsAndSyncAsync(string docId, string cooperationsJson)
+        {
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var tx = await conn.BeginTransactionAsync();
+
+            try
+            {
+                var cooperations = new List<(string LineType, string RoleKey, string ApproverValue)>();
+
+                try
+                {
+                    using var cj = JsonDocument.Parse(string.IsNullOrWhiteSpace(cooperationsJson) ? "[]" : cooperationsJson);
+                    if (cj.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        int i = 1;
+                        foreach (var c in cj.RootElement.EnumerateArray())
+                        {
+                            if (c.ValueKind != JsonValueKind.Object) continue;
+
+                            var value = EnumerateCooperationValues(c)
+                                .Select(v => (v ?? string.Empty).Trim())
+                                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+
+                            if (string.IsNullOrWhiteSpace(value))
+                                continue;
+
+                            string roleKey = string.Empty;
+                            if (c.TryGetProperty("roleKey", out var rk1) && rk1.ValueKind == JsonValueKind.String) roleKey = rk1.GetString() ?? string.Empty;
+                            else if (c.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
+
+                            string lineType = NormalizeCooperationLineType(null);
+                            if (c.TryGetProperty("lineType", out var lt1) && lt1.ValueKind == JsonValueKind.String)
+                                lineType = NormalizeCooperationLineType(lt1.GetString());
+                            else if (c.TryGetProperty("LineType", out var lt2) && lt2.ValueKind == JsonValueKind.String)
+                                lineType = NormalizeCooperationLineType(lt2.GetString());
+
+                            cooperations.Add((lineType, string.IsNullOrWhiteSpace(roleKey) ? $"C{i}" : roleKey.Trim(), value));
+                            i++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "CreateDX EnsureCooperationsAndSyncAsync parse failed docId={docId}", docId);
+                }
+
+                await using (var del = conn.CreateCommand())
+                {
+                    del.Transaction = (SqlTransaction)tx;
+                    del.CommandText = @"DELETE FROM dbo.DocumentCooperations WHERE DocId = @DocId;";
+                    del.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    await del.ExecuteNonQueryAsync();
+                }
+
+                foreach (var c in cooperations
+                    .GroupBy(x => new
+                    {
+                        LineType = (x.LineType ?? string.Empty).Trim().ToUpperInvariant(),
+                        RoleKey = (x.RoleKey ?? string.Empty).Trim().ToUpperInvariant(),
+                        ApproverValue = (x.ApproverValue ?? string.Empty).Trim().ToUpperInvariant()
+                    })
+                    .Select(g => g.First()))
+                {
+                    await using var ins = conn.CreateCommand();
+                    ins.Transaction = (SqlTransaction)tx;
+                    ins.CommandText = @"
+INSERT INTO dbo.DocumentCooperations
+    (DocId, LineType, RoleKey, ApproverValue, Status, CreatedAt)
+VALUES
+    (@DocId, @LineType, @RoleKey, @ApproverValue, N'Pending', SYSUTCDATETIME());";
+                    ins.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    ins.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = c.LineType });
+                    ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = c.RoleKey });
+                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = c.ApproverValue });
+
+                    await ins.ExecuteNonQueryAsync();
+                }
+
+                await tx.CommitAsync();
+
+                _log.LogInformation(
+                    "CreateDX EnsureCooperationsAndSyncAsync completed docId={docId}, count={cnt}",
+                    docId, cooperations.Count);
+            }
+            catch (Exception ex)
+            {
+                try { await tx.RollbackAsync(); } catch { }
+                _log.LogError(ex, "CreateDX EnsureCooperationsAndSyncAsync failed docId={docId}", docId);
+            }
+        }
+
         private static string GenerateDocumentId()
         {
             string timestamp = DateTime.Now.ToString("yyyyMMddHHmmssfff");
@@ -2128,6 +3002,9 @@ VALUES
             [JsonPropertyName("approvals")]
             public ApprovalsDto? Approvals { get; set; }
 
+            [JsonPropertyName("cooperations")]
+            public CooperationsDto? Cooperations { get; set; }
+
             [JsonPropertyName("mail")]
             public MailDto? Mail { get; set; }
 
@@ -2169,6 +3046,20 @@ VALUES
             public string? Value { get; set; }
         }
 
+        public sealed class CooperationsDto
+        {
+            public List<string>? To { get; set; }
+            public List<CooperationStepDto>? Steps { get; set; }
+        }
+
+        public sealed class CooperationStepDto
+        {
+            public string? RoleKey { get; set; }
+            public string? ApproverType { get; set; }
+            public string? Value { get; set; }
+            public string? LineType { get; set; }
+        }
+
         public sealed class MailDto
         {
             public List<string>? TO { get; set; }
@@ -2180,12 +3071,40 @@ VALUES
             public string? From { get; set; }
         }
 
+        public sealed class DxBatchEditRequest
+        {
+            [JsonPropertyName("spreadsheetState")]
+            public SpreadsheetClientState? SpreadsheetState { get; set; }
+
+            [JsonPropertyName("operations")]
+            public List<DxBatchEditOperation>? Operations { get; set; }
+        }
+
+        public sealed class DxBatchEditOperation
+        {
+            [JsonPropertyName("a1")]
+            public string? A1 { get; set; }
+
+            [JsonPropertyName("value")]
+            public string? Value { get; set; }
+
+            [JsonPropertyName("clear")]
+            public bool Clear { get; set; }
+
+            [JsonPropertyName("wrap")]
+            public bool? Wrap { get; set; }
+
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+        }
+
         private sealed class DescriptorDto
         {
             public string? Version { get; set; }
             public List<InputFieldDto>? Inputs { get; set; }
             public Dictionary<string, object>? Styles { get; set; }
             public List<object>? Approvals { get; set; }
+            public List<object>? Cooperations { get; set; }
             public List<FlowGroupDto>? FlowGroups { get; set; }
         }
 
