@@ -1,4 +1,5 @@
-﻿@* 2026.02.02 Changed: 일괄 승인 버튼 클릭 시 서버 BulkApprove로 실제 요청을 보내고 성공 시 리로드 없이 리스트와 배지를 부분 갱신하도록 보강 *@
+﻿@* 2026.03.23 Changed: 문서함 메인 탭을 상신 결재 협조 공유 순으로 재구성하고 협조 문서함 진행 완료 서브탭과 배지를 추가함 *@
+@* 2026.02.02 Changed: 일괄 승인 버튼 클릭 시 서버 BulkApprove로 실제 요청을 보내고 성공 시 리로드 없이 리스트와 배지를 부분 갱신하도록 보강 *@
 @* 2026.02.02 Changed 보드 후처리 MutationObserver가 스스로 DOM을 계속 변경해 무한 루프가 발생하는 문제를 차단하고 결재 진행 탭에서만 체크박스를 표시하도록 정리 *@
 @* 2026.02.02 Changed 보드 상태 결과 표시를 좌우 정렬로 통합하고 결과 컬럼을 열람 미열람으로 표시 *@
 @* 2026.02.02 Changed 보드 스크립트 캐시 방지 및 중복 초기화 제거 외부 스크립트 오류로 배지 갱신이 누락되는 문제를 방지하기 위해 BoardBadges 폴백 갱신 로직을 추가 *@
@@ -26,8 +27,7 @@
         PAGINATION_PREV = S["DOC_Pagination_Prev"].Value,
         PAGINATION_NEXT = S["DOC_Pagination_Next"].Value,
         DOC_Toast_BulkApproved = S["DOC_Toast_BulkApproved"].Value,
-         BULK_FAIL = S["DOC_Toast_BulkApproveFailed"].Value
-
+        BULK_FAIL = S["DOC_Toast_BulkApproveFailed"].Value
     };
 }
 
@@ -238,7 +238,7 @@
             font-weight: 900;
             color: #2c2c2c;
             background: #f4f4f4;
-            text-align: center; /* 헤더는 항상 중앙 */
+            text-align: center;
             border-bottom: 1px solid #d8d8d8;
             font-size: 15px;
             white-space: nowrap;
@@ -250,12 +250,6 @@
             font-size: 15px;
         }
 
-        /* =========================================================
-           2026.02.03 Changed 테이블 바디 정렬을 모든 탭에 공통 적용
-           컬럼 순서 고정 가정
-           1 번호 2 문서제목 3 작성자 4 작성일시 5 상태 6 결과 7 진행
-           체크박스는 1열 내부에 들어가므로 컬럼 수는 변하지 않음
-           ========================================================= */
         .doc-list tbody td:nth-child(1) {
             text-align: center;
         }
@@ -284,10 +278,6 @@
             text-align: center;
         }
 
-    /* =========================================================
-           2026.02.03 Changed 상태 컬럼은 중앙 정렬 유지
-           기존 좌우 분리 표시를 중앙 모음 형태로 통일
-           ========================================================= */
     .doc-status-join {
         display: inline-flex;
         align-items: center;
@@ -296,7 +286,7 @@
         width: auto;
         max-width: 100%;
         white-space: nowrap;
-        margin: 0 auto; /* td 중앙 정렬 보조 */
+        margin: 0 auto;
     }
 
         .doc-status-join .st-left,
@@ -309,14 +299,11 @@
             white-space: nowrap;
         }
 
-    /* ********************************** */
-
     .doc-title a.doc-unread {
         font-weight: 900;
         font-size: 17px;
     }
 
-    
     .doc-paging-wrap {
         display: flex;
         align-items: center;
@@ -407,33 +394,68 @@
             transform: translateY(1px);
         }
 
-        /* =========================================================
-       2026.02.04 Added: 화면 상단 중앙 토스트(고정)
-       ========================================================= */
-      #ebTopToastHost{
-  position:fixed; left:50%; transform:translateX(-50%);
-  top:calc(var(--header-h,56px) + 10px);
-  z-index:20000; pointer-events:none;
-  width:min(920px, calc(100vw - 24px));
-}
-.eb-topbar-toast{
-  pointer-events:auto;
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:12px 16px;
-  border-radius:6px;
-  box-shadow:0 6px 22px rgba(0,0,0,.18);
-  font-weight:700; font-size:14px; line-height:1.2;
-}
-.eb-topbar-toast--success{ background:#198754; color:#fff; }
-.eb-topbar-toast--danger{ background:#dc3545; color:#fff; }
-.eb-topbar-toast__msg{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.eb-topbar-toast__close{
-  all:unset; cursor:pointer; width:28px; height:28px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:6px; color:currentColor; opacity:.95;
-}
-.eb-topbar-toast__close:hover{ background:rgba(255,255,255,.18); }
-.eb-topbar-toast__close svg{ width:14px; height:14px; display:block; }
+    #ebTopToastHost {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        top: calc(var(--header-h,56px) + 10px);
+        z-index: 20000;
+        pointer-events: none;
+        width: min(920px, calc(100vw - 24px));
+    }
+
+    .eb-topbar-toast {
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 6px;
+        box-shadow: 0 6px 22px rgba(0,0,0,.18);
+        font-weight: 700;
+        font-size: 14px;
+        line-height: 1.2;
+    }
+
+    .eb-topbar-toast--success {
+        background: #198754;
+        color: #fff;
+    }
+
+    .eb-topbar-toast--danger {
+        background: #dc3545;
+        color: #fff;
+    }
+
+    .eb-topbar-toast__msg {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .eb-topbar-toast__close {
+        all: unset;
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        color: currentColor;
+        opacity: .95;
+    }
+
+        .eb-topbar-toast__close:hover {
+            background: rgba(255,255,255,.18);
+        }
+
+        .eb-topbar-toast__close svg {
+            width: 14px;
+            height: 14px;
+            display: block;
+        }
 </style>
 
 <div class="doc-board-wrap">
@@ -448,6 +470,9 @@
             </button>
             <button class="doc-tab" type="button" role="tab" data-tab="approval" aria-selected="false">
                 @S["DOC_Tab_Approval"] <span class="badge" id="badge-approval" hidden>0</span>
+            </button>
+            <button class="doc-tab" type="button" role="tab" data-tab="cooperation" aria-selected="false">
+                @S["DOC_Tab_Cooperation"] <span class="badge" id="badge-cooperation" hidden>0</span>
             </button>
             <button class="doc-tab" type="button" role="tab" data-tab="shared" aria-selected="false">
                 @S["DOC_Tab_SharedWithMe"] <span class="badge" id="badge-shared" hidden>0</span>
@@ -470,6 +495,15 @@
                     @S["DOC_Approval_Sub_Ongoing"]
                 </button>
                 <button class="doc-subtab" type="button" role="tab" data-approval-sub="completed" aria-selected="false">
+                    @S["DOC_Approval_Sub_Completed"]
+                </button>
+            </div>
+
+            <div class="doc-subtabs" id="cooperationSubtabs" role="tablist" aria-label="@S["DOC_Approval_SubTablist_Aria"]">
+                <button class="doc-subtab" type="button" role="tab" data-cooperation-sub="ongoing" aria-selected="true">
+                    @S["DOC_Approval_Sub_Ongoing"]
+                </button>
+                <button class="doc-subtab" type="button" role="tab" data-cooperation-sub="completed" aria-selected="false">
                     @S["DOC_Approval_Sub_Completed"]
                 </button>
             </div>
@@ -511,25 +545,24 @@
 
             <div class="doc-tablewrap">
                 <table class="doc-list" aria-live="polite" id="docListTable">
-    <thead>
-        <tr>
-            <th style="width:72px">
-                <span id="docNoHeaderWrap">@S["DOC_Col_No"]</span>
-            </th>
-            <th>@S["DOC_Col_Title"]</th>
-            <th style="width:180px">@S["DOC_Col_Author"]</th>
-            <th style="width:160px">@S["DOC_Col_Date"]</th>
-            <th style="width:420px">@S["DOC_Col_Status"]</th>
+                    <thead>
+                        <tr>
+                            <th style="width:72px">
+                                <span id="docNoHeaderWrap">@S["DOC_Col_No"]</span>
+                            </th>
+                            <th>@S["DOC_Col_Title"]</th>
+                            <th style="width:180px">@S["DOC_Col_Author"]</th>
+                            <th style="width:160px">@S["DOC_Col_Date"]</th>
+                            <th style="width:420px">@S["DOC_Col_Status"]</th>
                             <th style="width:160px">@S["DOC_Result_Viewed"]</th>
-
-        </tr>
-    </thead>
-    <tbody id="docListBody">
-        <tr>
-            <td colspan="6">@S["DOC_List_Loading"]</td>
-        </tr>
-    </tbody>
-</table>
+                        </tr>
+                    </thead>
+                    <tbody id="docListBody">
+                        <tr>
+                            <td colspan="6">@S["DOC_List_Loading"]</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <div class="doc-paging-wrap">
@@ -547,8 +580,6 @@
 
         <script type="application/json" id="docBoardI18n">@Html.Raw(JsonSerializer.Serialize(__docBoardI18n))</script>
         <script src="~/js/eb.doc.board.js" asp-append-version="true"></script>
-
-        
     </div>
 </div>
 <div id="ebTopToastHost" aria-live="polite" aria-atomic="true"></div>

@@ -3,6 +3,7 @@
 @* 2026.03.16 Changed: btnPrint → DX v25 내장 PrintPreview, btnExport → DX 클라이언트 사이드 xlsx export *@
 @* 2026.03.18 Fixed: 승인 스탬프 위치 크기 오류 수정 pxPerColUnit pxPerRowPt 직접 역산 이중 scale 적용 제거 *@
 @* 2026.03.20 Fixed: 스탬프 x좌표 rhRect.right 기준 col1부터 누적 pxPerColUnit = cellArea totalAllColW 중복 스탬프 제거 *@
+@* 2026.03.24 Added: 협조 스탬프 지원 — CooperationsJson 추가, renderApprovalOverlay에 협조 루프 통합 *@
 @using System.IO
 @using System.Text.Json
 @using System.Text.Encodings.Web
@@ -66,6 +67,7 @@
     var approvalsJson = (string?)ViewBag.ApprovalsJson ?? "[]";
     var viewLogsJson = (string?)ViewBag.ViewLogsJson ?? "[]";
     var approvalCellsJson = (string?)ViewBag.ApprovalCellsJson ?? "[]";
+    var cooperationsJson = (string?)ViewBag.CooperationsJson ?? "[]";
     var createdAtText = (string?)ViewBag.CreatedAtText ?? string.Empty;
     var recalledAtText = (string?)ViewBag.RecalledAtText ?? string.Empty;
     var excelPath = (string?)ViewBag.ExcelPath ?? string.Empty;
@@ -660,6 +662,7 @@ else
         <script type="application/json" id="ApprovalsJson">@Html.Raw(approvalsJson)</script>
         <script type="application/json" id="ViewLogsJson">@Html.Raw(viewLogsJson)</script>
         <script type="application/json" id="ApprovalCellsJson">@Html.Raw(approvalCellsJson)</script>
+        <script type="application/json" id="CooperationsJson">@Html.Raw(cooperationsJson)</script>
 
         <script>
             window.__RESX = @Html.Raw(JsonSerializer.Serialize(new
@@ -914,6 +917,7 @@ else
                 preview: {},
                 descriptor: {},
                 approvalsData: [],
+                cooperationsData: [],   // 협조 데이터
                 approvalCellMap: {},
                 previewExtent: { width: 900, height: 520 },
                 _effectiveMaxC: 0,
@@ -1139,7 +1143,7 @@ else
             function extractPersonName(full) {
                 if (!full) return '';
                 const s = String(full).trim();
-                if (s.includes('@@')) return '';
+                if (s.indexOf('\u0040') >= 0) return '';   //  문자 포함 시 제외
                 let parts = s.split(/\s+/).filter(Boolean);
                 if (!parts.length) return '';
                 parts = parts.map(p => p.replace(/님$/, ''));
@@ -1179,22 +1183,94 @@ else
                 return { col1: col, row1: parseInt(m[2], 10) };
             }
 
+            // ================== 스탬프 div 공통 생성 헬퍼 ==================
+            function buildStampDiv(x, y, w, h, stampUrl, captionText, fallbackUrl) {
+                const div = document.createElement('div');
+                div.dataset.stampOverlay = '1';
+                div.style.cssText = [
+                    'position:absolute',
+                    `left:${x}px`, `top:${y}px`,
+                    `width:${w}px`, `height:${h}px`,
+                    'pointer-events:none', 'z-index:20', 'overflow:hidden'
+                ].join(';');
+
+                const img = document.createElement('img');
+                img.alt = 'stamp';
+                img.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;';
+                img.crossOrigin = 'anonymous';
+
+                if (fallbackUrl) {
+                    img.onerror = function () {
+                        if (this.dataset.fallbackTried === '1') return;
+                        this.dataset.fallbackTried = '1';
+                        this.src = fallbackUrl;
+                    };
+                }
+
+                img.onload = function () {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
+                        for (let py = 0; py < canvas.height; py++) {
+                            for (let px2 = 0; px2 < canvas.width; px2++) {
+                                const i = (py * canvas.width + px2) * 4;
+                                if (data[i + 3] < 20) continue;
+                                if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) continue;
+                                if (px2 < minX) minX = px2; if (px2 > maxX) maxX = px2;
+                                if (py < minY) minY = py;   if (py > maxY) maxY = py;
+                            }
+                        }
+                        if (maxX > minX && maxY > minY) {
+                            const cw = maxX - minX + 1, ch = maxY - minY + 1;
+                            const crop = document.createElement('canvas');
+                            crop.width = cw; crop.height = ch;
+                            crop.getContext('2d').drawImage(img, minX, minY, cw, ch, 0, 0, cw, ch);
+                            img.src = crop.toDataURL();
+                        }
+                    } catch (e) { }
+                };
+
+                img.src = stampUrl;
+                div.appendChild(img);
+
+                if (captionText) {
+                    const cap = document.createElement('div');
+                    cap.textContent = captionText;
+                    cap.style.cssText = [
+                        'position:absolute', 'left:0', 'right:0', 'bottom:1px',
+                        'text-align:center',
+                        `font-size:${Math.max(8, Math.floor(h * 0.18))}px`,
+                        'line-height:1.1', 'color:#111', 'background:transparent',
+                        'pointer-events:none', 'white-space:nowrap',
+                        'overflow:hidden', 'text-overflow:ellipsis',
+                        'padding:0 2px', 'font-family:sans-serif', 'font-weight:400', 'z-index:10'
+                    ].join(';');
+                    div.appendChild(cap);
+                }
+
+                return div;
+            }
+
             // ================== 승인 스탬프 렌더링 ==================
-            // x좌표: rhRect.right 기준, col 1부터 누적, pxPerColUnit = cellAreaPx / 전체colW합
-            // y좌표: getCellBounds(row-1, 0).y (화면 절대좌표) - wrapRect.top
-            // 중복 방지: data-stamp-overlay 속성으로 식별 후 전부 제거 후 재생성
             function renderApprovalOverlay() {
                 const wrap = document.getElementById('dxDetailWrap');
                 if (!wrap) return;
 
-                // ★ 기존 스탬프 div 전부 제거 (id 없는 div도 포함)
+                // 기존 스탬프 전부 제거
                 wrap.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
 
-                const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
-                const map = state.approvalCellMap || {};
-                if (!approvals.length) return;
+                const approvals    = Array.isArray(state.approvalsData)    ? state.approvalsData    : [];
+                const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
+                const map          = state.approvalCellMap || {};
 
-                const p = state.preview || {};
+                // 결재 + 협조 둘 다 없으면 종료
+                if (!approvals.length && !cooperations.length) return;
+
+                const p      = state.preview || {};
                 const colW   = Array.isArray(p.colW)   ? p.colW   : [];
                 const rowH   = Array.isArray(p.rowH)   ? p.rowH   : [];
                 const merges = Array.isArray(p.merges) ? p.merges : [];
@@ -1221,43 +1297,33 @@ else
                 }
 
                 // ── 2. ColumnHeader DOM에서 각 열의 left/width 직접 읽기 ──
-                // dxss-htd[data-header-cell-index] 요소의 style.left, style.width
                 const colHeaderCells = chEl.querySelectorAll('[data-header-cell-index]');
                 if (!colHeaderCells.length) {
                     setTimeout(renderApprovalOverlay, 300);
                     return;
                 }
 
-                // index → {left, width} 맵 (px, ColumnHeader 기준 상대좌표)
-                // 같은 index가 중첩될 수 있으므로 가장 큰 width를 가진 것 사용
                 const colPxMap = {};
                 colHeaderCells.forEach(el => {
-                    const idx = parseInt(el.getAttribute('data-header-cell-index'), 10);
+                    const idx   = parseInt(el.getAttribute('data-header-cell-index'), 10);
                     const left  = parseFloat(el.style.left)  || 0;
                     const width = parseFloat(el.style.width) || 0;
                     if (isNaN(idx) || width <= 0) return;
-                    // 같은 index면 width가 더 큰 것(실제 셀)을 사용
-                    if (!colPxMap[idx] || width > colPxMap[idx].width) {
+                    if (!colPxMap[idx] || width > colPxMap[idx].width)
                         colPxMap[idx] = { left, width };
-                    }
                 });
 
-                // ColumnHeader의 셀 영역 시작점 (wrap 기준)
-                // ColumnHeader left = rhEl.right (RowHeader 너비만큼 오프셋)
                 const cellOriginX = rhRect.right - wrapRect.left;
-                // ColumnHeader top = wrap top (y=0 기준)
-                const cellOriginY = chRect.bottom - wrapRect.top; // 열헤더 아래가 셀 시작
+                const cellOriginY = chRect.bottom - wrapRect.top;
 
-                // col1based → wrap 기준 x 좌표
                 function getCellScreenX(col1based) {
-                    const idx = col1based - 1; // 0-based index
+                    const idx   = col1based - 1;
                     const entry = colPxMap[idx];
                     if (entry) return cellOriginX + entry.left;
-                    // fallback: 마지막 알려진 col까지 누적
-                    const keys = Object.keys(colPxMap).map(Number).sort((a,b)=>a-b);
+                    const keys    = Object.keys(colPxMap).map(Number).sort((a, b) => a - b);
                     if (!keys.length) return cellOriginX;
                     const lastKey = keys[keys.length - 1];
-                    const last = colPxMap[lastKey];
+                    const last    = colPxMap[lastKey];
                     return cellOriginX + last.left + last.width * (idx - lastKey);
                 }
 
@@ -1266,7 +1332,6 @@ else
                     return entry ? entry.width : 0;
                 }
 
-                // y: ColumnHeader bottom(wrap기준) + row 1부터 targetRow-1까지 rowH 누적
                 function getCellScreenY(row1based) {
                     let y = cellOriginY;
                     for (let r = 1; r < row1based; r++) y += Number(rowH[r - 1] ?? 15) * 96 / 72;
@@ -1296,14 +1361,6 @@ else
                     return { w, h };
                 }
 
-                console.log('[DX] cellOriginX:', cellOriginX, 'cellOriginY:', cellOriginY, 'colPxMap entries:', Object.keys(colPxMap).length);
-
-                // ── 5. 스탬프 배치 ────────────────────────────────────────
-                const STAMP_BASE     = '/images/signatures/';
-                const HOLDING_STAMP  = STAMP_BASE + 'holding.png';
-                const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
-                const APPROVED_STAMP = STAMP_BASE + 'approved.png';
-
                 function parseA1Local(a1) {
                     const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
                     if (!m) return null;
@@ -1312,7 +1369,18 @@ else
                     return { col, row: parseInt(m[2], 10) };
                 }
 
-                approvals.forEach(function(a, idx) {
+                console.log('[DX] cellOriginX:', cellOriginX, 'cellOriginY:', cellOriginY,
+                    'colPxMap entries:', Object.keys(colPxMap).length);
+
+                const STAMP_BASE     = '/images/signatures/';
+                const HOLDING_STAMP  = STAMP_BASE + 'holding.png';
+                const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
+                const APPROVED_STAMP = STAMP_BASE + 'approved.png';
+
+                wrap.style.position = 'relative';
+
+                // ── 4. 결재 스탬프 배치 ───────────────────────────────────
+                approvals.forEach(function (a, idx) {
                     const actionRaw = String(a.action || a.Action || '').toUpperCase();
                     const statusRaw = String(a.status || a.Status || '').toUpperCase();
                     let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
@@ -1343,81 +1411,39 @@ else
                     const y = getCellScreenY(pos.row);
                     const { w, h } = getMergedCellSize(pos.row, pos.col);
 
-                    console.log(`[DX] stamp step=${step} a1=${a1} pos=(${pos.row},${pos.col}) x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`);
+                    console.log(`[DX] approval stamp step=${step} a1=${a1} x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`);
 
-                    const div = document.createElement('div');
-                    div.dataset.stampOverlay = '1'; // ★ 식별자 — 재호출 시 제거용
-                    div.style.cssText = [
-                        'position:absolute',
-                        `left:${x}px`,
-                        `top:${y}px`,
-                        `width:${w}px`,
-                        `height:${h}px`,
-                        'pointer-events:none',
-                        'z-index:20',
-                        'overflow:hidden'
-                    ].join(';');
+                    const fallback = (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') ? APPROVED_STAMP : null;
+                    const div = buildStampDiv(x, y, w, h, stampUrl, formatApprovalCaption(a), fallback);
+                    wrap.appendChild(div);
+                });
 
-                    const img = document.createElement('img');
-                    img.alt = 'approval-stamp';
-                    img.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;';
-                    img.crossOrigin = 'anonymous';
+                // ── 5. 협조 스탬프 배치 ───────────────────────────────────
+                cooperations.forEach(function (a) {
+                    const actionRaw = String(a.action || a.Action || '').toUpperCase();
+                    const statusRaw = String(a.status || a.Status || '').toUpperCase();
 
-                    img.onload = function() {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.naturalWidth;
-                            canvas.height = img.naturalHeight;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(img, 0, 0);
-                            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                            let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
-                            for (let py = 0; py < canvas.height; py++) {
-                                for (let px = 0; px < canvas.width; px++) {
-                                    const i = (py * canvas.width + px) * 4;
-                                    if (data[i + 3] < 20) continue;
-                                    if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) continue;
-                                    if (px < minX) minX = px; if (px > maxX) maxX = px;
-                                    if (py < minY) minY = py; if (py > maxY) maxY = py;
-                                }
-                            }
-                            if (maxX > minX && maxY > minY) {
-                                const cw = maxX - minX + 1, ch = maxY - minY + 1;
-                                const crop = document.createElement('canvas');
-                                crop.width = cw; crop.height = ch;
-                                crop.getContext('2d').drawImage(img, minX, minY, cw, ch, 0, 0, cw, ch);
-                                img.src = crop.toDataURL();
-                            }
-                        } catch(e) {}
-                    };
+                    // 협조 완료된 항목만 스탬프
+                    if (actionRaw !== 'COOPERATE' && statusRaw !== 'COOPERATED') return;
 
-                    if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
-                        img.onerror = function() {
-                            if (this.dataset.fallbackTried === '1') return;
-                            this.dataset.fallbackTried = '1';
-                            this.src = APPROVED_STAMP;
-                        };
-                    }
-                    img.src = stampUrl;
-                    div.appendChild(img);
+                    const a1 = a.cellA1 || a.CellA1 || '';
+                    if (!a1) return;
 
-                    const captionText = formatApprovalCaption(a);
-                    if (captionText) {
-                        const cap = document.createElement('div');
-                        cap.textContent = captionText;
-                        cap.style.cssText = [
-                            'position:absolute', 'left:0', 'right:0', 'bottom:1px',
-                            'text-align:center',
-                            `font-size:${Math.max(8, Math.floor(h * 0.18))}px`,
-                            'line-height:1.1', 'color:#111', 'background:transparent',
-                            'pointer-events:none', 'white-space:nowrap',
-                            'overflow:hidden', 'text-overflow:ellipsis',
-                            'padding:0 2px', 'font-family:sans-serif', 'font-weight:400', 'z-index:10'
-                        ].join(';');
-                        div.appendChild(cap);
-                    }
+                    const pos = parseA1Local(a1);
+                    if (!pos) return;
 
-                    wrap.style.position = 'relative';
+                    const sigPathRaw = String(a.signaturePath || a.SignaturePath || '').trim();
+                    const stampUrl   = sigPathRaw
+                        ? STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/')
+                        : APPROVED_STAMP;
+
+                    const x = getCellScreenX(pos.col);
+                    const y = getCellScreenY(pos.row);
+                    const { w, h } = getMergedCellSize(pos.row, pos.col);
+
+                    console.log(`[DX] coop stamp a1=${a1} x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`);
+
+                    const div = buildStampDiv(x, y, w, h, stampUrl, formatApprovalCaption(a), APPROVED_STAMP);
                     wrap.appendChild(div);
                 });
             }
@@ -1798,7 +1824,7 @@ else
                 if (!docId) return;
                 async function call(action) {
                     try {
-                        const res = await EBC.json('/Doc/ApproveOrHold', { docId, action }, 'POST');
+                        const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action }, 'POST');
                         if (!res || res.ok === false) throw { payload: res };
                         showAlert(T('DOC_Msg_Approve_Success'), 'alert-success');
                         location.reload();
@@ -1821,7 +1847,7 @@ else
                 btnRecall.addEventListener('click', async () => {
                     if (btnRecall.disabled) return;
                     try {
-                        const res = await EBC.json('/Doc/ApproveOrHold', { docId, action: 'Recall' }, 'POST');
+                        const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action: 'Recall' }, 'POST');
                         if (!res || res.ok === false) throw { payload: res };
                         showAlert(T('DOC_Msg_Recall_Success') || T('DOC_Msg_Approve_Success'), 'alert-success');
                         location.href = '/Doc/Board';
@@ -1902,31 +1928,38 @@ else
             function hookDxReady() {
                 installOuterScrollOnly();
 
-                function applySize() {
-                    const wrap = document.getElementById('dxDetailWrap');
-                    const scroll = document.getElementById('doc-scroll');
-                    if (!wrap) return;
+                const wrap   = document.getElementById('dxDetailWrap');
+                const scroll = document.getElementById('doc-scroll');
+                if (!wrap) return;
 
-                    installOuterScrollOnly();
+                let sizeApplied    = false;
+                let contentVerified = false;
+                let retryCount     = 0;
+                const MAX_RETRY    = 5;
+
+                function applySize() {
+                    if (sizeApplied) return;
 
                     const wbc = document.getElementById('dxDetailSheet_WBC')
                              || document.querySelector('#dxDetailWrap [id$="_WBC"]');
 
-                    let finalWidth = (wbc && wbc.offsetWidth > 100) ? wbc.offsetWidth + 20 : 0;
-                    if (finalWidth <= 0) {
-                        const rh = document.getElementById('dxDetailSheet_RowHeader')
-                                || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-                        const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
-                        const colSum = Number(state._colSum || 0);
-                        const previewWidth = Number(state.previewExtent?.width || 0);
-                        finalWidth = colSum > 0 ? rhW + colSum + 24
-                                   : previewWidth > 0 ? previewWidth : 900;
-                    }
-                    if (finalWidth <= 0) return;
+                    let finalWidth  = (wbc && wbc.offsetWidth  > 100) ? wbc.offsetWidth  + 20 : 0;
+                    let finalHeight = (wbc && wbc.offsetHeight > 100) ? wbc.offsetHeight + 40 : 0;
 
-                    const finalHeight = (wbc && wbc.offsetHeight > 100)
-                        ? wbc.offsetHeight + 40
-                        : Number(state.previewExtent?.height || 520);
+                    if (finalWidth <= 0) {
+                        const rh  = document.getElementById('dxDetailSheet_RowHeader')
+                                 || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
+                        const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
+                        const colSum       = Number(state._colSum || 0);
+                        const previewWidth = Number(state.previewExtent?.width || 0);
+                        finalWidth  = colSum > 0 ? rhW + colSum + 24
+                                    : previewWidth > 0 ? previewWidth : 900;
+                    }
+                    if (finalHeight <= 0) {
+                        finalHeight = Number(state.previewExtent?.height || 520);
+                    }
+
+                    sizeApplied = true;
 
                     wrap.style.setProperty('width',      finalWidth  + 'px', 'important');
                     wrap.style.setProperty('min-width',  finalWidth  + 'px', 'important');
@@ -1936,48 +1969,97 @@ else
                     wrap.style.setProperty('overflow',   'hidden',           'important');
 
                     console.log('[DX] applySize finalWidth=', finalWidth, 'finalHeight=', finalHeight);
-
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () {
-                            try {
-                                const scrollEl = document.getElementById('doc-scroll');
-                                if (scrollEl) {
-                                    scrollEl.setAttribute('tabindex', '0');
-                                    scrollEl.focus({ preventScroll: true });
-                                }
-                            } catch(e) {}
-                            renderApprovalOverlay();
-                            if (scroll) scroll.classList.add('dx-page-ready');
-                        });
-                    });
                 }
 
-                const wrap = document.getElementById('dxDetailWrap');
-                if (!wrap) return;
+                function hasRenderedContent() {
+                    const ftc = wrap.querySelector('.dxss-ftc');
+                    if (ftc) return true;
+                    const ctb = wrap.querySelector('[id*="_ctb."]');
+                    if (ctb) return true;
+                    return false;
+                }
 
-                let applied = false;
-                function tryApply() {
-                    if (applied) return;
-                    const wbc = document.getElementById('dxDetailSheet_WBC')
-                             || document.querySelector('#dxDetailWrap [id$="_WBC"]');
-                    if (wbc && wbc.offsetWidth > 0 && wbc.offsetHeight > 0) {
-                        applied = true;
-                        observer.disconnect();
-                        applySize();
+                function verifyAndShow() {
+                    if (contentVerified) return;
+
+                    applySize();
+
+                    if (hasRenderedContent()) {
+                        contentVerified = true;
+                        requestAnimationFrame(function () {
+                            requestAnimationFrame(function () {
+                                renderApprovalOverlay();
+                                if (scroll) scroll.classList.add('dx-page-ready');
+                            });
+                        });
+                        console.log('[DX] content verified, showing page');
+                    } else {
+                        retryCount++;
+                        console.warn('[DX] content empty, retry', retryCount, '/', MAX_RETRY);
+
+                        if (retryCount >= MAX_RETRY) {
+                            contentVerified = true;
+                            if (scroll) scroll.classList.add('dx-page-ready');
+                            console.error('[DX] max retry exceeded, showing anyway');
+                            return;
+                        }
+
+                        sizeApplied = false;
+                        const inst = getDxInstance();
+                        if (inst) {
+                            try {
+                                if (typeof inst.Refresh === 'function') {
+                                    inst.Refresh();
+                                } else if (typeof inst.PerformCallback === 'function') {
+                                    inst.PerformCallback('refresh');
+                                }
+                            } catch (e) {
+                                console.warn('[DX] refresh failed:', e);
+                            }
+                        }
+
+                        const delay = Math.min(500 * Math.pow(2, retryCount - 1), 8000);
+                        console.log('[DX] retry in', delay, 'ms');
+                        setTimeout(function () {
+                            pollForWbc();
+                        }, delay);
                     }
                 }
 
-                const observer = new MutationObserver(function () {
-                    tryApply();
-                });
+                const startTime  = Date.now();
+                const TIMEOUT_MS = 15000;
 
-                observer.observe(wrap, { childList: true, subtree: true, attributes: true });
+                function pollForWbc() {
+                    if (contentVerified) return;
 
-                tryApply();
+                    const wbc = document.getElementById('dxDetailSheet_WBC')
+                             || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+
+                    if (wbc && wbc.offsetWidth > 0 && wbc.offsetHeight > 0) {
+                        requestAnimationFrame(function () {
+                            verifyAndShow();
+                        });
+                        return;
+                    }
+
+                    if (Date.now() - startTime > TIMEOUT_MS) {
+                        console.warn('[DX] poll timeout');
+                        verifyAndShow();
+                        return;
+                    }
+
+                    requestAnimationFrame(pollForWbc);
+                }
+
+                requestAnimationFrame(pollForWbc);
 
                 window.__dxDetailOnEndSyncImpl = function () {
-                    applied = false;
-                    tryApply();
+                    console.log('[DX] EndSynchronization fired, contentVerified=', contentVerified);
+                    if (contentVerified) return;
+                    sizeApplied = false;
+                    requestAnimationFrame(function () {
+                        verifyAndShow();
+                    });
                 };
 
                 if (window.__dxDetailOnEndSyncPending) {
@@ -1989,10 +2071,15 @@ else
             // ================== 진입점 ==================
             function run() {
                 clearAlert();
-                state.preview = readJsonFromScript('PreviewJson', {}) || {};
+                state.preview    = readJsonFromScript('PreviewJson',    {}) || {};
                 state.descriptor = readJsonFromScript('DescriptorJson', {}) || {};
+
                 state.approvalsData = Array.isArray(readJsonFromScript('ApprovalsJson', []))
                     ? readJsonFromScript('ApprovalsJson', []) : [];
+
+                // 협조 데이터 로드
+                state.cooperationsData = Array.isArray(readJsonFromScript('CooperationsJson', []))
+                    ? readJsonFromScript('CooperationsJson', []) : [];
 
                 const mapRows = readJsonFromScript('ApprovalCellsJson', []);
                 state.approvalCellMap = {};

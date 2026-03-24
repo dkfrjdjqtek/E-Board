@@ -1257,4 +1257,10 @@
   <data name="_CM_Open" xml:space="preserve">
     <value>Mở</value>
   </data>
+  <data name="DOC_Tab_Cooperation" xml:space="preserve">
+    <value>Hộp tài liệu phối hợp</value>
+  </data>
+  <data name="DOC_Btn_Cooperate" xml:space="preserve">
+    <value>Xác nhận phối hợp</value>
+  </data>
 </root>

@@ -1,4 +1,5 @@
-﻿// 2026.02.05 Changed: 일괄승인 토스트 수량을 서버 응답 totals approved 기반으로만 표시하도록 수정
+﻿// 2026.03.23 Changed: 협조 문서함 메인탭 서브탭 URL 상태 목록조회 배지갱신을 eb.doc.board.js 전체 흐름에 추가하고 협조 탭 클릭 불가 및 배지 미표시 문제를 수정
+// 2026.02.05 Changed: 일괄승인 토스트 수량을 서버 응답 totals approved 기반으로만 표시하도록 수정
 // 2026.02.05 Changed: 보드 일괄승인 토스트를 스크린샷과 동일한 상단 중앙 녹색 바 스타일로 통일하고 하단 토스트 로직을 제거
 
 (function () {
@@ -50,11 +51,6 @@
         try { return String(template || '').replace('{0}', String(n)); } catch { return String(n); }
     }
 
-    // =========================================================
-    // 2026.02.05 Added: 스크린샷과 동일한 상단 중앙 "바" 토스트
-    // - #ebTopToastHost(이미 Board.cshtml에 존재) 사용
-    // - 닫기(X) 흰색, 배경 녹색 고정
-    // =========================================================
     function ensureTopToastHost() {
         var host = document.getElementById('ebTopToastHost');
         if (!host) {
@@ -74,7 +70,7 @@
         } catch { }
     }
 
-    function showTopBarToast(message, kind /* 'success'|'danger' */) {
+    function showTopBarToast(message, kind) {
         try {
             if (!message) return;
 
@@ -154,10 +150,12 @@
 
         var createdSubWrap = document.getElementById('createdSubtabs');
         var approvalSubWrap = document.getElementById('approvalSubtabs');
+        var cooperationSubWrap = document.getElementById('cooperationSubtabs');
         var sharedSubWrap = document.getElementById('sharedSubtabs');
 
         var createdSubTabs = createdSubWrap ? Array.from(createdSubWrap.querySelectorAll('.doc-subtab')) : [];
         var approvalSubTabs = approvalSubWrap ? Array.from(approvalSubWrap.querySelectorAll('.doc-subtab')) : [];
+        var cooperationSubTabs = cooperationSubWrap ? Array.from(cooperationSubWrap.querySelectorAll('.doc-subtab')) : [];
         var sharedSubTabs = sharedSubWrap ? Array.from(sharedSubWrap.querySelectorAll('.doc-subtab')) : [];
 
         var filterTitle = document.getElementById('filterTitle') || { value: 'all', querySelectorAll: function () { return []; } };
@@ -192,7 +190,7 @@
         var selectedDocIds = new Set();
 
         var clamp = function (v, min, max) { return Math.max(min, Math.min(max, v)); };
-        var allowedTabs = ['created', 'approval', 'shared'];
+        var allowedTabs = ['created', 'approval', 'cooperation', 'shared'];
         var STORAGE_KEY = 'docBoardStateByTab';
         var SNAPSHOT_PREFIX = 'docBoardSnapshot:';
 
@@ -315,6 +313,7 @@
                 q: state.q,
                 createdSub: state.createdSub,
                 approvalSub: state.approvalSub,
+                cooperationSub: state.cooperationSub,
                 sharedSub: state.sharedSub
             };
             writeStateMap(map);
@@ -336,6 +335,9 @@
                 if (state.tab === 'approval') qs.set('approvalSub', String(state.approvalSub || 'ongoing'));
                 else qs.delete('approvalSub');
 
+                if (state.tab === 'cooperation') qs.set('cooperationSub', String(state.cooperationSub || 'ongoing'));
+                else qs.delete('cooperationSub');
+
                 if (state.tab === 'shared') qs.set('sharedSub', String(state.sharedSub || 'ongoing'));
                 else qs.delete('sharedSub');
 
@@ -356,6 +358,7 @@
 
             var createdSub = qs.get('createdSub');
             var approvalSub = qs.get('approvalSub');
+            var cooperationSub = qs.get('cooperationSub');
             var sharedSub = qs.get('sharedSub');
 
             var out = {};
@@ -372,6 +375,7 @@
 
             if (createdSub) out.createdSub = createdSub;
             if (approvalSub) out.approvalSub = approvalSub;
+            if (cooperationSub) out.cooperationSub = cooperationSub;
             if (sharedSub) out.sharedSub = sharedSub;
 
             return out;
@@ -417,14 +421,17 @@
         function applySubtabsUi() {
             var isCreated = state.tab === 'created';
             var isApproval = state.tab === 'approval';
+            var isCooperation = state.tab === 'cooperation';
             var isShared = state.tab === 'shared';
 
             setSubWrapVisible(createdSubWrap, isCreated);
             setSubWrapVisible(approvalSubWrap, isApproval);
+            setSubWrapVisible(cooperationSubWrap, isCooperation);
             setSubWrapVisible(sharedSubWrap, isShared);
 
             if (isCreated) applySubtabSelection(createdSubTabs, 'createdSub', state.createdSub);
             if (isApproval) applySubtabSelection(approvalSubTabs, 'approvalSub', state.approvalSub);
+            if (isCooperation) applySubtabSelection(cooperationSubTabs, 'cooperationSub', state.cooperationSub);
             if (isShared) applySubtabSelection(sharedSubTabs, 'sharedSub', state.sharedSub);
         }
 
@@ -458,6 +465,7 @@
             q: '',
             createdSub: 'ongoing',
             approvalSub: 'ongoing',
+            cooperationSub: 'ongoing',
             sharedSub: 'ongoing'
         };
 
@@ -479,6 +487,7 @@
                 state.q || '',
                 (state.tab === 'created' ? (state.createdSub || 'ongoing') : ''),
                 (state.tab === 'approval' ? (state.approvalSub || 'ongoing') : ''),
+                (state.tab === 'cooperation' ? (state.cooperationSub || 'ongoing') : ''),
                 (state.tab === 'shared' ? (state.sharedSub || 'ongoing') : '')
             ];
             return parts.map(function (x) { return String(x); }).join('|');
@@ -665,7 +674,7 @@
 
             var shouldBold =
                 (state.tab === 'approval' && isApprovalUnreadByStatus) ||
-                ((state.tab === 'created' || state.tab === 'shared') && isUnread);
+                ((state.tab === 'created' || state.tab === 'cooperation' || state.tab === 'shared') && isUnread);
 
             if (shouldBold) tr.classList.add('doc-row-unread');
             else tr.classList.remove('doc-row-unread');
@@ -803,11 +812,6 @@
                     await refreshBadges();
                     await loadList();
 
-                    // =========================================================
-                    // 2026.02.05 Changed: 실제 승인된 개수는 서버 totals.approved만 사용
-                    // - 체크 개수(ids.length)로 폴백 금지
-                    // - totals.approved가 없으면 성공 토스트를 띄우지 않음(정확성 우선)
-                    // =========================================================
                     var approved = 0;
                     try {
                         approved = asInt(j && j.totals ? (j.totals.approved ?? j.totals.Approved) : 0);
@@ -842,12 +846,19 @@
                 params.set('titleFilter', String(state.titleFilter || 'all'));
                 params.set('sort', String(state.sort || 'created_desc'));
                 params.set('q', String(state.q || ''));
+
                 if (state.tab === 'created') params.set('createdSub', String(state.createdSub || 'ongoing'));
                 else params.delete('createdSub');
+
                 if (state.tab === 'approval') params.set('approvalSub', String(state.approvalSub || 'ongoing'));
                 else params.delete('approvalSub');
+
+                if (state.tab === 'cooperation') params.set('cooperationSub', String(state.cooperationSub || 'ongoing'));
+                else params.delete('cooperationSub');
+
                 if (state.tab === 'shared') params.set('sharedSub', String(state.sharedSub || 'ongoing'));
                 else params.delete('sharedSub');
+
                 params.set('_ts', String(Date.now()));
 
                 var url = apiList + (apiList.indexOf('?') >= 0 ? '&' : '?') + params.toString();
@@ -888,10 +899,12 @@
 
                 var createdUnread = (j.createdUnread ?? j.CreatedUnread ?? j.created ?? j.Created ?? 0);
                 var approvalPending = (j.approvalPending ?? j.ApprovalPending ?? j.approval ?? j.Approval ?? 0);
+                var cooperationPending = (j.cooperationPending ?? j.CooperationPending ?? j.cooperation ?? j.Cooperation ?? 0);
                 var sharedUnread = (j.sharedUnread ?? j.SharedUnread ?? j.shared ?? j.Shared ?? 0);
 
                 setBadgeDom('badge-created', createdUnread);
                 setBadgeDom('badge-approval', approvalPending);
+                setBadgeDom('badge-cooperation', cooperationPending);
                 setBadgeDom('badge-shared', sharedUnread);
             } catch { }
         }
@@ -919,6 +932,7 @@
 
             state.createdSub = (fromUrl.createdSub || fromSession.createdSub || 'ongoing');
             state.approvalSub = (fromUrl.approvalSub || fromSession.approvalSub || 'ongoing');
+            state.cooperationSub = (fromUrl.cooperationSub || fromSession.cooperationSub || 'ongoing');
             state.sharedSub = (fromUrl.sharedSub || fromSession.sharedSub || 'ongoing');
 
             applyStateToControls();
@@ -957,6 +971,7 @@
 
         bindSubtabs('created', createdSubTabs, 'createdSub');
         bindSubtabs('approval', approvalSubTabs, 'approvalSub');
+        bindSubtabs('cooperation', cooperationSubTabs, 'cooperationSub');
         bindSubtabs('shared', sharedSubTabs, 'sharedSub');
 
         tabs.forEach(function (t) {
@@ -975,6 +990,7 @@
                     state.q = s.q || '';
                     state.createdSub = s.createdSub || state.createdSub || 'ongoing';
                     state.approvalSub = s.approvalSub || state.approvalSub || 'ongoing';
+                    state.cooperationSub = s.cooperationSub || state.cooperationSub || 'ongoing';
                     state.sharedSub = s.sharedSub || state.sharedSub || 'ongoing';
                 } else {
                     state.page = 1;
@@ -1035,6 +1051,7 @@
             state.q = (u.q != null) ? u.q : '';
             if (u.createdSub) state.createdSub = u.createdSub;
             if (u.approvalSub) state.approvalSub = u.approvalSub;
+            if (u.cooperationSub) state.cooperationSub = u.cooperationSub;
             if (u.sharedSub) state.sharedSub = u.sharedSub;
 
             selectedDocIds.clear();
