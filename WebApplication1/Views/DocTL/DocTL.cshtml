@@ -86,7 +86,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="@S["_CM_Close"]"></button>
             </div>
 
-            <form id="frmNewTemplate" method="post" enctype="multipart/form-data" action="/DocumentTemplates/new-template" novalidate>
+            <form id="frmNewTemplate" method="post" enctype="multipart/form-data" action="/DocumentTemplatesDX/new-template" novalidate>
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="compCd" id="nt-compCd" />
                 <div class="modal-body">
@@ -206,7 +206,7 @@
     <script>
         (function () {
             const L = window.L || {};
-            const BASE = "/DocumentTemplates";
+            const BASE = "/DocumentTemplatesDX";
             const compSel = document.getElementById('compSelect');
             const deptSel = document.getElementById('deptSelect');
             const kindSel = document.getElementById('kindSelect');
@@ -415,7 +415,7 @@
             const L = window.L || {};
             const CUR_LANG = window.CUR_LANG || "en";
             const MSG = window.MSG || {};
-            const BASE = "/DocumentTemplates";
+            const BASE = "/DocumentTemplatesDX";
             const mEl = document.getElementById('newTemplateModal');
             if (!mEl) return;
 

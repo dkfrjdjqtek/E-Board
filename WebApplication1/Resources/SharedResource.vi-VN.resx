@@ -1117,7 +1117,7 @@
     <value>Người phê duyệt</value>
   </data>
   <data name="DOC_Col_ApprovalTime" xml:space="preserve">
-    <value>Thời gian xử lý</value>
+    <value>Thời gian</value>
   </data>
   <data name="DOC_Filter_Title_Recalled" xml:space="preserve">
     <value>Đã thu hồi</value>
@@ -1262,5 +1262,26 @@
   </data>
   <data name="DOC_Btn_Cooperate" xml:space="preserve">
     <value>Xác nhận phối hợp</value>
+  </data>
+  <data name="DOC_Col_Role" xml:space="preserve">
+    <value>Vai trò</value>
+  </data>
+  <data name="DOC_Role_Submit" xml:space="preserve">
+    <value>Trình duyệt</value>
+  </data>
+  <data name="DOC_Role_ApprovalFmt" xml:space="preserve">
+    <value>Phê duyệt lần {0}</value>
+  </data>
+  <data name="DOC_Role_CooperationFmt" xml:space="preserve">
+    <value>Phối hợp</value>
+  </data>
+  <data name="DOC_Btn_CooperateReject" xml:space="preserve">
+    <value>Từ chối phối hợp</value>
+  </data>
+  <data name="DOC_Title_Fmt" xml:space="preserve">
+    <value>{1} của {0}</value>
+  </data>
+  <data name="PUSH_CooperationPending" xml:space="preserve">
+    <value>Chờ phối hợp {0}</value>
   </data>
 </root>

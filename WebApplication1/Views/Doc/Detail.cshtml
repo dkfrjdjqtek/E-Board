@@ -1929,9 +1929,9 @@
                 }
 
                 var STAMP_BASE = '/images/signatures/';
-                var HOLDING_STAMP = STAMP_BASE + 'holding.png';
-                var REJECTED_STAMP = STAMP_BASE + 'rejected.png';
-                var APPROVED_STAMP = STAMP_BASE + 'approved.png';
+                var HOLDING_STAMP = STAMP_BASE + 'HOLDING.png';
+                var REJECTED_STAMP = STAMP_BASE + 'REJECTED.png';
+                var APPROVED_STAMP = STAMP_BASE + 'APPROVED.png';
 
                 approvals.forEach(function (a, idx) {
                     var actionRaw = (a.action || a.Action || '').toString().toUpperCase();
@@ -2808,7 +2808,7 @@
                         printWrapper.parentNode.removeChild(printWrapper);
                     }
                 }
-
+                 
                 function handleBeforePrint() {
                     moveToPrintWrapper();
                 }

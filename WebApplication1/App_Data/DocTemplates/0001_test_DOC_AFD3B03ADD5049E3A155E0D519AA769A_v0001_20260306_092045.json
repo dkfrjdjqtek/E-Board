@@ -1,0 +1,17 @@
+{
+  "docCode": "DOC_AFD3B03ADD5049E3A155E0D519AA769A",
+  "outTemplateId": 42,
+  "outVersionId": 10079,
+  "outVersionNo": 1,
+  "excelPath": "D:\\EBOARD\\app\\App_Data\\DocTemplates\\files\\0001_test_20260306_092032_bbd6e32571a24623b8d478f5d5efb9da.xlsx",
+  "model": {
+    "CompCd": "0001",
+    "DepartmentId": 1,
+    "Kind": "T0012",
+    "DocName": "test",
+    "Title": null,
+    "ApprovalCount": 0,
+    "Fields": [],
+    "Approvals": []
+  }
+}

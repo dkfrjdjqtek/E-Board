@@ -1117,7 +1117,7 @@
     <value>审批人</value>
   </data>
   <data name="DOC_Col_ApprovalTime" xml:space="preserve">
-    <value>处理时间</value>
+    <value>时间</value>
   </data>
   <data name="DOC_Filter_Title_Recalled" xml:space="preserve">
     <value>已撤回</value>
@@ -1262,5 +1262,26 @@
   </data>
   <data name="DOC_Btn_Cooperate" xml:space="preserve">
     <value>协作确认</value>
+  </data>
+  <data name="DOC_Col_Role" xml:space="preserve">
+    <value>角色</value>
+  </data>
+  <data name="DOC_Role_Submit" xml:space="preserve">
+    <value>上报</value>
+  </data>
+  <data name="DOC_Role_ApprovalFmt" xml:space="preserve">
+    <value>第{0}级审批</value>
+  </data>
+  <data name="DOC_Role_CooperationFmt" xml:space="preserve">
+    <value>协助</value>
+  </data>
+  <data name="DOC_Btn_CooperateReject" xml:space="preserve">
+    <value>拒绝协助</value>
+  </data>
+  <data name="DOC_Title_Fmt" xml:space="preserve">
+    <value>{0} 的 {1}</value>
+  </data>
+  <data name="PUSH_CooperationPending" xml:space="preserve">
+    <value>待协作 {0}</value>
   </data>
 </root>

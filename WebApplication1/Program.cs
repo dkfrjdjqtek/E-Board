@@ -205,6 +205,7 @@ builder.Services.AddAntiforgery(options =>
 // 9) DocTemplateService
 // -----------------------------
 builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
+builder.Services.AddHostedService<ComposeDxTempCleanupService>();
 
 // -----------------------------
 // 10) WebPushNotifier

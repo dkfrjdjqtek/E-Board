@@ -162,81 +162,112 @@ namespace WebApplication1.Controllers
         }
 
         [HttpGet("SearchUser")]
-        public async Task<IActionResult> SearchUser(string? q, int take = 20, string? id = null, string? compCd = null)
+        public async Task<IActionResult> SearchUser(
+    string? q, int take = 50, string? id = null, string? compCd = null)
         {
-            take = Math.Clamp(take, 1, 100);
+            take = Math.Clamp(take, 1, 200);
 
             var myUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var myInfo = await _db.UserProfiles
-                .AsNoTracking()
-                .Where(x => x.UserId == myUserId)
-                .Select(x => new { x.CompCd, x.DepartmentId })
-                .FirstOrDefaultAsync();
 
-            var curCompCd = !string.IsNullOrWhiteSpace(compCd) ? compCd : myInfo?.CompCd;
-            var myDeptId = myInfo?.DepartmentId;
+            var myProfile = await _db.UserProfiles
+     .AsNoTracking()
+     .Where(x => x.UserId == myUserId)
+     .Select(x => new { x.CompCd, x.IsAdmin })
+     .FirstOrDefaultAsync();
+
+            var isAdmin = (myProfile?.IsAdmin ?? 0) >= 1;
+
+            // 관리자면 무조건 전체, 일반이면 본인 CompCd만
+            string? filterCompCd = isAdmin
+                ? null
+                : (!string.IsNullOrWhiteSpace(compCd) ? compCd : myProfile?.CompCd);
 
             var baseQuery =
-                from u in _db.Users
-                join p0 in _db.UserProfiles on u.Id equals p0.UserId into gp
-                from p in gp.DefaultIfEmpty()
-                join d0 in _db.DepartmentMasters on p.DepartmentId equals d0.Id into gd
+                from p in _db.UserProfiles
+                join u in _db.Users on p.UserId equals u.Id
+                join cm in _db.CompMasters on p.CompCd equals cm.CompCd into gcm
+                from cm in gcm.DefaultIfEmpty()
+                join d in _db.DepartmentMasters on p.DepartmentId equals d.Id into gd
                 from d in gd.DefaultIfEmpty()
+                join pos in _db.PositionMasters on p.PositionId equals pos.Id into gpos
+                from pos in gpos.DefaultIfEmpty()
+                where p.IsApprover
+                   && (filterCompCd == null || p.CompCd == filterCompCd)
+                   && (cm == null || cm.IsActive)
+                   && (d == null || d.IsActive)
                 select new
                 {
-                    u.Id,
+                    UserId = p.UserId,
                     UserName = u.UserName,
-                    DisplayName = p != null ? p.DisplayName : null,
-                    DeptName = d != null ? d.Name : null,
-                    CompCd = p != null ? p.CompCd : null,
-                    DepartmentId = p != null ? p.DepartmentId : (int?)null,
-                    IsApprover = p != null && p.IsApprover
+                    DisplayName = p.DisplayName ?? u.UserName ?? string.Empty,
+                    CompCd = p.CompCd,
+                    CompName = cm != null ? cm.Name : string.Empty,
+                    DeptName = d != null ? d.Name : string.Empty,
+                    PosName = pos != null ? pos.Name : string.Empty,
+                    DeptSortOrder = d != null ? d.SortOrder : int.MaxValue,
+                    PosSortOrder = pos != null ? pos.SortOrder : int.MaxValue,
                 };
 
-            if (!string.IsNullOrWhiteSpace(curCompCd))
-                baseQuery = baseQuery.Where(x => x.CompCd == curCompCd);
+            // 표시 텍스트 로컬 헬퍼 (EF 외부에서 사용)
+            static string MakeText(bool admin, string compName, string posName,
+                                   string displayName, string deptName)
+            {
+                // 형식: "회사명 직급 이름 (부서)"  ex) (주)ABC 부장 홍길동 (생산)
+                // 관리자가 아니면 회사명 생략: "직급 이름 (부서)"
+                var sb = new System.Text.StringBuilder();
+                if (admin && !string.IsNullOrEmpty(compName))
+                    sb.Append(compName).Append(' ');
+                if (!string.IsNullOrEmpty(posName))
+                    sb.Append(posName).Append(' ');
+                sb.Append(displayName);
+                if (!string.IsNullOrEmpty(deptName))
+                    sb.Append(" (").Append(deptName).Append(')');
+                return sb.ToString();
+            }
 
-            baseQuery = baseQuery.Where(x => x.IsApprover);
-
+            // ── 단건 조회
             if (!string.IsNullOrWhiteSpace(id))
             {
-                var one = await baseQuery
-                    .Where(x => x.Id == id)
-                    .Select(x => new
-                    {
-                        id = x.Id,
-                        text = (x.DisplayName ?? x.UserName) +
-                               ((x.DeptName ?? string.Empty) != string.Empty ? " (" + x.DeptName + ")" : string.Empty)
-                    })
+                var rows = await baseQuery
+                    .Where(x => x.UserId == id)
                     .Take(1)
                     .ToListAsync();
+
+                var one = rows.Select(x => new
+                {
+                    id = x.UserId,
+                    text = MakeText(isAdmin, x.CompName, x.PosName, x.DisplayName, x.DeptName)
+                }).ToList();
 
                 return Json(one);
             }
 
+            // ── 검색어 필터
             if (!string.IsNullOrWhiteSpace(q))
             {
                 var qq = q.Trim();
                 baseQuery = baseQuery.Where(x =>
-                    (x.DisplayName ?? string.Empty).Contains(qq) ||
+                    x.DisplayName.Contains(qq) ||
                     (x.UserName ?? string.Empty).Contains(qq) ||
-                    (x.DeptName ?? string.Empty).Contains(qq));
+                    x.DeptName.Contains(qq) ||
+                    x.CompName.Contains(qq) ||
+                    x.PosName.Contains(qq));
             }
 
-            var list = await baseQuery
-                .OrderByDescending(x =>
-                    myDeptId.HasValue
-                        ? (x.DepartmentId.HasValue && x.DepartmentId.Value == myDeptId.Value)
-                        : false)
-                .ThenBy(x => x.DisplayName ?? x.UserName)
+            // ── 정렬 후 목록
+            var rows2 = await baseQuery
+                .OrderBy(x => x.CompCd)
+                .ThenBy(x => x.DeptSortOrder)
+                .ThenBy(x => x.PosSortOrder)
+                .ThenBy(x => x.DisplayName)
                 .Take(take)
-                .Select(x => new
-                {
-                    id = x.Id,
-                    text = (x.DisplayName ?? x.UserName) +
-                           ((x.DeptName ?? string.Empty) != string.Empty ? " (" + x.DeptName + ")" : string.Empty)
-                })
                 .ToListAsync();
+
+            var list = rows2.Select(x => new
+            {
+                id = x.UserId,
+                text = MakeText(isAdmin, x.CompName, x.PosName, x.DisplayName, x.DeptName)
+            }).ToList();
 
             return Json(list);
         }
@@ -364,7 +395,14 @@ namespace WebApplication1.Controllers
 
             var items = await query
                 .OrderBy(m => m.DocName)
-                .Select(m => new { id = m.DocCode, text = m.DocName })
+                .Select(m => new
+                {
+                    id = m.DocCode,
+                    text = m.DocName + " v" + _db.DocTemplateVersions
+                        .Where(v => v.TemplateId == m.Id)
+                        .Max(v => (int?)v.VersionNo)!
+                        .GetValueOrDefault(1)
+                })
                 .ToListAsync();
 
             return Ok(new { items });
@@ -827,13 +865,7 @@ namespace WebApplication1.Controllers
 
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> NewTemplatePost(
-            [FromForm] string? compCd,
-            [FromForm] int? departmentId,
-            [FromForm] string? kind,
-            [FromForm] string docName,
-            [FromForm] IFormFile? excelFile,
-            [FromForm] bool embed = false)
+        public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd, [FromForm] int? departmentId, [FromForm] string? kind, [FromForm] string docName, [FromForm] IFormFile? excelFile, [FromForm] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
             if (ctx.adminLevel == 0) compCd = ctx.compCd;
@@ -878,6 +910,25 @@ namespace WebApplication1.Controllers
             }
 
             using var wb = new XLWorkbook(excelPath);
+
+            // ── 모든 시트의 활성 셀을 A1으로 초기화하여 저장
+            foreach (var ws in wb.Worksheets)
+            {
+                try
+                {
+                    ws.SetTabActive(false);
+                    ws.ActiveCell = ws.Cell("A1");
+                    // 스크롤 위치도 A1으로
+                    ws.SheetView.TopLeftCellAddress = ws.Cell("A1").Address;
+                }
+                catch { }
+            }
+            // 첫 번째 시트 활성화
+            if (wb.Worksheets.Any())
+            {
+                wb.Worksheets.First().SetTabActive(true);
+            }
+            wb.Save();
 
             var meta = ReadMetaCX(wb);
             var parsed = ParseByCommentsCX(wb);

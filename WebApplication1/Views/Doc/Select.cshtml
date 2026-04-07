@@ -1,4 +1,4 @@
-﻿@* 2025.12.15 Changed: 초기 로딩 시 로그인 사용자 회사/부서 자동 로드 + 관리자 아닐 경우 사업장 콤보 고정 및 disable 처리 DocTLMap 동작과 일치 *@
+﻿﻿@* 2025.12.15 Changed: 초기 로딩 시 로그인 사용자 회사/부서 자동 로드 + 관리자 아닐 경우 사업장 콤보 고정 및 disable 처리 DocTLMap 동작과 일치 *@
 @* 2025.10.16 Changed: 작성하기 클릭 시 폼 submit 대신 선택된 templateCode로 명시적 이동 처리
    2025.10.16 Added: sessionStorage 상태 저장/복원 + 초기 버튼 비활성화 + fetch(credentials:'same-origin')
    Note: /DocumentTemplates/* API는 { items:[{id,text}], selectedValue? } 포맷을 반환 *@
@@ -35,7 +35,7 @@
 <div class="container-xxl">
     <div class="card">
         <div class="card-body">
-            <form id="frm-newdoc" method="get" action="/Doc/Create">
+            <form id="frm-newdoc" method="get" action="/Doc/CreateDX">
                 <div class="row g-3 align-items-end">
 
                     <div class="col-12 col-lg-2">
@@ -254,7 +254,7 @@
                 const t = tplSel.value;
                 if (!t || t === '__SELECT__') return;
                 saveState();
-                location.href = `/Doc/Create?templateCode=${encodeURIComponent(t)}`;
+                location.href = `/Doc/CreateDX?templateCode=${encodeURIComponent(t)}`;
             });
 
             document.getElementById('btn-cancel')?.addEventListener('click', () => {

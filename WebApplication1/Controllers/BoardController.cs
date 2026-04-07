@@ -378,17 +378,17 @@ WHERE a.DocId = @DocId
 
         [HttpGet("BoardData")]
         public async Task<IActionResult> BoardData(
-            string tab = "created",
-            int page = 1,
-            int pageSize = 20,
-            string titleFilter = "all",
-            string sort = "created_desc",
-            string? q = null,
-            string approvalView = "all",
-            string approvalSub = "ongoing",
-            string createdSub = "ongoing",
-            string cooperationSub = "ongoing",
-            string sharedSub = "ongoing")
+    string tab = "created",
+    int page = 1,
+    int pageSize = 20,
+    string titleFilter = "all",
+    string sort = "created_desc",
+    string? q = null,
+    string approvalView = "all",
+    string approvalSub = "ongoing",
+    string createdSub = "ongoing",
+    string cooperationSub = "ongoing",
+    string sharedSub = "ongoing")
         {
             if (page < 1) page = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 20;
@@ -430,11 +430,52 @@ WHERE a.DocId = @DocId
 OUTER APPLY(
     SELECT
         COUNT(1) AS TotalSteps,
-        SUM(CASE WHEN (ISNULL(da.Action,N'')=N'Approved' OR ISNULL(da.Status,N'')=N'Approved') THEN 1 ELSE 0 END) AS DoneSteps,
-        MAX(CASE WHEN (ISNULL(da.Action,N'')=N'Rejected' OR ISNULL(da.Status,N'') LIKE N'Rejected%') THEN 1 ELSE 0 END) AS HasRejected
+        SUM(CASE WHEN ISNULL(da.Action,N'') = N'approve' OR ISNULL(da.Status,N'') = N'Approved' THEN 1 ELSE 0 END) AS DoneSteps,
+        MAX(CASE WHEN ISNULL(da.Action,N'') = N'reject'  OR ISNULL(da.Status,N'') LIKE N'Rejected%' THEN 1 ELSE 0 END) AS HasRejected
     FROM DocumentApprovals da
     WHERE da.DocId = d.DocId
 ) stepAgg";
+
+            const string outerApplyCoopAgg = @"
+OUTER APPLY(
+    SELECT
+        COUNT(1) AS CoopTotal,
+        (
+            SELECT STRING_AGG(TRY_CONVERT(int, SUBSTRING(cc4.RoleKey, 2, 10)), ',')
+            FROM DocumentCooperations cc4
+            WHERE cc4.DocId = d.DocId
+              AND ISNULL(cc4.Status, N'') <> N'Recalled'
+              AND ISNULL(cc4.Action, N'') <> N'Recalled'
+              AND (
+                  ISNULL(cc4.Status, N'') = N'Cooperated'
+                  OR ISNULL(cc4.Action, N'') = N'Cooperate'
+              )
+        ) AS CoopDoneKeys,
+        (
+            SELECT TOP(1) COALESCE(upCo.DisplayName, N'')
+            FROM DocumentCooperations cc3
+            LEFT JOIN UserProfiles upCo ON upCo.UserId = cc3.UserId
+            WHERE cc3.DocId = d.DocId
+              AND ISNULL(cc3.Status, N'') NOT IN (N'Cooperated', N'Recalled')
+              AND ISNULL(cc3.Action, N'') NOT IN (N'Cooperate', N'Recalled')
+            ORDER BY cc3.RoleKey ASC
+        ) AS CoopPendingName,
+        (
+            SELECT TOP(1) COALESCE(pmCoLoc.Name, pmCo.Name, N'')
+            FROM DocumentCooperations cc3
+            LEFT JOIN UserProfiles upCo ON upCo.UserId = cc3.UserId
+            LEFT JOIN PositionMasters pmCo ON pmCo.CompCd = upCo.CompCd AND pmCo.Id = upCo.PositionId
+            LEFT JOIN PositionMasterLoc pmCoLoc ON pmCoLoc.PositionId = pmCo.Id AND pmCoLoc.LangCode = @LangCode
+            WHERE cc3.DocId = d.DocId
+              AND ISNULL(cc3.Status, N'') NOT IN (N'Cooperated', N'Recalled')
+              AND ISNULL(cc3.Action, N'') NOT IN (N'Cooperate', N'Recalled')
+            ORDER BY cc3.RoleKey ASC
+        ) AS CoopPendingPosition
+    FROM DocumentCooperations cc2
+    WHERE cc2.DocId = d.DocId
+      AND ISNULL(cc2.Status, N'') <> N'Recalled'
+      AND ISNULL(cc2.Action, N'') <> N'Recalled'
+) coopAgg";
 
             string whereCreatedSub = "";
             {
@@ -465,7 +506,7 @@ OUTER APPLY(
                 {
                     whereSharedSub = @"
  AND (
-        ISNULL(d.Status, N'') LIKE N'Approved%' 
+        ISNULL(d.Status, N'') LIKE N'Approved%'
      OR ISNULL(d.Status, N'') LIKE N'Rejected%'
      OR ISNULL(stepAgg.HasRejected, 0) = 1
      OR (ISNULL(stepAgg.TotalSteps, 0) > 0 AND ISNULL(stepAgg.DoneSteps, 0) >= ISNULL(stepAgg.TotalSteps, 0))
@@ -475,7 +516,7 @@ OUTER APPLY(
                 {
                     whereSharedSub = @"
  AND NOT (
-        ISNULL(d.Status, N'') LIKE N'Approved%' 
+        ISNULL(d.Status, N'') LIKE N'Approved%'
      OR ISNULL(d.Status, N'') LIKE N'Rejected%'
      OR ISNULL(stepAgg.HasRejected, 0) = 1
      OR (ISNULL(stepAgg.TotalSteps, 0) > 0 AND ISNULL(stepAgg.DoneSteps, 0) >= ISNULL(stepAgg.TotalSteps, 0))
@@ -530,7 +571,7 @@ OUTER APPLY(
                 FROM DocumentApprovals daR
                 LEFT JOIN UserProfiles upR ON upR.UserId = daR.UserId
                 WHERE daR.DocId = d.DocId
-                  AND (ISNULL(daR.Action, N'') = N'Rejected' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
+                  AND (ISNULL(daR.Action, N'') = N'reject' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
                 ORDER BY ISNULL(daR.ActedAt, '1900-01-01') DESC, ISNULL(daR.StepOrder, 0) DESC
             )
             WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN(
@@ -538,7 +579,7 @@ OUTER APPLY(
                 FROM DocumentApprovals daH
                 LEFT JOIN UserProfiles upH ON upH.UserId = daH.UserId
                 WHERE daH.DocId = d.DocId
-                  AND (ISNULL(daH.Action, N'') = N'OnHold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%')
+                  AND (ISNULL(daH.Action, N'') = N'hold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%' OR ISNULL(daH.Status, N'') LIKE N'PendingHold%')
                 ORDER BY ISNULL(daH.ActedAt, '1900-01-01') DESC, ISNULL(daH.StepOrder, 0) DESC
             )
             WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN(
@@ -546,7 +587,7 @@ OUTER APPLY(
                 FROM DocumentApprovals daA
                 LEFT JOIN UserProfiles upA ON upA.UserId = daA.UserId
                 WHERE daA.DocId = d.DocId
-                  AND (ISNULL(daA.Action, N'') = N'Approved' OR ISNULL(daA.Status, N'') = N'Approved')
+                  AND (ISNULL(daA.Action, N'') = N'approve' OR ISNULL(daA.Status, N'') = N'Approved')
                 ORDER BY ISNULL(daA.ActedAt, '1900-01-01') DESC, ISNULL(daA.StepOrder, 0) DESC
             )
             ELSE N''
@@ -592,7 +633,7 @@ OUTER APPLY(
                 LEFT JOIN PositionMasters pmR ON pmR.CompCd = upR.CompCd AND pmR.Id = upR.PositionId
                 LEFT JOIN PositionMasterLoc pmRLoc ON pmRLoc.PositionId = pmR.Id AND pmRLoc.LangCode = @LangCode
                 WHERE daR.DocId = d.DocId
-                  AND (ISNULL(daR.Action, N'') = N'Rejected' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
+                  AND (ISNULL(daR.Action, N'') = N'reject' OR ISNULL(daR.Status, N'') LIKE N'Rejected%')
                 ORDER BY ISNULL(daR.ActedAt, '1900-01-01') DESC, ISNULL(daR.StepOrder, 0) DESC
             )
             WHEN ISNULL(d.Status, N'') LIKE N'OnHold%' THEN(
@@ -602,7 +643,7 @@ OUTER APPLY(
                 LEFT JOIN PositionMasters pmH ON pmH.CompCd = upH.CompCd AND pmH.Id = upH.PositionId
                 LEFT JOIN PositionMasterLoc pmHLoc ON pmHLoc.PositionId = pmH.Id AND pmHLoc.LangCode = @LangCode
                 WHERE daH.DocId = d.DocId
-                  AND (ISNULL(daH.Action, N'') = N'OnHold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%')
+                  AND (ISNULL(daH.Action, N'') = N'hold' OR ISNULL(daH.Status, N'') LIKE N'OnHold%' OR ISNULL(daH.Status, N'') LIKE N'PendingHold%')
                 ORDER BY ISNULL(daH.ActedAt, '1900-01-01') DESC, ISNULL(daH.StepOrder, 0) DESC
             )
             WHEN ISNULL(d.Status, N'') LIKE N'Approved%' THEN(
@@ -612,7 +653,7 @@ OUTER APPLY(
                 LEFT JOIN PositionMasters pmA ON pmA.CompCd = upA.CompCd AND pmA.Id = upA.PositionId
                 LEFT JOIN PositionMasterLoc pmALoc ON pmALoc.PositionId = pmA.Id AND pmALoc.LangCode = @LangCode
                 WHERE daA.DocId = d.DocId
-                  AND (ISNULL(daA.Action, N'') = N'Approved' OR ISNULL(daA.Status, N'') = N'Approved')
+                  AND (ISNULL(daA.Action, N'') = N'approve' OR ISNULL(daA.Status, N'') = N'Approved')
                 ORDER BY ISNULL(daA.ActedAt, '1900-01-01') DESC, ISNULL(daA.StepOrder, 0) DESC
             )
             ELSE N''
@@ -630,6 +671,13 @@ OUTER APPLY(
     WHERE v2.DocId = d.DocId
       AND v2.ViewerId = TRY_CONVERT(uniqueidentifier, @UserId)
 ) vAny";
+
+            // 협조 컬럼 SELECT 절 (4개 탭 공통)
+            const string coopSelectCols = @"
+    ISNULL(coopAgg.CoopTotal, 0)              AS CoopTotalSteps,
+    ISNULL(coopAgg.CoopDoneKeys, N'')         AS CoopDoneKeys,
+    ISNULL(coopAgg.CoopPendingName, N'')      AS CoopPendingName,
+    ISNULL(coopAgg.CoopPendingPosition, N'')  AS CoopPendingPosition,";
 
             string sqlCount;
             string sqlList;
@@ -657,11 +705,13 @@ SELECT
     ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+" + coopSelectCols + @"
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM Documents d
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyResultActor + @"
+" + outerApplyCoopAgg + @"
 " + outerApplyIsReadAny + @"
 WHERE d.CreatedBy = @UserId" + whereCreatedSub + whereSearch + whereTitleFilter + $@"
 {orderBy}
@@ -679,13 +729,9 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
                 string whereApprovalSub = "";
                 var sub = (approvalSub ?? string.Empty).Trim().ToLowerInvariant();
                 if (sub == "completed")
-                {
                     whereApprovalSub = " AND (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%') ";
-                }
                 else if (sub == "ongoing")
-                {
                     whereApprovalSub = " AND NOT (ISNULL(d.Status, N'') LIKE N'Approved%' OR ISNULL(d.Status, N'') LIKE N'Rejected%') ";
-                }
 
                 const string whereRecalledFilter = @"
   AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%'
@@ -702,7 +748,7 @@ SELECT
     d.DocId,
     d.TemplateTitle,
     d.CreatedAt,
-    CASE WHEN ISNULL(a.Action, N'') <> N'' THEN a.Action ELSE ISNULL(d.Status, N'') END AS Status,
+    ISNULL(d.Status, N'') AS Status,
     CASE
         WHEN (ISNULL(a.Action, N'') = N'OnHold' OR ISNULL(a.Status, N'') LIKE N'OnHold%') THEN N'Pending'
         WHEN (
@@ -725,15 +771,17 @@ SELECT
     (SELECT COUNT(1) FROM DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
     CAST(0 AS bit) AS HasAttachment,
     (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId) AS TotalSteps,
-    (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId AND (ISNULL(da.Action, N'') = N'Approved' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
+    (SELECT COUNT(1) FROM DocumentApprovals da WHERE da.DocId = d.DocId AND (ISNULL(da.Action, N'') = N'approve' OR ISNULL(da.Status, N'') = N'Approved')) AS CompletedSteps,
     ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+" + coopSelectCols + @"
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM DocumentApprovals a
 JOIN Documents d ON a.DocId = d.DocId
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyResultActor + @"
+" + outerApplyCoopAgg + @"
 " + outerApplyIsReadAny + @"
 WHERE a.UserId = @UserId" + whereRecalledFilter + whereApprovalSub + whereApprovalView + whereSearch + whereTitleFilter + $@"
 {orderBy}
@@ -776,17 +824,19 @@ SELECT
     ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+" + coopSelectCols + @"
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 " + cooperationBase + @"
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyResultActor + @"
+" + outerApplyCoopAgg + @"
 " + outerApplyIsReadAny + @"
 " + whereCooperationRecalledFilter + whereCooperationSub + whereSearch + whereTitleFilter + $@"
 {orderBy}
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
             }
-            else
+            else // shared
             {
                 const string whereShareActive = @"
  AND ISNULL(s.IsRevoked, 0) = 0
@@ -828,12 +878,14 @@ SELECT
     ISNULL(rs.ResultVerbKey, N'') AS ResultVerbKey,
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
+" + coopSelectCols + @"
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM DocumentShares s
 JOIN Documents d ON s.DocId = d.DocId
 LEFT JOIN UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyResultActor + @"
+" + outerApplyCoopAgg + @"
 " + outerApplyIsReadAny + @"
 WHERE s.UserId = @UserId" + whereShareActive + whereSharedSub + whereSharedReadList + whereSearch + whereTitleFilter + $@"
 {orderBy}
@@ -860,6 +912,15 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
 
                 if (string.IsNullOrWhiteSpace(actorName) && string.IsNullOrWhiteSpace(actorPos))
                     return string.Empty;
+
+                // Pending / OnHold — 대기자 이름+직급만 반환 (동사 문장 제외)
+                var vk = (verbKey ?? string.Empty).Trim();
+                if (vk == "Pending" || vk == "OnHold")
+                {
+                    if (!string.IsNullOrWhiteSpace(actorName) && !string.IsNullOrWhiteSpace(actorPos))
+                        return actorName + " " + actorPos;
+                    return !string.IsNullOrWhiteSpace(actorName) ? actorName : actorPos;
+                }
 
                 var key = TemplateKey(verbKey);
                 var fmt = _S[key].Value;
@@ -910,13 +971,9 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
 
                     var rawStatusCode = rawStatus;
                     if (ordStatusCode >= 0 && rdr[ordStatusCode] != DBNull.Value)
-                    {
                         rawStatusCode = rdr[ordStatusCode]?.ToString() ?? string.Empty;
-                    }
                     if (string.IsNullOrWhiteSpace(rawStatusCode))
-                    {
                         rawStatusCode = rawStatus;
-                    }
 
                     var totalSteps = rdr["TotalSteps"] is int ts ? ts : Convert.ToInt32(rdr["TotalSteps"]);
                     var completedSteps = rdr["CompletedSteps"] is int cs2 ? cs2 : Convert.ToInt32(rdr["CompletedSteps"]);
@@ -936,6 +993,12 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
                         else isRead = Convert.ToInt32(v) == 1;
                     }
 
+                    // 협조 필드
+                    var coopTotal = rdr["CoopTotalSteps"] is int ct ? ct : Convert.ToInt32(rdr["CoopTotalSteps"]);
+                    var coopPendName = rdr["CoopPendingName"]?.ToString() ?? string.Empty;
+                    var coopPendPos = rdr["CoopPendingPosition"]?.ToString() ?? string.Empty;
+                    var coopDoneKeys = rdr["CoopDoneKeys"]?.ToString() ?? string.Empty;
+
                     items.Add(new
                     {
                         docId = rdr["DocId"]?.ToString() ?? string.Empty,
@@ -949,13 +1012,18 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY; ";
                         commentCount = commentCount,
                         hasAttachment = Convert.ToInt32(rdr["HasAttachment"]) == 1,
                         resultSummary = resultSummary,
-                        isRead = isRead
+                        isRead = isRead,
+                        coopTotalSteps = coopTotal,
+                        coopDoneKeys = coopDoneKeys,
+                        coopPendingName = coopPendName,
+                        coopPendingPosition = coopPendPos
                     });
                 }
             }
 
             return Json(new { total, page, pageSize, items });
         }
+
 
         [HttpGet("BoardBadges")]
         public async Task<IActionResult> BoardBadges()
@@ -986,10 +1054,11 @@ FROM (
     WHERE c.UserId = @UserId
       AND ISNULL(c.Status, N'') NOT LIKE N'Recalled%'
       AND NOT (
-            ISNULL(d.Status, N'') LIKE N'Approved%'
-         OR ISNULL(d.Status, N'') LIKE N'Rejected%'
-         OR ISNULL(d.Status, N'') LIKE N'Recalled%'
-         OR ISNULL(d.Status, N'') LIKE N'Recall%'
+            ISNULL(c.Status, N'') LIKE N'Approved%'
+         OR ISNULL(c.Status, N'') LIKE N'Rejected%'
+         OR ISNULL(c.Status, N'') LIKE N'Recalled%'
+         OR ISNULL(c.Status, N'') LIKE N'Recall%'
+         OR ISNULL(c.Status, N'') LIKE N'Cooperated%'
       )
 ) x;";
 

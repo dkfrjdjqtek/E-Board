@@ -151,6 +151,13 @@ else
             pointer-events: auto;
         }
 
+        #dxSheet .dxss-tab-container {
+            display: none !important;
+        }
+
+        #dxSheet .dxss-tab-panel {
+            padding-bottom: 0 !important;
+        }
             #dxSheet .doc-dx-tab-actions .btn {
                 white-space: nowrap;
             }
@@ -1422,6 +1429,56 @@ else
             }
         }
 
+        function resetToA1() {
+            const host = document.getElementById('dxSheet');
+            if (!host) return;
+
+            const inst = getDxInstance();
+
+            // A1 선택
+            try {
+                if (inst) {
+                    if (typeof inst.SetSelection === 'function') inst.SetSelection(0, 0, 0, 0);
+                    else if (typeof inst.setSelection === 'function') inst.setSelection(0, 0, 0, 0);
+                }
+            } catch { }
+
+            // MutationObserver로 DX 캔버스 DOM이 안정된 시점에 스크롤 리셋
+            const scrollReset = function () {
+                try {
+                    host.querySelectorAll('[class*="scroll"]').forEach(function (el) {
+                        try { el.scrollTop = 0; el.scrollLeft = 0; } catch { }
+                    });
+                    host.scrollTop = 0;
+                    host.scrollLeft = 0;
+                    const docScroll = document.getElementById('doc-scroll');
+                    if (docScroll) { docScroll.scrollTop = 0; docScroll.scrollLeft = 0; }
+                } catch { }
+            };
+
+            let quietTimer = null;
+            const observer = new MutationObserver(function () {
+                clearTimeout(quietTimer);
+                quietTimer = setTimeout(function () {
+                    observer.disconnect();
+                    scrollReset();
+                }, 150);
+            });
+
+            observer.observe(host, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+
+            // 안전장치
+            setTimeout(function () {
+                observer.disconnect();
+                scrollReset();
+            }, 3000);
+        }
+
         function hookDxEventsWhenReady() {
             let tried = 0;
             const maxTry = 240;
@@ -1435,6 +1492,38 @@ else
                 if (inst) {
                     bindDxStateEvents(inst);
 
+                    // ── A1 강제 이동 (최초 1회) - DocumentLoaded 이벤트 우선, fallback은 endSynchronization
+                    if (!inst.__docTlA1Moved) {
+                        inst.__docTlA1Moved = true;
+
+                        let movedByEvent = false;
+
+                        // 방법1: DocumentLoaded 이벤트
+                        try {
+                            if (inst.DocumentLoaded && typeof inst.DocumentLoaded.AddHandler === 'function') {
+                                inst.DocumentLoaded.AddHandler(function () {
+                                    movedByEvent = true;
+                                    resetToA1();
+                                });
+                            }
+                        } catch { }
+
+                        // 방법2: endSynchronization - 동기화 끝나는 시점 (최초 1회만)
+                        try {
+                            if (inst.endSynchronization && typeof inst.endSynchronization.AddHandler === 'function') {
+                                let syncFired = false;
+                                inst.endSynchronization.AddHandler(function () {
+                                    if (syncFired || movedByEvent) return;
+                                    if (state.dxSyncDepth === 0) {
+                                        syncFired = true;
+                                        resetToA1();
+                                    }
+                                });
+                            }
+                        } catch { }
+                    }
+
+                    // ── SelectionChanged 바인딩
                     try {
                         if (inst.SelectionChanged && typeof inst.SelectionChanged.AddHandler === 'function' && !inst.__docTlSelChangedBound) {
                             inst.__docTlSelChangedBound = true;

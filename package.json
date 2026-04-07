@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "devexpress-aspnetcore-spreadsheet": "^25.2.4"
+    "devexpress-aspnetcore-spreadsheet": "^25.2.4",
+    "devextreme": "^25.2.4"
   }
 }

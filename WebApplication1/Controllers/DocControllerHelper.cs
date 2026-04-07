@@ -224,8 +224,12 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
         // ============================================================
         public static string BuildPreviewJsonFromExcel(string excelPath, int maxRows = 500, int maxCols = 100, Microsoft.Extensions.Logging.ILogger? log = null)
         {
+            log?.LogInformation("BuildPreviewJsonFromExcel called. path={Path} exists={Exists}", excelPath, System.IO.File.Exists(excelPath));
             if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
+            {
+                log?.LogWarning("BuildPreviewJsonFromExcel early return. path={Path}", excelPath);
                 return "{}";
+            }
             try
             {
                 using var wb = new XLWorkbook(excelPath);
@@ -238,15 +242,15 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
                 double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
 
-                // ★ 실제 사용 행/열 계산 (빈 셀 제외, 병합 포함)
                 int actualMaxC = 1;
                 int actualMaxR = 1;
-                foreach (var row in ws.RowsUsed(XLCellsUsedOptions.AllContents))
-                {
+                //foreach (var row in ws.RowsUsed(XLCellsUsedOptions.AllContents))
+                    foreach (var row in ws.RowsUsed(XLCellsUsedOptions.All))
+                    {
                     var rowNum = row.RowNumber();
                     if (rowNum > actualMaxR) actualMaxR = rowNum;
-
-                    var last = row.LastCellUsed(XLCellsUsedOptions.AllContents);
+                    //var last = row.LastCellUsed(XLCellsUsedOptions.AllContents);
+                    var last = row.LastCellUsed(XLCellsUsedOptions.All);
                     if (last != null && last.Address.ColumnNumber > actualMaxC)
                         actualMaxC = last.Address.ColumnNumber;
                 }
@@ -255,13 +259,12 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     var lastR = mr.RangeAddress.LastAddress.RowNumber;
                     var lastC = mr.RangeAddress.LastAddress.ColumnNumber;
                     if (lastR > actualMaxR) actualMaxR = lastR;
-                    if (lastC > actualMaxC) actualMaxC = lastC;
+                    if (lastC > actualMaxC) actualMaxC = lastC; // 
+                    // ★ lastC로 actualMaxC 확장 제거
                 }
-                // maxRows/maxCols는 안전 상한으로만 사용
                 actualMaxR = Math.Min(actualMaxR, maxRows);
-                actualMaxC = Math.Min(actualMaxC, maxCols);
+                actualMaxC = Math.Min(actualMaxC , maxCols);
 
-                // cells: actualMaxR x actualMaxC 만큼만 생성
                 for (int r = 1; r <= actualMaxR; r++)
                 {
                     var row = new List<string>(actualMaxC);
@@ -270,7 +273,6 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     cells.Add(row);
                 }
 
-                // merges: actualMaxR/actualMaxC 범위로 클리핑
                 foreach (var mr in ws.MergedRanges)
                 {
                     var a = mr.RangeAddress;
@@ -278,29 +280,15 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     int r2 = Math.Min(a.LastAddress.RowNumber, actualMaxR);
                     int c2 = Math.Min(a.LastAddress.ColumnNumber, actualMaxC);
                     if (r1 > r2 || c1 > c2) continue;
-
-                    // ★ 시작 셀에 내용 또는 테두리가 있는 경우만 포함
-                    var firstCell = ws.Cell(r1, c1);
-                    var hasContent = !string.IsNullOrWhiteSpace(firstCell.GetFormattedString());
-                    var st = firstCell.Style.Border;
-                    var hasBorder = st.LeftBorder != XLBorderStyleValues.None
-                                 || st.RightBorder != XLBorderStyleValues.None
-                                 || st.TopBorder != XLBorderStyleValues.None
-                                 || st.BottomBorder != XLBorderStyleValues.None;
-
-                    if (hasContent || hasBorder)
-                        merges.Add(new[] { r1, c1, r2, c2 });
+                    merges.Add(new[] { r1, c1, r2, c2 });
                 }
 
-                // colW: actualMaxC 열까지만
                 for (int c = 1; c <= actualMaxC; c++)
                     colW.Add(ws.Column(c).Width <= 0 ? defaultColChar : ws.Column(c).Width);
 
-                // rowH: actualMaxR 행까지만
                 for (int r = 1; r <= actualMaxR; r++)
                     rowH.Add(ws.Row(r).Height <= 0 ? defaultRowPt : ws.Row(r).Height);
 
-                // styles: actualMaxR x actualMaxC 만큼만 생성
                 for (int r = 1; r <= actualMaxR; r++)
                 {
                     for (int c = 1; c <= actualMaxC; c++)
@@ -334,15 +322,22 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                         };
                     }
                 }
+                var colPx = new List<double>(maxCols);
+                for (int c = 1; c <= actualMaxC; c++)
+                {
+                    var w = ws.Column(c).Width <= 0 ? defaultColChar : ws.Column(c).Width;
+                    colPx.Add(Math.Round(w * 7 + 5));
+                }
 
                 return JsonSerializer.Serialize(new
                 {
                     sheet = ws.Name,
-                    rows = actualMaxR,   // ★ 실제 행 수
-                    cols = actualMaxC,   // ★ 실제 열 수
+                    rows = actualMaxR,
+                    cols = actualMaxC,
                     cells,
                     merges,
                     colW,
+                    colPx, // ★ 추가
                     rowH,
                     styles
                 });
@@ -689,7 +684,7 @@ ORDER BY a.Id;";
         }
 
         // Push 알림 공유용
-        public static async Task SendSharedUnreadBadgeAsync( IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string url = "/", string tag = "badge-shared")
+        public static async Task SendSharedUnreadBadgeAsync(IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string url = "/", string tag = "badge-shared")
         {
             if (notifier == null) throw new ArgumentNullException(nameof(notifier));
             if (conn == null) throw new ArgumentNullException(nameof(conn));
@@ -736,6 +731,49 @@ WHERE s.UserId = @UserId
   AND ISNULL(s.IsRevoked, 0) = 0
   AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
   AND ISNULL(s.IsRead, 0) = 0;";
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+
+        public static async Task SendCooperationPendingBadgeAsync(IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string docId, string url = "/", string tag = "badge-cooperation-pending")
+        {
+            if (notifier == null) throw new ArgumentNullException(nameof(notifier));
+            if (conn == null) throw new ArgumentNullException(nameof(conn));
+            if (targetUserIds == null) return;
+
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync();
+
+            var titleText = (S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
+            var bodyTpl = (S?["PUSH_CooperationPending"] ?? "PUSH_CooperationPending").ToString();
+
+            foreach (var uid in targetUserIds
+                         .Where(x => !string.IsNullOrWhiteSpace(x))
+                         .Select(x => x.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var n = await GetCooperationPendingCountAsync(conn, uid);
+
+                await notifier.SendToUserIdAsync(
+                    userId: uid,
+                    title: titleText,
+                    body: string.Format(CultureInfo.CurrentCulture, bodyTpl, n),
+                    url: url.Contains("{docId}") ? url.Replace("{docId}", Uri.EscapeDataString(docId)) : url,
+                    tag: tag
+                );
+            }
+        }
+
+        private static async Task<int> GetCooperationPendingCountAsync(SqlConnection conn, string targetUserId)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations c
+JOIN dbo.Documents d ON d.DocId = c.DocId
+WHERE c.UserId = @UserId
+  AND ISNULL(c.Status, N'Pending') = N'Pending'
+  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
             cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }

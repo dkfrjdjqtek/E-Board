@@ -23,6 +23,22 @@
     var dxCallbackUrl = (string?)ViewBag.DxCallbackUrl ?? "/Doc/dx-callback";
     var dxDocumentId = (string?)ViewBag.DxDocumentId ?? ("compose_" + Guid.NewGuid().ToString("N"));
 
+    var dxTargetHeightPx = (ViewBag.TargetHeightPx is int) ? (int)ViewBag.TargetHeightPx : 900;
+    var dxTargetWidthPx = (ViewBag.TargetWidthPx is int) ? (int)ViewBag.TargetWidthPx : 900;
+    var dxLastRow = (ViewBag.LastRow is int) ? (int)ViewBag.LastRow : 0;
+    var dxLastCol = (ViewBag.LastCol is int) ? (int)ViewBag.LastCol : 0;
+    var dxLastA1 = (string?)ViewBag.LastA1 ?? "A1";
+    var dxTargetA1 = (string?)ViewBag.TargetA1 ?? dxLastA1;
+    var dxTargetRow1 = (ViewBag.TargetRow1 is int) ? (int)ViewBag.TargetRow1 : 1;
+    var dxTargetCol1 = (ViewBag.TargetCol1 is int) ? (int)ViewBag.TargetCol1 : 1;
+    var dxVisualMode = (string?)ViewBag.DxVisualMode ?? string.Empty;
+
+    var __padH = Math.Max(24, Math.Min(72, (int)Math.Ceiling(dxTargetHeightPx * 0.02)));
+    var __padW = Math.Max(24, Math.Min(72, (int)Math.Ceiling(dxTargetWidthPx * 0.02)));
+
+    var dxTargetHeightSafePx = dxTargetHeightPx + __padH;
+    var dxTargetWidthSafePx = dxTargetWidthPx + __padW;
+
     var openRel = excelPath;
     try
     {
@@ -103,7 +119,7 @@ else
         overscroll-behavior: contain !important;
         box-sizing: border-box !important;
         background: #fff !important;
-        z-index: 10000 !important;
+        z-index: 100 !important;
         padding: 16px 24px 24px 16px !important;
         opacity: 0;
         transition: opacity 0.2s ease;
@@ -181,6 +197,10 @@ else
     #dxComposeWrap [id$="_Grid"],
     #dxComposeWrap #dxComposeSheet_ScrollContainer,
     #dxComposeWrap [id$="_ScrollContainer"] {
+        left: 0 !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
         margin: 0 !important;
         border: 0 !important;
         outline: 0 !important;
@@ -233,13 +253,17 @@ else
     #dxComposeWrap [id$="_ColumnHeader"],
     #dxComposeWrap [id$="_RowHeader"],
     #dxComposeWrap [id$="_SSB"] {
-        visibility: hidden !important;
-        pointer-events: none !important;
-        opacity: 0 !important;
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        max-width: 0 !important;
+        max-height: 0 !important;
         overflow: hidden !important;
+        border: 0 !important;
         background: transparent !important;
         box-shadow: none !important;
-        border-color: transparent !important;
     }
 
     #dxComposeWrap #dxComposeSheet_ScrollContainer,
@@ -327,45 +351,57 @@ else
         <input type="hidden" id="dx-excel-path" value="@excelPath" />
         <input type="hidden" id="dx-doc-id" value="@dxDocumentId" />
 
-        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
-        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
+        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson.Replace("</", "<\\/"))</script>
+        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson.Replace("</", "<\\/"))</script>
 
         <script>
             window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
                 {
-                            DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
-                            DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
-                            DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
-                            DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
-                            DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
-                            DOC_Submit_Button = S["DOC_Submit_Button"].Value,
-                            DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
-                            ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
-                            ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
-                            ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
-                            ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
-                            ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
-                            DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
-                            DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
-                            DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
-                            DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
-                            _CM_Select = S["_CM_Select"].Value,
-                            _CM_Delete = S["_CM_Delete"].Value,
-                            _CM_Open = S["_CM_Open"].Value,
-                            _CM_Save = S["_CM_Save"].Value,
-                            _CM_Error = S["_CM_Error"].Value,
-                            DTL_Type_Text = S["DTL_Type_Text"].Value,
-                            DTL_Type_Date = S["DTL_Type_Date"].Value,
-                            DTL_Type_Num = S["DTL_Type_Num"].Value
+                                DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+                                DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+                                DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
+                                DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
+                                DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+                                DOC_Submit_Button = S["DOC_Submit_Button"].Value,
+                                DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
+                                ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
+                                ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
+                                ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
+                                ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
+                                ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
+                                DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
+                                DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
+                                DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
+                                DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
+                                _CM_Select = S["_CM_Select"].Value,
+                                _CM_Delete = S["_CM_Delete"].Value,
+                                _CM_Open = S["_CM_Open"].Value,
+                                _CM_Save = S["_CM_Save"].Value,
+                                _CM_Error = S["_CM_Error"].Value,
+                                DTL_Type_Text = S["DTL_Type_Text"].Value,
+                                DTL_Type_Date = S["DTL_Type_Date"].Value,
+                                DTL_Type_Num = S["DTL_Type_Num"].Value
                 }));
             window.__tplFromServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(templateCode ?? string.Empty));
             window.__dxOpenRel = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(openRel ?? string.Empty));
             window.__dxCallbackUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
             window.__dxExcelAbsPath = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(excelPath ?? string.Empty));
             window.__dxDocumentId = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxDocumentId ?? string.Empty));
+            window.__dxTargetHeightPx = @dxTargetHeightPx;
+            window.__dxTargetWidthPx = @dxTargetWidthPx;
+            window.__dxTargetHeightSafePx = @dxTargetHeightSafePx;
+            window.__dxTargetWidthSafePx = @dxTargetWidthSafePx;
+            window.__dxLastRow = @dxLastRow;
+            window.__dxLastCol = @dxLastCol;
+            window.__dxLastA1 = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxLastA1));
+            window.__dxTargetA1 = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxTargetA1));
+            window.__dxTargetRow1 = @dxTargetRow1;
+            window.__dxTargetCol1 = @dxTargetCol1;
+            window.__dxVisualMode = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxVisualMode));
         </script>
 
-        <div id="dxComposeWrap">
+        <div id="dxComposeWrap"
+             style="height:@(dxTargetHeightSafePx)px; min-height:@(dxTargetHeightSafePx)px; width:@(dxTargetWidthSafePx)px; min-width:@(dxTargetWidthSafePx)px; max-width:@(dxTargetWidthSafePx)px;">
             @{
                 Html.DevExpress().Spreadsheet("dxComposeSheet")
                 .Height("100%")
@@ -465,7 +501,20 @@ else
                 previewExtent: null,
                 dateDefaultsApplied: false,
                 dateBridgeBound: false,
-                lastDateAnchorEl: null
+                lastDateAnchorEl: null,
+                serverExtent: {
+                    width: Number(window.__dxTargetWidthPx || 0),
+                    height: Number(window.__dxTargetHeightPx || 0),
+                    safeWidth: Number(window.__dxTargetWidthSafePx || 0),
+                    safeHeight: Number(window.__dxTargetHeightSafePx || 0),
+                    lastRow: Number(window.__dxLastRow || 0),
+                    lastCol: Number(window.__dxLastCol || 0),
+                    lastA1: String(window.__dxLastA1 || 'A1'),
+                    targetA1: String(window.__dxTargetA1 || 'A1'),
+                    targetRow1: Number(window.__dxTargetRow1 || 1),
+                    targetCol1: Number(window.__dxTargetCol1 || 1),
+                    mode: String(window.__dxVisualMode || '')
+                }
             };
 
             // ──────────────────────────────────────────
@@ -565,6 +614,26 @@ else
                 }
             }
 
+            async function deleteDxTemp() {
+                const dxDocumentId = (window.__dxDocumentId || '').trim();
+                if (!dxDocumentId) return;
+                try {
+                    const csrf = await getCsrf();
+                    await fetch('/Doc/DeleteDxTemp', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            [csrf.headerName]: csrf.token
+                        },
+                        credentials: 'same-origin',
+                        keepalive: true,
+                        body: JSON.stringify({ dxDocumentId })
+                    });
+                } catch {
+                }
+            }
+
+
             // ──────────────────────────────────────────
             // A1 좌표 변환
             // ──────────────────────────────────────────
@@ -617,9 +686,9 @@ else
                 if (one) return [one];
                 const rg = tryParseRange(a1);
                 if (!rg) return [];
-                const left   = Math.min(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
-                const right  = Math.max(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
-                const top    = Math.min(rg.r1, rg.r2);
+                const left = Math.min(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
+                const right = Math.max(colLettersToNumber(rg.c1), colLettersToNumber(rg.c2));
+                const top = Math.min(rg.r1, rg.r2);
                 const bottom = Math.max(rg.r1, rg.r2);
                 const out = [];
                 for (let c = left; c <= right; c++)
@@ -629,7 +698,7 @@ else
             }
 
             // ──────────────────────────────────────────
-            // 크기/레이아웃 유틸
+            // 크기 레이아웃 유틸
             // ──────────────────────────────────────────
 
             function excelColWidthToPx(w) {
@@ -654,21 +723,39 @@ else
             }
 
             function computePreviewExtent(preview) {
+                const serverWidth = Number(state.serverExtent?.width || 0);
+                const serverHeight = Number(state.serverExtent?.height || 0);
+                const serverSafeWidth = Number(state.serverExtent?.safeWidth || 0);
+                const serverSafeHeight = Number(state.serverExtent?.safeHeight || 0);
+                const serverLastCol = Number(state.serverExtent?.lastCol || 0);
+
+                if (serverWidth > 0 && serverHeight > 0) {
+                    state._effectiveMaxC = Math.max(1, serverLastCol + 1);
+                    state._colSum = Math.max(0, serverWidth - 12);
+
+                    console.log('[DX] serverExtent mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1, 'width=', serverSafeWidth || serverWidth, 'height=', serverSafeHeight || serverHeight);
+
+                    return {
+                        width: serverSafeWidth > 0 ? serverSafeWidth : serverWidth,
+                        height: serverSafeHeight > 0 ? serverSafeHeight : serverHeight
+                    };
+                }
+
                 const p = preview || {};
                 const styles = p.styles || {};
                 const cells = Array.isArray(p.cells) ? p.cells : [];
                 const merges = Array.isArray(p.merges) ? p.merges : [];
                 const rowH = Array.isArray(p.rowH) ? p.rowH : [];
                 const colW = Array.isArray(p.colW) ? p.colW : [];
+                const colPx = Array.isArray(p.colPx) ? p.colPx : [];
+                const rowPx = Array.isArray(p.rowPx) ? p.rowPx : [];
 
                 let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
                 let contentMergeMaxC = 0;
-
                 function mark(r, c) {
                     minR = Math.min(minR, r); maxR = Math.max(maxR, r);
                     minC = Math.min(minC, c); maxC = Math.max(maxC, c);
                 }
-
                 for (let r = 1; r <= cells.length; r++) {
                     const row = Array.isArray(cells[r - 1]) ? cells[r - 1] : [];
                     for (let c = 1; c <= row.length; c++) {
@@ -679,7 +766,6 @@ else
                         }
                     }
                 }
-
                 for (const m of merges) {
                     if (!Array.isArray(m) || m.length < 4) continue;
                     const r1 = parseInt(m[0], 10) || 0, c1 = parseInt(m[1], 10) || 0;
@@ -688,7 +774,6 @@ else
                     if (r2 > 0 && c2 > 0) mark(r2, c2);
                     if (c2 > contentMergeMaxC) contentMergeMaxC = c2;
                 }
-
                 if (contentMergeMaxC > 0) {
                     for (let r = 1; r <= cells.length; r++) {
                         for (let c = 1; c <= contentMergeMaxC; c++) {
@@ -703,33 +788,40 @@ else
                     }
                 }
 
+                const contentMaxR = isFinite(maxR) ? maxR : (p.rows || 1);
                 if (!isFinite(minR) || !isFinite(minC)) {
                     minR = 1; maxR = Math.max(1, p.rows || 1);
                     minC = 1; maxC = Math.max(1, p.cols || 1);
+                } else {
+                    maxR = Math.max(maxR, p.rows || maxR);
                 }
 
                 const maxColsFromCells = Math.max(...cells.map(r => Array.isArray(r) ? r.length : 0), 1);
                 maxC = Math.min(Math.max(maxC, 1), maxColsFromCells);
-                const effectiveMaxC = Math.min(Math.max(contentMergeMaxC || maxC || 1, 1), maxColsFromCells);
+                const effectiveMaxC = contentMergeMaxC || maxC || 1;
                 minC = Math.max(minC, 1);
-
                 state._effectiveMaxC = effectiveMaxC;
 
                 let colSum = 0;
-                for (let c = minC; c <= effectiveMaxC; c++) {
-                    colSum += Math.floor((Number(colW[c - 1] ?? 8.43) * 7 + 5) / 7) * 7 + 2;
+                for (let c = 1; c <= effectiveMaxC; c++) {
+                    if (colPx[c - 1] > 0) {
+                        colSum += colPx[c - 1];
+                    } else {
+                        colSum += Math.round(Number(colW[c - 1] ?? 8.43) * 7 + 5);
+                    }
                 }
                 state._colSum = colSum;
 
                 let height = 0;
                 for (let r = minR; r <= maxR; r++) {
-                    height += ((Number(rowH[r - 1]) || 0) * 96 / 72);
+                    const px = rowPx[r - 1] > 0 ? rowPx[r - 1] : ((Number(rowH[r - 1]) || 0) * 96 / 72);
+                    height += (r <= contentMaxR) ? px : px * 0.5;
                 }
 
-                console.log(`[DX] contentMergeMaxC=${contentMergeMaxC}, effectiveMaxC=${effectiveMaxC}, colSum=${colSum}`);
+                console.log(`[DX] fallback contentMergeMaxC=${contentMergeMaxC}, effectiveMaxC=${effectiveMaxC}, colSum=${colSum}`);
 
                 return {
-                    width:  Math.max(600, Math.ceil(colSum + 30 + 16)),
+                    width: Math.max(600, Math.ceil(colSum + 30 + 16)),
                     height: Math.max(520, Math.ceil(height + Math.max(80, Math.min(200, Math.ceil(height * 0.05)))))
                 };
             }
@@ -739,14 +831,14 @@ else
             // ──────────────────────────────────────────
 
             function buildEditableMap(descriptor) {
-                const map     = new Map();
-                const byA1    = new Map();
+                const map = new Map();
+                const byA1 = new Map();
                 const dateSet = new Set();
 
                 for (const f of (Array.isArray(descriptor?.inputs) ? descriptor.inputs : [])) {
-                    const key  = String(f?.key  || '').trim();
+                    const key = String(f?.key || '').trim();
                     const type = String(f?.type || 'Text').trim() || 'Text';
-                    const a1   = String(f?.a1   || '').trim().toUpperCase();
+                    const a1 = String(f?.a1 || '').trim().toUpperCase();
                     if (!key || !a1) continue;
 
                     map.set(key, { key, type, a1 });
@@ -757,33 +849,31 @@ else
                     }
                 }
 
-                state.editableMap  = map;
+                state.editableMap = map;
                 state.editableByA1 = byA1;
-                state.dateA1Set    = dateSet;
+                state.dateA1Set = dateSet;
             }
 
             // ──────────────────────────────────────────
-            // DevExtreme 인스턴스 — 항상 최상위 window 기준
+            // DevExtreme 인스턴스
             // ──────────────────────────────────────────
 
             function getDxInstance() {
-                // ★ 핵심: iframe 내부에서 호출되어도 항상 top window 기준으로 탐색
                 const topWin = window.top || window;
                 try {
                     if (topWin.dxComposeSheet) return topWin.dxComposeSheet;
                     if (topWin.dxSpreadsheet) return topWin.dxSpreadsheet;
-                    if (topWin.dxSheet)       return topWin.dxSheet;
+                    if (topWin.dxSheet) return topWin.dxSheet;
                     if (topWin.DevExpress?.Spreadsheet?.getInstance) {
                         return topWin.DevExpress.Spreadsheet.getInstance('dxComposeSheet')
                             || topWin.DevExpress.Spreadsheet.getInstance('dxSpreadsheet')
                             || topWin.DevExpress.Spreadsheet.getInstance('dxSheet');
                     }
                 } catch { }
-                // 현재 window 폴백
                 try {
                     if (window.dxComposeSheet) return window.dxComposeSheet;
                     if (window.dxSpreadsheet) return window.dxSpreadsheet;
-                    if (window.dxSheet)       return window.dxSheet;
+                    if (window.dxSheet) return window.dxSheet;
                 } catch { }
                 return null;
             }
@@ -879,7 +969,7 @@ else
                 }
 
                 tryAdd('beginSynchronization', () => state.dxSyncDepth++);
-                tryAdd('endSynchronization',   () => {
+                tryAdd('endSynchronization', () => {
                     state.dxSyncDepth = Math.max(0, state.dxSyncDepth - 1);
                     if (state.dxSyncDepth === 0) state.dxDirtySinceLastSync = false;
                 });
@@ -888,7 +978,7 @@ else
 
                 tryAdd('CellBeginEdit', function (s, e) {
                     refreshActiveSelection(inst);
-                    const a1   = state.activeA1 || '';
+                    const a1 = state.activeA1 || '';
                     const meta = a1 ? state.editableByA1.get(a1) : null;
 
                     if (meta && String(meta.type || '').toLowerCase() === 'date') {
@@ -919,12 +1009,6 @@ else
                 });
             }
 
-            // ──────────────────────────────────────────
-            // ★ 키 차단 — iframe 내부에서도 동작하도록
-            //   getDxInstance()가 top window 기준으로 수정됐으므로
-            //   iframe keydown 핸들러에서도 inst/state 정상 접근 가능
-            // ──────────────────────────────────────────
-
             function installKeyBlocker(target) {
                 if (!target || target.__keyBlockerBound) return;
                 target.__keyBlockerBound = true;
@@ -934,22 +1018,19 @@ else
                     if ((e.ctrlKey || e.metaKey) && e.key === 'a') return;
 
                     const isDelete = e.key === 'Delete' || e.key === 'Backspace';
-                    const isCut    = (e.ctrlKey || e.metaKey) && e.key === 'x';
-                    const isUndo   = (e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y');
+                    const isCut = (e.ctrlKey || e.metaKey) && e.key === 'x';
+                    const isUndo = (e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y');
 
                     if (!isDelete && !isCut && !isUndo) return;
 
-                    // ★ 편집 중(셀 내부 커서)이면 무조건 DX에 맡김
                     if (state.dxEditing) return;
 
-                    // ★ 추가: activeElement가 실제 input/contenteditable 안에 있으면 편집 중으로 간주
                     const ae = document.activeElement
                             || (typeof target.activeElement !== 'undefined' ? target.activeElement : null);
                     if (ae) {
                         const tag = (ae.tagName || '').toLowerCase();
                         if (tag === 'input' || tag === 'textarea') return;
                         if (ae.getAttribute('contenteditable') === 'true') return;
-                        // iframe 내부 document의 activeElement 체크
                         try {
                             const itFrame = document.getElementById('dxComposeSheet_IT');
                             if (itFrame) {
@@ -960,7 +1041,6 @@ else
                                         const iTag = (iAe.tagName || '').toLowerCase();
                                         if (iTag === 'input' || iTag === 'textarea') return;
                                         if (iAe.getAttribute('contenteditable') === 'true') return;
-                                        // dxss-cell-editor 등 편집 관련 클래스
                                         if (iAe.closest && iAe.closest('.dxss-cell-editor, .dxss-input-bar, [class*="dxss-edit"]')) return;
                                     }
                                 }
@@ -984,9 +1064,9 @@ else
                         } catch { }
                         if (!sel) sel = state.activeSelection;
 
-                        const r1 = Number(sel?.topRowIndex    ?? sel?.activeCellRowIndex    ?? -1);
-                        const r2 = Number(sel?.bottomRowIndex ?? sel?.activeCellRowIndex    ?? -1);
-                        const c1 = Number(sel?.leftColumnIndex  ?? sel?.activeCellColumnIndex ?? -1);
+                        const r1 = Number(sel?.topRowIndex ?? sel?.activeCellRowIndex ?? -1);
+                        const r2 = Number(sel?.bottomRowIndex ?? sel?.activeCellRowIndex ?? -1);
+                        const c1 = Number(sel?.leftColumnIndex ?? sel?.activeCellColumnIndex ?? -1);
                         const c2 = Number(sel?.rightColumnIndex ?? sel?.activeCellColumnIndex ?? -1);
 
                         const isRangeSelection = (r2 - r1) > 0 || (c2 - c1) > 0;
@@ -1020,7 +1100,6 @@ else
                             return;
                         }
 
-                        // 단일 셀 모드
                         if (activeA1 && state.dateA1Set.has(activeA1)) {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1028,7 +1107,7 @@ else
                             return;
                         }
 
-                        if (activeA1 && state.editableByA1.has(activeA1)) return; // DX가 처리
+                        if (activeA1 && state.editableByA1.has(activeA1)) return;
                         if (!activeA1 && state.editableByA1.size > 0) return;
 
                         e.preventDefault();
@@ -1052,12 +1131,10 @@ else
                 const wrap = document.getElementById('dxComposeWrap');
                 const frame = document.getElementById('dxComposeSheet_IT');
 
-                // ── 렌더링 레이어를 GPU 합성 레이어로 분리
-                // ── 브라우저가 해당 레이어를 별도로 관리하여 리페인트 전파 차단
                 if (wrap) {
                     wrap.style.transform = 'translateZ(0)';
                     wrap.style.isolation = 'isolate';
-                    wrap.style.contain  = 'strict';
+                    wrap.style.contain = 'strict';
                 }
                 if (frame) {
                     frame.style.transform = 'translateZ(0)';
@@ -1070,7 +1147,7 @@ else
                         if (wrap) {
                             wrap.style.transform = '';
                             wrap.style.isolation = '';
-                            wrap.style.contain   = '';
+                            wrap.style.contain = '';
                         }
                         if (frame) {
                             frame.style.transform = '';
@@ -1079,41 +1156,40 @@ else
                 }
             }
 
-        function selectionContainsAnyEditable() {
-                    const inst = getDxInstance();
-            if (!inst) return false;
+            function selectionContainsAnyEditable() {
+                const inst = getDxInstance();
+                if (!inst) return false;
 
-            let sel = null;
-            try {
-                if (typeof inst.getSelection === 'function') sel = inst.getSelection();
-                else if (typeof inst.GetSelection === 'function') sel = inst.GetSelection();
-            } catch { }
-            if (!sel) sel = state.activeSelection;
-            if (!sel) return false;
+                let sel = null;
+                try {
+                    if (typeof inst.getSelection === 'function') sel = inst.getSelection();
+                    else if (typeof inst.GetSelection === 'function') sel = inst.GetSelection();
+                } catch { }
+                if (!sel) sel = state.activeSelection;
+                if (!sel) return false;
 
-            // ★ 실제 DX 프로퍼티명으로 수정
-            const r1 = Number(sel.topRowIndex    ?? sel.startRowIndex    ?? sel.activeCellRowIndex    ?? -1);
-            const r2 = Number(sel.bottomRowIndex ?? sel.endRowIndex      ?? sel.activeCellRowIndex    ?? -1);
-            const c1 = Number(sel.leftColumnIndex  ?? sel.startColumnIndex ?? sel.activeCellColumnIndex ?? -1);
-            const c2 = Number(sel.rightColumnIndex ?? sel.endColumnIndex   ?? sel.activeCellColumnIndex ?? -1);
+                const r1 = Number(sel.topRowIndex ?? sel.startRowIndex ?? sel.activeCellRowIndex ?? -1);
+                const r2 = Number(sel.bottomRowIndex ?? sel.endRowIndex ?? sel.activeCellRowIndex ?? -1);
+                const c1 = Number(sel.leftColumnIndex ?? sel.startColumnIndex ?? sel.activeCellColumnIndex ?? -1);
+                const c2 = Number(sel.rightColumnIndex ?? sel.endColumnIndex ?? sel.activeCellColumnIndex ?? -1);
 
-            if (r1 < 0 || c1 < 0) return state.editableByA1.size > 0;
+                if (r1 < 0 || c1 < 0) return state.editableByA1.size > 0;
 
-            // ★ 전체 시트 선택(Ctrl+A) 또는 대범위 → editableByA1 있으면 바로 통과
-            if ((r2 - r1) > 200 || (c2 - c1) > 200) {
-                return state.editableByA1.size > 0;
-            }
-
-            for (let r = r1; r <= r2; r++) {
-                for (let c = c1; c <= c2; c++) {
-                    const a1 = a1FromRowCol(r + 1, c + 1);
-                    if (state.editableByA1.has(a1) && !state.dateA1Set.has(a1)) return true;
+                if ((r2 - r1) > 200 || (c2 - c1) > 200) {
+                    return state.editableByA1.size > 0;
                 }
+
+                for (let r = r1; r <= r2; r++) {
+                    for (let c = c1; c <= c2; c++) {
+                        const a1 = a1FromRowCol(r + 1, c + 1);
+                        if (state.editableByA1.has(a1) && !state.dateA1Set.has(a1)) return true;
+                    }
+                }
+                return false;
             }
-            return false;
-        }
+
             // ──────────────────────────────────────────
-            // 에디터 플러시 / idle 대기
+            // 에디터 플러시 아이들 대기
             // ──────────────────────────────────────────
 
             function getActiveDxEditorElement() {
@@ -1162,7 +1238,7 @@ else
                 const editor = getActiveDxEditorElement();
                 if (editor) {
                     try { editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true })); } catch { }
-                    try { editor.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true })); } catch { }
+                    try { editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true })); } catch { }
                     try { editor.dispatchEvent(new Event('change', { bubbles: true })); } catch { }
                     try { if (typeof editor.blur === 'function') editor.blur(); } catch { }
                 }
@@ -1211,7 +1287,7 @@ else
                     case 'vi-VN':
                     case 'id-ID': return `${parseInt(dd, 10)}/${parseInt(mm, 10)}/${y}`;
                     case 'zh-CN': return `${y}/${parseInt(mm, 10)}/${parseInt(dd, 10)}`;
-                    default:      return `${y}-${mm}-${dd}`;
+                    default: return `${y}-${mm}-${dd}`;
                 }
             }
 
@@ -1324,10 +1400,10 @@ else
 
                 const rect = anchor.getBoundingClientRect();
                 let left = Math.round(rect.left + 1);
-                let top  = Math.round(rect.bottom - 1);
+                let top = Math.round(rect.bottom - 1);
 
-                left = Math.min(Math.max(2, left), Math.max(2, window.innerWidth  - 3));
-                top  = Math.min(Math.max(2, top),  Math.max(2, window.innerHeight - 3));
+                left = Math.min(Math.max(2, left), Math.max(2, window.innerWidth - 3));
+                top = Math.min(Math.max(2, top), Math.max(2, window.innerHeight - 3));
 
                 Object.assign(bridge.style, {
                     left: left + 'px', top: top + 'px',
@@ -1353,7 +1429,7 @@ else
 
                 bridge.addEventListener('change', function () {
                     try {
-                        const a1    = state.lastDatePopupA1 || state.activeA1 || '';
+                        const a1 = state.lastDatePopupA1 || state.activeA1 || '';
                         const value = String(bridge.value || '').trim();
                         if (!a1 || !value) return;
 
@@ -1380,15 +1456,15 @@ else
 
             function openDatePickerForA1(a1, anchorEl) {
                 const bridge = document.getElementById('dxDatePickerBridge');
-                const inst   = getDxInstance();
+                const inst = getDxInstance();
                 if (!bridge || !inst || !a1) return;
                 if (!state.dateA1Set.has(a1) || state.datePickerOpen) return;
 
                 const got = tryReadCellValue(inst, a1);
                 const ymd = normalizeDxValueByType('date', got.value);
 
-                state.datePickerOpen   = true;
-                state.lastDatePopupA1  = a1;
+                state.datePickerOpen = true;
+                state.lastDatePopupA1 = a1;
                 if (anchorEl instanceof Element) state.lastDateAnchorEl = anchorEl;
 
                 bridge.value = /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : '';
@@ -1422,7 +1498,7 @@ else
                 }
 
                 wrap.addEventListener('pointerup', openFromEvent, true);
-                wrap.addEventListener('click',     openFromEvent, true);
+                wrap.addEventListener('click', openFromEvent, true);
 
                 wrap.addEventListener('keydown', function (e) {
                     const inst = getDxInstance();
@@ -1460,68 +1536,32 @@ else
             // ──────────────────────────────────────────
 
             function applyDxWrapSize() {
-                const ext = computePreviewExtent(state.preview);
                 const wrap = document.getElementById('dxComposeWrap');
-                if (!wrap) return;
+                const ext = computePreviewExtent(state.preview);
                 state.previewExtent = ext;
-                wrap.style.setProperty('width',     ext.width  + 'px', 'important');
-                wrap.style.setProperty('min-width', ext.width  + 'px', 'important');
-                wrap.style.setProperty('max-width', ext.width  + 'px', 'important');
-                wrap.style.setProperty('height',    ext.height + 'px', 'important');
-                wrap.style.setProperty('min-height',ext.height + 'px', 'important');
-                wrap.style.setProperty('overflow',  'hidden',          'important');
+                wrap.style.setProperty('height', ext.height + 'px', 'important');
+                wrap.style.setProperty('min-height', ext.height + 'px', 'important');
+                wrap.style.setProperty('width', ext.width + 'px', 'important');
+                wrap.style.setProperty('min-width', ext.width + 'px', 'important');
+                wrap.style.setProperty('max-width', ext.width + 'px', 'important');
+                wrap.style.setProperty('overflow', 'hidden', 'important');
+                console.log('[DX] applyDxWrapSize:', { width: ext.width, height: ext.height, mode: state.serverExtent?.mode, lastA1: state.serverExtent?.lastA1 });
             }
-
-            // function clampDxHorizontalExtent() {
-            //     const wrap  = document.getElementById('dxComposeWrap');
-            //     const outer = document.getElementById('doc-scroll');
-            //     if (!wrap || !outer) return;
-
-            //     const inner =
-            //         document.getElementById('dxComposeSheet_ScrollContainer')
-            //         || document.getElementById('dxComposeSheet_Grid')
-            //         || $('[id$="_ScrollContainer"]', wrap)
-            //         || $('[id$="_Grid"]', wrap);
-
-            //     const grid =
-            //         document.getElementById('dxComposeSheet_Grid')
-            //         || $('[id$="_Grid"]', wrap);
-
-            //     const w = Math.ceil(state.previewExtent?.width || wrap.clientWidth || 900);
-
-            //     Object.assign(wrap.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px' });
-
-            //     if (grid)  Object.assign(grid.style,  { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
-            //     if (inner) {
-            //         Object.assign(inner.style, { width: w+'px', minWidth: w+'px', maxWidth: w+'px', overflowX: 'hidden' });
-            //         inner.scrollLeft = 0;
-            //     }
-
-            //     wrap.querySelectorAll('.dxss-page, .dxss-page-border, .dxss-print-area').forEach(el => {
-            //         Object.assign(el.style, { maxWidth: w+'px', overflow: 'hidden', marginRight: '0' });
-            //     });
-
-            //     outer.style.overflowX = 'hidden';
-            // }
 
             function clampDxHorizontalExtent() {
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap) return;
 
-                const rh = document.getElementById('dxComposeSheet_RowHeader')
-                        || $('[id$="_RowHeader"]', wrap);
-                const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
-                const colSum = Number(state._colSum || 0);
                 const previewWidth = Number(state.previewExtent?.width || 0);
+                const serverSafeWidth = Number(state.serverExtent?.safeWidth || 0);
+                const serverWidth = Number(state.serverExtent?.width || 0);
+                const finalWidth = previewWidth > 0
+                    ? previewWidth
+                    : (serverSafeWidth > 0 ? serverSafeWidth : (serverWidth > 0 ? serverWidth : 900));
 
-                const finalWidth = colSum > 0 ? rhW + colSum + 24
-                                 : previewWidth > 0 ? previewWidth : 900;
-
-                Object.assign(wrap.style, {
-                    width:    finalWidth + 'px',
-                    minWidth: finalWidth + 'px',
-                    maxWidth: finalWidth + 'px'
-                });
+                wrap.style.setProperty('width', finalWidth + 'px', 'important');
+                wrap.style.setProperty('min-width', finalWidth + 'px', 'important');
+                wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
 
                 const inner =
                     document.getElementById('dxComposeSheet_ScrollContainer')
@@ -1533,7 +1573,7 @@ else
 
             function installOuterScrollOnly() {
                 const outer = document.getElementById('doc-scroll');
-                const wrap  = document.getElementById('dxComposeWrap');
+                const wrap = document.getElementById('dxComposeWrap');
                 if (!outer || !wrap) return;
 
                 const inner =
@@ -1545,7 +1585,7 @@ else
                 if (!inner) return;
 
                 function lockInnerScroll() {
-                    if (inner.scrollTop  !== 0) inner.scrollTop  = 0;
+                    if (inner.scrollTop !== 0) inner.scrollTop = 0;
                     if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
                 }
 
@@ -1603,7 +1643,7 @@ else
 
             function dedupeFilesKeepFirst(files) {
                 const seen = new Set();
-                const out  = [];
+                const out = [];
                 for (const f of (files || [])) {
                     if (!f) continue;
                     const sig = sigOfFile(f);
@@ -1627,7 +1667,7 @@ else
                 const inp = document.getElementById('doc-attachments');
                 if (!inp) return false;
 
-                const cur  = Array.from(inp.files || []);
+                const cur = Array.from(inp.files || []);
                 if (!cur.length) return false;
 
                 let removed = false;
@@ -1643,9 +1683,9 @@ else
                 const el = document.getElementById('doc-attach-count');
                 if (!el) return;
 
-                const v         = Math.max(0, Number(n || 0) || 0);
-                const noneText  = window.__RESX?.['DOC_Attach_Count_None'] ?? '';
-                const nTextTmpl = window.__RESX?.['DOC_Attach_Count_N']    ?? '';
+                const v = Math.max(0, Number(n || 0) || 0);
+                const noneText = window.__RESX?.['DOC_Attach_Count_None'] ?? '';
+                const nTextTmpl = window.__RESX?.['DOC_Attach_Count_N'] ?? '';
 
                 if (v === 0) { el.textContent = noneText; return; }
                 el.textContent = nTextTmpl.includes('{0}')
@@ -1658,7 +1698,7 @@ else
                 if (!box) return;
 
                 const fileInput = document.getElementById('doc-attachments');
-                const picked    = dedupeFilesKeepFirst(Array.from(fileInput?.files || []));
+                const picked = dedupeFilesKeepFirst(Array.from(fileInput?.files || []));
                 const failedArr = Array.isArray(state.filesFailed) ? state.filesFailed : [];
 
                 setAttachCount(picked.length + failedArr.length);
@@ -1714,7 +1754,7 @@ else
 
             function hookAttachmentUi() {
                 const fileInput = document.getElementById('doc-attachments');
-                const pickBtn   = document.getElementById('doc-attach-pick');
+                const pickBtn = document.getElementById('doc-attach-pick');
 
                 pickBtn?.addEventListener('click', e => {
                     e.preventDefault(); e.stopPropagation();
@@ -1738,7 +1778,7 @@ else
             }
 
             // ──────────────────────────────────────────
-            // 수신자 / 결재 / 저장
+            // 수신자 결재 저장
             // ──────────────────────────────────────────
 
             function collectSelectedRecipientUserIds() {
@@ -1787,10 +1827,10 @@ else
                 let seq = 1;
                 return {
                     steps: approvals.map(a => ({
-                        roleKey:      `A${seq++}`,
+                        roleKey: `A${seq++}`,
                         approverType: String(a?.approverType || a?.ApproverType || 'Person').trim() || 'Person',
-                        required:     !!a?.required,
-                        value:        String(a?.value || a?.ApproverValue || a?.approverValue || '').trim()
+                        required: !!a?.required,
+                        value: String(a?.value || a?.ApproverValue || a?.approverValue || '').trim()
                     }))
                 };
             }
@@ -1804,10 +1844,10 @@ else
                 let seq = 1;
                 return {
                     steps: cooperations.map(c => ({
-                        roleKey:      c?.roleKey || c?.RoleKey || `C${seq++}`,
+                        roleKey: c?.roleKey || c?.RoleKey || `C${seq++}`,
                         approverType: String(c?.approverType || c?.ApproverType || 'Person').trim() || 'Person',
-                        lineType:     String(c?.lineType || c?.LineType || 'Cooperation').trim() || 'Cooperation',
-                        value:        String(c?.value || c?.ApproverValue || c?.approverValue || '').trim()
+                        lineType: String(c?.lineType || c?.LineType || 'Cooperation').trim() || 'Cooperation',
+                        value: String(c?.value || c?.ApproverValue || c?.approverValue || '').trim()
                     }))
                 };
             }
@@ -1818,7 +1858,7 @@ else
                     templateCode,
                     inputs,
                     approvals: buildApprovalsForPost(),
-                    cooperations: buildCooperationsForPost(),  // ★ 추가
+                    cooperations: buildCooperationsForPost(),
                     mail: { to: [], cc: [], bcc: [], subject: '', body: '', send: true, from: null },
                     SelectedRecipientUserIds: selectedIds,
                     selectedRecipientUserIds: selectedIds
@@ -1828,17 +1868,17 @@ else
             async function saveDocument() {
                 const submitBtn = document.getElementById('btn-save');
                 const fileInput = document.getElementById('doc-attachments');
-                const picked    = dedupeFilesKeepFirst(Array.from(fileInput?.files || []));
-                const tpl       = (getTemplateCode() || '').trim();
+                const picked = dedupeFilesKeepFirst(Array.from(fileInput?.files || []));
+                const tpl = (getTemplateCode() || '').trim();
 
                 if (!tpl) { err('DOC_Val_TemplateRequired'); return; }
 
                 submitBtn.disabled = true;
 
                 try {
-                    const inputs  = await collectInputsFromDx();
+                    const inputs = await collectInputsFromDx();
                     const bodyObj = buildRequestBody(tpl, inputs);
-                    const csrf    = await getCsrf();
+                    const csrf = await getCsrf();
 
                     const r = await fetch('/Doc/CreateDX', {
                         method: 'POST',
@@ -1870,7 +1910,7 @@ else
                         for (const f of picked) fd.append('files', f, f.name);
                         if (csrf?.token) fd.append('__RequestVerificationToken', csrf.token);
 
-                        const up    = await fetch('/Doc/Upload?docId=' + encodeURIComponent(docId), {
+                        const up = await fetch('/Doc/Upload?docId=' + encodeURIComponent(docId), {
                             method: 'POST',
                             headers: { [csrf.headerName]: csrf.token },
                             credentials: 'same-origin',
@@ -1886,13 +1926,14 @@ else
 
                     ok('DOC_Msg_Saved');
                     markIntentionalLeave();
+                    await deleteDxTemp();
 
                     try {
-                        const u = new URL(location.origin + '/Doc/Detail');
+                        const u = new URL(location.origin + '/Doc/DetailDX');
                         u.searchParams.set('id', docId);
                         location.href = u.toString();
                     } catch {
-                        location.href = '/Doc/Detail?id=' + encodeURIComponent(docId);
+                        location.href = '/Doc/DetailDX?id=' + encodeURIComponent(docId);
                     }
                 } catch (ex) {
                     console.error(ex);
@@ -1905,7 +1946,7 @@ else
             // 배경색 복원
             // ──────────────────────────────────────────
 
-            const EDITABLE_BG     = '#EAF6FF';
+            const EDITABLE_BG = '#EAF6FF';
             const EDITABLE_BG_RGB = 'rgb(234, 246, 255)';
 
             let _bgCtbIds = new Set();
@@ -2021,9 +2062,9 @@ else
                     });
 
                     observer.observe(wrap, {
-                        childList:       true,
-                        subtree:         true,
-                        attributes:      true,
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
                         attributeFilter: ['style']
                     });
 
@@ -2041,7 +2082,7 @@ else
             }
 
             // ──────────────────────────────────────────
-            // 붙여넣기 가드 (Ctrl+V plain text)
+            // 붙여넣기 가드
             // ──────────────────────────────────────────
 
             function installPasteGuard() {
@@ -2058,15 +2099,13 @@ else
                         installKeyBlocker(iDoc);
                     }
 
-                    // ★ paste 이벤트로 교체 — clipboard API 불필요, focus 조건 없음
                     iDoc.addEventListener('paste', function (e) {
                         const inst = getDxInstance();
                         if (!inst) return;
                         refreshActiveSelection(inst);
-                        const a1   = state.activeA1 || '';
+                        const a1 = state.activeA1 || '';
                         const meta = state.editableByA1.get(a1);
 
-                        // 편집 불가 셀이거나 날짜 셀이면 붙여넣기 차단
                         if (!meta || String(meta.type || '').toLowerCase() === 'date') {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2074,7 +2113,6 @@ else
                             return;
                         }
 
-                        // ★ clipboardData에서 직접 읽음 — focus 권한 불필요
                         e.preventDefault();
                         e.stopPropagation();
                         if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
@@ -2091,7 +2129,7 @@ else
                         {
                             let checkRow = rc.row1 + 1;
                             while (true) {
-                                const nextA1   = a1FromRowCol(checkRow, rc.col1);
+                                const nextA1 = a1FromRowCol(checkRow, rc.col1);
                                 const nextMeta = state.editableByA1.get(nextA1);
                                 if (!nextMeta) break;
                                 if (String(nextMeta.type || '').toLowerCase() === 'date') break;
@@ -2102,16 +2140,16 @@ else
                         const maxRows = groupLastRow - rc.row1 + 1;
 
                         function getActiveCellMetrics() {
-                            const styles    = (state.preview || {}).styles || {};
-                            const activeRc  = rowColFromA1(state.activeA1 || '');
-                            const row1      = activeRc ? activeRc.row1 : 9;
-                            const col1      = activeRc ? activeRc.col1 : 3;
+                            const styles = (state.preview || {}).styles || {};
+                            const activeRc = rowColFromA1(state.activeA1 || '');
+                            const row1 = activeRc ? activeRc.row1 : 9;
+                            const col1 = activeRc ? activeRc.col1 : 3;
                             const cellStyle = styles[row1 + ',' + col1] || {};
-                            const fontName  = cellStyle.font?.name || '굴림체';
-                            const fontSize  = cellStyle.font?.size || 11;
-                            const fontPx    = fontSize * 96 / 72;
-                            const bold      = cellStyle.font?.bold ? 'bold ' : '';
-                            const font      = bold + fontPx + 'px ' + fontName;
+                            const fontName = cellStyle.font?.name || '굴림체';
+                            const fontSize = cellStyle.font?.size || 11;
+                            const fontPx = fontSize * 96 / 72;
+                            const bold = cellStyle.font?.bold ? 'bold ' : '';
+                            const font = bold + fontPx + 'px ' + fontName;
 
                             const wrapEl = document.getElementById('dxComposeWrap');
                             let width = 0;
@@ -2161,20 +2199,10 @@ else
                         const { width: cellWidth, font: cellFont } = getActiveCellMetrics();
                         const maxWidth = Math.max(50, cellWidth - 4);
 
-                        const wrappedLines = [];
-                        for (const rawLine of rawLines) {
-                            if (!rawLine) { wrappedLines.push(''); continue; }
-                            const subLines = wrapTextToWidth(rawLine, maxWidth, cellFont);
-                            for (const sl of subLines) wrappedLines.push(sl);
-                        }
+                        const wrappedLines = rawLines;
 
-                        for (let i = 0; i < Math.min(wrappedLines.length, maxRows); i++) {
-                            const targetA1   = a1FromRowCol(rc.row1 + i, rc.col1);
-                            const targetMeta = state.editableByA1.get(targetA1);
-                            if (!targetMeta) break;
-                            if (String(targetMeta.type || '').toLowerCase() === 'date') continue;
-                            trySetCellValueByIndex(inst, rc.col1 - 1, rc.row1 - 1 + i, wrappedLines[i]);
-                        }
+                        trySetCellValueByIndex(inst, rc.col1 - 1, rc.row1 - 1, plain);
+
                         tryInvokeDxEditorCommit(inst);
                         state.dxDirtySinceLastSync = true;
 
@@ -2196,63 +2224,36 @@ else
             // ──────────────────────────────────────────
 
             function hookCancel() {
-                document.getElementById('btn-cancel')?.addEventListener('click', () => {
+                document.getElementById('btn-cancel')?.addEventListener('click', async () => {
                     markIntentionalLeave();
-                    history.length > 1 ? history.back() : (location.href = '/Doc/New');
+                    await deleteDxTemp();
+                    history.length > 1 ? history.back() : (location.href = '/Doc/Newㅅ');
                 });
             }
 
-                    // ── hookDxReady: DetailDX의 applySize 패턴 그대로 (WBC 대신 colSum 사용)
             function hookDxReady() {
                 installOuterScrollOnly();
 
                 function applySize() {
+                    const ext = state.previewExtent;
+                    if (!ext || ext.height <= 0 || ext.width <= 0) return;
+
                     const wrap = document.getElementById('dxComposeWrap');
-                    const scroll = document.getElementById('doc-scroll');
                     if (!wrap) return;
 
-                    installOuterScrollOnly();
+                    wrap.style.setProperty('width', ext.width + 'px', 'important');
+                    wrap.style.setProperty('min-width', ext.width + 'px', 'important');
+                    wrap.style.setProperty('max-width', ext.width + 'px', 'important');
+                    wrap.style.setProperty('height', ext.height + 'px', 'important');
+                    wrap.style.setProperty('min-height', ext.height + 'px', 'important');
+                    wrap.style.setProperty('overflow', 'hidden', 'important');
 
-                    const wbc = document.getElementById('dxComposeSheet_WBC')
-                             || document.querySelector('#dxComposeWrap [id$="_WBC"]');
+                    clampDxHorizontalExtent();
 
-                    // ★ DetailDX와 완전 동일: WBC offsetWidth 우선
-                    let finalWidth = (wbc && wbc.offsetWidth > 100) ? wbc.offsetWidth + 20 : 0;
-                    if (finalWidth <= 0) {
-                        const rh = document.getElementById('dxComposeSheet_RowHeader')
-                                || document.querySelector('#dxComposeWrap [id$="_RowHeader"]');
-                        const rhW = (rh && rh.offsetWidth > 0) ? rh.offsetWidth : 21;
-                        const colSum = Number(state._colSum || 0);
-                        const previewWidth = Number(state.previewExtent?.width || 0);
-                        finalWidth = colSum > 0 ? rhW + colSum + 24
-                                   : previewWidth > 0 ? previewWidth : 900;
-                    }
-                    if (finalWidth <= 0) return;
+                    console.log('[DX] applySize width=', ext.width, 'height=', ext.height, 'mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1);
 
-                    const finalHeight = (wbc && wbc.offsetHeight > 100)
-                        ? wbc.offsetHeight + 40
-                        : Number(state.previewExtent?.height || 520);
-
-                    wrap.style.setProperty('width',      finalWidth  + 'px', 'important');
-                    wrap.style.setProperty('min-width',  finalWidth  + 'px', 'important');
-                    wrap.style.setProperty('max-width',  finalWidth  + 'px', 'important');
-                    wrap.style.setProperty('height',     finalHeight + 'px', 'important');
-                    wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
-                    wrap.style.setProperty('overflow',   'hidden',           'important');
-
-                    console.log('[DX] applySize finalWidth=', finalWidth, 'finalHeight=', finalHeight);
-
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () {
-                            try {
-                                if (scroll) {
-                                    scroll.setAttribute('tabindex', '0');
-                                    scroll.focus({ preventScroll: true });
-                                }
-                            } catch(e) {}
-                            if (scroll) scroll.classList.add('dx-page-ready');
-                        });
-                    });
+                    const scroll = document.getElementById('doc-scroll');
+                    if (scroll) scroll.classList.add('dx-page-ready');
                 }
 
                 const wrap = document.getElementById('dxComposeWrap');
@@ -2310,12 +2311,11 @@ else
             function run() {
                 clearAlert();
                 state.descriptor = readJson('DescriptorJson') || {};
-                state.preview    = readJson('PreviewJson')    || {};
+                state.preview = readJson('PreviewJson') || {};
                 buildEditableMap(state.descriptor);
 
-                // ★ state와 핵심 함수를 전역에 노출 (디버깅 및 iframe 접근용)
-                window.__COMPOSE_STATE      = state;
-                window.__COMPOSE_A1FromRC   = a1FromRowCol;
+                window.__COMPOSE_STATE = state;
+                window.__COMPOSE_A1FromRC = a1FromRowCol;
                 window.__COMPOSE_EditableByA1 = () => state.editableByA1;
 
                 applyDxWrapSize();

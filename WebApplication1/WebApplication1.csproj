@@ -79,15 +79,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!--<PackageReference Include="ClosedXML" Version="0.105.0" /> -->
 		<PackageReference Include="ClosedXML" Version="0.105.0" />
-
+		<PackageReference Include="DocumentFormat.OpenXml" Version="3.1.1" />
+		
 		<!-- DevExpress v25.2.3 -->
 		<!-- 핵심: MapDevExpressControls/Html.DevExpress() 확장 메서드는 DevExpress.AspNetCore(통합)에 포함되는 케이스가 있어 추가 필요 -->
 		<PackageReference Include="DevExpress.AspNetCore.Common" Version="25.2.3" />
 		<PackageReference Include="DevExpress.AspNetCore.Core" Version="25.2.3" />
 		<PackageReference Include="DevExpress.AspNetCore.Spreadsheet" Version="25.2.3" />
-
-
+		
 		<PackageReference Include="Fido2" Version="3.*" />
 		<PackageReference Include="Lib.Net.Http.WebPush" Version="3.3.1" />
 		<PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="8.0.7" />

@@ -1117,7 +1117,7 @@
     <value>Approver</value>
   </data>
   <data name="DOC_Col_ApprovalTime" xml:space="preserve">
-    <value>Processed at</value>
+    <value>Time</value>
   </data>
   <data name="DOC_Filter_Title_Recalled" xml:space="preserve">
     <value>Recalled</value>
@@ -1262,5 +1262,26 @@
   </data>
   <data name="DOC_Btn_Cooperate" xml:space="preserve">
     <value>Cooperation Confirm</value>
+  </data>
+  <data name="DOC_Col_Role" xml:space="preserve">
+    <value>Role</value>
+  </data>
+  <data name="DOC_Role_Submit" xml:space="preserve">
+    <value>Submit</value>
+  </data>
+  <data name="DOC_Role_ApprovalFmt" xml:space="preserve">
+    <value>Approval Step {0}</value>
+  </data>
+  <data name="DOC_Role_CooperationFmt" xml:space="preserve">
+    <value>Cooperation</value>
+  </data>
+  <data name="DOC_Btn_CooperateReject" xml:space="preserve">
+    <value>Reject Cooperation</value>
+  </data>
+  <data name="DOC_Title_Fmt" xml:space="preserve">
+    <value>{0}'s {1}</value>
+  </data>
+  <data name="PUSH_CooperationPending" xml:space="preserve">
+    <value>Pending cooperation {0}</value>
   </data>
 </root>

@@ -2,6 +2,8 @@
 // 2026.03.18 Changed: DxTemp 임시파일 생성 제거 — ReadOnly 조회이므로 원본 파일 직접 사용
 // 2026.03.23 Added: Cooperate 기능 추가, DetailController 전체 기능 마이그레이션
 // 2026.03.24 Added: 협조 스탬프 지원 — DescriptorJson.Cooperations에서 CellA1 파싱, UserProfiles.SignatureRelativePath JOIN
+// 2026.03.25 Fixed: 협조 셀맵 파싱 시 cellA1 키 추가 탐색 (Cell.A1 / A1 / cellA1 / CellA1 순서로 탐색)
+// 2026.03.26 Fixed: Documents.DescriptorJson에 cellA1 없을 때 DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1 fallback 추가
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -16,9 +18,11 @@ using System.IO;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using WebApplication1.Models;
 using WebApplication1.Services;
+using ClosedXML.Excel;
 using static WebApplication1.Controllers.DocControllerHelper;
 
 namespace WebApplication1.Controllers
@@ -180,7 +184,7 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
             }
 
             var dxOpenAbsPath = ResolveContentRootRelativePath(outputPath) ?? string.Empty;
-
+            _log.LogInformation("DetailDX: dxOpenAbsPath={Path} exists={Exists}", dxOpenAbsPath, System.IO.File.Exists(dxOpenAbsPath ?? ""));
             var previewJson = "{}";
             try
             {
@@ -191,6 +195,30 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
             {
                 _log.LogWarning(ex, "DetailDX: preview json build failed for {DocId}", id);
                 previewJson = "{}";
+            }
+
+            // ★ 추가: previewJson={}이면 템플릿 previewJson fallback
+            if ((previewJson == "{}" || string.IsNullOrWhiteSpace(previewJson))
+                && !string.IsNullOrWhiteSpace(templateCode))
+            {
+                try
+                {
+                    await using var tvFbCmd = conn.CreateCommand();
+                    tvFbCmd.CommandText = @"
+SELECT TOP 1 v.PreviewJson
+FROM dbo.DocTemplateVersion v
+JOIN dbo.DocTemplateMaster m ON m.Id = v.TemplateId
+WHERE m.DocCode = @TemplateCode
+ORDER BY v.VersionNo DESC, v.Id DESC;";
+                    tvFbCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode! });
+                    var tplPreview = await tvFbCmd.ExecuteScalarAsync() as string;
+                    if (!string.IsNullOrWhiteSpace(tplPreview) && tplPreview != "{}")
+                        previewJson = tplPreview;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "DetailDX: template previewJson fallback failed for {DocId}", id);
+                }
             }
 
             var openRel = MakeRelativeToContentRoot(dxOpenAbsPath);
@@ -294,27 +322,60 @@ ORDER BY UploadedAt, FileId ASC;";
                 _log.LogWarning(ex, "DetailDX: load DocumentFiles failed for {DocId}", id);
             }
 
-            // ========== 협조 셀 맵: DescriptorJson.Cooperations 파싱 ==========
-            // ApproverValue(UserId) → A1 주소 매핑
+            // ========== 협조 셀 맵 ==========
+            // 1순위: Documents.DescriptorJson cooperations[].cellA1
+            // 2순위: DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1  ← fallback
             var cooperationCellMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var cooperationRoleCellMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // ── 1순위: Documents.DescriptorJson ──────────────────────────────
             try
             {
                 if (!string.IsNullOrWhiteSpace(descriptorJson) && descriptorJson != "{}")
                 {
                     using var descDoc = JsonDocument.Parse(descriptorJson);
-                    if (descDoc.RootElement.TryGetProperty("Cooperations", out var coopsEl)
-                        && coopsEl.ValueKind == JsonValueKind.Array)
+
+                    JsonElement coopsEl;
+                    var hasCoops =
+                        (descDoc.RootElement.TryGetProperty("Cooperations", out coopsEl)
+                      || descDoc.RootElement.TryGetProperty("cooperations", out coopsEl))
+                        && coopsEl.ValueKind == JsonValueKind.Array;
+
+                    if (hasCoops)
                     {
                         foreach (var coop in coopsEl.EnumerateArray())
                         {
-                            var av = coop.TryGetProperty("ApproverValue", out var avEl)
-                                ? avEl.GetString() ?? string.Empty : string.Empty;
+                            var av =
+                                TryGetJsonString(coop, "ApproverValue")
+                                ?? TryGetJsonString(coop, "approverValue")
+                                ?? TryGetJsonString(coop, "value")
+                                ?? string.Empty;
+
+                            var roleKey =
+                                TryGetJsonString(coop, "RoleKey")
+                                ?? TryGetJsonString(coop, "roleKey")
+                                ?? string.Empty;
+
                             var a1 = string.Empty;
-                            if (coop.TryGetProperty("Cell", out var cellEl)
-                                && cellEl.TryGetProperty("A1", out var a1El))
-                                a1 = a1El.GetString() ?? string.Empty;
+
+                            if (coop.TryGetProperty("Cell", out var cellEl) && cellEl.ValueKind == JsonValueKind.Object)
+                                a1 = TryGetJsonString(cellEl, "A1") ?? TryGetJsonString(cellEl, "a1") ?? string.Empty;
+
+                            if (string.IsNullOrWhiteSpace(a1) &&
+                                coop.TryGetProperty("cell", out var cellEl2) && cellEl2.ValueKind == JsonValueKind.Object)
+                                a1 = TryGetJsonString(cellEl2, "A1") ?? TryGetJsonString(cellEl2, "a1") ?? string.Empty;
+
+                            if (string.IsNullOrWhiteSpace(a1))
+                                a1 = TryGetJsonString(coop, "A1") ?? TryGetJsonString(coop, "a1") ?? string.Empty;
+
+                            if (string.IsNullOrWhiteSpace(a1))
+                                a1 = TryGetJsonString(coop, "cellA1") ?? TryGetJsonString(coop, "CellA1") ?? string.Empty;
+
                             if (!string.IsNullOrWhiteSpace(av) && !string.IsNullOrWhiteSpace(a1))
                                 cooperationCellMap[av] = a1;
+
+                            if (!string.IsNullOrWhiteSpace(roleKey) && !string.IsNullOrWhiteSpace(a1))
+                                cooperationRoleCellMap[roleKey] = a1;
                         }
                     }
                 }
@@ -324,13 +385,116 @@ ORDER BY UploadedAt, FileId ASC;";
                 _log.LogWarning(ex, "DetailDX: DescriptorJson Cooperations parse failed for {DocId}", id);
             }
 
+            // ── 2순위 fallback: DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1 ──
+            // Documents.DescriptorJson에 cellA1이 없는 기존 문서를 위한 보완
+            if (cooperationRoleCellMap.Count == 0 && !string.IsNullOrWhiteSpace(templateCode))
+            {
+                try
+                {
+                    await using var tvFbCmd = conn.CreateCommand();
+                    tvFbCmd.CommandText = @"
+SELECT TOP 1 v.DescriptorJson
+FROM dbo.DocTemplateVersion v
+JOIN dbo.DocTemplateMaster m ON m.Id = v.TemplateId
+WHERE m.DocCode = @TemplateCode
+ORDER BY v.VersionNo DESC, v.Id DESC;";
+                    tvFbCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode! });
+
+                    var rawDesc = await tvFbCmd.ExecuteScalarAsync() as string;
+                    if (!string.IsNullOrWhiteSpace(rawDesc))
+                    {
+                        using var rawDoc = JsonDocument.Parse(rawDesc);
+                        JsonElement coopsEl2;
+                        var hasCoops2 =
+                            (rawDoc.RootElement.TryGetProperty("Cooperations", out coopsEl2)
+                          || rawDoc.RootElement.TryGetProperty("cooperations", out coopsEl2))
+                            && coopsEl2.ValueKind == JsonValueKind.Array;
+
+                        if (hasCoops2)
+                        {
+                            int seq = 1;
+                            foreach (var coop in coopsEl2.EnumerateArray())
+                            {
+                                var roleKey = $"C{seq}";
+
+                                // ApproverValue (GUID) — 맵 키로만 사용
+                                var av =
+                                    TryGetJsonString(coop, "ApproverValue")
+                                    ?? TryGetJsonString(coop, "approverValue")
+                                    ?? TryGetJsonString(coop, "value")
+                                    ?? string.Empty;
+
+                                // A1: Cell.A1 우선
+                                var a1 = string.Empty;
+                                if (coop.TryGetProperty("Cell", out var cellEl) && cellEl.ValueKind == JsonValueKind.Object)
+                                    a1 = TryGetJsonString(cellEl, "A1") ?? TryGetJsonString(cellEl, "a1") ?? string.Empty;
+
+                                if (string.IsNullOrWhiteSpace(a1))
+                                    a1 = TryGetJsonString(coop, "A1") ?? TryGetJsonString(coop, "a1") ?? string.Empty;
+
+                                if (string.IsNullOrWhiteSpace(a1))
+                                    a1 = TryGetJsonString(coop, "cellA1") ?? TryGetJsonString(coop, "CellA1") ?? string.Empty;
+
+                                if (!string.IsNullOrWhiteSpace(a1))
+                                {
+                                    cooperationRoleCellMap[roleKey] = a1;
+                                    if (!string.IsNullOrWhiteSpace(av))
+                                        cooperationCellMap[av] = a1;
+                                }
+
+                                seq++;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "DetailDX: template DescriptorJson Cooperations cellA1 fallback failed for {DocId}", id);
+                }
+            }
+
             // ========== 협조 데이터 로드 ==========
             var cooperations = new List<object>();
+            var approvalTableRows = new List<ApprovalTableRowVm>
+            {
+                new ApprovalTableRowVm
+                {
+                    RowType     = "drafter",
+                    GroupOrder  = 0,
+                    SortOrder   = 0,
+                    RoleKey     = "DRAFT",
+                    RoleText    = _S["DOC_Role_Submit"],
+                    DisplayName = creatorDisplayName ?? string.Empty,
+                    Status      = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? "Recalled" : "Created",
+                    ActedAtText = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? recalledAtText : createdAtText
+                }
+            };
+
+            foreach (var a in approvals)
+            {
+                var roleKey = GetAnonymousString(a, "roleKey");
+                var approverDisplayText = GetAnonymousString(a, "approverDisplayText");
+                var approverValue = GetAnonymousString(a, "approverValue");
+
+                approvalTableRows.Add(new ApprovalTableRowVm
+                {
+                    RowType = "approval",
+                    GroupOrder = 1,
+                    SortOrder = GetAnonymousInt(a, "step") ?? ParseRoleOrder(roleKey),
+                    RoleKey = roleKey,
+                    RoleText = BuildRoleText(roleKey, "approval"),
+                    DisplayName = !string.IsNullOrWhiteSpace(approverDisplayText) ? approverDisplayText : approverValue,
+                    Status = GetAnonymousString(a, "status"),
+                    ActedAtText = GetAnonymousString(a, "actedAtText")
+                });
+            }
+
             try
             {
                 await using var cc = conn.CreateCommand();
                 cc.CommandText = @"
 SELECT dc.Id,
+       dc.RoleKey,
        dc.UserId,
        dc.ApproverValue,
        dc.Status,
@@ -342,25 +506,30 @@ SELECT dc.Id,
 FROM dbo.DocumentCooperations dc
 LEFT JOIN dbo.UserProfiles up ON up.UserId = dc.UserId
 WHERE dc.DocId = @DocId
-ORDER BY dc.Id;";
+ORDER BY dc.RoleKey;";
                 cc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id! });
 
                 await using var cr = await cc.ExecuteReaderAsync();
                 while (await cr.ReadAsync())
                 {
                     DateTime? acted = cr["ActedAt"] is DateTime dt ? dt : (DateTime?)null;
+                    var roleKey = cr["RoleKey"]?.ToString() ?? string.Empty;
                     var uid = cr["UserId"]?.ToString() ?? string.Empty;
                     var av = cr["ApproverValue"]?.ToString() ?? string.Empty;
+                    var approverDisplayText = cr["ApproverDisplayText"]?.ToString() ?? string.Empty;
 
-                    // 셀 위치: UserId 우선, 없으면 ApproverValue로 매핑
+                    // 셀 위치 결정: roleKey → userId → approverValue 순으로 맵 탐색
                     var cellA1 = string.Empty;
-                    if (!string.IsNullOrWhiteSpace(uid) && cooperationCellMap.TryGetValue(uid, out var ca1))
-                        cellA1 = ca1;
-                    else if (!string.IsNullOrWhiteSpace(av) && cooperationCellMap.TryGetValue(av, out var ca2))
-                        cellA1 = ca2;
+                    if (!string.IsNullOrWhiteSpace(roleKey) && cooperationRoleCellMap.TryGetValue(roleKey, out var byRole))
+                        cellA1 = byRole;
+                    else if (!string.IsNullOrWhiteSpace(uid) && cooperationCellMap.TryGetValue(uid, out var byUid))
+                        cellA1 = byUid;
+                    else if (!string.IsNullOrWhiteSpace(av) && cooperationCellMap.TryGetValue(av, out var byAv))
+                        cellA1 = byAv;
 
                     cooperations.Add(new
                     {
+                        roleKey,
                         userId = uid,
                         approverValue = av,
                         status = cr["Status"]?.ToString(),
@@ -369,9 +538,23 @@ ORDER BY dc.Id;";
                             ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
                             : string.Empty,
                         actorName = cr["ActorName"]?.ToString(),
-                        approverDisplayText = cr["ApproverDisplayText"]?.ToString() ?? string.Empty,
+                        approverDisplayText,
                         cellA1,
                         signaturePath = cr["SignaturePath"]?.ToString() ?? string.Empty
+                    });
+
+                    approvalTableRows.Add(new ApprovalTableRowVm
+                    {
+                        RowType = "cooperation",
+                        GroupOrder = 2,
+                        SortOrder = ParseRoleOrder(roleKey),
+                        RoleKey = roleKey,
+                        RoleText = BuildRoleText(roleKey, "cooperation"),
+                        DisplayName = !string.IsNullOrWhiteSpace(approverDisplayText) ? approverDisplayText : av,
+                        Status = cr["Status"]?.ToString() ?? string.Empty,
+                        ActedAtText = acted.HasValue
+                            ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
+                            : string.Empty
                     });
                 }
             }
@@ -379,6 +562,12 @@ ORDER BY dc.Id;";
             {
                 _log.LogWarning(ex, "DetailDX: load DocumentCooperations failed for {DocId}", id);
             }
+
+            approvalTableRows = approvalTableRows
+                .OrderBy(x => x.GroupOrder)
+                .ThenBy(x => x.SortOrder)
+                .ThenBy(x => x.RoleKey)
+                .ToList();
 
             var sharedRecipientUserIds = new List<string>();
             try
@@ -465,6 +654,76 @@ ORDER BY v.ViewedAt DESC;";
                 _log.LogWarning(ex, "DetailDX: load view logs failed for {DocId}", id);
             }
 
+            string stampRectsJson = "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
+                {
+                    stampRectsJson = BuildStampRectsJsonFromExcel(
+                        dxOpenAbsPath,
+                        JsonSerializer.Serialize(approvalCells),
+                        JsonSerializer.Serialize(approvals),
+                        JsonSerializer.Serialize(cooperations),
+                        _log);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "DetailDX: stamp rects build failed for {DocId}", id);
+                stampRectsJson = "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
+            }
+
+            var renderArea = new ExcelRenderAreaInfo
+            {
+                UsedMaxRow = 1,
+                UsedMaxCol = 1,
+                RenderMaxRow = 2,
+                RenderMaxCol = 2,
+                UsedLastCellA1 = "A1",
+                RenderLastCellA1 = "B2",
+                WidthPx = 0d,
+                HeightPx = 0d
+            };
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
+                    renderArea = GetRenderAreaInfoFromExcel(dxOpenAbsPath, _log);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "DetailDX: render area build failed for {DocId}", id);
+            }
+
+            string renderDiagJson = "{}";
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
+                {
+                    renderDiagJson = BuildRenderAreaDiagJsonFromExcel(dxOpenAbsPath, _log);
+                    _log.LogInformation("DetailDX RenderDiag {DocId} {Diag}", id, renderDiagJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "DetailDX: render diag build failed for {DocId}", id);
+                renderDiagJson = "{}";
+            }
+
+            ViewBag.RenderDiagJson = renderDiagJson;
+
+
+            ViewBag.RenderUsedLastCellA1 = renderArea.UsedLastCellA1;
+            ViewBag.RenderLastCellA1 = renderArea.RenderLastCellA1;
+            ViewBag.RenderMaxRow = renderArea.RenderMaxRow;
+            ViewBag.RenderMaxCol = renderArea.RenderMaxCol;
+            ViewBag.RenderWidthPx = Math.Ceiling(renderArea.WidthPx);
+            ViewBag.RenderHeightPx = Math.Ceiling(renderArea.HeightPx);
+
+
+            // 기존 ViewBag 할당부에 아래 한 줄 추가
+            ViewBag.StampRectsJson = stampRectsJson;
+
             var caps = await GetApprovalCapabilitiesAsync(id!);
 
             ViewData["Title"] = _S["DOC_Title_Detail"];
@@ -477,7 +736,6 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.Status = status ?? string.Empty;
             ViewBag.CompCd = compCd ?? string.Empty;
             ViewBag.CreatorName = creatorDisplayName ?? string.Empty;
-
             ViewBag.DescriptorJson = descriptorJson ?? "{}";
             ViewBag.InputsJson = "{}";
             ViewBag.PreviewJson = previewJson;
@@ -486,18 +744,16 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.ApprovalCellsJson = JsonSerializer.Serialize(approvalCells);
             ViewBag.DocumentFilesJson = JsonSerializer.Serialize(docFiles);
             ViewBag.CooperationsJson = JsonSerializer.Serialize(cooperations);
-
+            ViewBag.ApprovalTableRowsJson = JsonSerializer.Serialize(approvalTableRows);
             ViewBag.SelectedRecipientUserIds = sharedRecipientUserIds;
             ViewBag.SelectedRecipientUserIdsJson = JsonSerializer.Serialize(sharedRecipientUserIds);
-
             ViewBag.CreatedAtText = createdAtText;
             ViewBag.RecalledAtText = recalledAtText;
-
             ViewBag.ExcelPath = dxOpenAbsPath ?? string.Empty;
             ViewBag.OpenRel = openRel ?? string.Empty;
-            ViewBag.DxCallbackUrl = "/Doc/dx-callback";
+            var request = HttpContext.Request;
+            ViewBag.DxCallbackUrl = $"{request.Scheme}://{request.Host}/Doc/dx-callback";
             ViewBag.DxDocumentId = "detail_" + (id ?? Guid.NewGuid().ToString("N"));
-
             ViewBag.CanRecall = caps.canRecall;
             ViewBag.CanApprove = caps.canApprove;
             ViewBag.CanHold = caps.canHold;
@@ -506,8 +762,629 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.CanPrint = true;
             ViewBag.CanExportPdf = true;
             ViewBag.CanCooperate = caps.canCooperate;
+            ViewBag.CanCooperateReject = caps.canCooperate;
 
             return View("~/Views/Doc/DetailDX.cshtml");
+        }
+
+        private static ExcelRenderAreaInfo GetRenderAreaInfoFromExcel(string excelPath, ILogger? log = null)
+        {
+            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
+                return new ExcelRenderAreaInfo();
+
+            try
+            {
+                using var wb = new XLWorkbook(excelPath);
+                var ws = wb.Worksheets.First();
+
+                double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
+                double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
+
+                var bbox = BuildVisibleBBox(ws);
+
+                var usedMaxRow = Math.Max(1, bbox.usedMaxRow);
+                var usedMaxCol = Math.Max(1, bbox.usedMaxCol);
+
+                var renderMaxRow = Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1);
+                var renderMaxCol = Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1);
+
+                double widthPx = 0d;
+                for (int c = 1; c <= renderMaxCol; c++)
+                {
+                    var colWidth = ws.Column(c).Width <= 0 ? defaultColChar : ws.Column(c).Width;
+                    widthPx += ExcelColWidthToPx(colWidth);
+                }
+
+                double heightPx = 0d;
+                for (int r = 1; r <= renderMaxRow; r++)
+                {
+                    var rowHeight = ws.Row(r).Height <= 0 ? defaultRowPt : ws.Row(r).Height;
+                    heightPx += RowHeightPtToPx(rowHeight);
+                }
+
+                return new ExcelRenderAreaInfo
+                {
+                    UsedMaxRow = usedMaxRow,
+                    UsedMaxCol = usedMaxCol,
+                    RenderMaxRow = renderMaxRow,
+                    RenderMaxCol = renderMaxCol,
+                    UsedLastCellA1 = ToA1(usedMaxRow, usedMaxCol),
+                    RenderLastCellA1 = ToA1(renderMaxRow, renderMaxCol),
+                    WidthPx = Math.Round(widthPx, 2),
+                    HeightPx = Math.Round(heightPx, 2)
+                };
+            }
+            catch (Exception ex)
+            {
+                log?.LogWarning(ex, "GetRenderAreaInfoFromExcel failed path={Path}", excelPath);
+                return new ExcelRenderAreaInfo();
+            }
+        }
+
+        private static double ExcelColWidthToPx(double widthChars)
+        {
+            const double mdw = 7d;
+            var w = widthChars < 0 ? 0 : widthChars;
+            return Math.Floor((w * mdw + 5d) / mdw) * mdw + 2d;
+        }
+
+        private static double RowHeightPtToPx(double heightPt)
+        {
+            return Math.Round((heightPt <= 0 ? 15d : heightPt) * 96d / 72d, 2);
+        }
+
+
+        private static bool HasVisibleBorder(IXLCell cell)
+        {
+            var b = cell.Style.Border;
+            return b.LeftBorder != XLBorderStyleValues.None
+                || b.RightBorder != XLBorderStyleValues.None
+                || b.TopBorder != XLBorderStyleValues.None
+                || b.BottomBorder != XLBorderStyleValues.None;
+        }
+
+        private static bool HasVisibleFill(IXLCell cell)
+        {
+            var f = cell.Style.Fill;
+            if (f.PatternType != XLFillPatternValues.None) return true;
+
+            try
+            {
+                var bg = f.BackgroundColor;
+                if (bg != null && !bg.Equals(XLColor.NoColor) && !bg.Equals(XLColor.FromIndex(64)))
+                    return true;
+            }
+            catch { }
+
+            return false;
+        }
+
+        private static bool HasMeaningfulValue(IXLCell cell)
+        {
+            if (cell == null)
+                return false;
+
+            try
+            {
+                if (cell.DataType == XLDataType.Blank)
+                    return false;
+
+                var s = cell.GetString();
+                if (!string.IsNullOrWhiteSpace(s))
+                    return true;
+
+                return cell.DataType == XLDataType.Number
+                    || cell.DataType == XLDataType.DateTime
+                    || cell.DataType == XLDataType.Boolean
+                    || cell.DataType == XLDataType.TimeSpan
+                    || cell.DataType == XLDataType.Error;
+            }
+            catch
+            {
+                try
+                {
+                    var fallback = cell.Value.ToString();
+                    return !string.IsNullOrWhiteSpace(fallback);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        private static bool TryGetMergeBounds(
+            List<(int r1, int c1, int r2, int c2)> mergedRanges,
+            int row,
+            int col,
+            out (int r1, int c1, int r2, int c2) bounds)
+        {
+            foreach (var mr in mergedRanges)
+            {
+                if (row >= mr.r1 && row <= mr.r2 && col >= mr.c1 && col <= mr.c2)
+                {
+                    bounds = mr;
+                    return true;
+                }
+            }
+
+            bounds = (row, col, row, col);
+            return false;
+        }
+
+        private static string ToA1(int row1, int col1)
+        {
+            return ToColName(col1) + row1.ToString();
+        }
+
+        private static string ToA1Range(int r1, int c1, int r2, int c2)
+        {
+            var s = ToA1(r1, c1);
+            var e = ToA1(r2, c2);
+            return string.Equals(s, e, StringComparison.OrdinalIgnoreCase) ? s : s + ":" + e;
+        }
+        private static string ToColName(int col1)
+        {
+            if (col1 <= 0) return string.Empty;
+            var chars = new Stack<char>();
+            var n = col1;
+            while (n > 0)
+            {
+                n--;
+                chars.Push((char)('A' + (n % 26)));
+                n /= 26;
+            }
+            return new string(chars.ToArray());
+        }
+
+        private static bool IsMeaningfulVisualCell(IXLCell cell, List<(int r1, int c1, int r2, int c2)> mergedRanges)
+        {
+            if (!HasMeaningfulValue(cell))
+                return false;
+
+            var row = cell.Address.RowNumber;
+            var col = cell.Address.ColumnNumber;
+
+            if (TryGetMergeBounds(mergedRanges, row, col, out var mr))
+                return mr.r1 == row && mr.c1 == col;
+
+            return true;
+        }
+
+        private static (int usedMaxRow, int usedMaxCol, string usedLastCellA1, List<(int r1, int c1, int r2, int c2)> merged) BuildVisibleBBox(IXLWorksheet ws)
+        {
+            var merged = ws.MergedRanges
+                .Select(m => (
+                    r1: m.RangeAddress.FirstAddress.RowNumber,
+                    c1: m.RangeAddress.FirstAddress.ColumnNumber,
+                    r2: m.RangeAddress.LastAddress.RowNumber,
+                    c2: m.RangeAddress.LastAddress.ColumnNumber
+                ))
+                .ToList();
+
+            var scanOptions = XLCellsUsedOptions.AllContents;
+
+            int maxRow = 1;
+            int maxCol = 1;
+            bool found = false;
+
+            foreach (var cell in ws.CellsUsed(scanOptions))
+            {
+                if (!HasMeaningfulValue(cell))
+                    continue;
+
+                var row = cell.Address.RowNumber;
+                var col = cell.Address.ColumnNumber;
+
+                if (TryGetMergeBounds(merged, row, col, out var mb))
+                {
+                    if (mb.r1 != row || mb.c1 != col)
+                        continue;
+
+                    if (mb.r2 > maxRow) maxRow = mb.r2;
+                    if (mb.c2 > maxCol) maxCol = mb.c2;
+                }
+                else
+                {
+                    if (row > maxRow) maxRow = row;
+                    if (col > maxCol) maxCol = col;
+                }
+
+                found = true;
+            }
+
+            if (!found)
+                return (1, 1, "A1", merged);
+
+            return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
+        }
+
+
+        private static string BuildStampRectsJsonFromExcel(
+      string excelPath,
+      string approvalCellsJson,
+      string approvalsJson,
+      string cooperationsJson,
+      ILogger? log = null)
+        {
+            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
+                return "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
+
+            try
+            {
+                using var wb = new XLWorkbook(excelPath);
+                var ws = wb.Worksheets.First();
+
+                double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
+                double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
+
+                int actualMaxC = 1;
+                int actualMaxR = 1;
+
+                foreach (var row in ws.RowsUsed(XLCellsUsedOptions.All))
+                {
+                    var rowNum = row.RowNumber();
+                    if (rowNum > actualMaxR) actualMaxR = rowNum;
+
+                    var last = row.LastCellUsed(XLCellsUsedOptions.All);
+                    if (last != null && last.Address.ColumnNumber > actualMaxC)
+                        actualMaxC = last.Address.ColumnNumber;
+                }
+
+                foreach (var mr in ws.MergedRanges)
+                {
+                    var lastR = mr.RangeAddress.LastAddress.RowNumber;
+                    var lastC = mr.RangeAddress.LastAddress.ColumnNumber;
+                    if (lastR > actualMaxR) actualMaxR = lastR;
+                    if (lastC > actualMaxC) actualMaxC = lastC;
+                }
+
+                double ColPxAt(int col1)
+                {
+                    var w = ws.Column(col1).Width <= 0 ? defaultColChar : ws.Column(col1).Width;
+                    return Math.Floor((w * 7d + 5d) / 7d) * 7d + 2d;
+                }
+
+                double RowPxAt(int row1)
+                {
+                    var h = ws.Row(row1).Height <= 0 ? defaultRowPt : ws.Row(row1).Height;
+                    return Math.Round(h * 96d / 72d, 2);
+                }
+
+                double SumColsBefore(int col1)
+                {
+                    double sum = 0;
+                    for (int c = 1; c < col1; c++) sum += ColPxAt(c);
+                    return sum;
+                }
+
+                double SumRowsBefore(int row1)
+                {
+                    double sum = 0;
+                    for (int r = 1; r < row1; r++) sum += RowPxAt(r);
+                    return sum;
+                }
+
+                double sheetWidthPx = 0;
+                for (int c = 1; c <= actualMaxC; c++) sheetWidthPx += ColPxAt(c);
+
+                double sheetHeightPx = 0;
+                for (int r = 1; r <= actualMaxR; r++) sheetHeightPx += RowPxAt(r);
+
+                var merged = ws.MergedRanges
+                    .Select(m => new
+                    {
+                        R1 = m.RangeAddress.FirstAddress.RowNumber,
+                        C1 = m.RangeAddress.FirstAddress.ColumnNumber,
+                        R2 = m.RangeAddress.LastAddress.RowNumber,
+                        C2 = m.RangeAddress.LastAddress.ColumnNumber
+                    })
+                    .ToList();
+
+                (int row, int col)? ParseA1(string? a1)
+                {
+                    var raw = (a1 ?? string.Empty).Trim().ToUpperInvariant();
+                    var m = Regex.Match(raw, "^([A-Z]+)(\\d+)$");
+                    if (!m.Success) return null;
+
+                    int col = 0;
+                    foreach (var ch in m.Groups[1].Value)
+                        col = (col * 26) + (ch - 'A' + 1);
+
+                    return (int.Parse(m.Groups[2].Value), col);
+                }
+
+                (int r1, int c1, int r2, int c2)? ParseA1Range(string? a1)
+                {
+                    var raw = (a1 ?? string.Empty).Trim().ToUpperInvariant();
+                    if (string.IsNullOrWhiteSpace(raw)) return null;
+
+                    if (!raw.Contains(':'))
+                    {
+                        var one = ParseA1(raw);
+                        if (one == null) return null;
+                        return (one.Value.row, one.Value.col, one.Value.row, one.Value.col);
+                    }
+
+                    var parts = raw.Split(':', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length != 2) return null;
+
+                    var s = ParseA1(parts[0]);
+                    var e = ParseA1(parts[1]);
+                    if (s == null || e == null) return null;
+
+                    return (
+                        Math.Min(s.Value.row, e.Value.row),
+                        Math.Min(s.Value.col, e.Value.col),
+                        Math.Max(s.Value.row, e.Value.row),
+                        Math.Max(s.Value.col, e.Value.col)
+                    );
+                }
+
+                (int r1, int c1, int r2, int c2) GetMergeBounds(int row1, int col1)
+                {
+                    foreach (var m in merged)
+                    {
+                        if (row1 >= m.R1 && row1 <= m.R2 && col1 >= m.C1 && col1 <= m.C2)
+                            return (m.R1, m.C1, m.R2, m.C2);
+                    }
+
+                    return (row1, col1, row1, col1);
+                }
+
+                (int r1, int c1, int r2, int c2) UnionBounds(
+                    (int r1, int c1, int r2, int c2) a,
+                    (int r1, int c1, int r2, int c2) b)
+                {
+                    return (
+                        Math.Min(a.r1, b.r1),
+                        Math.Min(a.c1, b.c1),
+                        Math.Max(a.r2, b.r2),
+                        Math.Max(a.c2, b.c2)
+                    );
+                }
+
+                string ToColName(int col1)
+                {
+                    if (col1 <= 0) return string.Empty;
+                    var chars = new Stack<char>();
+                    var n = col1;
+                    while (n > 0)
+                    {
+                        n--;
+                        chars.Push((char)('A' + (n % 26)));
+                        n /= 26;
+                    }
+                    return new string(chars.ToArray());
+                }
+
+                string ToA1(int row1, int col1)
+                {
+                    return ToColName(col1) + row1.ToString();
+                }
+
+                string ToA1Range(int r1, int c1, int r2, int c2)
+                {
+                    var start = ToA1(r1, c1);
+                    var end = ToA1(r2, c2);
+                    return string.Equals(start, end, StringComparison.OrdinalIgnoreCase)
+                        ? start
+                        : start + ":" + end;
+                }
+
+                Dictionary<int, JsonElement> BuildApprovalMap(string rawJson)
+                {
+                    var map = new Dictionary<int, JsonElement>();
+                    if (string.IsNullOrWhiteSpace(rawJson)) return map;
+
+                    using var doc = JsonDocument.Parse(rawJson);
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array) return map;
+
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                    {
+                        int step = 0;
+
+                        if (item.TryGetProperty("step", out var s1) && s1.ValueKind == JsonValueKind.Number) step = s1.GetInt32();
+                        else if (item.TryGetProperty("Step", out var s2) && s2.ValueKind == JsonValueKind.Number) step = s2.GetInt32();
+
+                        if (step > 0)
+                            map[step] = item.Clone();
+                    }
+
+                    return map;
+                }
+
+                List<JsonElement> BuildArray(string rawJson)
+                {
+                    var list = new List<JsonElement>();
+                    if (string.IsNullOrWhiteSpace(rawJson)) return list;
+
+                    using var doc = JsonDocument.Parse(rawJson);
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array) return list;
+
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                        list.Add(item.Clone());
+
+                    return list;
+                }
+
+                string GetString(JsonElement el, params string[] names)
+                {
+                    foreach (var name in names)
+                    {
+                        if (el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String)
+                            return p.GetString() ?? string.Empty;
+                    }
+                    return string.Empty;
+                }
+
+                int GetInt(JsonElement el, params string[] names)
+                {
+                    foreach (var name in names)
+                    {
+                        if (el.TryGetProperty(name, out var p))
+                        {
+                            if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n)) return n;
+                            if (p.ValueKind == JsonValueKind.String && int.TryParse(p.GetString(), out var n2)) return n2;
+                        }
+                    }
+                    return 0;
+                }
+
+                bool IsApproved(string actionRaw, string statusRaw)
+                {
+                    return actionRaw == "APPROVE"
+                        || actionRaw.StartsWith("APPROV", StringComparison.OrdinalIgnoreCase)
+                        || statusRaw == "APPROVED"
+                        || statusRaw.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase)
+                        || statusRaw == "COOPERATED"
+                        || statusRaw.StartsWith("COOPERATED", StringComparison.OrdinalIgnoreCase);
+                }
+
+                bool IsHold(string actionRaw, string statusRaw)
+                {
+                    return actionRaw == "HOLD"
+                        || actionRaw.StartsWith("HOLD", StringComparison.OrdinalIgnoreCase)
+                        || statusRaw == "HOLD"
+                        || statusRaw == "ONHOLD"
+                        || statusRaw.StartsWith("PENDINGHOLD", StringComparison.OrdinalIgnoreCase)
+                        || statusRaw.StartsWith("HOLD", StringComparison.OrdinalIgnoreCase);
+                }
+
+                bool IsRejected(string actionRaw, string statusRaw)
+                {
+                    return actionRaw == "REJECT"
+                        || actionRaw.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)
+                        || statusRaw == "REJECTED"
+                        || statusRaw == "REJECT"
+                        || statusRaw.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase);
+                }
+
+                string GetStampKind(string actionRaw, string statusRaw)
+                {
+                    if (IsApproved(actionRaw, statusRaw)) return "approved";
+                    if (IsHold(actionRaw, statusRaw)) return "holding";
+                    if (IsRejected(actionRaw, statusRaw)) return "rejected";
+                    return string.Empty;
+                }
+
+                var approvalMapRows = BuildArray(approvalCellsJson);
+                var approvalsByStep = BuildApprovalMap(approvalsJson);
+                var cooperationRows = BuildArray(cooperationsJson);
+
+                var stamps = new List<object>();
+
+                foreach (var cellRow in approvalMapRows)
+                {
+                    var step = GetInt(cellRow, "Step", "step", "Slot", "slot");
+                    var a1 = GetString(cellRow, "A1", "a1", "CellA1", "cellA1");
+                    if (step <= 0 || string.IsNullOrWhiteSpace(a1)) continue;
+                    if (!approvalsByStep.TryGetValue(step, out var approval)) continue;
+
+                    var actionRaw = GetString(approval, "action", "Action").Trim().ToUpperInvariant();
+                    var statusRaw = GetString(approval, "status", "Status").Trim().ToUpperInvariant();
+                    var stampKind = GetStampKind(actionRaw, statusRaw);
+                    if (string.IsNullOrWhiteSpace(stampKind)) continue;
+
+                    var parsed = ParseA1Range(a1);
+                    if (parsed == null) continue;
+
+                    var b1 = GetMergeBounds(parsed.Value.r1, parsed.Value.c1);
+                    var b2 = GetMergeBounds(parsed.Value.r2, parsed.Value.c2);
+                    var bounds = UnionBounds(b1, b2);
+                    var boundsA1 = ToA1Range(bounds.r1, bounds.c1, bounds.r2, bounds.c2);
+
+                    double x = SumColsBefore(bounds.c1);
+                    double y = SumRowsBefore(bounds.r1);
+                    double w = 0;
+                    double h = 0;
+
+                    for (int c = bounds.c1; c <= bounds.c2; c++) w += ColPxAt(c);
+                    for (int r = bounds.r1; r <= bounds.r2; r++) h += RowPxAt(r);
+
+                    stamps.Add(new
+                    {
+                        lineType = "approval",
+                        step,
+                        roleKey = GetString(approval, "roleKey", "RoleKey"),
+                        a1,
+                        boundsA1,
+                        row1 = bounds.r1,
+                        col1 = bounds.c1,
+                        row2 = bounds.r2,
+                        col2 = bounds.c2,
+                        x = Math.Round(x, 2),
+                        y = Math.Round(y, 2),
+                        w = Math.Round(w, 2),
+                        h = Math.Round(h, 2),
+                        action = GetString(approval, "action", "Action"),
+                        status = GetString(approval, "status", "Status"),
+                        approverDisplayText = GetString(approval, "approverDisplayText", "ApproverDisplayText"),
+                        signaturePath = GetString(approval, "signaturePath", "SignaturePath"),
+                        stampKind
+                    });
+                }
+
+                foreach (var coop in cooperationRows)
+                {
+                    var a1 = GetString(coop, "cellA1", "CellA1", "A1", "a1");
+                    if (string.IsNullOrWhiteSpace(a1)) continue;
+
+                    var actionRaw = GetString(coop, "action", "Action").Trim().ToUpperInvariant();
+                    var statusRaw = GetString(coop, "status", "Status").Trim().ToUpperInvariant();
+                    var stampKind = GetStampKind(actionRaw, statusRaw);
+                    if (string.IsNullOrWhiteSpace(stampKind)) continue;
+
+                    var parsed = ParseA1Range(a1);
+                    if (parsed == null) continue;
+
+                    var b1 = GetMergeBounds(parsed.Value.r1, parsed.Value.c1);
+                    var b2 = GetMergeBounds(parsed.Value.r2, parsed.Value.c2);
+                    var bounds = UnionBounds(b1, b2);
+                    var boundsA1 = ToA1Range(bounds.r1, bounds.c1, bounds.r2, bounds.c2);
+
+                    double x = SumColsBefore(bounds.c1);
+                    double y = SumRowsBefore(bounds.r1);
+                    double w = 0;
+                    double h = 0;
+
+                    for (int c = bounds.c1; c <= bounds.c2; c++) w += ColPxAt(c);
+                    for (int r = bounds.r1; r <= bounds.r2; r++) h += RowPxAt(r);
+
+                    stamps.Add(new
+                    {
+                        lineType = "cooperation",
+                        roleKey = GetString(coop, "roleKey", "RoleKey"),
+                        a1,
+                        boundsA1,
+                        row1 = bounds.r1,
+                        col1 = bounds.c1,
+                        row2 = bounds.r2,
+                        col2 = bounds.c2,
+                        x = Math.Round(x, 2),
+                        y = Math.Round(y, 2),
+                        w = Math.Round(w, 2),
+                        h = Math.Round(h, 2),
+                        action = GetString(coop, "action", "Action"),
+                        status = GetString(coop, "status", "Status"),
+                        approverDisplayText = GetString(coop, "approverDisplayText", "ApproverDisplayText"),
+                        signaturePath = GetString(coop, "signaturePath", "SignaturePath"),
+                        stampKind
+                    });
+                }
+
+                return JsonSerializer.Serialize(new
+                {
+                    widthPx = Math.Round(sheetWidthPx, 2),
+                    heightPx = Math.Round(sheetHeightPx, 2),
+                    stamps
+                });
+            }
+            catch (Exception ex)
+            {
+                log?.LogWarning(ex, "BuildStampRectsJsonFromExcel failed path={Path}", excelPath);
+                return "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
+            }
         }
 
         // ========== ApproveOrHold ==========
@@ -566,13 +1443,12 @@ WHERE DocId = @DocId
                 return Json(new { ok = true, docId = dto.docId, status = "Recalled" });
             }
 
-            // ── 협조 확인 ─────────────────────────────────────────────────────
+            // ── 협조 확인
             if (actionLower == "cooperate")
             {
                 var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
                 var approverName = _helper.GetCurrentUserDisplayNameStrict();
 
-                // ── 프로필 스냅샷 (결재 POST와 완전히 동일) ──────────────────
                 string? coopDisplayText = null;
                 string? coopSignaturePath = null;
                 try
@@ -601,8 +1477,7 @@ WHERE u.UserId = @uid;";
                         var pos = r["PositionName"] as string ?? string.Empty;
                         var dept = r["DepartmentName"] as string ?? string.Empty;
                         var sig = r["SignaturePath"] as string ?? string.Empty;
-                        coopDisplayText = string.Join(" ",
-                            new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                        coopDisplayText = string.Join(" ", new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
                         coopSignaturePath = string.IsNullOrWhiteSpace(sig) ? null : sig;
                     }
                 }
@@ -615,7 +1490,6 @@ WHERE u.UserId = @uid;";
                 await using var conn = new SqlConnection(csC);
                 await conn.OpenAsync();
 
-                // ── Pending 협조자인지 확인 ───────────────────────────────────
                 int? coopId = null;
                 await using (var ck = conn.CreateCommand())
                 {
@@ -633,7 +1507,6 @@ WHERE DocId  = @DocId
                     coopId = Convert.ToInt32(o);
                 }
 
-                // ── 협조 완료 UPDATE (결재 approve와 완전히 동일한 컬럼 기준) ─
                 await using (var upC = conn.CreateCommand())
                 {
                     upC.CommandText = @"
@@ -649,11 +1522,173 @@ WHERE Id = @Id;";
                     upC.Parameters.Add(new SqlParameter("@displayText", SqlDbType.NVarChar, 400) { Value = (object?)coopDisplayText ?? DBNull.Value });
                     await upC.ExecuteNonQueryAsync();
                 }
+                ///
+                try
+                {
+                    var csChk = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                    await using var connChk = new SqlConnection(csChk);
+                    await connChk.OpenAsync();
+
+                    // 현재 문서 상태가 PendingA{N} 형태인지 확인
+                    string? docStatusNow = null;
+                    await using (var dsChk = connChk.CreateCommand())
+                    {
+                        dsChk.CommandText = @"SELECT TOP 1 Status FROM dbo.Documents WHERE DocId = @DocId;";
+                        dsChk.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                        docStatusNow = await dsChk.ExecuteScalarAsync() as string;
+                    }
+
+                    // PendingA{N} 패턴 파싱
+                    int? pendingStep = null;
+                    if (!string.IsNullOrWhiteSpace(docStatusNow)
+                        && docStatusNow.StartsWith("PendingA", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(docStatusNow.Substring("PendingA".Length), out var ps))
+                            pendingStep = ps;
+                    }
+
+                    if (pendingStep != null)
+                    {
+                        // pendingStep이 마지막 결재자인지 확인
+                        int? stepAfterPending = null;
+                        await using (var chkL = connChk.CreateCommand())
+                        {
+                            chkL.CommandText = @"
+SELECT TOP 1 StepOrder
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId AND StepOrder > @Step
+ORDER BY StepOrder;";
+                            chkL.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            chkL.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = pendingStep.Value });
+                            var o2 = await chkL.ExecuteScalarAsync();
+                            if (o2 != null && o2 != DBNull.Value) stepAfterPending = Convert.ToInt32(o2);
+                        }
+
+                        bool isPendingFinal = (stepAfterPending == null);
+
+                        if (isPendingFinal)
+                        {
+                            // 남은 협조자 수 확인
+                            await using var chkCoop2 = connChk.CreateCommand();
+                            chkCoop2.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND ISNULL(Status, N'Pending') NOT IN (N'Cooperated', N'Recalled');";
+                            chkCoop2.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            var remaining = Convert.ToInt32(await chkCoop2.ExecuteScalarAsync());
+
+                            if (remaining == 0)
+                            {
+                                // 모든 협조 완료 → 마지막 결재자에게 알림
+                                var finalIds = await GetNextApproverUserIdsFromDbAsync(connChk, dto.docId!, pendingStep.Value);
+                                await DocControllerHelper.SendApprovalPendingBadgeAsync(
+                                    notifier: _webPushNotifier, S: _S, conn: connChk,
+                                    targetUserIds: finalIds ?? new List<string>(),
+                                    url: "/", tag: "badge-approval-pending");
+                            }
+                        }
+                    }
+                }
+                catch (Exception exCoopPush)
+                {
+                    _log.LogWarning(exCoopPush, "cooperate: final step notify failed docId={docId}", dto.docId);
+                }
+
+                ///
 
                 return Json(new { ok = true, docId = dto.docId, status = "Cooperated" });
             }
 
-            // ── 승인 / 보류 / 반려 ────────────────────────────────────────────
+
+            // ── 협조 거부
+            if (actionLower == "cooperatereject")
+            {
+                var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+                var approverName = _helper.GetCurrentUserDisplayNameStrict();
+
+                string? coopDisplayText = null;
+                try
+                {
+                    var csP = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                    await using var connP = new SqlConnection(csP);
+                    await connP.OpenAsync();
+                    await using var up = connP.CreateCommand();
+                    up.CommandText = @"
+SELECT TOP (1)
+       u.DisplayName,
+       COALESCE(pl.Name, pm.Name, N'') AS PositionName,
+       COALESCE(dl.Name, dm.Name, N'') AS DepartmentName
+FROM dbo.UserProfiles AS u
+LEFT JOIN dbo.DepartmentMasters   AS dm ON dm.CompCd = u.CompCd AND dm.Id       = u.DepartmentId
+LEFT JOIN dbo.DepartmentMasterLoc AS dl ON dl.DepartmentId = dm.Id AND dl.LangCode = N'ko'
+LEFT JOIN dbo.PositionMasters     AS pm ON pm.CompCd = u.CompCd AND pm.Id       = u.PositionId
+LEFT JOIN dbo.PositionMasterLoc   AS pl ON pl.PositionId   = pm.Id AND pl.LangCode = N'ko'
+WHERE u.UserId = @uid;";
+                    up.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
+
+                    await using var r = await up.ExecuteReaderAsync();
+                    if (await r.ReadAsync())
+                    {
+                        var disp = r["DisplayName"] as string ?? string.Empty;
+                        var pos = r["PositionName"] as string ?? string.Empty;
+                        var dept = r["DepartmentName"] as string ?? string.Empty;
+                        coopDisplayText = string.Join(" ", new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "cooperateReject: profile snapshot failed docId={docId}", dto.docId);
+                }
+
+                var csC = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+                await using var conn = new SqlConnection(csC);
+                await conn.OpenAsync();
+
+                int? coopId = null;
+                await using (var ck = conn.CreateCommand())
+                {
+                    ck.CommandText = @"
+SELECT TOP 1 Id
+FROM dbo.DocumentCooperations
+WHERE DocId  = @DocId
+  AND UserId = @UserId
+  AND ISNULL(Status, N'Pending') = N'Pending';";
+                    ck.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                    ck.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = approverId });
+
+                    var o = await ck.ExecuteScalarAsync();
+                    if (o == null || o == DBNull.Value)
+                        return Forbid();
+
+                    coopId = Convert.ToInt32(o);
+                }
+
+                await using (var upC = conn.CreateCommand())
+                {
+                    upC.CommandText = @"
+UPDATE dbo.DocumentCooperations
+SET Status              = N'Rejected',
+    Action              = N'Reject',
+    ActedAt             = SYSUTCDATETIME(),
+    ActorName           = @actor,
+    ApproverDisplayText = COALESCE(@displayText, ApproverDisplayText)
+WHERE Id = @Id;";
+                    upC.Parameters.Add(new SqlParameter("@Id", SqlDbType.Int) { Value = coopId!.Value });
+                    upC.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = approverName ?? string.Empty });
+                    upC.Parameters.Add(new SqlParameter("@displayText", SqlDbType.NVarChar, 300) { Value = (object?)coopDisplayText ?? DBNull.Value });
+
+                    await upC.ExecuteNonQueryAsync();
+                }
+
+                return Json(new
+                {
+                    ok = true,
+                    docId = dto.docId,
+                    status = "Rejected"
+                });
+            }
+            // ── 승인 / 보류 / 반려 
             string outXlsx = string.Empty;
             try
             {
@@ -830,6 +1865,7 @@ WHERE DocId = @id AND StepOrder = @step;";
 
                     if (toList.Count == 0)
                     {
+                        // 다음 결재자 없음 → 최종 승인
                         await using var up2a = conn.CreateCommand();
                         up2a.CommandText = @"UPDATE dbo.Documents SET Status = N'Approved' WHERE DocId = @id;";
                         up2a.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
@@ -838,26 +1874,76 @@ WHERE DocId = @id AND StepOrder = @step;";
                     }
                     else
                     {
-                        await using (var up2 = conn.CreateCommand())
+                        // ── next가 마지막 결재자인지 확인 ──
+                        int? stepAfterNext = null;
+                        await using (var chkLast = conn.CreateCommand())
                         {
-                            up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
-                            up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
-                            up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                            await up2.ExecuteNonQueryAsync();
+                            chkLast.CommandText = @"
+SELECT TOP 1 StepOrder
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder > @Next
+ORDER BY StepOrder;";
+                            chkLast.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            chkLast.Parameters.Add(new SqlParameter("@Next", SqlDbType.Int) { Value = next });
+                            var o = await chkLast.ExecuteScalarAsync();
+                            if (o != null && o != DBNull.Value) stepAfterNext = Convert.ToInt32(o);
                         }
-                        newStatus = $"PendingA{next}";
 
-                        try
+                        bool isNextFinalStep = (stepAfterNext == null); // next가 마지막 결재자
+
+                        bool coopAllDone = true;
+                        if (isNextFinalStep)
                         {
-                            var nextIds = await GetNextApproverUserIdsFromDbAsync(conn, dto.docId!, next);
-                            await DocControllerHelper.SendApprovalPendingBadgeAsync(
-                                notifier: _webPushNotifier, S: _S, conn: conn,
-                                targetUserIds: nextIds ?? new List<string>(),
-                                url: "/", tag: "badge-approval-pending");
+                            // 협조자 중 Cooperated 아닌 사람 있는지 확인
+                            await using var chkCoop = conn.CreateCommand();
+                            chkCoop.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND ISNULL(Status, N'Pending') NOT IN (N'Cooperated', N'Recalled');";
+                            chkCoop.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            var coopPending = Convert.ToInt32(await chkCoop.ExecuteScalarAsync());
+                            coopAllDone = (coopPending == 0);
                         }
-                        catch (Exception exPush)
+
+                        if (isNextFinalStep && !coopAllDone)
                         {
-                            _log.LogWarning(exPush, "ApproveOrHold: push notify failed docId={docId}", dto.docId);
+                            // 협조 미완료 → 마지막 결재자에게 아직 알림 보내지 않고 대기 상태만 기록
+                            await using (var up2 = conn.CreateCommand())
+                            {
+                                up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
+                                up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
+                                up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                                await up2.ExecuteNonQueryAsync();
+                            }
+                            newStatus = $"PendingA{next}";
+                            // 알림 발송 안 함 — 협조 완료 시 cooperate 쪽에서 발송
+                        }
+                        else
+                        {
+                            // 협조자 없거나 협조 완료 → 바로 알림 발송
+                            await using (var up2 = conn.CreateCommand())
+                            {
+                                up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
+                                up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
+                                up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                                await up2.ExecuteNonQueryAsync();
+                            }
+                            newStatus = $"PendingA{next}";
+
+                            try
+                            {
+                                var nextIds = await GetNextApproverUserIdsFromDbAsync(conn, dto.docId!, next);
+                                await DocControllerHelper.SendApprovalPendingBadgeAsync(
+                                    notifier: _webPushNotifier, S: _S, conn: conn,
+                                    targetUserIds: nextIds ?? new List<string>(),
+                                    url: "/", tag: "badge-approval-pending");
+                            }
+                            catch (Exception exPush)
+                            {
+                                _log.LogWarning(exPush, "ApproveOrHold: push notify failed docId={docId}", dto.docId);
+                            }
                         }
                     }
                 }
@@ -894,465 +1980,148 @@ WHERE DocId = @id AND StepOrder = @step;";
             return Json(new { ok = true, docId = dto.docId, status = newStatus, previewJson = previewJson2 });
         }
 
-        // ========== UpdateShares ==========
-        [HttpPost("UpdateShares")]
-        [ValidateAntiForgeryToken]
-        [Consumes("application/json")]
-        [Produces("application/json")]
-        public async Task<IActionResult> UpdateShares([FromBody] UpdateSharesDto dto)
-        {
-            if (dto is null || string.IsNullOrWhiteSpace(dto.DocId))
-                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "arg" });
+//        // ========== UpdateShares ==========
+//        [HttpPost("UpdateShares")]
+//        [ValidateAntiForgeryToken]
+//        [Consumes("application/json")]
+//        [Produces("application/json")]
+//        public async Task<IActionResult> UpdateShares([FromBody] UpdateSharesDto dto)
+//        {
+//            if (dto is null || string.IsNullOrWhiteSpace(dto.DocId))
+//                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "arg" });
 
-            var docId = dto.DocId!.Trim();
-            var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+//            var docId = dto.DocId!.Trim();
+//            var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
-            var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+//            var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
+//                .Where(x => !string.IsNullOrWhiteSpace(x))
+//                .Select(x => x.Trim())
+//                .Distinct(StringComparer.OrdinalIgnoreCase)
+//                .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
+//                .ToList();
 
-            var newlyAdded = new List<string>();
+//            var newlyAdded = new List<string>();
 
-            try
-            {
-                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-                await using var conn = new SqlConnection(cs);
-                await conn.OpenAsync();
-                await using var tx = await conn.BeginTransactionAsync();
+//            try
+//            {
+//                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+//                await using var conn = new SqlConnection(cs);
+//                await conn.OpenAsync();
+//                await using var tx = await conn.BeginTransactionAsync();
 
-                try
-                {
-                    var currentActive = new List<string>();
-                    await using (var sel = conn.CreateCommand())
-                    {
-                        sel.Transaction = (SqlTransaction)tx;
-                        sel.CommandText = @"SELECT UserId FROM dbo.DocumentShares WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
-                        sel.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                        await using var r = await sel.ExecuteReaderAsync();
-                        while (await r.ReadAsync())
-                        {
-                            var uid = (r["UserId"]?.ToString() ?? string.Empty).Trim();
-                            if (!string.IsNullOrWhiteSpace(uid)) currentActive.Add(uid);
-                        }
-                    }
+//                try
+//                {
+//                    var currentActive = new List<string>();
+//                    await using (var sel = conn.CreateCommand())
+//                    {
+//                        sel.Transaction = (SqlTransaction)tx;
+//                        sel.CommandText = @"SELECT UserId FROM dbo.DocumentShares WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
+//                        sel.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+//                        await using var r = await sel.ExecuteReaderAsync();
+//                        while (await r.ReadAsync())
+//                        {
+//                            var uid = (r["UserId"]?.ToString() ?? string.Empty).Trim();
+//                            if (!string.IsNullOrWhiteSpace(uid)) currentActive.Add(uid);
+//                        }
+//                    }
 
-                    newlyAdded = selected
-                        .Where(uid => !currentActive.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
-                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+//                    newlyAdded = selected
+//                        .Where(uid => !currentActive.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+//                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-                    var toRevoke = currentActive
-                        .Where(uid => !selected.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
+//                    var toRevoke = currentActive
+//                        .Where(uid => !selected.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+//                        .ToList();
 
-                    foreach (var targetUserId in toRevoke)
-                    {
-                        await using (var cmd = conn.CreateCommand())
-                        {
-                            cmd.Transaction = (SqlTransaction)tx;
-                            cmd.CommandText = @"UPDATE dbo.DocumentShares SET IsRevoked = 1, ExpireAt = SYSUTCDATETIME() WHERE DocId = @DocId AND UserId = @UserId;";
-                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                            await cmd.ExecuteNonQueryAsync();
-                        }
-                        await using (var logCmd = conn.CreateCommand())
-                        {
-                            logCmd.Transaction = (SqlTransaction)tx;
-                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
-                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
-                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareRevoked" });
-                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"revoked\":true}" });
-                            await logCmd.ExecuteNonQueryAsync();
-                        }
-                    }
+//                    foreach (var targetUserId in toRevoke)
+//                    {
+//                        await using (var cmd = conn.CreateCommand())
+//                        {
+//                            cmd.Transaction = (SqlTransaction)tx;
+//                            cmd.CommandText = @"UPDATE dbo.DocumentShares SET IsRevoked = 1, ExpireAt = SYSUTCDATETIME() WHERE DocId = @DocId AND UserId = @UserId;";
+//                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+//                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+//                            await cmd.ExecuteNonQueryAsync();
+//                        }
+//                        await using (var logCmd = conn.CreateCommand())
+//                        {
+//                            logCmd.Transaction = (SqlTransaction)tx;
+//                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
+//                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+//                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+//                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareRevoked" });
+//                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+//                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"revoked\":true}" });
+//                            await logCmd.ExecuteNonQueryAsync();
+//                        }
+//                    }
 
-                    foreach (var targetUserId in selected)
-                    {
-                        await using (var cmd = conn.CreateCommand())
-                        {
-                            cmd.Transaction = (SqlTransaction)tx;
-                            cmd.CommandText = @"
-IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
-BEGIN
-    UPDATE dbo.DocumentShares SET IsRevoked = 0, ExpireAt = NULL WHERE DocId=@DocId AND UserId=@UserId;
-END
-ELSE
-BEGIN
-    INSERT INTO dbo.DocumentShares (DocId,UserId,AccessRole,ExpireAt,IsRevoked,CreatedBy,CreatedAt)
-    VALUES (@DocId,@UserId,'Commenter',NULL,0,@CreatedBy,SYSUTCDATETIME());
-END";
-                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                            cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
-                            await cmd.ExecuteNonQueryAsync();
-                        }
-                        await using (var logCmd = conn.CreateCommand())
-                        {
-                            logCmd.Transaction = (SqlTransaction)tx;
-                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
-                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
-                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
-                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
-                            await logCmd.ExecuteNonQueryAsync();
-                        }
-                    }
+//                    foreach (var targetUserId in selected)
+//                    {
+//                        await using (var cmd = conn.CreateCommand())
+//                        {
+//                            cmd.Transaction = (SqlTransaction)tx;
+//                            cmd.CommandText = @"
+//IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
+//BEGIN
+//    UPDATE dbo.DocumentShares SET IsRevoked = 0, ExpireAt = NULL WHERE DocId=@DocId AND UserId=@UserId;
+//END
+//ELSE
+//BEGIN
+//    INSERT INTO dbo.DocumentShares (DocId,UserId,AccessRole,ExpireAt,IsRevoked,CreatedBy,CreatedAt)
+//    VALUES (@DocId,@UserId,'Commenter',NULL,0,@CreatedBy,SYSUTCDATETIME());
+//END";
+//                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+//                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+//                            cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
+//                            await cmd.ExecuteNonQueryAsync();
+//                        }
+//                        await using (var logCmd = conn.CreateCommand())
+//                        {
+//                            logCmd.Transaction = (SqlTransaction)tx;
+//                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
+//                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+//                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+//                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
+//                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+//                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
+//                            await logCmd.ExecuteNonQueryAsync();
+//                        }
+//                    }
 
-                    await ((SqlTransaction)tx).CommitAsync();
-                }
-                catch
-                {
-                    await ((SqlTransaction)tx).RollbackAsync();
-                    throw;
-                }
+//                    await ((SqlTransaction)tx).CommitAsync();
+//                }
+//                catch
+//                {
+//                    await ((SqlTransaction)tx).RollbackAsync();
+//                    throw;
+//                }
 
-                try
-                {
-                    var ids = newlyAdded.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                    if (ids.Count > 0)
-                    {
-                        await using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? string.Empty);
-                        await connPush.OpenAsync();
-                        await DocControllerHelper.SendSharedUnreadBadgeAsync(
-                            notifier: _webPushNotifier, S: _S, conn: connPush,
-                            targetUserIds: ids, url: "/", tag: "badge-shared");
-                    }
-                }
-                catch (Exception exPush)
-                {
-                    _log.LogWarning(exPush, "UpdateShares: push notify failed docId={docId}", docId);
-                }
+//                try
+//                {
+//                    var ids = newlyAdded.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+//                    if (ids.Count > 0)
+//                    {
+//                        await using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? string.Empty);
+//                        await connPush.OpenAsync();
+//                        await DocControllerHelper.SendSharedUnreadBadgeAsync(
+//                            notifier: _webPushNotifier, S: _S, conn: connPush,
+//                            targetUserIds: ids, url: "/", tag: "badge-shared");
+//                    }
+//                }
+//                catch (Exception exPush)
+//                {
+//                    _log.LogWarning(exPush, "UpdateShares: push notify failed docId={docId}", docId);
+//                }
 
-                return Json(new { ok = true, docId, selectedCount = selected.Count, addedNotifyCount = newlyAdded.Count });
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "UpdateShares failed docId={docId}", docId);
-                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
-            }
-        }
-        // ========== Download ==========
-        //        [HttpGet("Download/{FileKey}")]
-        //        public async Task<IActionResult> Download([FromRoute] string FileKey)
-        //        {
-        //            if (string.IsNullOrWhiteSpace(FileKey))
-        //                return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
-
-        //            try
-        //            {
-        //                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-        //                await using var conn = new SqlConnection(cs);
-        //                await conn.OpenAsync();
-        //                await using var cmd = conn.CreateCommand();
-        //                cmd.CommandText = @"
-        //SELECT TOP (1) DocId, FileKey, OriginalName, StoragePath, ContentType, ByteSize
-        //FROM dbo.DocumentFiles
-        //WHERE FileKey = @FileKey
-        //ORDER BY UploadedAt DESC, FileKey DESC;";
-        //                cmd.Parameters.Add(new SqlParameter("@FileKey", SqlDbType.NVarChar, 200) { Value = FileKey });
-
-        //                await using var r = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
-        //                if (!await r.ReadAsync())
-        //                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
-
-        //                var storagePath = (r["StoragePath"] as string) ?? string.Empty;
-        //                var originalName = (r["OriginalName"] as string) ?? FileKey;
-        //                var contentType = (r["ContentType"] as string) ?? "application/octet-stream";
-
-        //                var rel = storagePath.Replace('\\', '/').Trim();
-        //                if (string.IsNullOrWhiteSpace(rel) || rel.StartsWith("/") || rel.Contains(":") || rel.Contains(".."))
-        //                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
-
-        //                var full = Path.GetFullPath(Path.Combine(_env.ContentRootPath, rel));
-        //                var root = Path.GetFullPath(_env.ContentRootPath);
-        //                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(full))
-        //                    return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
-
-        //                var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
-        //                return File(stream, contentType, originalName, enableRangeProcessing: true);
-        //            }
-        //            catch
-        //            {
-        //                return NotFound(new { messages = new[] { "DOC_File_Err_NotFound" } });
-        //            }
-        //        }
-
-        // ========== Comments ==========
-        //        [HttpGet("Comments")]
-        //        [Produces("application/json")]
-        //        public async Task<IActionResult> GetComments([FromQuery] string? docId, [FromQuery] string? id, [FromQuery] string? documentId)
-        //        {
-        //            docId = !string.IsNullOrWhiteSpace(docId) ? docId
-        //                  : !string.IsNullOrWhiteSpace(id) ? id
-        //                  : documentId;
-
-        //            if (string.IsNullOrWhiteSpace(docId))
-        //                return Json(new { items = Array.Empty<object>() });
-
-        //            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-        //            var items = new List<object>();
-
-        //            await using var conn = new SqlConnection(cs);
-        //            await conn.OpenAsync();
-
-        //            var childMap = new Dictionary<long, int>();
-        //            await using (var childCmd = conn.CreateCommand())
-        //            {
-        //                childCmd.CommandText = @"
-        //SELECT ParentCommentId, COUNT(*) AS ChildCount
-        //FROM dbo.DocumentComments
-        //WHERE DocId = @DocId AND IsDeleted = 0 AND ParentCommentId IS NOT NULL
-        //GROUP BY ParentCommentId;";
-        //                childCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
-        //                await using var childRd = await childCmd.ExecuteReaderAsync();
-        //                while (await childRd.ReadAsync())
-        //                    childMap[Convert.ToInt64(childRd["ParentCommentId"])] = Convert.ToInt32(childRd["ChildCount"]);
-        //            }
-
-        //            await using var cmd = conn.CreateCommand();
-        //            cmd.CommandText = @"
-        //;WITH Tree AS
-        //(
-        //    SELECT c.CommentId, c.DocId, c.ParentCommentId, c.ThreadRootId, c.Depth,
-        //           c.Body, c.HasAttachment, c.IsDeleted, c.CreatedBy, c.CreatedAt, c.UpdatedAt,
-        //           CAST(RIGHT(REPLICATE('0',20)+CONVERT(varchar(20),c.CommentId),20) AS nvarchar(max)) AS SortPath
-        //    FROM dbo.DocumentComments c
-        //    WHERE c.DocId = @DocId AND c.IsDeleted = 0 AND c.ParentCommentId IS NULL
-        //    UNION ALL
-        //    SELECT ch.CommentId, ch.DocId, ch.ParentCommentId, ch.ThreadRootId, ch.Depth,
-        //           ch.Body, ch.HasAttachment, ch.IsDeleted, ch.CreatedBy, ch.CreatedAt, ch.UpdatedAt,
-        //           CAST(t.SortPath+N'/'+RIGHT(REPLICATE('0',20)+CONVERT(varchar(20),ch.CommentId),20) AS nvarchar(max))
-        //    FROM dbo.DocumentComments ch
-        //    INNER JOIN Tree t ON t.CommentId = ch.ParentCommentId
-        //    WHERE ch.DocId = @DocId AND ch.IsDeleted = 0
-        //)
-        //SELECT t.CommentId, t.DocId, t.ParentCommentId, t.ThreadRootId, t.Depth,
-        //       t.Body, t.HasAttachment, t.IsDeleted, t.CreatedBy, t.CreatedAt, t.UpdatedAt,
-        //       COALESCE(p.DisplayName, u.UserName, u.Email, t.CreatedBy) AS AuthorName
-        //FROM Tree t
-        //LEFT JOIN dbo.AspNetUsers  u ON u.Id = t.CreatedBy OR u.UserName = t.CreatedBy OR u.Email = t.CreatedBy
-        //LEFT JOIN dbo.UserProfiles p ON p.UserId = u.Id
-        //ORDER BY t.SortPath
-        //OPTION (MAXRECURSION 100);";
-        //            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
-
-        //            var currentUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-        //            var currentUserName = User?.Identity?.Name ?? string.Empty;
-        //            var isAdmin = User?.IsInRole("Admin") ?? false;
-
-        //            await using var rd = await cmd.ExecuteReaderAsync();
-        //            while (await rd.ReadAsync())
-        //            {
-        //                var commentId = Convert.ToInt64(rd["CommentId"]);
-        //                var parent = rd["ParentCommentId"] == DBNull.Value ? (long?)null : Convert.ToInt64(rd["ParentCommentId"]);
-        //                var depth = Convert.ToInt32(rd["Depth"]);
-        //                var hasAttachment = Convert.ToBoolean(rd["HasAttachment"]);
-        //                var createdAtUtc = (DateTime)rd["CreatedAt"];
-        //                var createdAtLocal = _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(createdAtUtc, DateTimeKind.Utc));
-        //                var createdByRaw = rd["CreatedBy"]?.ToString() ?? string.Empty;
-        //                var canModify = (!string.IsNullOrWhiteSpace(createdByRaw) &&
-        //                                    (string.Equals(createdByRaw, currentUserName, StringComparison.OrdinalIgnoreCase) ||
-        //                                     string.Equals(createdByRaw, currentUserId, StringComparison.OrdinalIgnoreCase)))
-        //                                   || isAdmin;
-        //                var authorName = rd["AuthorName"]?.ToString() ?? createdByRaw;
-        //                var hasChildren = childMap.ContainsKey(commentId);
-
-        //                items.Add(new
-        //                {
-        //                    commentId,
-        //                    docId = (string)rd["DocId"],
-        //                    parentCommentId = parent,
-        //                    depth,
-        //                    body = rd["Body"]?.ToString() ?? string.Empty,
-        //                    hasAttachment,
-        //                    createdBy = authorName,
-        //                    createdAt = createdAtLocal,
-        //                    canEdit = canModify && !hasChildren,
-        //                    canDelete = canModify && !hasChildren,
-        //                    hasChildren
-        //                });
-        //            }
-
-        //            return Json(new { items });
-        //        }
-
-        //        [HttpPost("Comments")]
-        //        [ValidateAntiForgeryToken]
-        //        [Consumes("application/json")]
-        //        [Produces("application/json")]
-        //        public async Task<IActionResult> PostComment([FromBody] DocCommentPostDto dto)
-        //        {
-        //            try
-        //            {
-        //                if (dto == null || string.IsNullOrWhiteSpace(dto.docId))
-        //                    return BadRequest(new { messages = new[] { "DOC_Err_BadRequest" }, detail = "docId missing" });
-
-        //                var body = (dto.body ?? string.Empty).Trim();
-        //                if (string.IsNullOrWhiteSpace(body))
-        //                    return BadRequest(new { messages = new[] { "DOC_Val_Required" }, detail = "body empty" });
-
-        //                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-        //                var currentUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-        //                var currentUserName = User?.Identity?.Name ?? string.Empty;
-        //                var createdByStore = !string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : currentUserName;
-
-        //                await using var conn = new SqlConnection(cs);
-        //                await conn.OpenAsync();
-
-        //                long? parentId = dto.parentCommentId.HasValue ? (long?)dto.parentCommentId.Value : null;
-        //                long threadRootId;
-        //                int depth;
-
-        //                if (parentId.HasValue && parentId.Value > 0)
-        //                {
-        //                    var q = conn.CreateCommand();
-        //                    q.CommandText = @"SELECT ISNULL(ThreadRootId,CommentId) AS RootId, Depth FROM dbo.DocumentComments WHERE CommentId = @pid AND DocId = @docId;";
-        //                    q.Parameters.Add(new SqlParameter("@pid", SqlDbType.BigInt) { Value = parentId.Value });
-        //                    q.Parameters.Add(new SqlParameter("@docId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-        //                    await using var r = await q.ExecuteReaderAsync();
-        //                    if (await r.ReadAsync())
-        //                    {
-        //                        threadRootId = Convert.ToInt64(r["RootId"]);
-        //                        depth = Convert.ToInt32(r["Depth"]) + 1;
-        //                    }
-        //                    else { threadRootId = parentId.Value; depth = 1; }
-        //                }
-        //                else { threadRootId = 0; depth = 0; parentId = null; }
-
-        //                bool hasAttachment = dto.files != null && dto.files.Count > 0;
-
-        //                var cmd = conn.CreateCommand();
-        //                cmd.CommandText = @"
-        //INSERT INTO dbo.DocumentComments
-        //    (DocId,ParentCommentId,ThreadRootId,Depth,Body,HasAttachment,IsDeleted,CreatedBy,CreatedAt,UpdatedAt)
-        //OUTPUT INSERTED.CommentId
-        //VALUES
-        //    (@DocId,@ParentCommentId,@ThreadRootId,@Depth,@Body,@HasAttachment,0,@CreatedBy,SYSUTCDATETIME(),SYSUTCDATETIME());";
-        //                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-        //                cmd.Parameters.Add(new SqlParameter("@ParentCommentId", SqlDbType.BigInt) { Value = (object?)parentId ?? DBNull.Value });
-        //                cmd.Parameters.Add(new SqlParameter("@ThreadRootId", SqlDbType.BigInt) { Value = threadRootId });
-        //                cmd.Parameters.Add(new SqlParameter("@Depth", SqlDbType.Int) { Value = depth });
-        //                cmd.Parameters.Add(new SqlParameter("@Body", SqlDbType.NVarChar, -1) { Value = body });
-        //                cmd.Parameters.Add(new SqlParameter("@HasAttachment", SqlDbType.Bit) { Value = hasAttachment });
-        //                cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 200) { Value = createdByStore });
-
-        //                var newIdObj = await cmd.ExecuteScalarAsync();
-        //                var newId = Convert.ToInt64(newIdObj);
-
-        //                if (threadRootId == 0 && newId > 0)
-        //                {
-        //                    var u = conn.CreateCommand();
-        //                    u.CommandText = @"UPDATE dbo.DocumentComments SET ThreadRootId = @id WHERE CommentId = @id;";
-        //                    u.Parameters.Add(new SqlParameter("@id", SqlDbType.BigInt) { Value = newId });
-        //                    await u.ExecuteNonQueryAsync();
-        //                }
-
-        //                return Json(new { ok = true, id = newId });
-        //            }
-        //            catch (Exception ex)
-        //            {
-        //                _log.LogError(ex, "PostComment failed");
-        //                return StatusCode(500, new { messages = new[] { "DOC_Err_RequestFailed" }, detail = ex.Message });
-        //            }
-        //        }
-
-        //        [HttpDelete("Comments/{id}")]
-        //        [ValidateAntiForgeryToken]
-        //        [Produces("application/json")]
-        //        public async Task<IActionResult> DeleteComment(long id, [FromQuery] string docId)
-        //        {
-        //            if (string.IsNullOrWhiteSpace(docId))
-        //                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_BadRequest" }, detail = "docId missing" });
-
-        //            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-        //            var userName = User?.Identity?.Name ?? string.Empty;
-        //            var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-        //            var isAdmin = User?.IsInRole("Admin") ?? false;
-
-        //            await using var conn = new SqlConnection(cs);
-        //            await conn.OpenAsync();
-
-        //            var checkChild = conn.CreateCommand();
-        //            checkChild.CommandText = @"SELECT COUNT(1) FROM dbo.DocumentComments WHERE ParentCommentId = @id AND DocId = @docId AND IsDeleted = 0;";
-        //            checkChild.Parameters.Add(new SqlParameter("@id", SqlDbType.BigInt) { Value = id });
-        //            checkChild.Parameters.Add(new SqlParameter("@docId", SqlDbType.NVarChar, 40) { Value = docId });
-        //            var childCount = Convert.ToInt32(await checkChild.ExecuteScalarAsync());
-        //            if (childCount > 0)
-        //                return StatusCode(409, new { ok = false, messages = new[] { "DOC_Err_DeleteFailed" }, detail = "comment has child replies" });
-
-        //            var cmd = conn.CreateCommand();
-        //            cmd.CommandText = @"
-        //UPDATE dbo.DocumentComments
-        //SET IsDeleted = 1, UpdatedAt = SYSUTCDATETIME()
-        //WHERE CommentId = @id AND DocId = @docId AND IsDeleted = 0
-        //  AND (@IsAdmin = 1 OR CreatedBy = @UserName OR CreatedBy = @UserId);";
-        //            cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.BigInt) { Value = id });
-        //            cmd.Parameters.Add(new SqlParameter("@docId", SqlDbType.NVarChar, 40) { Value = docId });
-        //            cmd.Parameters.Add(new SqlParameter("@IsAdmin", SqlDbType.Bit) { Value = isAdmin ? 1 : 0 });
-        //            cmd.Parameters.Add(new SqlParameter("@UserName", SqlDbType.NVarChar, 200) { Value = userName });
-        //            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-
-        //            var rows = await cmd.ExecuteNonQueryAsync();
-        //            if (rows == 0) return Forbid();
-        //            return Json(new { ok = true });
-        //        }
-
-        //        [HttpPut("Comments/{id}")]
-        //        [ValidateAntiForgeryToken]
-        //        [Consumes("application/json")]
-        //        [Produces("application/json")]
-        //        public async Task<IActionResult> UpdateComment(long id, [FromBody] DocCommentPostDto dto)
-        //        {
-        //            if (dto == null || string.IsNullOrWhiteSpace(dto.docId) || string.IsNullOrWhiteSpace(dto.body))
-        //                return BadRequest(new { ok = false, message = "DOC_Val_Required" });
-
-        //            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-        //            var userName = User?.Identity?.Name ?? string.Empty;
-        //            var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-        //            var isAdmin = User?.IsInRole("Admin") ?? false;
-
-        //            await using var conn = new SqlConnection(cs);
-        //            await conn.OpenAsync();
-
-        //            var checkChild = conn.CreateCommand();
-        //            checkChild.CommandText = @"SELECT COUNT(1) FROM dbo.DocumentComments WHERE ParentCommentId = @Id AND DocId = @DocId AND IsDeleted = 0;";
-        //            checkChild.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
-        //            checkChild.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId ?? string.Empty });
-        //            var childCount = Convert.ToInt32(await checkChild.ExecuteScalarAsync());
-        //            if (childCount > 0)
-        //                return StatusCode(409, new { ok = false, messages = new[] { "DOC_Err_RequestFailed" }, detail = "comment has child replies" });
-
-        //            var cmd = conn.CreateCommand();
-        //            cmd.CommandText = @"
-        //UPDATE dbo.DocumentComments
-        //SET Body = @Body, UpdatedAt = SYSUTCDATETIME()
-        //WHERE CommentId = @Id AND DocId = @DocId AND IsDeleted = 0
-        //  AND (
-        //        @IsAdmin = 1
-        //        OR CreatedBy = @UserId
-        //        OR CreatedBy = @UserName
-        //        OR EXISTS (
-        //            SELECT 1 FROM dbo.AspNetUsers u
-        //            WHERE (u.Id = CreatedBy OR u.UserName = CreatedBy OR u.Email = CreatedBy)
-        //              AND u.Id = @UserId
-        //        )
-        //      );";
-        //            cmd.Parameters.Add(new SqlParameter("@Body", SqlDbType.NVarChar, -1) { Value = dto.body!.Trim() });
-        //            cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
-        //            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId ?? string.Empty });
-        //            cmd.Parameters.Add(new SqlParameter("@IsAdmin", SqlDbType.Bit) { Value = isAdmin ? 1 : 0 });
-        //            cmd.Parameters.Add(new SqlParameter("@UserName", SqlDbType.NVarChar, 200) { Value = userName });
-        //            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
-
-        //            var rows = await cmd.ExecuteNonQueryAsync();
-        //            if (rows == 0) return Forbid();
-        //            return Json(new { ok = true });
-        //        }
+//                return Json(new { ok = true, docId, selectedCount = selected.Count, addedNotifyCount = newlyAdded.Count });
+//            }
+//            catch (Exception ex)
+//            {
+//                _log.LogWarning(ex, "UpdateShares failed docId={docId}", docId);
+//                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
+//            }
+//        }
 
         // ========== DetailsData ==========
         [HttpGet("DetailsData")]
@@ -1426,6 +2195,35 @@ WHERE a.DocId = @DocId ORDER BY a.StepOrder;";
                 }
             }
 
+            var cooperations = new List<object>();
+            await using (var cc = conn.CreateCommand())
+            {
+                cc.CommandText = @"
+SELECT dc.RoleKey, dc.UserId, dc.ApproverValue, dc.Status, dc.Action, dc.ActedAt, dc.ActorName,
+       COALESCE(dc.ApproverDisplayText, up.DisplayName, dc.ActorName, dc.ApproverValue) AS ApproverDisplayText
+FROM dbo.DocumentCooperations dc
+LEFT JOIN dbo.UserProfiles up ON up.UserId = dc.UserId
+WHERE dc.DocId = @DocId
+ORDER BY dc.RoleKey;";
+                cc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id });
+                await using var cr = await cc.ExecuteReaderAsync();
+                while (await cr.ReadAsync())
+                {
+                    DateTime? acted = cr["ActedAt"] is DateTime dt ? dt : (DateTime?)null;
+                    cooperations.Add(new
+                    {
+                        roleKey = cr["RoleKey"]?.ToString(),
+                        userId = cr["UserId"]?.ToString(),
+                        approverValue = cr["ApproverValue"]?.ToString(),
+                        status = cr["Status"]?.ToString(),
+                        action = cr["Action"]?.ToString(),
+                        actedAtText = acted.HasValue ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc)) : null,
+                        actorName = cr["ActorName"]?.ToString(),
+                        approverDisplayText = cr["ApproverDisplayText"]?.ToString() ?? string.Empty
+                    });
+                }
+            }
+
             return Json(new
             {
                 ok = true,
@@ -1436,11 +2234,259 @@ WHERE a.DocId = @DocId ORDER BY a.StepOrder;";
                 createdAt = createdAt.HasValue ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(createdAt.Value, DateTimeKind.Utc)) : null,
                 descriptorJson = descriptor,
                 previewJson = preview,
-                approvals
+                approvals,
+                cooperations
             });
         }
 
         // ========== Private helpers ==========
+
+        private sealed class ExcelRenderAreaInfo
+        {
+            public int UsedMaxRow { get; set; }
+            public int UsedMaxCol { get; set; }
+            public int RenderMaxRow { get; set; }
+            public int RenderMaxCol { get; set; }
+            public string UsedLastCellA1 { get; set; } = "A1";
+            public string RenderLastCellA1 { get; set; } = "B2";
+            public double WidthPx { get; set; }
+            public double HeightPx { get; set; }
+        }
+
+        private sealed class ApprovalTableRowVm
+        {
+            public string RowType { get; set; } = string.Empty;
+            public int GroupOrder { get; set; }
+            public int SortOrder { get; set; }
+            public string RoleKey { get; set; } = string.Empty;
+            public string RoleText { get; set; } = string.Empty;
+            public string DisplayName { get; set; } = string.Empty;
+            public string Status { get; set; } = string.Empty;
+            public string ActedAtText { get; set; } = string.Empty;
+        }
+        private sealed class RenderDiagTailColVm
+        {
+            public string A1 { get; set; } = string.Empty;
+            public int Col { get; set; }
+            public bool Hidden { get; set; }
+            public double Width { get; set; }
+            public int UsedCount { get; set; }
+            public List<string> Sample { get; set; } = new();
+        }
+
+        private sealed class RenderDiagTailRowVm
+        {
+            public int Row { get; set; }
+            public bool Hidden { get; set; }
+            public double Height { get; set; }
+            public int UsedCount { get; set; }
+            public List<string> Sample { get; set; } = new();
+        }
+
+        private static string BuildRenderAreaDiagJsonFromExcel(string excelPath, ILogger? log = null)
+        {
+            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
+                return "{}";
+
+            try
+            {
+                using var wb = new XLWorkbook(excelPath);
+                var ws = wb.Worksheets.First();
+
+                var bbox = BuildVisibleBBox(ws);
+                var usedMaxRow = Math.Max(1, bbox.usedMaxRow);
+                var usedMaxCol = Math.Max(1, bbox.usedMaxCol);
+                var renderMaxRow = Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1);
+                var renderMaxCol = Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1);
+
+                var scanOptions = XLCellsUsedOptions.AllContents;
+
+                int ExpandCol(IXLCell c)
+                {
+                    var row = c.Address.RowNumber;
+                    var col = c.Address.ColumnNumber;
+
+                    if (TryGetMergeBounds(bbox.merged, row, col, out var mb) && mb.r1 == row && mb.c1 == col)
+                        return mb.c2;
+
+                    return col;
+                }
+
+                int ExpandRow(IXLCell c)
+                {
+                    var row = c.Address.RowNumber;
+                    var col = c.Address.ColumnNumber;
+
+                    if (TryGetMergeBounds(bbox.merged, row, col, out var mb) && mb.r1 == row && mb.c1 == col)
+                        return mb.r2;
+
+                    return row;
+                }
+
+                var rowsNearEdge = new List<object>();
+                foreach (var row in ws.RowsUsed(scanOptions))
+                {
+                    var lastCol = row.CellsUsed(scanOptions)
+                        .Where(HasMeaningfulValue)
+                        .Select(ExpandCol)
+                        .DefaultIfEmpty(0)
+                        .Max();
+
+                    if (lastCol <= 0) continue;
+
+                    rowsNearEdge.Add(new
+                    {
+                        row = row.RowNumber(),
+                        lastCellA1 = ToA1(row.RowNumber(), lastCol),
+                        lastCol
+                    });
+                }
+
+                rowsNearEdge = rowsNearEdge
+                    .OrderByDescending(x => (int)x.GetType().GetProperty("lastCol")!.GetValue(x)!)
+                    .ThenByDescending(x => (int)x.GetType().GetProperty("row")!.GetValue(x)!)
+                    .Take(8)
+                    .Cast<object>()
+                    .ToList();
+
+                var mergeNearEdge = bbox.merged
+                    .OrderByDescending(x => x.c2)
+                    .ThenByDescending(x => x.r2)
+                    .Take(8)
+                    .Select(x => new
+                    {
+                        rangeA1 = ToA1Range(x.r1, x.c1, x.r2, x.c2),
+                        row2 = x.r2,
+                        col2 = x.c2
+                    })
+                    .Cast<object>()
+                    .ToList();
+
+                var tailCols = new List<RenderDiagTailColVm>();
+                for (int c = Math.Max(1, usedMaxCol - 3); c <= Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1); c++)
+                {
+                    var samples = ws.Column(c).CellsUsed(scanOptions)
+                        .Where(HasMeaningfulValue)
+                        .Take(5)
+                        .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
+                        .ToList();
+
+                    tailCols.Add(new RenderDiagTailColVm
+                    {
+                        A1 = ToA1(1, c),
+                        Col = c,
+                        Hidden = ws.Column(c).IsHidden,
+                        Width = Math.Round(ws.Column(c).Width <= 0 ? 8.43 : ws.Column(c).Width, 2),
+                        UsedCount = ws.Column(c).CellsUsed(scanOptions).Count(HasMeaningfulValue),
+                        Sample = samples
+                    });
+                }
+
+                var tailRows = new List<RenderDiagTailRowVm>();
+                for (int r = Math.Max(1, usedMaxRow - 3); r <= Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1); r++)
+                {
+                    var samples = ws.Row(r).CellsUsed(scanOptions)
+                        .Where(HasMeaningfulValue)
+                        .Take(5)
+                        .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
+                        .ToList();
+
+                    tailRows.Add(new RenderDiagTailRowVm
+                    {
+                        Row = r,
+                        Hidden = ws.Row(r).IsHidden,
+                        Height = Math.Round(ws.Row(r).Height <= 0 ? 15 : ws.Row(r).Height, 2),
+                        UsedCount = ws.Row(r).CellsUsed(scanOptions).Count(HasMeaningfulValue),
+                        Sample = samples
+                    });
+                }
+
+                var json = JsonSerializer.Serialize(new
+                {
+                    worksheet = ws.Name,
+                    finalUsedLastCellA1 = ToA1(usedMaxRow, usedMaxCol),
+                    finalUsedMaxCol = usedMaxCol,
+                    finalUsedMaxRow = usedMaxRow,
+                    renderLastCellA1 = ToA1(renderMaxRow, renderMaxCol),
+                    renderMaxCol = renderMaxCol,
+                    renderMaxRow = renderMaxRow,
+                    rowsNearEdge,
+                    mergeNearEdge,
+                    tailCols,
+                    tailRows
+                });
+
+                log?.LogInformation("DetailDX BuildRenderAreaDiagJson {Diag}", json);
+                return json;
+            }
+            catch (Exception ex)
+            {
+                log?.LogWarning(ex, "BuildRenderAreaDiagJsonFromExcel failed path={Path}", excelPath);
+                return "{}";
+            }
+        }
+
+        private string BuildRoleText(string? roleKey, string rowType)
+        {
+            var order = ParseRoleOrder(roleKey);
+            if (string.Equals(rowType, "drafter", StringComparison.OrdinalIgnoreCase)) return LocalizeOrFallback("DOC_Role_Submit", "상신");
+            if (string.Equals(rowType, "approval", StringComparison.OrdinalIgnoreCase)) return LocalizeOrFallback("DOC_Role_ApprovalFmt", $"{order}차 결재", order);
+            if (string.Equals(rowType, "cooperation", StringComparison.OrdinalIgnoreCase)) return LocalizeOrFallback("DOC_Role_CooperationFmt", $"협조 {order}", order);
+            return roleKey ?? string.Empty;
+        }
+
+        private string LocalizeOrFallback(string key, string fallback, params object[] args)
+        {
+            try
+            {
+                var localized = _S[key, args];
+                if (localized.ResourceNotFound) return fallback;
+                var value = localized.Value ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(value) || string.Equals(value, key, StringComparison.Ordinal)) return fallback;
+                return value;
+            }
+            catch { return fallback; }
+        }
+
+        private static int ParseRoleOrder(string? roleKey)
+        {
+            if (string.IsNullOrWhiteSpace(roleKey)) return 9999;
+            var m = Regex.Match(roleKey.Trim(), @"(\d+)$", RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var n)) return n;
+            return 9999;
+        }
+
+        private static string? TryGetJsonString(JsonElement parent, string name)
+        {
+            if (parent.ValueKind != JsonValueKind.Object) return null;
+            if (!parent.TryGetProperty(name, out var el)) return null;
+            return el.ValueKind switch
+            {
+                JsonValueKind.String => el.GetString(),
+                JsonValueKind.Number => el.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
+        }
+
+        private static string GetAnonymousString(object src, string propName)
+        {
+            var p = src.GetType().GetProperty(propName);
+            if (p == null) return string.Empty;
+            return Convert.ToString(p.GetValue(src)) ?? string.Empty;
+        }
+
+        private static int? GetAnonymousInt(object src, string propName)
+        {
+            var p = src.GetType().GetProperty(propName);
+            if (p == null) return null;
+            var v = p.GetValue(src);
+            if (v == null) return null;
+            if (v is int i) return i;
+            return int.TryParse(Convert.ToString(v), out var n) ? n : (int?)null;
+        }
+
         private string ResolveContentRootRelativePath(string? path)
         {
             var raw = (path ?? string.Empty).Trim();
@@ -1544,7 +2590,11 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
                 cmd.CommandText = @"SELECT TOP 1 Status, CreatedBy FROM dbo.Documents WHERE DocId = @id;";
                 cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 await using var r = await cmd.ExecuteReaderAsync();
-                if (await r.ReadAsync()) { status = r["Status"] as string ?? string.Empty; createdBy = r["CreatedBy"] as string ?? string.Empty; }
+                if (await r.ReadAsync())
+                {
+                    status = r["Status"] as string ?? string.Empty;
+                    createdBy = r["CreatedBy"] as string ?? string.Empty;
+                }
             }
 
             if (status == null) return (false, false, false, false, false);
@@ -1552,7 +2602,8 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
             var st = status ?? string.Empty;
             var isCreator = string.Equals(createdBy ?? string.Empty, userId, StringComparison.OrdinalIgnoreCase);
             var isRecalled = st.Equals("Recalled", StringComparison.OrdinalIgnoreCase);
-            var isFinal = st.StartsWith("Approved", StringComparison.OrdinalIgnoreCase) || st.StartsWith("Rejected", StringComparison.OrdinalIgnoreCase);
+            var isFinal = st.StartsWith("Approved", StringComparison.OrdinalIgnoreCase)
+                         || st.StartsWith("Rejected", StringComparison.OrdinalIgnoreCase);
             var canRecall = isCreator && st.StartsWith("Pending", StringComparison.OrdinalIgnoreCase);
 
             bool canCooperate = false;
@@ -1586,7 +2637,11 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
                 cmd3.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 cmd3.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = currentStep });
                 await using var r = await cmd3.ExecuteReaderAsync();
-                if (await r.ReadAsync()) { stepUserId = r["UserId"] as string ?? string.Empty; stepStatus = r["Status"] as string ?? string.Empty; }
+                if (await r.ReadAsync())
+                {
+                    stepUserId = r["UserId"] as string ?? string.Empty;
+                    stepStatus = r["Status"] as string ?? string.Empty;
+                }
             }
 
             if (string.IsNullOrWhiteSpace(stepUserId))

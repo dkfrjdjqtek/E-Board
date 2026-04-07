@@ -1411,14 +1411,16 @@ ORDER BY Id;";
         // ========= Descriptor 변환/FlowGroups =========
         private static string ConvertDescriptorIfNeeded(string? json)
         {
-            const string EMPTY = "{\"inputs\":[],\"approvals\":[],\"version\":\"converted\"}";
+            const string EMPTY = "{\"inputs\":[],\"approvals\":[],\"cooperations\":[],\"version\":\"converted\"}";
             if (!TryParseJsonFlexible(json, out var doc)) return EMPTY;
 
             try
             {
                 var root = doc.RootElement;
                 if (root.TryGetProperty("inputs", out _)) return json!;
-
+                
+                var hasCoops = root.TryGetProperty("Cooperations", out var coopCheck);
+                // Fields → inputs (기존 동일)
                 List<(string key, string type, string a1)> inputs = new();
                 if (root.TryGetProperty("Fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Array)
                 {
@@ -1434,31 +1436,60 @@ ORDER BY Id;";
                     }
                 }
 
-                // 2025.12.12 Changed: approvalsDict (Slot 기반 Dictionary) 사용을 제거하고
-                //                     Approvals 배열 순서대로 A1, A2, ... 를 부여하는 리스트 기반으로 변환
-                //                     Slot 값이 모두 1 이더라도 결재자 2명 이상이 그대로 유지되도록 수정
-                // 2025.12.12 Removed: var approvalsDict = new Dictionary<int, (string approverType, string? value)>();
-                //                     approvalsDict[slot] = (MapApproverType(typ), val);
-                //                     approvalsDict.OrderBy(kv => kv.Key) ...
+                // Approvals → approvals (기존 동일)
                 var approvals = new List<object>();
                 if (root.TryGetProperty("Approvals", out var apprEl) && apprEl.ValueKind == JsonValueKind.Array)
                 {
                     int index = 0;
                     foreach (var a in apprEl.EnumerateArray())
                     {
-                        // Slot 은 더 이상 step 키로 사용하지 않고, 원본 배열 순서(index)를 그대로 사용
                         var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
                         var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
+                        string? cellA1 = null;
+                        if (a.TryGetProperty("Cell", out var cellEl) && cellEl.ValueKind == JsonValueKind.Object)
+                            cellEl.TryGetProperty("A1", out var a1El);  // ← 기존엔 이게 없었음
 
-                        var roleKey = $"A{index + 1}"; // A1, A2, A3 ...
+                        // ✅ Cell.A1 보존
+                        if (a.TryGetProperty("Cell", out var cEl) && cEl.ValueKind == JsonValueKind.Object)
+                            if (cEl.TryGetProperty("A1", out var a1El2)) cellA1 = a1El2.GetString();
+
+                        var roleKey = $"A{index + 1}";
+                        var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
                         approvals.Add(new
                         {
                             roleKey,
-                            approverType = MapApproverType(typ),
+                            approverType = mappedType,
                             required = false,
-                            value = val ?? string.Empty
+                            value = val ?? string.Empty,
+                            cellA1 = cellA1 ?? string.Empty  // ✅ 추가
                         });
+                        index++;
+                    }
+                }
 
+                // ✅ Cooperations → cooperations 신규 추가
+                var cooperations = new List<object>();
+                if (root.TryGetProperty("Cooperations", out var coopEl) && coopEl.ValueKind == JsonValueKind.Array)
+                {
+                    int index = 0;
+                    foreach (var a in coopEl.EnumerateArray())
+                    {
+                        var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
+                        var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
+                        var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
+
+                        string? cellA1 = null;
+                        if (a.TryGetProperty("Cell", out var cEl) && cEl.ValueKind == JsonValueKind.Object)
+                            if (cEl.TryGetProperty("A1", out var a1El)) cellA1 = a1El.GetString();
+
+                        cooperations.Add(new
+                        {
+                            roleKey = $"C{index + 1}",
+                            approverType = mappedType,
+                            lineType = "Cooperation",
+                            value = val ?? string.Empty,
+                            cellA1 = cellA1 ?? string.Empty  // ✅ 핵심
+                        });
                         index++;
                     }
                 }
@@ -1466,20 +1497,14 @@ ORDER BY Id;";
                 var obj = new
                 {
                     inputs = inputs.Select(x => new { key = x.key, type = x.type, required = false, a1 = x.a1 }).ToList(),
-                    // 2025.12.12 Changed: 위에서 구성한 approvals 리스트 사용
                     approvals,
+                    cooperations,  // ✅ 추가
                     version = "converted"
                 };
                 return JsonSerializer.Serialize(obj);
             }
-            catch
-            {
-                return EMPTY;
-            }
-            finally
-            {
-                doc.Dispose();
-            }
+            catch { return EMPTY; }
+            finally { doc.Dispose(); }
 
             static string MapType(string t)
             {
@@ -1498,9 +1523,7 @@ ORDER BY Id;";
 
         private string BuildDescriptorJsonWithFlowGroups(string templateCode, string rawDescriptorJson)
         {
-            // 1) 기존 변환 로직 그대로 유지
             var normalized = ConvertDescriptorIfNeeded(rawDescriptorJson);
-
             var versionId = GetLatestVersionId(templateCode);
             if (versionId <= 0) return normalized;
 
@@ -1509,31 +1532,92 @@ ORDER BY Id;";
             DescriptorDto desc;
             try
             {
-                desc = JsonSerializer.Deserialize<DescriptorDto>(normalized) ?? new DescriptorDto();
+                desc = JsonSerializer.Deserialize<DescriptorDto>(normalized,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new DescriptorDto();
             }
-            catch
-            {
-                desc = new DescriptorDto();
-            }
+            catch { desc = new DescriptorDto(); }
 
-            // 2) 템플릿 원본(rawDescriptorJson)에 Fields/Approvals 가 있으면
-            //    그 Approvals 를 기준으로 A1, A2, ... 구조를 다시 만들어서 덮어씀
             desc.Approvals = RebuildApprovalsFromLegacyDescriptor(rawDescriptorJson, desc.Approvals);
-
+            desc.Cooperations = RebuildCooperationsFromLegacyDescriptor(rawDescriptorJson, desc.Cooperations);
             desc.FlowGroups = groups;
 
-            var json = JsonSerializer.Serialize(
-                desc,
-                new JsonSerializerOptions
-                {
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                    WriteIndented = false
-                });
+            var json = JsonSerializer.Serialize(desc, new JsonSerializerOptions
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                WriteIndented = false
+            });
 
-            // ★ 추가: approvals 배열에서 Step 기준(A1/order/Slot) 중복 제거
             return DedupApprovalsJsonByStep(json);
         }
+        private static List<object>? RebuildCooperationsFromLegacyDescriptor(
+    string? legacyJson, List<object>? current)
+        {
+            if (!TryParseJsonFlexible(legacyJson, out var doc))
+                return current;
 
+            try
+            {
+                var root = doc.RootElement;
+
+                // "Cooperations" 또는 "cooperations" 키 탐색
+                JsonElement coopsEl;
+                var found =
+                    root.TryGetProperty("Cooperations", out coopsEl) ||
+                    root.TryGetProperty("cooperations", out coopsEl);
+
+                if (!found || coopsEl.ValueKind != JsonValueKind.Array)
+                    return current;
+
+                var list = new List<object>();
+                var index = 1;
+
+                foreach (var a in coopsEl.EnumerateArray())
+                {
+                    var typ = a.TryGetProperty("ApproverType", out var at)
+                        ? (at.GetString() ?? "Person") : "Person";
+                    var val = a.TryGetProperty("ApproverValue", out var av)
+                        ? av.GetString() : null;
+
+                    // value fallback
+                    if (string.IsNullOrWhiteSpace(val) && a.TryGetProperty("value", out var v2))
+                        val = v2.GetString();
+
+                    var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule")
+                        ? typ : "Person";
+
+                    // ✅ Cell.A1 보존
+                    string? cellA1 = null;
+                    if (a.TryGetProperty("Cell", out var cellEl)
+                        && cellEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (cellEl.TryGetProperty("A1", out var a1El))
+                            cellA1 = a1El.GetString();
+                    }
+                    // 직접 A1 키로도 탐색
+                    if (string.IsNullOrWhiteSpace(cellA1)
+                        && a.TryGetProperty("A1", out var directA1))
+                        cellA1 = directA1.GetString();
+
+                    var roleKey = $"C{index}";
+
+                    list.Add(new
+                    {
+                        roleKey,
+                        approverType = mappedType,
+                        lineType = "Cooperation",
+                        value = val ?? string.Empty,
+                        cellA1 = cellA1 ?? string.Empty  // ✅ 핵심
+                    });
+
+                    index++;
+                }
+
+                return list.Count == 0 ? current : list;
+            }
+            catch { return current; }
+            finally { doc.Dispose(); }
+        }
         private static string DedupApprovalsJsonByStep(string json)
         {
             try
@@ -1637,9 +1721,9 @@ ORDER BY Id;";
 
         // 2025.12.12 Added: 템플릿의 옛 형식 DescriptorJson(Fields/Approvals)을 읽어
         //                   approvals 리스트를 A1, A2,... 형태로 재구성하는 헬퍼
-        private static List<object>? RebuildApprovalsFromLegacyDescriptor(string? legacyJson, List<object>? current)
+        private static List<object>? RebuildApprovalsFromLegacyDescriptor(
+    string? legacyJson, List<object>? current)
         {
-            // legacyJson 이 없으면 기존 값 유지
             if (!TryParseJsonFlexible(legacyJson, out var doc))
                 return current;
 
@@ -1647,7 +1731,6 @@ ORDER BY Id;";
             {
                 var root = doc.RootElement;
 
-                // 템플릿 쪽 옛 포맷: "Approvals": [ { "Slot":1, "ApproverType":"Person", "ApproverValue":"..." }, ... ]
                 if (!root.TryGetProperty("Approvals", out var apprEl) ||
                     apprEl.ValueKind != JsonValueKind.Array)
                     return current;
@@ -1657,43 +1740,41 @@ ORDER BY Id;";
 
                 foreach (var a in apprEl.EnumerateArray())
                 {
-                    var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
-                    var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
+                    var typ = a.TryGetProperty("ApproverType", out var at)
+                        ? (at.GetString() ?? "Person") : "Person";
+                    var val = a.TryGetProperty("ApproverValue", out var av)
+                        ? av.GetString() : null;
+                    var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule")
+                        ? typ : "Person";
 
-                    // A1, A2, A3... 으로 강제 부여 (Slot 값이 전부 1이어도 상관없이 순서대로)
+                    // ✅ Cell.A1 보존
+                    string? cellA1 = null;
+                    if (a.TryGetProperty("Cell", out var cellEl)
+                        && cellEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (cellEl.TryGetProperty("A1", out var a1El))
+                            cellA1 = a1El.GetString();
+                    }
+
                     var roleKey = $"A{index}";
-
-                    // ApproverType 은 Person / Role / Rule 만 허용
-                    var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
 
                     list.Add(new
                     {
                         roleKey,
                         approverType = mappedType,
                         required = false,
-                        value = val ?? string.Empty
+                        value = val ?? string.Empty,
+                        cellA1 = cellA1 ?? string.Empty  // ✅ 추가
                     });
 
                     index++;
                 }
 
-                // 템플릿에 승인자가 없다면 기존 값 유지
-                if (list.Count == 0)
-                    return current;
-
-                // 템플릿 정의를 우선시하여 approvals 전체를 교체
-                return list;
+                return list.Count == 0 ? current : list;
             }
-            catch
-            {
-                return current;
-            }
-            finally
-            {
-                doc.Dispose();
-            }
+            catch { return current; }
+            finally { doc.Dispose(); }
         }
-
         private long GetLatestVersionId(string templateCode)
         {
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
@@ -2862,10 +2943,22 @@ ORDER BY StepOrder;";
 
         private sealed class DescriptorDto
         {
+            [JsonPropertyName("version")]
             public string? Version { get; set; }
+
+            [JsonPropertyName("inputs")]
             public List<InputFieldDto>? Inputs { get; set; }
+
+            [JsonPropertyName("styles")]
             public Dictionary<string, object>? Styles { get; set; }
+
+            [JsonPropertyName("approvals")]
             public List<object>? Approvals { get; set; }
+
+            [JsonPropertyName("cooperations")]  // ✅ 추가
+            public List<object>? Cooperations { get; set; }
+
+            [JsonPropertyName("flowGroups")]
             public List<FlowGroupDto>? FlowGroups { get; set; }
         }
 
