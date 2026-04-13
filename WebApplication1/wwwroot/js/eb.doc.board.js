@@ -1,13 +1,4 @@
-﻿// 2026.03.31 Changed: 상태 컬럼을 도트+이름 방식으로 교체
-//   - 진행중: 도트(완료=초록/반려=빨강/회수=검정/대기=연파랑) + 현재 대기자 이름·직급
-//   - 승인완료: 도트 전체 초록 + "승인됨"
-//   - 반려됨: 반려 도트 + "반려됨"
-//   - 회수됨: 회수 도트 + "회수됨"
-//   - 협조선 있으면 구분선(|) 뒤에 동일 패턴으로 병기
-// 2026.03.23 Changed: 협조 문서함 메인탭 서브탭 URL 상태 목록조회 배지갱신을 eb.doc.board.js 전체 흐름에 추가하고 협조 탭 클릭 불가 및 배지 미표시 문제를 수정
-// 2026.02.05 Changed: 일괄승인 토스트 수량을 서버 응답 totals approved 기반으로만 표시하도록 수정
-// 2026.02.05 Changed: 보드 일괄승인 토스트를 스크린샷과 동일한 상단 중앙 녹색 바 스타일로 통일하고 하단 토스트 로직을 제거
-
+﻿// 2026.04.10 Changed: 협조 거부 상태를 빨간 도트로 렌더링하고 협조 전체 반려 시 "반려됨" 라벨을 표시하도록 수정
 (function () {
     'use strict';
 
@@ -104,17 +95,14 @@
         } catch { }
     }
 
-    // ─────────────────────────────────────────────────────────
-    // 도트 상태 렌더링 헬퍼
-    // ─────────────────────────────────────────────────────────
     var DOT_STYLES = {
-        done: 'background:#4a8fdd;',   // 완료·승인 — 파랑
-        approve: 'background:#4a8fdd;',   // 최종승인  — 파랑
-        reject: 'background:#e05252;',   // 반려      — 빨강
-        recall: 'background:#2c2c2c;',   // 회수      — 검정
-        collab: 'background:#c0c0c0;',   // 협조 현재대기 — 회색
-        wait: 'background:#c0c0c0;',   // 결재 대기중   — 회색
-        todo: 'background:#c0c0c0;'    // 미도달        — 회색
+        done: 'background:#4a8fdd;',
+        approve: 'background:#4a8fdd;',
+        reject: 'background:#e05252;',
+        recall: 'background:#2c2c2c;',
+        collab: 'background:#c0c0c0;',
+        wait: 'background:#c0c0c0;',
+        todo: 'background:#c0c0c0;'
     };
 
     var DOT_BASE = 'display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;';
@@ -126,20 +114,13 @@
     }
 
     function makeDots(total, done, currentDotType) {
-        // total: 전체 단계 수
-        // done: 완료(초록) 단계 수  — currentDotType 도트 포함 안 함
-        // currentDotType: 현재 단계 도트 색상 키
         var wrap = document.createElement('span');
         wrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
 
         for (var i = 0; i < total; i++) {
-            if (i < done) {
-                wrap.appendChild(makeDot('done'));
-            } else if (i === done) {
-                wrap.appendChild(makeDot(currentDotType));
-            } else {
-                wrap.appendChild(makeDot('todo'));
-            }
+            if (i < done) wrap.appendChild(makeDot('done'));
+            else if (i === done) wrap.appendChild(makeDot(currentDotType));
+            else wrap.appendChild(makeDot('todo'));
         }
         return wrap;
     }
@@ -170,24 +151,24 @@
         return span;
     }
 
-    // i18n 라벨 — 기존 STATUS_LABELS 외 도트 전용 라벨
-    // View의 docBoardI18n 에 아래 키를 추가하면 다국어 대응됨
-    // DOC_Status_ApprovedDone / DOC_Status_RejectedDone / DOC_Status_RecalledDone
-    // 없으면 아래 기본값 사용
     function getDotLabel(key, i18n) {
         var labels = (i18n && i18n.DOT_LABELS) ? i18n.DOT_LABELS : {};
         var defaults = { ApprovedDone: '승인됨', RejectedDone: '반려됨', RecalledDone: '회수됨' };
         return labels[key] || defaults[key] || key;
     }
 
-    /**
-     * buildStatusCell(item, i18n)
-     * 결재선 도트 + 협조선 도트(있을 경우)를 DOM으로 만들어 반환
-     */
+    function parseStepKeySet(v) {
+        return new Set(
+            String(v ?? '')
+                .split(',')
+                .map(function (x) { return parseInt(String(x).trim(), 10); })
+                .filter(function (x) { return Number.isFinite(x) && x > 0; })
+        );
+    }
+
     function buildStatusCell(item, i18n) {
         var wrap = document.createElement('div');
-        wrap.setAttribute('style',
-            'display:inline-flex;align-items:center;gap:5px;white-space:nowrap;');
+        wrap.setAttribute('style', 'display:inline-flex;align-items:center;gap:5px;white-space:nowrap;');
 
         var rawStatus = String(
             item.statusCode || item.StatusCode ||
@@ -199,14 +180,10 @@
         var totalA = asInt(item.totalApprovers ?? item.TotalApprovers ?? 0);
         var doneA = asInt(item.completedApprovers ?? item.CompletedApprovers ?? 0);
         var actorName = String(item.resultSummary || item.ResultSummary || '').trim();
-        // resultSummary 는 "이름 직급" 형태로 이미 조합돼서 내려옴
-        // 도트 옆 이름 표시에 그대로 사용
 
-        // ── 결재선 도트 결정 ──────────────────────────────
         var apDotType, apLabel, apLabelColor;
 
         if (base === 'Approved') {
-            // 전체 승인 완료 — 모든 도트 파랑, "승인됨" 텍스트
             apDotType = 'approve';
             apLabel = getDotLabel('ApprovedDone', i18n);
             apLabelColor = '#4a8fdd';
@@ -220,13 +197,11 @@
             apLabel = getDotLabel('RecalledDone', i18n);
             apLabelColor = '#2c2c2c';
         } else {
-            // Pending / OnHold — 진행중, 이름만 표시
             apDotType = 'wait';
             apLabel = null;
             apLabelColor = null;
         }
 
-        // 결재선 렌더
         if (totalA > 0) {
             wrap.appendChild(makeDots(totalA, doneA, apDotType));
         }
@@ -240,39 +215,49 @@
             wrap.appendChild(nameSpan);
         }
 
-        // ── 협조선 도트 (coopTotalSteps > 0 인 경우만) ──
         var coopTotal = asInt(item.coopTotalSteps ?? item.CoopTotalSteps ?? 0);
-        var coopDoneKeys = new Set(
-            String(item.coopDoneKeys ?? item.CoopDoneKeys ?? '').split(',').filter(Boolean).map(Number)
-        );
+        var coopDoneKeys = parseStepKeySet(item.coopDoneKeys ?? item.CoopDoneKeys ?? '');
+        var coopRejectedKeys = parseStepKeySet(item.coopRejectedKeys ?? item.CoopRejectedKeys ?? '');
         var coopName = String(item.coopPendingName ?? item.CoopPendingName ?? '').trim();
         var coopPos = String(item.coopPendingPosition ?? item.CoopPendingPosition ?? '').trim();
 
         if (coopTotal > 0) {
             wrap.appendChild(makeDivider());
 
-            if (coopDoneKeys.size >= coopTotal) {
-                // 협조 전체 완료
+            var coopRejected = coopRejectedKeys.size > 0;
+            var coopAllApproved = !coopRejected && coopDoneKeys.size >= coopTotal;
+
+            if (coopRejected) {
+                var coopRejectWrap = document.createElement('span');
+                coopRejectWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
+                for (var i = 1; i <= coopTotal; i++) {
+                    if (coopRejectedKeys.has(i)) coopRejectWrap.appendChild(makeDot('reject'));
+                    else if (coopDoneKeys.has(i)) coopRejectWrap.appendChild(makeDot('approve'));
+                    else coopRejectWrap.appendChild(makeDot('todo'));
+                }
+                wrap.appendChild(coopRejectWrap);
+                wrap.appendChild(makeLabelSpan(getDotLabel('RejectedDone', i18n), '#e05252'));
+            } else if (coopAllApproved) {
                 var coopWrap = document.createElement('span');
                 coopWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-                for (var i = 1; i <= coopTotal; i++) {
+                for (var j = 1; j <= coopTotal; j++) {
                     coopWrap.appendChild(makeDot('approve'));
                 }
                 wrap.appendChild(coopWrap);
                 wrap.appendChild(makeLabelSpan(getDotLabel('ApprovedDone', i18n), '#4a8fdd'));
             } else {
-                // 협조 진행중 — RoleKey 번호 위치에 파랑/회색
-                var coopWrap = document.createElement('span');
-                coopWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-                for (var i = 1; i <= coopTotal; i++) {
-                    coopWrap.appendChild(makeDot(coopDoneKeys.has(i) ? 'approve' : 'collab'));
+                var coopProgressWrap = document.createElement('span');
+                coopProgressWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
+                for (var k = 1; k <= coopTotal; k++) {
+                    coopProgressWrap.appendChild(makeDot(coopDoneKeys.has(k) ? 'approve' : 'collab'));
                 }
-                wrap.appendChild(coopWrap);
+                wrap.appendChild(coopProgressWrap);
                 if (coopName) {
                     wrap.appendChild(makeNameSpan(coopName, coopPos));
                 }
             }
         }
+
         return wrap;
     }
 
@@ -286,8 +271,6 @@
         if (s === 'RECALL' || s.indexOf('RECALLED') === 0) return 'Recalled';
         return raw;
     }
-
-    // ─────────────────────────────────────────────────────────
 
     function createBoard(root) {
         if (!root || !root.dataset) {
@@ -744,7 +727,6 @@
             if (shouldBold) tr.classList.add('doc-row-unread');
             else tr.classList.remove('doc-row-unread');
 
-            // ── No 칸 ──────────────────────────────────────
             var tdNo = document.createElement('td');
             if (isApprovalOngoing()) {
                 var cb = document.createElement('input');
@@ -766,7 +748,6 @@
             noText.textContent = String(displayNo);
             tdNo.appendChild(noText);
 
-            // ── 제목 칸 ────────────────────────────────────
             var tdTitle = document.createElement('td');
             var wrapper = document.createElement('span');
             wrapper.className = 'doc-title';
@@ -779,19 +760,16 @@
             wrapper.appendChild(link);
             tdTitle.appendChild(wrapper);
 
-            // ── 작성자 / 일시 ──────────────────────────────
             var tdAuthor = document.createElement('td');
             tdAuthor.textContent = item.authorName || item.AuthorName || '';
 
             var tdDate = document.createElement('td');
             tdDate.textContent = item.createdAt || item.CreatedAt || '';
 
-            // ── 상태 칸 (도트 렌더링) ──────────────────────
             var tdStatus = document.createElement('td');
             tdStatus.style.textAlign = 'center';
             tdStatus.appendChild(buildStatusCell(item, i18n));
 
-            // ── 열람 칸 ────────────────────────────────────
             var tdResult = document.createElement('td');
             tdResult.textContent = isRead ? READ_LABEL : UNREAD_LABEL;
 
@@ -799,7 +777,6 @@
             return tr;
         }
 
-        // ── 일괄 승인 이벤트 ──────────────────────────────
         if (root && root.dataset && root.dataset.bulkApproveBound !== '1') {
             root.dataset.bulkApproveBound = '1';
             root.addEventListener('click', async function (ev) {

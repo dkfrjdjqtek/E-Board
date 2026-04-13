@@ -77,7 +77,6 @@ namespace WebApplication1.Controllers
             string? descriptorJson = null;
             string? outputPath = null;
             string? compCd = null;
-            string? creatorUserId = null;
             string? creatorNameRaw = null;
             DateTime? createdAtUtc = null;
 
@@ -92,13 +91,9 @@ SELECT TOP 1
        d.DescriptorJson,
        d.OutputPath,
        d.CompCd,
-       d.CreatedBy,
        d.CreatedByName,
-       d.CreatedAt,
-       COALESCE(p.DisplayName, d.CreatedByName, u.UserName, u.Email) AS CreatorDisplayName
+       d.CreatedAt
 FROM dbo.Documents d
-LEFT JOIN dbo.AspNetUsers  u ON u.Id     = d.CreatedBy
-LEFT JOIN dbo.UserProfiles p ON p.UserId = d.CreatedBy
 WHERE d.DocId = @DocId;";
                 cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id! });
 
@@ -117,23 +112,8 @@ WHERE d.DocId = @DocId;";
                 descriptorJson = rd["DescriptorJson"] as string ?? "{}";
                 outputPath = rd["OutputPath"] as string ?? string.Empty;
                 compCd = rd["CompCd"] as string ?? string.Empty;
-                creatorUserId = rd["CreatedBy"] as string ?? string.Empty;
-                creatorNameRaw = rd["CreatorDisplayName"] as string ?? string.Empty;
+                creatorNameRaw = rd["CreatedByName"] as string ?? string.Empty;
                 createdAtUtc = rd["CreatedAt"] is DateTime cdt ? cdt : (DateTime?)null;
-            }
-
-            string? creatorDisplayName = creatorNameRaw;
-            if (!string.IsNullOrWhiteSpace(creatorUserId))
-            {
-                await using var pc = conn.CreateCommand();
-                pc.CommandText = @"
-SELECT TOP 1 DisplayName
-FROM dbo.UserProfiles
-WHERE UserId = @UserId;";
-                pc.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = creatorUserId! });
-                var objName = await pc.ExecuteScalarAsync();
-                if (objName != null && objName != DBNull.Value)
-                    creatorDisplayName = Convert.ToString(objName) ?? creatorDisplayName;
             }
 
             string createdAtText = string.Empty;
@@ -197,7 +177,6 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                 previewJson = "{}";
             }
 
-            // ★ 추가: previewJson={}이면 템플릿 previewJson fallback
             if ((previewJson == "{}" || string.IsNullOrWhiteSpace(previewJson))
                 && !string.IsNullOrWhiteSpace(templateCode))
             {
@@ -235,10 +214,9 @@ SELECT  a.StepOrder,
         a.Action,
         a.ActedAt,
         a.ActorName,
-        COALESCE(a.ApproverDisplayText, up.DisplayName, a.ActorName, a.ApproverValue) AS ApproverDisplayText,
+        a.ApproverDisplayText,
         a.SignaturePath
 FROM dbo.DocumentApprovals a
-LEFT JOIN dbo.UserProfiles up ON up.UserId = a.UserId
 WHERE a.DocId = @DocId
 ORDER BY a.StepOrder;";
                 ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id! });
@@ -307,6 +285,7 @@ ORDER BY UploadedAt, FileId ASC;";
                         var upUtc = Convert.ToDateTime(fr["UploadedAt"]);
                         uploadedAtText = _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(upUtc, DateTimeKind.Utc));
                     }
+
                     docFiles.Add(new
                     {
                         FileKey = fr["FileKey"] as string ?? string.Empty,
@@ -322,13 +301,9 @@ ORDER BY UploadedAt, FileId ASC;";
                 _log.LogWarning(ex, "DetailDX: load DocumentFiles failed for {DocId}", id);
             }
 
-            // ========== 협조 셀 맵 ==========
-            // 1순위: Documents.DescriptorJson cooperations[].cellA1
-            // 2순위: DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1  ← fallback
             var cooperationCellMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var cooperationRoleCellMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            // ── 1순위: Documents.DescriptorJson ──────────────────────────────
             try
             {
                 if (!string.IsNullOrWhiteSpace(descriptorJson) && descriptorJson != "{}")
@@ -385,8 +360,6 @@ ORDER BY UploadedAt, FileId ASC;";
                 _log.LogWarning(ex, "DetailDX: DescriptorJson Cooperations parse failed for {DocId}", id);
             }
 
-            // ── 2순위 fallback: DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1 ──
-            // Documents.DescriptorJson에 cellA1이 없는 기존 문서를 위한 보완
             if (cooperationRoleCellMap.Count == 0 && !string.IsNullOrWhiteSpace(templateCode))
             {
                 try
@@ -417,14 +390,12 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                             {
                                 var roleKey = $"C{seq}";
 
-                                // ApproverValue (GUID) — 맵 키로만 사용
                                 var av =
                                     TryGetJsonString(coop, "ApproverValue")
                                     ?? TryGetJsonString(coop, "approverValue")
                                     ?? TryGetJsonString(coop, "value")
                                     ?? string.Empty;
 
-                                // A1: Cell.A1 우선
                                 var a1 = string.Empty;
                                 if (coop.TryGetProperty("Cell", out var cellEl) && cellEl.ValueKind == JsonValueKind.Object)
                                     a1 = TryGetJsonString(cellEl, "A1") ?? TryGetJsonString(cellEl, "a1") ?? string.Empty;
@@ -453,28 +424,26 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                 }
             }
 
-            // ========== 협조 데이터 로드 ==========
             var cooperations = new List<object>();
             var approvalTableRows = new List<ApprovalTableRowVm>
-            {
-                new ApprovalTableRowVm
-                {
-                    RowType     = "drafter",
-                    GroupOrder  = 0,
-                    SortOrder   = 0,
-                    RoleKey     = "DRAFT",
-                    RoleText    = _S["DOC_Role_Submit"],
-                    DisplayName = creatorDisplayName ?? string.Empty,
-                    Status      = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? "Recalled" : "Created",
-                    ActedAtText = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? recalledAtText : createdAtText
-                }
-            };
+    {
+        new ApprovalTableRowVm
+        {
+            RowType     = "drafter",
+            GroupOrder  = 0,
+            SortOrder   = 0,
+            RoleKey     = "DRAFT",
+            RoleText    = _S["DOC_Role_Submit"],
+            DisplayName = creatorNameRaw ?? string.Empty,
+            Status      = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? "Recalled" : "Created",
+            ActedAtText = string.Equals(status, "Recalled", StringComparison.OrdinalIgnoreCase) ? recalledAtText : createdAtText
+        }
+    };
 
             foreach (var a in approvals)
             {
                 var roleKey = GetAnonymousString(a, "roleKey");
                 var approverDisplayText = GetAnonymousString(a, "approverDisplayText");
-                var approverValue = GetAnonymousString(a, "approverValue");
 
                 approvalTableRows.Add(new ApprovalTableRowVm
                 {
@@ -483,7 +452,7 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                     SortOrder = GetAnonymousInt(a, "step") ?? ParseRoleOrder(roleKey),
                     RoleKey = roleKey,
                     RoleText = BuildRoleText(roleKey, "approval"),
-                    DisplayName = !string.IsNullOrWhiteSpace(approverDisplayText) ? approverDisplayText : approverValue,
+                    DisplayName = approverDisplayText ?? string.Empty,
                     Status = GetAnonymousString(a, "status"),
                     ActedAtText = GetAnonymousString(a, "actedAtText")
                 });
@@ -501,7 +470,7 @@ SELECT dc.Id,
        dc.Action,
        dc.ActedAt,
        dc.ActorName,
-       COALESCE(dc.ApproverDisplayText, up.DisplayName, dc.ActorName, dc.ApproverValue) AS ApproverDisplayText,
+       dc.ApproverDisplayText,
        up.SignatureRelativePath AS SignaturePath
 FROM dbo.DocumentCooperations dc
 LEFT JOIN dbo.UserProfiles up ON up.UserId = dc.UserId
@@ -518,7 +487,6 @@ ORDER BY dc.RoleKey;";
                     var av = cr["ApproverValue"]?.ToString() ?? string.Empty;
                     var approverDisplayText = cr["ApproverDisplayText"]?.ToString() ?? string.Empty;
 
-                    // 셀 위치 결정: roleKey → userId → approverValue 순으로 맵 탐색
                     var cellA1 = string.Empty;
                     if (!string.IsNullOrWhiteSpace(roleKey) && cooperationRoleCellMap.TryGetValue(roleKey, out var byRole))
                         cellA1 = byRole;
@@ -550,7 +518,7 @@ ORDER BY dc.RoleKey;";
                         SortOrder = ParseRoleOrder(roleKey),
                         RoleKey = roleKey,
                         RoleText = BuildRoleText(roleKey, "cooperation"),
-                        DisplayName = !string.IsNullOrWhiteSpace(approverDisplayText) ? approverDisplayText : av,
+                        DisplayName = approverDisplayText ?? string.Empty,
                         Status = cr["Status"]?.ToString() ?? string.Empty,
                         ActedAtText = acted.HasValue
                             ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
@@ -712,7 +680,6 @@ ORDER BY v.ViewedAt DESC;";
 
             ViewBag.RenderDiagJson = renderDiagJson;
 
-
             ViewBag.RenderUsedLastCellA1 = renderArea.UsedLastCellA1;
             ViewBag.RenderLastCellA1 = renderArea.RenderLastCellA1;
             ViewBag.RenderMaxRow = renderArea.RenderMaxRow;
@@ -720,8 +687,6 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.RenderWidthPx = Math.Ceiling(renderArea.WidthPx);
             ViewBag.RenderHeightPx = Math.Ceiling(renderArea.HeightPx);
 
-
-            // 기존 ViewBag 할당부에 아래 한 줄 추가
             ViewBag.StampRectsJson = stampRectsJson;
 
             var caps = await GetApprovalCapabilitiesAsync(id!);
@@ -735,7 +700,7 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.TemplateTitle = templateTitle ?? string.Empty;
             ViewBag.Status = status ?? string.Empty;
             ViewBag.CompCd = compCd ?? string.Empty;
-            ViewBag.CreatorName = creatorDisplayName ?? string.Empty;
+            ViewBag.CreatorName = creatorNameRaw ?? string.Empty;
             ViewBag.DescriptorJson = descriptorJson ?? "{}";
             ViewBag.InputsJson = "{}";
             ViewBag.PreviewJson = previewJson;
@@ -751,6 +716,7 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.RecalledAtText = recalledAtText;
             ViewBag.ExcelPath = dxOpenAbsPath ?? string.Empty;
             ViewBag.OpenRel = openRel ?? string.Empty;
+
             var request = HttpContext.Request;
             ViewBag.DxCallbackUrl = $"{request.Scheme}://{request.Host}/Doc/dx-callback";
             ViewBag.DxDocumentId = "detail_" + (id ?? Guid.NewGuid().ToString("N"));
@@ -1000,12 +966,7 @@ ORDER BY v.ViewedAt DESC;";
         }
 
 
-        private static string BuildStampRectsJsonFromExcel(
-      string excelPath,
-      string approvalCellsJson,
-      string approvalsJson,
-      string cooperationsJson,
-      ILogger? log = null)
+        private static string BuildStampRectsJsonFromExcel(string excelPath, string approvalCellsJson, string approvalsJson, string cooperationsJson, ILogger? log = null)
         {
             if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
                 return "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";

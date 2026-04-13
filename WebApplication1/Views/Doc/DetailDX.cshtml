@@ -1,3 +1,4 @@
+@* 2026.04.08 Changed: ApprovalCellsJson 좌표 범위 정보를 우선 복원하여 병합 결재란의 가로 폭이 단일 열 50px로 축소되지 않도록 클라이언트 계산 로직을 수정함 *@
 @* 2026.03.20 Changed: 협조 버튼을 공통 flex 규칙에서 분리하고 승인 버튼과 동일 폭으로 표시되도록 승인 영역 CSS와 마크업을 수정함 *@
 @* 2026.03.16 Added: DX Spreadsheet 기반 상세 화면 DetailDX 구성 ComposeDX 와 동일한 scroll host 및 DX 렌더링 구조 적용 기존 Detail 섹션 댓글 승인 공유 UI 유지 *@
 @* 2026.03.16 Changed: btnPrint → DX v25 내장 PrintPreview, btnExport → DX 클라이언트 사이드 xlsx export *@
@@ -41,7 +42,7 @@
 }
 
 @{
-    ViewData["Title"] = S["DOC_Title_Detail"];
+    
     ViewData["DisableDxAll"] = true;
 
     var workDir = Env.ContentRootPath;
@@ -66,6 +67,7 @@
     var previewJson = (string?)ViewBag.PreviewJson ?? "{}";
     var approvalsJson = (string?)ViewBag.ApprovalsJson ?? "[]";
     var viewLogsJson = (string?)ViewBag.ViewLogsJson ?? "[]";
+    var approvalTableRowsJson = (string?)ViewBag.ApprovalTableRowsJson ?? "[]";
     var approvalCellsJson = (string?)ViewBag.ApprovalCellsJson ?? "[]";
     var cooperationsJson = (string?)ViewBag.CooperationsJson ?? "[]";
     var createdAtText = (string?)ViewBag.CreatedAtText ?? string.Empty;
@@ -101,9 +103,9 @@
         if (parts.Length > 0) creatorDisplayName = parts[^1];
     }
 
-    var docTitle = !string.IsNullOrWhiteSpace(templateTitle)
-        ? templateTitle
-        : ((string?)ViewBag.DocTitle ?? string.Empty);
+    var docTitle = !string.IsNullOrWhiteSpace(templateTitle) ? templateTitle : ((string?)ViewBag.DocTitle ?? string.Empty);            
+    var formattedTitle = (!string.IsNullOrWhiteSpace(creatorDisplayName) && !string.IsNullOrWhiteSpace(docTitle)) ? S["DOC_Title_Fmt", creatorDisplayName, docTitle].Value : S["DOC_Title_Detail"].Value;
+    ViewData["Title"] = formattedTitle;
 
     var canRecall = (bool?)ViewBag.CanBackToNew ?? false;
     var canPrint = (bool?)ViewBag.CanPrint ?? true;
@@ -112,6 +114,7 @@
     var canHold = (bool?)ViewBag.CanHold ?? false;
     var canReject = (bool?)ViewBag.CanReject ?? false;
     var canCooperate = (bool?)ViewBag.CanCooperate ?? false;
+    var canCooperateReject = (bool?)ViewBag.CanCooperateReject ?? false;
 
     List<__DocFileVm> documentFiles;
     try
@@ -430,6 +433,7 @@ else
         inset: 0;
         pointer-events: none;
         z-index: 20;
+        overflow: visible !important;
     }
 
     .dx-approval-stamp {
@@ -580,6 +584,12 @@ else
             min-width: 0;
         }
 
+        .doc-approvals-actions-single .btn-cooperate-reject {
+            grid-column: 2 / 4;
+            width: 100%;
+            min-width: 0;
+        }
+
     /* ── 첨부파일 ── */
     .doc-attach-name {
         font-size: .85rem !important;
@@ -660,14 +670,7 @@ else
     <div class="page-header">
         <div>
             <h3>
-                @if (!string.IsNullOrEmpty(creatorDisplayName) && !string.IsNullOrEmpty(docTitle))
-                {
-                    @($"{creatorDisplayName}님의 {docTitle}")
-                }
-                else
-                {
-                    @S["DOC_Title_Detail"]
-                }
+                @formattedTitle
             </h3>
 
             <div class="doc-detail-actions">
@@ -709,50 +712,54 @@ else
         <script type="application/json" id="ApprovalsJson">@Html.Raw(approvalsJson)</script>
         <script type="application/json" id="ViewLogsJson">@Html.Raw(viewLogsJson)</script>
         <script type="application/json" id="ApprovalCellsJson">@Html.Raw(approvalCellsJson)</script>
-        <script type="application/json" id="CooperationsJson">@Html.Raw(cooperationsJson)</script>
+        <script type="application/json" id="CooperationsJson">@Html.Raw(cooperationsJson)</script>            
+        <script type="application/json" id="ApprovalTableRowsJson">@Html.Raw(approvalTableRowsJson)</script>
 
         <script>
-                       window.__RESX = @Html.Raw(JsonSerializer.Serialize(new
-            {
-                        DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
-                        DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
-                        DOC_Err_LoadFailed = S["DOC_Err_LoadFailed"].Value,
-                        DOC_Err_RequestFailed = S["DOC_Err_RequestFailed"].Value,
-                        DOC_Err_DeleteFailed = S["DOC_Err_DeleteFailed"].Value,
-                        DOC_Err_DocumentNotFound = S["DOC_Err_DocumentNotFound"].Value,
-                        DOC_Msg_NoComments = S["DOC_Msg_NoComments"].Value,
-                        DOC_Msg_NoViewLogs = S["DOC_Msg_NoViewLogs"].Value,
-                        DOC_Msg_Approve_Success = S["DOC_Msg_Approve_Success"].Value,
-                        DOC_Msg_Recall_Success = S["DOC_Msg_Recall_Success"].Value,
-                        DOC_Val_Required = S["DOC_Val_Required"].Value,
-                        DOC_Cmt_Count = S["DOC_Cmt_Count"].Value,
-                        DOC_Btn_Reply = S["DOC_Btn_Reply"].Value,
-                        DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
-                        DOC_Btn_ReplyPost = S["DOC_Btn_ReplyPost"].Value,
-                        DOC_Placeholder_Reply = S["DOC_Placeholder_Reply"].Value,
-                        DOC_Status_Pending = S["DOC_Status_Pending"].Value,
-                        DOC_Status_Approved = S["DOC_Status_Approved"].Value,
-                        DOC_Status_Rejected = S["DOC_Status_Rejected"].Value,
-                        DOC_Status_OnHold = S["DOC_Status_OnHold"].Value,
-                        DOC_Status_Recalled = S["DOC_Status_Recalled"].Value,
-                        DOC_Status_Created = S["DOC_Status_Created"].Value,
-                        DOC_Btn_Cooperate = S["DOC_Btn_Cooperate"].Value,
-                        DOC_Confirm_DeleteComment = S["DOC_Confirm_DeleteComment"].Value,
-                        DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
-                        DOC_Label_AttachmentsCount = S["DOC_Label_AttachmentsCount"].Value,
-                        DOC_Help_AttachmentsEmpty = S["DOC_Help_AttachmentsEmpty"].Value,
-                        DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
-                        DOC_Btn_RecipientsChange = S["DOC_Btn_RecipientsChange"].Value,
-                        DOC_Btn_CommentPost = S["DOC_Btn_CommentPost"].Value,
-                        DOC_Placeholder_Comment = S["DOC_Placeholder_Comment"].Value,
-                        _CM_Edit = S["_CM_Edit"].Value,
-                        _CM_Delete = S["_CM_Delete"].Value
-            }));
+            window.__RESX = @Html.Raw(JsonSerializer.Serialize(new {                    
+                DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+                DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+                DOC_Err_LoadFailed = S["DOC_Err_LoadFailed"].Value,
+                DOC_Err_RequestFailed = S["DOC_Err_RequestFailed"].Value,
+                DOC_Err_DeleteFailed = S["DOC_Err_DeleteFailed"].Value,
+                DOC_Err_DocumentNotFound = S["DOC_Err_DocumentNotFound"].Value,
+                DOC_Msg_NoComments = S["DOC_Msg_NoComments"].Value,
+                DOC_Msg_NoViewLogs = S["DOC_Msg_NoViewLogs"].Value,
+                DOC_Msg_Approve_Success = S["DOC_Msg_Approve_Success"].Value,
+                DOC_Msg_Recall_Success = S["DOC_Msg_Recall_Success"].Value,
+                DOC_Val_Required = S["DOC_Val_Required"].Value,
+                DOC_Cmt_Count = S["DOC_Cmt_Count"].Value,
+                DOC_Btn_Reply = S["DOC_Btn_Reply"].Value,
+                DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+                DOC_Btn_ReplyPost = S["DOC_Btn_ReplyPost"].Value,
+                DOC_Placeholder_Reply = S["DOC_Placeholder_Reply"].Value,
+                DOC_Status_Pending = S["DOC_Status_Pending"].Value,
+                DOC_Status_Approved = S["DOC_Status_Approved"].Value,
+                DOC_Status_Rejected = S["DOC_Status_Rejected"].Value,
+                DOC_Status_OnHold = S["DOC_Status_OnHold"].Value,
+                DOC_Status_Recalled = S["DOC_Status_Recalled"].Value,
+                DOC_Status_Created = S["DOC_Status_Created"].Value,
+                DOC_Btn_Cooperate = S["DOC_Btn_Cooperate"].Value,
+                DOC_Confirm_DeleteComment = S["DOC_Confirm_DeleteComment"].Value,
+                DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
+                DOC_Label_AttachmentsCount = S["DOC_Label_AttachmentsCount"].Value,
+                DOC_Help_AttachmentsEmpty = S["DOC_Help_AttachmentsEmpty"].Value,
+                DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
+                DOC_Btn_RecipientsChange = S["DOC_Btn_RecipientsChange"].Value,
+                DOC_Btn_CommentPost = S["DOC_Btn_CommentPost"].Value,
+                DOC_Placeholder_Comment = S["DOC_Placeholder_Comment"].Value,                    
+                DOC_Col_Role = S["DOC_Col_Role"].Value,                
+                DOC_Role_Submit = S["DOC_Role_Submit"].Value,
+                DOC_Role_ApprovalFmt = S["DOC_Role_ApprovalFmt"].Value,
+                DOC_Role_Cooperation = S["DOC_Role_CooperationFmt"].Value,
+                _CM_Edit = S["_CM_Edit"].Value,
+                _CM_Delete = S["_CM_Delete"].Value                
+            }));            
+                
             window.__dxOpenRel = @Html.Raw(JsonSerializer.Serialize(openRel ?? string.Empty));
             window.__dxCallbackUrl = @Html.Raw(JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
             window.__dxExcelAbsPath = @Html.Raw(JsonSerializer.Serialize(excelPath ?? string.Empty));
             window.__dxDocumentId = @Html.Raw(JsonSerializer.Serialize(dxDocumentId ?? string.Empty));
-
             window.__dxRenderUsedLastCellA1 = @Html.Raw(JsonSerializer.Serialize(renderUsedLastCellA1));
             window.__dxRenderLastCellA1 = @Html.Raw(JsonSerializer.Serialize(renderLastCellA1));
             window.__dxRenderMaxRow = @Html.Raw(JsonSerializer.Serialize(renderMaxRow));
@@ -932,10 +939,11 @@ else
         <table class="doc-approvals-table">
             <thead>
                 <tr>
-                    <th style="width:40%;">@S["DOC_Col_ApproverValue"]</th>
+                    <th style="width:35%;">@S["DOC_Col_ApproverValue"]</th>
+                    <th style="width:20%;">@S["DOC_Col_Role"]</th>            
                     <th style="width:20%;">@S["DOC_Col_Status"]</th>
-                    <th style="width:25%;">@S["DOC_Col_ApprovalTime"]</th>
-                </tr>
+                    <th style="width:25%;">@S["DOC_Col_ApprovalTime"]</th>        
+                    </tr>
             </thead>
             <tbody id="tbody-approvals"></tbody>
         </table>
@@ -956,8 +964,13 @@ else
             <button type="button" class="btn btn-sm btn-info btn-cooperate" data-cooperate @(canCooperate ? "" : "disabled")>
                 @S["DOC_Btn_Cooperate"]
             </button>
+
+            <button type="button" class="btn btn-sm btn-danger btn-cooperate-reject" data-cooperate-reject @(canCooperateReject ? "" : "disabled")>
+                @S["DOC_Btn_CooperateReject"]
+            </button>
         </div>
     </section>
+
 </div>
 
 <div id="ebImgOverlay" class="eb-img-overlay" aria-hidden="true">
@@ -971,105 +984,219 @@ else
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
-        (function () {
-            'use strict';
+    (function () {
+        'use strict';
 
-            window.__ORG_MS_INITIAL_SELECTED = @Html.Raw(ViewBag.SelectedRecipientUserIdsJson ?? "[]");
-            var selectedIds = @Html.Raw(ViewBag.SelectedRecipientUserIdsJson ?? "[]");
+        window.__ORG_MS_INITIAL_SELECTED = @Html.Raw(ViewBag.SelectedRecipientUserIdsJson ?? "[]");
+        var selectedIds = @Html.Raw(ViewBag.SelectedRecipientUserIdsJson ?? "[]");
 
-            const $ = (q, r = document) => r.querySelector(q);
-            const docId = "@(docId ?? "")";
-            const compCd = "@(compCd ?? "")";
+        const $ = (q, r = document) => r.querySelector(q);
+        const docId = "@(docId ?? "")";
+        const compCd = "@(compCd ?? "")";
+        const state = {
+            preview: {},
+            descriptor: {},
+            approvalsData: [],
+            cooperationsData: [],
+            approvalCellMap: { byStep: {}, byRoleKey: {} },
+            cooperationCellMap: { byStep: {}, byRoleKey: {} },
+            previewExtent: { width: 900, height: 520 },
+            renderExtent: { width: 0, height: 0, maxRow: 0, maxCol: 0, usedLastCellA1: 'A1', renderLastCellA1: 'B2' },
+            _effectiveMaxC: 0,
+            _colSum: 0,
+            overlayRefreshTimer: 0,
+            overlayRefreshRaf: 0,
+            overlayResizeObserver: null,
+            overlayReady: false
+        };
 
-            const state = {
-                preview: {},
-                descriptor: {},
-                approvalsData: [],
-                cooperationsData: [],
-                approvalCellMap: {},
-                previewExtent: { width: 900, height: 520 },
-                renderExtent: { width: 0, height: 0, maxRow: 0, maxCol: 0, usedLastCellA1: 'A1', renderLastCellA1: 'B2' },
-                _effectiveMaxC: 0,
-                _colSum: 0
-            };
 
-            // ================== 공통 유틸 ==================
-            function decodeHtmlEntities(str) {
-                if (str == null) return '';
-                let s = String(str);
-                s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
-                s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
-                s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-                    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
-                return s;
-            }
-
-            const T = (m) => {
-                if (m == null) return '';
-                if (Array.isArray(m)) return m.map(T).join('\n');
-                const s = String(m);
-                const mapped = (window.__RESX && Object.prototype.hasOwnProperty.call(window.__RESX, s))
-                    ? window.__RESX[s] : s;
-                return decodeHtmlEntities(mapped);
-            };
-
-            function readJsonFromScript(id, fallback) {
-                try {
-                    const el = document.getElementById(id);
-                    if (!el) return fallback;
-                    const raw = el.textContent || '';
-                    if (!raw.trim()) return fallback;
-                    const decoded = decodeHtmlEntities(raw);
-                    let v = JSON.parse(decoded);
-                    if (typeof v === 'string') { try { v = JSON.parse(v); } catch { } }
-                    return (v != null) ? v : fallback;
-                } catch { return fallback; }
-            }
-
-            function clearAlert() {
-                const box = document.getElementById('detail-alert');
-                if (box) box.innerHTML = '';
-            }
-
-            function showAlert(msg, cls) {
-                const box = document.getElementById('detail-alert');
-                if (!box) return;
-                box.innerHTML = `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
-            }
-
-            function excelColWidthToPx(w) {
-                const n = Number(w);
-                if (!isFinite(n) || n < 0) return 0;
-                const MDW = 7;
-                return Math.floor((n * MDW + 5) / MDW) * MDW + 2;
-            }
-
-            function ptToPx(pt) {
-                return ((Number(pt) || 0) * 96 / 72);
-            }
-
-            // ================== DX 인스턴스 취득 ==================
-                function getDxInstance() {
-                    try { if (window.dxDetailSheet && typeof window.dxDetailSheet === 'object') return window.dxDetailSheet; } catch (e) { }
-                    try {
-                        if (typeof ASPxClientSpreadsheet !== 'undefined' && typeof ASPxClientSpreadsheet.Cast === 'function') {
-                            const inst = ASPxClientSpreadsheet.Cast(window.dxDetailSheet);
-                            if (inst) return inst;
-                        }
-                    } catch (e) { }
-                    try {
-                        if (typeof ASPxClientControl !== 'undefined' && typeof ASPxClientControl.GetControlCollection === 'function') {
-                            const col = ASPxClientControl.GetControlCollection();
-                            if (col) {
-                                const inst = col.GetByName('dxDetailSheet');
-                                if (inst) return inst;
-                            }
-                        }
-                    } catch (e) { }
-                    return null;
+        // ================== 공통 유틸 ==================
+        function decodeHtmlEntities(str) {
+                    if (str == null) return '';
+                    let s = String(str);
+                    s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+                    s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+                    s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+                        .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+                    return s;
                 }
 
-                // ================== 프리뷰 extent 계산 ==================
+                const T = (m) => {
+            if (m == null) return '';
+            if (Array.isArray(m)) return m.map(T).join('\n');
+            const s = String(m);
+            const mapped = (window.__RESX && Object.prototype.hasOwnProperty.call(window.__RESX, s))
+                ? window.__RESX[s] : s;
+            return decodeHtmlEntities(mapped);
+        };
+
+        function readJsonFromScript(id, fallback) {
+            try {
+                const el = document.getElementById(id);
+                if (!el) return fallback;
+                const raw = el.textContent || '';
+                if (!raw.trim()) return fallback;
+                const decoded = decodeHtmlEntities(raw);
+                let v = JSON.parse(decoded);
+                if (typeof v === 'string') { try { v = JSON.parse(v); } catch { } }
+                return (v != null) ? v : fallback;
+            } catch { return fallback; }
+        }
+
+        function clearAlert() {
+            const box = document.getElementById('detail-alert');
+            if (box) box.innerHTML = '';
+        }
+
+        function showAlert(msg, cls) {
+            const box = document.getElementById('detail-alert');
+            if (!box) return;
+            box.innerHTML = `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
+        }
+
+        function excelColWidthToPx(w) {
+            const n = Number(w);
+            if (!isFinite(n) || n < 0) return 0;
+            const MDW = 7;
+            return Math.floor((n * MDW + 5) / MDW) * MDW + 2;
+        }
+
+        function ptToPx(pt) {
+            return ((Number(pt) || 0) * 96 / 72);
+        }
+
+        function normalizeStampBucketSeed(v) {
+            const s = String(v || '').trim().toLowerCase();
+            if (!s) return '';
+            if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
+            if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
+            return '';
+        }
+
+        function inferStampBucketSeed(row) {
+            if (!row) return 'approval';
+
+            const candidates = [
+                row.kind, row.Kind,
+                row.type, row.Type,
+                row.group, row.Group,
+                row.section, row.Section,
+                row.category, row.Category,
+                row.mode, row.Mode,
+                row.stampType, row.StampType,
+                row.approvalType, row.ApprovalType
+            ];
+
+            for (let i = 0; i < candidates.length; i++) {
+                const bucket = normalizeStampBucketSeed(candidates[i]);
+                if (bucket) return bucket;
+            }
+
+            const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
+            if (roleKey.startsWith('C')) return 'cooperation';
+            if (roleKey.startsWith('A')) return 'approval';
+
+            if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
+            return 'approval';
+        }
+
+        function normalizeStampBucketName(v) {
+            const s = String(v || '').trim().toLowerCase();
+            if (!s) return '';
+            if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
+            if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
+            return '';
+        }
+        
+        function inferStampBucketFromRow(row) {
+            if (!row) return 'approval';
+
+            const candidates = [
+                row.kind, row.Kind,
+                row.type, row.Type,
+                row.group, row.Group,
+                row.section, row.Section,
+                row.category, row.Category,
+                row.mode, row.Mode,
+                row.stampType, row.StampType,
+                row.approvalType, row.ApprovalType,
+                row.bucket, row.Bucket,
+                row.lane, row.Lane
+            ];
+
+            for (let i = 0; i < candidates.length; i++) {
+                const bucket = normalizeStampBucketName(candidates[i]);
+                if (bucket) return bucket;
+            }
+
+            const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
+            if (roleKey.startsWith('C')) return 'cooperation';
+            if (roleKey.startsWith('A')) return 'approval';
+
+            if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
+            return 'approval';
+        }
+        
+        function buildLegacyApprovalCellMap(rows) {
+            const built = {
+                approval: { byStep: {}, byRoleKey: {} },
+                cooperation: { byStep: {}, byRoleKey: {} }
+            };
+
+            if (!Array.isArray(rows)) return built;
+
+            rows.forEach(function (row) {
+                if (!row) return;
+
+                const a1 = String(row.a1 || row.A1 || row.cellA1 || row.CellA1 || '').trim();
+                if (!a1) return;
+
+                const bucket = inferStampBucketFromRow(row);
+                const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
+                const roleKey = String(row.roleKey || row.RoleKey || '').trim();
+                const payload = { row: row, a1: a1 };
+
+                if (step != null && step !== '') {
+                    built[bucket].byStep[String(step)] = payload;
+
+                    // 구형 flat fallback 은 approval 만 유지
+                    if (bucket === 'approval') built[String(step)] = a1;
+                }
+
+                if (roleKey) {
+                    built[bucket].byRoleKey[roleKey] = payload;
+
+                    // 구형 flat fallback 은 approval 만 유지
+                    if (bucket === 'approval') built[roleKey] = a1;
+                }
+            });
+
+            return built;
+        }
+
+        // ================== DX 인스턴스 취득 ==================    
+        function getDxInstance() {
+            try { if (window.dxDetailSheet && typeof window.dxDetailSheet === 'object') return window.dxDetailSheet; } catch (e) { }
+            try {
+                if (typeof ASPxClientSpreadsheet !== 'undefined' && typeof ASPxClientSpreadsheet.Cast === 'function') {
+                    const inst = ASPxClientSpreadsheet.Cast(window.dxDetailSheet);
+                    if (inst) return inst;
+                }
+            } catch (e) { }
+            try {
+                if (typeof ASPxClientControl !== 'undefined' && typeof ASPxClientControl.GetControlCollection === 'function') {
+                    const col = ASPxClientControl.GetControlCollection();
+                    if (col) {
+                        const inst = col.GetByName('dxDetailSheet');
+                        if (inst) return inst;
+                    }
+                }
+            } catch (e) { }
+            return null;
+        }
+    
+        // ================== 프리뷰 extent 계산 ==================            
         function computePreviewExtent(preview) {
             const serverMaxRow = Number(window.__dxRenderMaxRow || 0);
             const serverMaxCol = Number(window.__dxRenderMaxCol || 0);
@@ -1107,8 +1234,6 @@ else
 
             return { width: 900, height: 520 };
         }
-
-
         function getRenderedPageBox() {
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return { width: 0, height: 0 };
@@ -1126,7 +1251,7 @@ else
             };
         }
 
-                function getRenderedContentBox() {
+        function getRenderedContentBox() {
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return { width: 0, height: 0 };
 
@@ -1144,46 +1269,97 @@ else
             let height = pageBox.height;
 
             if (wbc) {
-                width = Math.max(width, Math.ceil(wbc.offsetWidth || 0));
-                height = Math.max(height, Math.ceil(wbc.offsetHeight || 0));
+                // scrollWidth/offsetWidth가 부모 컨테이너 크기(1000000 등)를 반환하는 경우 방지
+                // clientWidth만 사용하고, 서버 기준값의 2배를 초과하면 무시
+                const serverW = Number(state.renderExtent?.width || 0);
+                const maxSaneW = Math.max(2000, serverW * 2);
+                const wbcW = Math.ceil(wbc.clientWidth || 0);
+                if (wbcW > 0 && wbcW < maxSaneW) {
+                    width = Math.max(width, wbcW);
+                }
+                const wbcH = Math.ceil(wbc.clientHeight || 0);
+                if (wbcH > 0) {
+                    height = Math.max(height, wbcH);
+                }
             }
 
             if (grid) {
-                width = Math.max(width, Math.ceil(grid.clientWidth || 0));
-                height = Math.max(height, Math.ceil(grid.clientHeight || 0));
+                const serverW = Number(state.renderExtent?.width || 0);
+                const maxSaneW = Math.max(2000, serverW * 2);
+                const gridW = Math.ceil(grid.clientWidth || 0);
+                if (gridW > 0 && gridW < maxSaneW) {
+                    width = Math.max(width, gridW);
+                }
+                const gridH = Math.ceil(grid.clientHeight || 0);
+                if (gridH > 0) {
+                    height = Math.max(height, gridH);
+                }
             }
 
             return { width, height };
         }
 
+        // function applyDxWrapSize(reason) {
+        //     const wrap = document.getElementById('dxDetailWrap');
+        //     if (!wrap) return;
 
+        //     const ext = computePreviewExtent(state.preview);
+        //     const contentBox = getRenderedContentBox();
+
+        //     let finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
+        //     let finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
+
+        //     const saneMinWidth = Math.floor(finalWidth * 0.85);
+        //     const saneMaxWidth = Math.ceil(finalWidth * 1.20);
+        //     const saneMinHeight = Math.floor(finalHeight * 0.85);
+        //     const saneMaxHeight = Math.ceil(finalHeight * 1.20);
+
+        //     if (contentBox.width > 0) {
+        //         const candidateWidth = Math.ceil(contentBox.width + 8);
+        //         if (candidateWidth >= saneMinWidth && candidateWidth <= saneMaxWidth) {
+        //             finalWidth = Math.max(finalWidth, candidateWidth);
+        //         }
+        //     }
+
+        //     if (contentBox.height > 0) {
+        //         const candidateHeight = Math.ceil(contentBox.height + 8);
+        //         if (candidateHeight >= saneMinHeight && candidateHeight <= saneMaxHeight) {
+        //             finalHeight = Math.max(finalHeight, candidateHeight);
+        //         }
+        //     }
+
+        //     // ── 크기 변경 없으면 skip (무한 루프 방지) ──
+        //     const prev = state.previewExtent;
+        //     if (prev && prev.width === finalWidth && prev.height === finalHeight) {
+        //         return; // 변경 없음
+        //     }
+
+        //     state.previewExtent = { width: finalWidth, height: finalHeight };
+
+        //     wrap.style.setProperty('width', finalWidth + 'px', 'important');
+        //     wrap.style.setProperty('min-width', finalWidth + 'px', 'important');
+        //     wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
+        //     wrap.style.setProperty('height', finalHeight + 'px', 'important');
+        //     wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
+        //     wrap.style.setProperty('overflow', 'hidden', 'important');
+
+        //     console.log('[DX] applyDxWrapSize:', 'reason=' + (reason || ''),
+        //         'finalWidth=' + finalWidth, 'finalHeight=' + finalHeight);
+        // }
+                
         function applyDxWrapSize(reason) {
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return;
 
             const ext = computePreviewExtent(state.preview);
-            const contentBox = getRenderedContentBox();
 
-            let finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
-            let finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
+            const finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
+            const finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
 
-            const saneMinWidth = Math.floor(finalWidth * 0.85);
-            const saneMaxWidth = Math.ceil(finalWidth * 1.20);
-            const saneMinHeight = Math.floor(finalHeight * 0.85);
-            const saneMaxHeight = Math.ceil(finalHeight * 1.20);
-
-            if (contentBox.width > 0) {
-                const candidateWidth = Math.ceil(contentBox.width + 8);
-                if (candidateWidth >= saneMinWidth && candidateWidth <= saneMaxWidth) {
-                    finalWidth = Math.max(finalWidth, candidateWidth);
-                }
-            }
-
-            if (contentBox.height > 0) {
-                const candidateHeight = Math.ceil(contentBox.height + 8);
-                if (candidateHeight >= saneMinHeight && candidateHeight <= saneMaxHeight) {
-                    finalHeight = Math.max(finalHeight, candidateHeight);
-                }
+            // 크기 변경 없으면 skip
+            const prev = state.previewExtent;
+            if (prev && prev.width === finalWidth && prev.height === finalHeight) {
+                return;
             }
 
             state.previewExtent = { width: finalWidth, height: finalHeight };
@@ -1195,1069 +1371,2133 @@ else
             wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
             wrap.style.setProperty('overflow', 'hidden', 'important');
 
-            console.log(
-                '[DX] applyDxWrapSize:',
-                'reason=' + (reason || ''),
-                'usedLastCell=' + (state.renderExtent?.usedLastCellA1 || ''),
-                'renderLastCell=' + (state.renderExtent?.renderLastCellA1 || ''),
-                'maxRow=' + Number(state.renderExtent?.maxRow || 0),
-                'maxCol=' + Number(state.renderExtent?.maxCol || 0),
-                'serverWidth=' + Number(state.renderExtent?.width || 0),
-                'serverHeight=' + Number(state.renderExtent?.height || 0),
-                'contentWidth=' + Number(contentBox.width || 0),
-                'contentHeight=' + Number(contentBox.height || 0),
-                'finalWidth=' + finalWidth,
-                'finalHeight=' + finalHeight
-            );
+            console.log('[DX] applyDxWrapSize:', 'reason=' + (reason || ''),
+                'finalWidth=' + finalWidth, 'finalHeight=' + finalHeight);
+        }
+        // ================== 외부 스크롤만 허용 ==================
+        function installOuterScrollOnly() {
+            const outer = document.getElementById('doc-scroll');
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!outer || !wrap) return;
+
+            const inner =
+                document.getElementById('dxDetailSheet_ScrollContainer')
+                || document.getElementById('dxDetailSheet_Grid')
+                || $('[id$="_ScrollContainer"]', wrap)
+                || $('[id$="_Grid"]', wrap);
+
+            if (!inner) return;
+
+            function lockInnerScroll() {
+                if (inner.scrollTop !== 0) inner.scrollTop = 0;
+                if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+            }
+
+            lockInnerScroll();
+
+            if (!inner.dataset.dxOuterLocked) {
+                inner.addEventListener('scroll', lockInnerScroll, { passive: true });
+                inner.dataset.dxOuterLocked = '1';
+            }
+
+            if (!window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__) {
+                window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__ = true;
+                document.addEventListener('wheel', function (e) {
+                    if (!wrap.contains(e.target)) return;
+                    e.preventDefault();
+                    lockInnerScroll();
+                    if (e.deltaY) outer.scrollTop += e.deltaY;
+                    if (e.deltaX) outer.scrollLeft += e.deltaX;
+                }, { capture: true, passive: false });
+            }
         }
 
-                // ================== 외부 스크롤만 허용 ==================
-                function installOuterScrollOnly() {
-                    const outer = document.getElementById('doc-scroll');
-                    const wrap = document.getElementById('dxDetailWrap');
-                    if (!outer || !wrap) return;
+        // ================== 상태 헬퍼 ==================
+        function mapStatusKey(raw) {
+            const s = String(raw || '').toUpperCase();
+            if (!s) return '';
+            if (s.startsWith('PENDING')) return 'DOC_Status_Pending';
+            if (s === 'APPROVED' || s === 'APPROVE') return 'DOC_Status_Approved';
+            if (s === 'REJECTED' || s === 'REJECT') return 'DOC_Status_Rejected';
+            if (s.startsWith('ONHOLD') || s === 'HOLD' || s.startsWith('PENDINGHOLD')) return 'DOC_Status_OnHold';
+            if (s === 'RECALLED') return 'DOC_Status_Recalled';
+            if (s === 'CREATED' || s === 'CREATE' || s === 'DRAFT' || s === 'WRITTEN') return 'DOC_Status_Created';
+            if (s === 'COOPERATED' || s === 'COOPERATE') return 'DOC_Btn_Cooperate';
+            if (s === 'COOPERATEREJECT' || s === 'COOPERATE') return 'DOC_Btn_CooperateReject';
+            return raw;
+        }
 
-                    const inner =
-                        document.getElementById('dxDetailSheet_ScrollContainer')
-                        || document.getElementById('dxDetailSheet_Grid')
-                        || $('[id$="_ScrollContainer"]', wrap)
-                        || $('[id$="_Grid"]', wrap);
+        function extractPersonName(full) {
+            if (!full) return '';
+            const s = String(full).trim();
+            if (s.indexOf('\u0040') >= 0) return '';   //  문자 포함 시 제외
+            let parts = s.split(/\s+/).filter(Boolean);
+            if (!parts.length) return '';
+            parts = parts.map(p => p.replace(/님$/, ''));
+            const hasHangul = t => /[가-힣]/.test(t);
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (hasHangul(parts[i])) return parts[i];
+            }
+            return parts[parts.length - 1];
+        }
 
-                    if (!inner) return;
+        function getApprovalDisplayName(a) {
+            if (!a) return '';
+            const v = a.approverDisplayText || a.ApproverDisplayText ||
+                a.approverName || a.ApproverName ||
+                a.actorName || a.ActorName ||
+                a.userName || a.UserName ||
+                a.approverValue || a.ApproverValue || '';
+            return String(v || '').trim();
+        }
 
-                    function lockInnerScroll() {
-                        if (inner.scrollTop !== 0) inner.scrollTop = 0;
-                        if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+        function formatApprovalCaption(a) {
+            const fullText = getApprovalDisplayName(a);
+            if (!fullText) return '';
+
+            const parts = String(fullText).trim().split(/\s+/).filter(Boolean);
+            if (!parts.length) return '';
+
+            if (parts.length >= 3) return parts.slice(parts.length - 2).join(' ');
+            if (parts.length === 2) return parts.join(' ');
+            return parts[0];
+        }
+
+        // ================== A1 셀 주소 파싱 ==================
+        function parseA1(a1) {
+            const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
+            if (!m) return null;
+            let col = 0;
+            for (let i = 0; i < m[1].length; i++) col = (col * 26) + (m[1].charCodeAt(i) - 64);
+            return { col1: col, row1: parseInt(m[2], 10) };
+        }
+
+        // ================== 스탬프 div 공통 생성 헬퍼 ==================
+        function buildStampDiv(x, y, w, h, stampUrl, captionText, fallbackUrl, options) {
+            options = options || {};
+
+            const placementMode = String(options.placementMode || 'boxed');
+            const padX = Math.max(0, Number(options.padX || 0));
+            const padTop = Math.max(0, Number(options.padTop || 0));
+            const captionHeight = Math.max(0, Number(options.captionHeight || 0));
+            const bodyBottomPad = Math.max(0, Number(options.bodyBottomPad || 0));
+            const scaleBoost = Math.max(0.1, Number(options.scaleBoost || 1));
+            const targetWidthRatio = Math.max(0.1, Number(options.targetWidthRatio || 1));
+            const targetHeightRatio = Math.max(0.1, Number(options.targetHeightRatio || 1));
+            const maxWidthRatio = Math.max(0.5, Number(options.maxWidthRatio || 1));
+            const maxHeightRatio = Math.max(0.5, Number(options.maxHeightRatio || 1));
+
+            const boxW = Math.max(8, Math.round(w));
+            const boxH = Math.max(8, Math.round(h));
+
+            const div = document.createElement('div');
+            div.dataset.stampOverlay = '1';
+            div.style.cssText = [
+                'position:absolute',
+                'left:0',
+                'top:0',
+                'width:0',
+                'height:0',
+                'pointer-events:none',
+                'z-index:20',
+                'overflow:visible'
+            ].join(';');
+
+            const img = document.createElement('img');
+            img.alt = 'stamp';
+            img.crossOrigin = 'anonymous';
+            img.style.cssText = [
+                'position:absolute',
+                'left:0',
+                'top:0',
+                'width:1px',
+                'height:1px',
+                'opacity:0',
+                'transform:none',
+                'object-fit:fill',
+                'pointer-events:none'
+            ].join(';');
+
+            function renderCaption(drawW) {
+                if (!captionText) return;
+
+                const oldCap = div.querySelector('[data-stamp-caption="1"]');
+                if (oldCap) oldCap.remove();
+
+                const cap = document.createElement('div');
+                const capW = Math.max(drawW, boxW + 56, 96);
+                const capTop = Math.round(y + boxH - captionHeight);
+
+                cap.dataset.stampCaption = '1';
+                cap.textContent = captionText;
+                cap.style.cssText = [
+                    'position:absolute',
+                    `left:${Math.round(x + boxW / 2)}px`,
+                    `top:${capTop}px`,
+                    'transform:translateX(-50%)',
+                    `min-width:${Math.round(capW)}px`,
+                    `max-width:${Math.round(capW + 24)}px`,
+                    `height:${captionHeight}px`,
+                    `line-height:${captionHeight}px`,
+                    //`font-size:${Math.max(8, Math.min(10, captionHeight - 2))}px`,
+                    'font-size:12px', // 기존 계산식 제거, 최소 12px 고정 보장
+                    'text-align:center',
+                    'color:#111',
+                    'background:transparent',
+                    'pointer-events:none',
+                    'white-space:nowrap',
+                    'overflow:visible',
+                    'text-overflow:clip',
+                    'padding:0 2px',
+                    'font-family:sans-serif',
+                    'font-weight:400',
+                    'z-index:10'
+                ].join(';');
+
+                div.appendChild(cap);
+            }
+
+            function applyImageBox() {
+                const bodyW = Math.max(8, boxW - padX * 2);
+                const bodyH = Math.max(8, boxH - padTop - captionHeight - bodyBottomPad);
+
+                const nw = Math.max(1, Number(img.naturalWidth || 1));
+                const nh = Math.max(1, Number(img.naturalHeight || 1));
+
+                let scale;
+                let drawW;
+                let drawH;
+                let absLeft;
+                let absTop;
+
+                if (placementMode === 'fit-box-expanded') {
+                    const widthScale = (bodyW * targetWidthRatio) / nw;
+                    const heightScale = (bodyH * targetHeightRatio) / nh;
+
+                    scale = Math.max(widthScale, heightScale) * scaleBoost;
+                    if (!isFinite(scale) || scale <= 0) scale = 1;
+
+                    drawW = Math.max(1, Math.round(nw * scale));
+                    drawH = Math.max(1, Math.round(nh * scale));
+
+                    const maxAllowedW = Math.max(boxW, Math.round(boxW * maxWidthRatio));
+                    const maxAllowedH = Math.max(boxH, Math.round(boxH * maxHeightRatio));
+
+                    if (drawW > maxAllowedW || drawH > maxAllowedH) {
+                        const capScale = Math.min(
+                            maxAllowedW / drawW,
+                            maxAllowedH / drawH
+                        );
+                        drawW = Math.max(1, Math.round(drawW * capScale));
+                        drawH = Math.max(1, Math.round(drawH * capScale));
                     }
 
-                    lockInnerScroll();
+                    absLeft = Math.round(x + (boxW - drawW) / 2);
+                    absTop = Math.round(y + padTop + (bodyH - drawH) / 2);
+                } else {
+                    scale = Math.min(bodyW / nw, bodyH / nh);
+                    if (!isFinite(scale) || scale <= 0) scale = 1;
+                    scale *= scaleBoost;
 
-                    if (!inner.dataset.dxOuterLocked) {
-                        inner.addEventListener('scroll', lockInnerScroll, { passive: true });
-                        inner.dataset.dxOuterLocked = '1';
-                    }
+                    drawW = Math.max(1, Math.round(nw * scale));
+                    drawH = Math.max(1, Math.round(nh * scale));
 
-                    if (!window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__) {
-                        window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__ = true;
-                        document.addEventListener('wheel', function (e) {
-                            if (!wrap.contains(e.target)) return;
-                            e.preventDefault();
-                            lockInnerScroll();
-                            if (e.deltaY) outer.scrollTop += e.deltaY;
-                            if (e.deltaX) outer.scrollLeft += e.deltaX;
-                        }, { capture: true, passive: false });
-                    }
+                    absLeft = Math.round(x + padX + (bodyW - drawW) / 2);
+                    absTop = Math.round(y + padTop + (bodyH - drawH) / 2);
                 }
 
-                // ================== 상태 헬퍼 ==================
-                function mapStatusKey(raw) {
-                    const s = String(raw || '').toUpperCase();
-                    if (!s) return '';
-                    if (s.startsWith('PENDING')) return 'DOC_Status_Pending';
-                    if (s === 'APPROVED' || s === 'APPROVE') return 'DOC_Status_Approved';
-                    if (s === 'REJECTED' || s === 'REJECT') return 'DOC_Status_Rejected';
-                    if (s.startsWith('ONHOLD') || s === 'HOLD' || s.startsWith('PENDINGHOLD')) return 'DOC_Status_OnHold';
-                    if (s === 'RECALLED') return 'DOC_Status_Recalled';
-                    return raw;
-                }
+                img.style.left = absLeft + 'px';
+                img.style.top = absTop + 'px';
+                img.style.width = drawW + 'px';
+                img.style.height = drawH + 'px';
+                img.style.opacity = '1';
 
-                function extractPersonName(full) {
-                    if (!full) return '';
-                    const s = String(full).trim();
-                    if (s.indexOf('\u0040') >= 0) return '';   //  문자 포함 시 제외
-                    let parts = s.split(/\s+/).filter(Boolean);
-                    if (!parts.length) return '';
-                    parts = parts.map(p => p.replace(/님$/, ''));
-                    const hasHangul = t => /[가-힣]/.test(t);
-                    for (let i = parts.length - 1; i >= 0; i--) {
-                        if (hasHangul(parts[i])) return parts[i];
-                    }
-                    return parts[parts.length - 1];
-                }
+                renderCaption(drawW);
 
-                function getApprovalDisplayName(a) {
-                    if (!a) return '';
-                    const v = a.approverDisplayText || a.ApproverDisplayText ||
-                        a.approverName || a.ApproverName ||
-                        a.actorName || a.ActorName ||
-                        a.userName || a.UserName ||
-                        a.approverValue || a.ApproverValue || '';
-                    return String(v || '').trim();
-                }
+                console.log('[DX-DBG] stamp-size', {
+                    placementMode: placementMode,
+                    x: x,
+                    y: y,
+                    boxW: boxW,
+                    boxH: boxH,
+                    bodyW: bodyW,
+                    bodyH: bodyH,
+                    naturalW: nw,
+                    naturalH: nh,
+                    targetWidthRatio: targetWidthRatio,
+                    targetHeightRatio: targetHeightRatio,
+                    maxWidthRatio: maxWidthRatio,
+                    maxHeightRatio: maxHeightRatio,
+                    scaleBoost: scaleBoost,
+                    drawW: drawW,
+                    drawH: drawH,
+                    absLeft: absLeft,
+                    absTop: absTop,
+                    captionHeight: captionHeight
+                });
+            }
 
-                function formatApprovalCaption(a) {
-                    const fullText = getApprovalDisplayName(a);
-                    if (!fullText) return '';
-                    const parts = String(fullText).trim().split(/\s+/).filter(Boolean);
-                    if (!parts.length) return '';
-                    if (parts.length >= 3) return parts.slice(parts.length - 2).join(' ');
-                    if (parts.length === 2) return parts.join(' ');
-                    return parts[0];
-                }
+            img.onload = function () {
+                try {
+                    if (img.dataset.trimmed !== '1') {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.max(1, img.naturalWidth || 1);
+                        canvas.height = Math.max(1, img.naturalHeight || 1);
 
-                // ================== A1 셀 주소 파싱 ==================
-                function parseA1(a1) {
-                    const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
-                    if (!m) return null;
-                    let col = 0;
-                    for (let i = 0; i < m[1].length; i++) col = (col * 26) + (m[1].charCodeAt(i) - 64);
-                    return { col1: col, row1: parseInt(m[2], 10) };
-                }
-
-                // ================== 스탬프 div 공통 생성 헬퍼 ==================
-                function buildStampDiv(x, y, w, h, stampUrl, captionText, fallbackUrl) {
-                    const div = document.createElement('div');
-                    div.dataset.stampOverlay = '1';
-                    div.style.cssText = [
-                        'position:absolute',
-                        `left:${x}px`, `top:${y}px`,
-                        `width:${w}px`, `height:${h}px`,
-                        'pointer-events:none', 'z-index:20', 'overflow:hidden'
-                    ].join(';');
-
-                    const img = document.createElement('img');
-                    img.alt = 'stamp';
-                    img.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;';
-                    img.crossOrigin = 'anonymous';
-
-                    if (fallbackUrl) {
-                        img.onerror = function () {
-                            if (this.dataset.fallbackTried === '1') return;
-                            this.dataset.fallbackTried = '1';
-                            this.src = fallbackUrl;
-                        };
-                    }
-
-                    img.onload = function () {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-                            const ctx = canvas.getContext('2d');
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
                             ctx.drawImage(img, 0, 0);
+
                             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                            let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
+                            let minX = canvas.width;
+                            let minY = canvas.height;
+                            let maxX = -1;
+                            let maxY = -1;
+
                             for (let py = 0; py < canvas.height; py++) {
-                                for (let px2 = 0; px2 < canvas.width; px2++) {
-                                    const i = (py * canvas.width + px2) * 4;
-                                    if (data[i + 3] < 20) continue;
-                                    if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) continue;
-                                    if (px2 < minX) minX = px2; if (px2 > maxX) maxX = px2;
-                                    if (py < minY) minY = py;   if (py > maxY) maxY = py;
+                                for (let px = 0; px < canvas.width; px++) {
+                                    const i = (py * canvas.width + px) * 4;
+                                    const alpha = data[i + 3];
+                                    if (alpha < 10) continue;
+
+                                    minX = Math.min(minX, px);
+                                    minY = Math.min(minY, py);
+                                    maxX = Math.max(maxX, px);
+                                    maxY = Math.max(maxY, py);
                                 }
                             }
+
                             if (maxX > minX && maxY > minY) {
-                                const cw = maxX - minX + 1, ch = maxY - minY + 1;
+                                const cw = maxX - minX + 1;
+                                const ch = maxY - minY + 1;
                                 const crop = document.createElement('canvas');
-                                crop.width = cw; crop.height = ch;
-                                crop.getContext('2d').drawImage(img, minX, minY, cw, ch, 0, 0, cw, ch);
-                                img.src = crop.toDataURL();
+                                crop.width = cw;
+                                crop.height = ch;
+
+                                const cropCtx = crop.getContext('2d');
+                                if (cropCtx) {
+                                    cropCtx.drawImage(canvas, minX, minY, cw, ch, 0, 0, cw, ch);
+
+                                    console.log('[DX-DBG] stamp-trim', {
+                                        originalW: canvas.width,
+                                        originalH: canvas.height,
+                                        cropW: cw,
+                                        cropH: ch,
+                                        minX: minX,
+                                        minY: minY,
+                                        maxX: maxX,
+                                        maxY: maxY
+                                    });
+
+                                    img.dataset.trimmed = '1';
+                                    img.src = crop.toDataURL('image/png');
+                                    return;
+                                }
                             }
-                        } catch (e) { }
-                    };
-
-                    img.src = stampUrl;
-                    div.appendChild(img);
-
-                    if (captionText) {
-                        const cap = document.createElement('div');
-                        cap.textContent = captionText;
-                        cap.style.cssText = [
-                            'position:absolute', 'left:0', 'right:0', 'bottom:1px',
-                            'text-align:center',
-                            `font-size:${Math.max(8, Math.floor(h * 0.18))}px`,
-                            'line-height:1.1', 'color:#111', 'background:transparent',
-                            'pointer-events:none', 'white-space:nowrap',
-                            'overflow:hidden', 'text-overflow:ellipsis',
-                            'padding:0 2px', 'font-family:sans-serif', 'font-weight:400', 'z-index:10'
-                        ].join(';');
-                        div.appendChild(cap);
-                    }
-
-                    return div;
-                }
-
-                // ================== 승인 스탬프 렌더링 ==================
-                function renderApprovalOverlay() {
-                    const wrap = document.getElementById('dxDetailWrap');
-                    if (!wrap) return;
-
-                    // 기존 스탬프 전부 제거
-                    wrap.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
-
-                    const approvals    = Array.isArray(state.approvalsData)    ? state.approvalsData    : [];
-                    const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
-                    const map          = state.approvalCellMap || {};
-
-                    // 결재 + 협조 둘 다 없으면 종료
-                    if (!approvals.length && !cooperations.length) return;
-
-                    const p      = state.preview || {};
-                    const colW   = Array.isArray(p.colW)   ? p.colW   : [];
-                    const rowH   = Array.isArray(p.rowH)   ? p.rowH   : [];
-                    const merges = Array.isArray(p.merges) ? p.merges : [];
-                    if (!colW.length || !rowH.length) return;
-
-                    // ── 1. DX 레이아웃 요소 실측 ──────────────────────────────
-                    const chEl = document.getElementById('dxDetailSheet_ColumnHeader')
-                              || document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
-                    const rhEl = document.getElementById('dxDetailSheet_RowHeader')
-                              || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-
-                    if (!chEl || !rhEl) {
-                        setTimeout(renderApprovalOverlay, 300);
-                        return;
-                    }
-
-                    const wrapRect = wrap.getBoundingClientRect();
-                    const rhRect   = rhEl.getBoundingClientRect();
-                    const chRect   = chEl.getBoundingClientRect();
-
-                    if (chRect.width < 50) {
-                        setTimeout(renderApprovalOverlay, 300);
-                        return;
-                    }
-
-                    // ── 2. ColumnHeader DOM에서 각 열의 left/width 직접 읽기 ──
-                    const colHeaderCells = chEl.querySelectorAll('[data-header-cell-index]');
-                    if (!colHeaderCells.length) {
-                        setTimeout(renderApprovalOverlay, 300);
-                        return;
-                    }
-
-                    const colPxMap = {};
-                    colHeaderCells.forEach(el => {
-                        const idx   = parseInt(el.getAttribute('data-header-cell-index'), 10);
-                        const left  = parseFloat(el.style.left)  || 0;
-                        const width = parseFloat(el.style.width) || 0;
-                        if (isNaN(idx) || width <= 0) return;
-                        if (!colPxMap[idx] || width > colPxMap[idx].width)
-                            colPxMap[idx] = { left, width };
-                    });
-
-                    const cellOriginX = rhRect.right - wrapRect.left;
-                    const cellOriginY = chRect.bottom - wrapRect.top;
-
-                    function getCellScreenX(col1based) {
-                        const idx   = col1based - 1;
-                        const entry = colPxMap[idx];
-                        if (entry) return cellOriginX + entry.left;
-                        const keys    = Object.keys(colPxMap).map(Number).sort((a, b) => a - b);
-                        if (!keys.length) return cellOriginX;
-                        const lastKey = keys[keys.length - 1];
-                        const last    = colPxMap[lastKey];
-                        return cellOriginX + last.left + last.width * (idx - lastKey);
-                    }
-
-                    function getCellW(col1based) {
-                        const entry = colPxMap[col1based - 1];
-                        return entry ? entry.width : 0;
-                    }
-
-                    function getCellScreenY(row1based) {
-                        let y = cellOriginY;
-                        for (let r = 1; r < row1based; r++) y += Number(rowH[r - 1] ?? 15) * 96 / 72;
-                        return y;
-                    }
-
-                    function getCellH(row1based) {
-                        return Number(rowH[row1based - 1] ?? 15) * 96 / 72;
-                    }
-
-                    // ── 3. 병합 맵 ────────────────────────────────────────────
-                    const mergeMap = new Map();
-                    merges.forEach(m => {
-                        if (!Array.isArray(m) || m.length < 4) return;
-                        const [r1, c1, r2, c2] = m.map(n => parseInt(n, 10));
-                        mergeMap.set(`${r1}-${c1}`, { rs: r2 - r1 + 1, cs: c2 - c1 + 1 });
-                    });
-
-                    function getMergedCellSize(row1, col1) {
-                        const mm = mergeMap.get(`${row1}-${col1}`);
-                        const rs = mm ? mm.rs : 1;
-                        const cs = mm ? mm.cs : 1;
-                        let w = 0;
-                        for (let c = col1; c < col1 + cs; c++) w += getCellW(c);
-                        let h = 0;
-                        for (let r = row1; r < row1 + rs; r++) h += getCellH(r);
-                        return { w, h };
-                    }
-
-                    function parseA1Local(a1) {
-                        const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
-                        if (!m) return null;
-                        let col = 0;
-                        for (let i = 0; i < m[1].length; i++) col = col * 26 + (m[1].charCodeAt(i) - 64);
-                        return { col, row: parseInt(m[2], 10) };
-                    }
-
-                    console.log('[DX] cellOriginX:', cellOriginX, 'cellOriginY:', cellOriginY,
-                        'colPxMap entries:', Object.keys(colPxMap).length);
-
-                    const STAMP_BASE     = '/images/signatures/';
-                    const HOLDING_STAMP  = STAMP_BASE + 'holding.png';
-                    const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
-                    const APPROVED_STAMP = STAMP_BASE + 'approved.png';
-
-                    wrap.style.position = 'relative';
-
-                    // ── 4. 결재 스탬프 배치 ───────────────────────────────────
-                    approvals.forEach(function (a, idx) {
-                        const actionRaw = String(a.action || a.Action || '').toUpperCase();
-                        const statusRaw = String(a.status || a.Status || '').toUpperCase();
-                        let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
-                        if (!step || !isFinite(step)) step = idx + 1;
-
-                        const a1 = map[step] || map[String(step)];
-                        if (!a1) return;
-
-                        const pos = parseA1Local(a1);
-                        if (!pos) return;
-
-                        let stampUrl = '';
-                        const sigPathRaw = String(a.signaturePath || a.SignaturePath || '').trim();
-                        if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
-                            stampUrl = sigPathRaw
-                                ? STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/')
-                                : APPROVED_STAMP;
-                        } else if (actionRaw === 'HOLD' || statusRaw === 'HOLD'
-                                || statusRaw === 'ONHOLD' || statusRaw.startsWith('PENDINGHOLD')) {
-                            stampUrl = HOLDING_STAMP;
-                        } else if (actionRaw === 'REJECT' || statusRaw === 'REJECT'
-                                || statusRaw === 'REJECTED') {
-                            stampUrl = REJECTED_STAMP;
-                        }
-                        if (!stampUrl) return;
-
-                        const x = getCellScreenX(pos.col);
-                        const y = getCellScreenY(pos.row);
-                        const { w, h } = getMergedCellSize(pos.row, pos.col);
-
-                        console.log(`[DX] approval stamp step=${step} a1=${a1} x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`);
-
-                        const fallback = (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') ? APPROVED_STAMP : null;
-                        const div = buildStampDiv(x, y, w, h, stampUrl, formatApprovalCaption(a), fallback);
-                        wrap.appendChild(div);
-                    });
-
-                    // ── 5. 협조 스탬프 배치 ───────────────────────────────────
-                    cooperations.forEach(function (a) {
-                        const actionRaw = String(a.action || a.Action || '').toUpperCase();
-                        const statusRaw = String(a.status || a.Status || '').toUpperCase();
-
-                        // 협조 완료된 항목만 스탬프
-                        if (actionRaw !== 'COOPERATE' && statusRaw !== 'COOPERATED') return;
-
-                        const a1 = a.cellA1 || a.CellA1 || '';
-                        if (!a1) return;
-
-                        const pos = parseA1Local(a1);
-                        if (!pos) return;
-
-                        const sigPathRaw = String(a.signaturePath || a.SignaturePath || '').trim();
-                        const stampUrl   = sigPathRaw
-                            ? STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/')
-                            : APPROVED_STAMP;
-
-                        const x = getCellScreenX(pos.col);
-                        const y = getCellScreenY(pos.row);
-                        const { w, h } = getMergedCellSize(pos.row, pos.col);
-
-                        console.log(`[DX] coop stamp a1=${a1} x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`);
-
-                        const div = buildStampDiv(x, y, w, h, stampUrl, formatApprovalCaption(a), APPROVED_STAMP);
-                        wrap.appendChild(div);
-                    });
-                }
-
-                // ================== 파일 헬퍼 ==================
-                function normalizeCommentFiles(c) {
-                    if (!c) return [];
-                    const a = c.attachments || c.Attachments || c.files || c.Files ||
-                        c.fileItems || c.FileItems || c.items || c.Items || null;
-                    return Array.isArray(a) ? a : [];
-                }
-
-                function normalizeFileItem(f) {
-                    if (!f) return null;
-                    const fileKey = (f.fileKey || f.FileKey || f.key || f.Key || '').toString().trim();
-                    if (!fileKey) return null;
-                    const originalName = (f.originalName || f.OriginalName || f.name || f.Name || fileKey).toString();
-                    const byteSize = Number(f.byteSize || f.ByteSize || f.size || f.Size || 0) || 0;
-                    return { fileKey, originalName, byteSize, url: '/Doc/Download/' + encodeURIComponent(fileKey) };
-                }
-
-                function renderFilesHtml(c) {
-                    const files = normalizeCommentFiles(c).map(normalizeFileItem).filter(Boolean);
-                    if (!files.length) return '';
-                    const lis = files.map(f => {
-                        const sizeText = f.byteSize ? ` (${Number(f.byteSize).toLocaleString()} B)` : '';
-                        return `<li><a href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${escapeHtml(f.originalName)}</a><span class="text-muted">${escapeHtml(sizeText)}</span></li>`;
-                    }).join('');
-                    return `<div class="doc-comment-files"><ul class="mb-0 ps-3">${lis}</ul></div>`;
-                }
-
-                function escapeHtml(s) {
-                    return String(s || '').replace(/[&<>"']/g,
-                        m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-                }
-
-                function nl2br(s) {
-                    return String(s || '').replace(/\n/g, '<br>');
-                }
-
-                // ================== 수신자 ==================
-                function collectSelectedRecipientUserIds_Detail() {
-                    function uniq(list) {
-                        const seen = new Set(); const out = [];
-                        for (const raw of (list || [])) {
-                            const s = String(raw || '').trim(); if (!s) continue;
-                            const k = s.toLowerCase(); if (seen.has(k)) continue;
-                            seen.add(k); out.push(s);
-                        }
-                        return out;
-                    }
-                    function parseRaw(raw) {
-                        raw = String(raw || '').trim(); if (!raw) return [];
-                        if (raw.startsWith('[')) {
-                            try {
-                                const arr = JSON.parse(raw);
-                                if (Array.isArray(arr)) return uniq(arr.map(x => String(x || '').trim()).filter(Boolean));
-                            } catch { }
-                        }
-                        return uniq(raw.split(/[,\s;]+/g).map(s => (s || '').trim()).filter(Boolean));
-                    }
-                    const root = document.getElementById('doc-recipient-select-detail');
-                    if (root) {
-                        const one = root.querySelector('input[name="SelectedRecipientUserIds"]')?.value ||
-                            root.querySelector('textarea[name="SelectedRecipientUserIds"]')?.value || '';
-                        const parsedOne = parseRaw(one);
-                        if (parsedOne.length) return parsedOne;
-                        const ds = root.getAttribute('data-selected') || (root.dataset ? root.dataset.selected : '') || '';
-                        const parsedDs = parseRaw(ds);
-                        if (parsedDs.length) return parsedDs;
-                    }
-                    return [];
-                }
-
-                function initRecipientsFromSelected() {
-                    if (!Array.isArray(selectedIds) || selectedIds.length === 0) return;
-                    let tries = 0;
-                    const timer = setInterval(function () {
-                        tries++;
-                        const root = document.getElementById('doc-recipient-select-detail');
-                        if (!root) { if (tries >= 60) clearInterval(timer); return; }
-                        const anyCb = root.querySelector('.org-ms-checkbox[data-node-type="User"]');
-                        if (!anyCb) { if (tries >= 60) clearInterval(timer); return; }
-                        clearInterval(timer);
-                        const joined = selectedIds.join(',');
-                        const hidden = root.querySelector('[data-role="org-ms-value"]');
-                        if (hidden) hidden.value = joined;
-                        const nameField = root.querySelector('input[name="SelectedRecipientUserIds"], textarea[name="SelectedRecipientUserIds"]');
-                        if (nameField) nameField.value = joined;
-                        selectedIds.forEach(function (id) {
-                            const cb = root.querySelector('.org-ms-checkbox[data-node-type="User"][data-node-id="' + id + '"]');
-                            if (!cb) return;
-                            cb.checked = true;
-                            cb.dispatchEvent(new Event('change', { bubbles: true }));
-                        });
-                        root.dispatchEvent(new Event('change', { bubbles: true }));
-                    }, 50);
-                }
-
-                function initRecipientsChangeButton() {
-                    const btn = document.getElementById('btnRecipientsChange');
-                    if (!btn) return;
-                    btn.addEventListener('click', async function () {
-                        const ids = collectSelectedRecipientUserIds_Detail() || [];
-                        if (!docId) return;
-                        const EBC = window.EBCSRF || window.EBCsrf;
-                        if (!EBC || typeof EBC.json !== 'function') return;
-                        try {
-                            const res = await EBC.json('/Doc/UpdateShares', { docId, selectedRecipientUserIds: ids }, 'POST');
-                            if (!res || res.ok === false) throw { payload: res };
-                            location.reload();
-                        } catch { showAlert(T('DOC_Err_SaveFailed'), 'alert-danger'); }
-                    });
-                }
-
-                // ================== 이미지 오버레이 ==================
-                function initDocFileImageOverlay() {
-                    const overlay = document.getElementById('ebImgOverlay');
-                    const overlayImg = document.getElementById('ebImgOverlayImg');
-                    if (!overlay || !overlayImg) return;
-                    function closeOverlay() {
-                        overlay.classList.remove('is-open');
-                        overlay.setAttribute('aria-hidden', 'true');
-                        overlayImg.src = '';
-                    }
-                    function openOverlay(src) {
-                        if (!src) return;
-                        overlayImg.src = src;
-                        overlay.classList.add('is-open');
-                        overlay.setAttribute('aria-hidden', 'false');
-                    }
-                    document.addEventListener('click', function (ev) {
-                        const t = ev && ev.target;
-                        if (!t) return;
-                        if (t.classList && t.classList.contains('doc-attach-thumb')) {
-                            ev.preventDefault();
-                            openOverlay(t.getAttribute('data-fullsrc') || t.getAttribute('src') || '');
-                            return;
-                        }
-                        if (t === overlay || t === overlayImg) { ev.preventDefault(); closeOverlay(); }
-                    }, true);
-                    document.addEventListener('keydown', function (ev) {
-                        if (ev.key === 'Escape' && overlay.classList.contains('is-open')) { ev.preventDefault(); closeOverlay(); }
-                    });
-                }
-
-                // ================== 조회 로그 ==================
-                function renderViewLogs() {
-                    const host = document.getElementById('viewlog-list');
-                    if (!host) return;
-                    let logs = readJsonFromScript('ViewLogsJson', []);
-                    if (!Array.isArray(logs)) logs = [];
-                    if (!logs.length) { host.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoViewLogs')}</div>`; return; }
-                    logs.sort((a, b) => (a.viewedAt || '').localeCompare(b.viewedAt || ''));
-                    const seen = new Set(); const rows = [];
-                    logs.forEach(v => {
-                        const key = v.userId || v.userName || '';
-                        if (!key || seen.has(key)) return;
-                        seen.add(key); rows.push(v);
-                    });
-                    host.innerHTML = '';
-                    rows.forEach(v => {
-                        const row = document.createElement('div');
-                        row.textContent = `${v.viewedAtText || v.viewedAt || ''} - ${v.userName || v.userId || ''}`;
-                        host.append(row);
-                    });
-                }
-
-                // ================== 승인 테이블 ==================
-                function renderApprovalsTable() {
-                    const tbody = document.getElementById('tbody-approvals');
-                    if (!tbody) return;
-                    const approvals = Array.isArray(state.approvalsData) ? state.approvalsData.slice() : [];
-                    const root = document.getElementById('doc-scroll');
-                    const isDocRecalled = String(root?.getAttribute('data-status') || '').toUpperCase() === 'RECALLED';
-                    const authorFull = (root?.getAttribute('data-creator-name') || '').trim();
-                    const authorNameOnly = extractPersonName(authorFull) || authorFull;
-                    const createdText = (root?.getAttribute('data-created-at') || '').trim();
-                    const recalledText = (root?.getAttribute('data-recalled-at') || '').trim();
-
-                    approvals.sort((a, b) => (a.step || a.stepOrder || a.Step || a.StepOrder || 0) - (b.step || b.stepOrder || b.Step || b.StepOrder || 0));
-                    const rows = [];
-                    rows.push({
-                        name: authorNameOnly || '',
-                        statusText: isDocRecalled ? T('DOC_Status_Recalled') : T('DOC_Status_Created'),
-                        whenText: isDocRecalled ? recalledText : createdText
-                    });
-                    approvals.forEach(a => {
-                        const nameOnly = extractPersonName(getApprovalDisplayName(a)) || getApprovalDisplayName(a) || '';
-                        if (!nameOnly) return;
-                        let stRaw = (a.status || a.Status || a.action || a.Action || 'Pending').toString();
-                        let when = '';
-                        if (isDocRecalled) {
-                            stRaw = 'Pending';
-                        } else {
-                            const actedStates = ['APPROVED', 'APPROVE', 'REJECTED', 'REJECT', 'ONHOLD', 'HOLD', 'PENDINGHOLD'];
-                            if (actedStates.some(x => stRaw.toUpperCase().startsWith(x))) when = a.actedAtText || a.ActedAtText || '';
-                        }
-                        rows.push({ name: nameOnly, statusText: T(mapStatusKey(stRaw) || 'DOC_Status_Pending'), whenText: when });
-                    });
-                    tbody.innerHTML = '';
-                    rows.forEach(r => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `<td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.statusText)}</td><td>${escapeHtml(r.whenText)}</td>`;
-                        tbody.appendChild(tr);
-                    });
-                }
-
-                // ================== 댓글 ==================
-                function initComments() {
-                    const rawFetch = (window.fetch || function () { }).bind(window);
-                    const EBC = (window.EBCSRF || window.EBCsrf) || {
-                        async fetch(url, options) { return await rawFetch(url, options || {}); },
-                        async json(url, payload, method = 'POST') {
-                            const res = await rawFetch(url, {
-                                method,
-                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                                body: method === 'GET' ? undefined : JSON.stringify(payload || {})
-                            });
-                            const j = await res.json().catch(() => ({}));
-                            if (!res.ok) { const err = new Error('request failed'); err.payload = j; throw err; }
-                            return j;
-                        }
-                    };
-                    const $list = document.getElementById('cmt-list');
-                    const $alert = document.getElementById('cmt-alert');
-                    const $count = document.getElementById('cmt-count');
-                    const $body = document.getElementById('cmt-body');
-                    const $submit = document.getElementById('cmt-submit');
-                    const COMMENT_DEPTH_INDENT = 40;
-                    let activeReply = null;
-
-                    if (!docId) {
-                        $alert.innerHTML = `<div class="alert alert-danger py-1 mb-1">${T('DOC_Err_DocumentNotFound')}</div>`;
-                        return;
-                    }
-                    function showErr(msgs) {
-                        $alert.innerHTML = `<div class="alert alert-danger py-1 mb-1">${(msgs || []).map(escapeHtml).join('<br>')}</div>`;
-                    }
-                    async function loadComments() {
-                        try {
-                            const res = await EBC.fetch('/Doc/Comments?docId=' + encodeURIComponent(docId), { method: 'GET', headers: { 'Accept': 'application/json' } });
-                            const data = await res.json().catch(() => ({}));
-                            renderComments(Array.isArray(data.items) ? data.items : []);
-                        } catch (e) { console.error('loadComments error', e); showErr([T('DOC_Err_LoadFailed')]); }
-                    }
-                    function renderComments(items) {
-                        $list.innerHTML = ''; activeReply = null;
-                        if (!items.length) { $count.textContent = ''; $list.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoComments')}</div>`; return; }
-                        $count.textContent = T('DOC_Cmt_Count').replace('{n}', items.length);
-                        items.forEach(c => {
-                            const wrap = document.createElement('div');
-                            wrap.className = 'doc-comment-item';
-                            const depthRaw = (typeof c.depth === 'number') ? c.depth : parseInt(c.depth || '0', 10) || 0;
-                            wrap.style.marginLeft = (Math.max(0, Math.min(depthRaw, 4)) * COMMENT_DEPTH_INDENT) + 'px';
-                            const cid = c.id || c.commentId || c.CommentId;
-                            if (cid != null) wrap.dataset.commentId = String(cid);
-                            let actionsHtml = '';
-                            if (cid != null) {
-                                const btns = [];
-                                btns.push(`<button type="button" class="btn btn-link btn-sm p-0" data-reply-id="${String(cid)}">${escapeHtml(T('DOC_Btn_Reply'))}</button>`);
-                                if (!!c.canEdit) btns.push(`<button type="button" class="btn btn-link btn-sm p-0 ms-2" data-edit-id="${String(cid)}">${escapeHtml(T('_CM_Edit'))}</button>`);
-                                if (!!c.canDelete) btns.push(`<button type="button" class="btn btn-link btn-sm p-0 ms-2 text-danger" data-delete-id="${String(cid)}">${escapeHtml(T('_CM_Delete'))}</button>`);
-                                actionsHtml = `<span class="ms-auto">${btns.join(' ')}</span>`;
-                            }
-                            wrap.innerHTML = `
-                                <div class="doc-comment-meta d-flex align-items-center">
-                                    <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
-                                    <span class="ms-2">${escapeHtml(c.createdAt || '')}</span>
-                                    ${actionsHtml}
-                                </div>
-                                <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
-                                ${renderFilesHtml(c)}`;
-                            $list.append(wrap);
-                        });
-                    }
-                    $submit?.addEventListener('click', async () => {
-                        const body = ($body.value || '').trim();
-                        if (!body) { showErr([T('DOC_Val_Required')]); return; }
-                        try {
-                            await EBC.json('/Doc/Comments', { docId, parentCommentId: null, body, files: [] }, 'POST');
-                            $body.value = '';
-                            await loadComments();
-                        } catch (e) { const p = e && e.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
-                    });
-                    $list.addEventListener('click', async (e) => {
-                        const replyBtn  = e.target.closest('button[data-reply-id]');
-                        const editBtn   = e.target.closest('button[data-edit-id]');
-                        const deleteBtn = e.target.closest('button[data-delete-id]');
-                        if (replyBtn)  { toggleReplyForm(replyBtn.getAttribute('data-reply-id'), replyBtn.closest('.doc-comment-item')); return; }
-                        if (editBtn)   { toggleEditForm(editBtn.getAttribute('data-edit-id'), editBtn.closest('.doc-comment-item')); return; }
-                        if (deleteBtn) {
-                            const cid = deleteBtn.getAttribute('data-delete-id');
-                            if (!cid || !confirm(T('DOC_Confirm_DeleteComment') || '삭제하시겠습니까?')) return;
-                            try {
-                                const res = await EBC.fetch(`/Doc/Comments/${encodeURIComponent(cid)}?docId=${encodeURIComponent(docId)}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
-                                const j = await res.json().catch(() => ({}));
-                                if (!res.ok || j.ok === false) throw { payload: j };
-                                await loadComments();
-                            } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_DeleteFailed')]); }
-                            return;
-                        }
-                        const submitBtn = e.target.closest('button[data-reply-submit]');
-                        if (submitBtn) {
-                            const form = submitBtn.closest('.doc-comment-reply');
-                            if (!form || !activeReply?.parentId) return;
-                            const textarea = form.querySelector('textarea');
-                            const body = (textarea?.value || '').trim();
-                            if (!body) { showErr([T('DOC_Val_Required')]); return; }
-                            try {
-                                await EBC.json('/Doc/Comments', { docId, parentCommentId: activeReply.parentId, body, files: [] }, 'POST');
-                                if (textarea) textarea.value = '';
-                                removeReplyForm();
-                                await loadComments();
-                            } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
-                            return;
-                        }
-                        const cancelBtn = e.target.closest('button[data-reply-cancel]');
-                        if (cancelBtn) removeReplyForm();
-                    });
-                    function toggleReplyForm(parentId, itemEl) {
-                        if (!parentId || !itemEl) return;
-                        if (activeReply && activeReply.parentId === parentId) { removeReplyForm(); return; }
-                        removeReplyForm();
-                        const form = document.createElement('div');
-                        form.className = 'doc-comment-reply mt-2';
-                        const parentIndent = parseInt(window.getComputedStyle(itemEl).marginLeft || '0', 10) || 0;
-                        form.style.marginLeft = (parentIndent + COMMENT_DEPTH_INDENT / 2) + 'px';
-                        form.innerHTML = `
-                            <textarea class="form-control form-control-sm mb-1" rows="2" placeholder="${escapeHtml(T('DOC_Placeholder_Reply'))}"></textarea>
-                            <div class="d-flex gap-2 justify-content-end">
-                                <button type="button" class="btn btn-sm btn-primary" data-reply-submit>${escapeHtml(T('DOC_Btn_ReplyPost'))}</button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" data-reply-cancel>${escapeHtml(T('DOC_Btn_Cancel'))}</button>
-                            </div>`;
-                        itemEl.append(form);
-                        activeReply = { parentId, form };
-                    }
-                    function removeReplyForm() {
-                        if (activeReply?.form?.parentNode) activeReply.form.parentNode.removeChild(activeReply.form);
-                        activeReply = null;
-                    }
-                    function toggleEditForm(commentId, itemEl) {
-                        if (!commentId || !itemEl) return;
-                        const existing = itemEl.querySelector('.doc-comment-edit');
-                        if (existing) { existing.remove(); return; }
-                        const originalText = itemEl.querySelector('.doc-comment-body')?.textContent || '';
-                        const form = document.createElement('div');
-                        form.className = 'doc-comment-edit mt-1';
-                        form.innerHTML = `
-                            <textarea class="form-control form-control-sm mb-1" rows="2">${escapeHtml(originalText)}</textarea>
-                            <div class="d-flex gap-2 justify-content-end">
-                                <button type="button" class="btn btn-sm btn-primary" data-edit-submit="${commentId}">${escapeHtml(T('_CM_Edit'))}</button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" data-edit-cancel>${escapeHtml(T('DOC_Btn_Cancel'))}</button>
-                            </div>`;
-                        itemEl.append(form);
-                        form.addEventListener('click', async (e) => {
-                            const submit = e.target.closest('button[data-edit-submit]');
-                            const cancel = e.target.closest('button[data-edit-cancel]');
-                            if (cancel) { form.remove(); return; }
-                            if (submit) {
-                                const tid = submit.getAttribute('data-edit-submit');
-                                const textarea = form.querySelector('textarea');
-                                const body = (textarea?.value || '').trim();
-                                if (!body) { showErr([T('DOC_Val_Required')]); return; }
-                                try {
-                                    await EBC.json(`/Doc/Comments/${encodeURIComponent(tid)}`, { docId, body }, 'PUT');
-                                    await loadComments();
-                                } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
-                            }
-                        }, { once: true });
-                    }
-                    loadComments();
-                }
-
-                // ================== 승인 버튼 ==================
-                function initApproveButtons() {
-                    const EBC = window.EBCSRF || window.EBCsrf || {};
-                    if (!docId) return;
-                    async function call(action) {
-                        try {
-                            const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action }, 'POST');
-                            if (!res || res.ok === false) throw { payload: res };
-                            showAlert(T('DOC_Msg_Approve_Success'), 'alert-success');
-                            location.reload();
-                        } catch (e) {
-                            const p = e && e.payload;
-                            showAlert((p?.messages || [T('DOC_Err_SaveFailed')]).join('<br>'), 'alert-danger');
                         }
                     }
-                    document.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Approve'); }));
-                    document.querySelectorAll('[data-hold]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Hold'); }));
-                    document.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Reject'); }));
-                    document.querySelectorAll('[data-cooperate]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Cooperate'); }));
-                }
+                } catch (e) { }
 
-                // ================== 회수 버튼 ==================
-                function initRecallButton() {
-                    const EBC = window.EBCSRF || window.EBCsrf || {};
-                    const btnRecall = document.getElementById('btnRecall');
-                    if (!btnRecall || !docId) return;
-                    btnRecall.addEventListener('click', async () => {
-                        if (btnRecall.disabled) return;
-                        try {
-                            const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action: 'Recall' }, 'POST');
-                            if (!res || res.ok === false) throw { payload: res };
-                            showAlert(T('DOC_Msg_Recall_Success') || T('DOC_Msg_Approve_Success'), 'alert-success');
-                            location.href = '/Doc/Board';
-                        } catch (e) {
-                            const p = e && e.payload;
-                            showAlert((p?.messages || [T('DOC_Err_RequestFailed')]).join('<br>'), 'alert-danger');
-                        }
-                    });
-                }
+                applyImageBox();
+            };
 
-                // ================== 인쇄 & PDF 내보내기 ==================
-                function initPrintExport() {
-                    const btnPrint = document.getElementById('btnPrint');
-                    if (btnPrint) {
-                        btnPrint.addEventListener('click', function () {
-                            const inst = getDxInstance();
-                            if (inst) {
-                                if (typeof inst.print === 'function') { try { inst.print(); return; } catch (e) { } }
-                                if (typeof inst.ExecuteGesture === 'function') { try { inst.ExecuteGesture('Print'); return; } catch (e) { } }
-                            }
-                            window.print();
-                        });
-                    }
-                    const btnExport = document.getElementById('btnExport');
-                    if (btnExport) {
-                        btnExport.addEventListener('click', async function () {
-                            btnExport.disabled = true;
-                            btnExport.classList.add('btn-loading');
-                            const origHtml = btnExport.innerHTML;
-                            btnExport.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
-                            function restoreBtn() { btnExport.disabled = false; btnExport.classList.remove('btn-loading'); btnExport.innerHTML = origHtml; }
-                            function loadScript(url) {
-                                return new Promise(function (resolve, reject) {
-                                    if (url.includes('html2canvas') && typeof window.html2canvas === 'function') { resolve(); return; }
-                                    if (url.includes('jspdf') && window.jspdf?.jsPDF) { resolve(); return; }
-                                    var s = document.createElement('script');
-                                    s.src = url; s.crossOrigin = 'anonymous';
-                                    s.onload = resolve;
-                                    s.onerror = () => reject(new Error('스크립트 로드 실패: ' + url));
-                                    document.head.appendChild(s);
-                                });
-                            }
-                            try {
-                                if (typeof window.html2canvas !== 'function')
-                                    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-                                if (!window.jspdf?.jsPDF)
-                                    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-                                if (typeof window.html2canvas !== 'function') throw new Error('html2canvas 로드 실패');
-                                if (!window.jspdf?.jsPDF) throw new Error('jsPDF 로드 실패');
-
-                                const JsPDF = window.jspdf.jsPDF;
-                                const target = document.getElementById('dxDetailWrap');
-                                if (!target) throw new Error('캡처 대상 요소를 찾을 수 없습니다.');
-
-                                const canvas = await window.html2canvas(target, {
-                                    scale: 2, useCORS: true, allowTaint: false,
-                                    backgroundColor: '#ffffff', logging: false,
-                                    width: target.offsetWidth, height: target.offsetHeight,
-                                    scrollX: 0, scrollY: 0
-                                });
-
-                                const imgData = canvas.toDataURL('image/jpeg', 0.92);
-                                const A4_W = 210;
-                                const pdfH = (canvas.height / canvas.width) * A4_W;
-                                const pdf = new JsPDF({ orientation: 'portrait', unit: 'mm', format: [A4_W, Math.max(pdfH, 297)] });
-                                pdf.addImage(imgData, 'JPEG', 0, 0, A4_W, pdfH);
-                                const root = document.getElementById('doc-scroll');
-                                const titleAttr = (root?.getAttribute('data-doc-title') || '').trim();
-                                pdf.save((titleAttr || docId || 'document') + '.pdf');
-                            } catch (err) {
-                                console.error('[PDF Export] 오류:', err);
-                                showAlert('PDF 변환 중 오류가 발생했습니다: ' + (err.message || String(err)), 'alert-danger');
-                            } finally { restoreBtn(); }
-                        });
-                    }
-                }
-
-            function hookDxReady() {
-                 const wrap = document.getElementById('dxDetailWrap');
-                 const scroll = document.getElementById('doc-scroll');
-                 if (!wrap) return;
-
-                 let done = false;
-                 let settleTimer = 0;
-                 let forceTimer1 = 0;
-                 let forceTimer2 = 0;
-                 let observer = null;
-
-                 function getWbc() {
-                     return document.getElementById('dxDetailSheet_WBC')
-                         || document.querySelector('#dxDetailWrap [id$="_WBC"]');
-                 }
-
-                 function getInnerScroll() {
-                     return document.getElementById('dxDetailSheet_ScrollContainer')
-                         || document.getElementById('dxDetailSheet_Grid')
-                         || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
-                         || document.querySelector('#dxDetailWrap [id$="_Grid"]');
-                 }
-
-        function hasRenderedContent() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return false;
-
-            const contentBox = getRenderedContentBox();
-            if (contentBox.width > 120 && contentBox.height > 120) return true;
-
-            const ctb = wrap.querySelector('[id*="_ctb."]');
-            if (ctb) {
-                const r = ctb.getBoundingClientRect();
-                if (r.width > 40 && r.height > 12) return true;
+            if (fallbackUrl) {
+                img.onerror = function () {
+                    if (img.dataset.fallbackTried === '1') return;
+                    img.dataset.fallbackTried = '1';
+                    img.dataset.trimmed = '0';
+                    img.src = fallbackUrl;
+                };
             }
 
-            const ftc = wrap.querySelector('.dxss-ftc');
-            if (ftc) {
-                const r = ftc.getBoundingClientRect();
-                if (r.width > 40 && r.height > 12) return true;
-            }
+            img.src = stampUrl;
+            div.appendChild(img);
 
-            return false;
+            return div;
         }
 
-                 function requestLayoutKick(reason) {
-                     try {
-                         applyDxWrapSize(reason);
-                     } catch (e) { }
+        // ================== 승인 스탬프 렌더링 ==================
+        function renderApprovalOverlay() {
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return;
 
-                     try {
-                         const inst = getDxInstance();
-                         if (inst && typeof inst.GetMainElement === 'function') {
-                             const el = inst.GetMainElement();
-                             if (el && typeof el.getBoundingClientRect === 'function') {
-                                 el.getBoundingClientRect();
-                             }
-                         }
-                     } catch (e) { }
+            const overlay = document.getElementById('dxApprovalOverlay') || wrap;
+            overlay.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
 
-                     try {
-                         window.dispatchEvent(new Event('resize'));
-                     } catch (e) { }
+                console.log('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
 
-                     const inner = getInnerScroll();
-                     if (inner) {
-                         try {
-                             if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
-                             if (inner.scrollTop !== 0) inner.scrollTop = 0;
-                         } catch (e) { }
-                     }
-                 }
+            const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
+            const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
+            if (!approvals.length && !cooperations.length) return;
 
-                 function finalize(reason) {
-                     if (done) return;
-                     if (!hasRenderedContent()) return;
+            const chEl =
+                document.getElementById('dxDetailSheet_ColumnHeader') ||
+                document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
 
-                     done = true;
+            const rhEl =
+                document.getElementById('dxDetailSheet_RowHeader') ||
+                document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
 
-                     clearTimeout(settleTimer);
-                     clearTimeout(forceTimer1);
-                     clearTimeout(forceTimer2);
+            if (!chEl || !rhEl) {
+                setTimeout(renderApprovalOverlay, 300);
+                return;
+            }
 
-                     if (observer) {
-                         observer.disconnect();
-                         observer = null;
-                     }
+            const wrapRect = wrap.getBoundingClientRect();
+            const chRect = chEl.getBoundingClientRect();
+            const rhRect = rhEl.getBoundingClientRect();
 
-                     requestAnimationFrame(function () {
-                         requestAnimationFrame(function () {
-                             applyDxWrapSize(reason);
-                             installOuterScrollOnly();
+            if (chRect.width < 50 || rhRect.height < 50) {
+                setTimeout(renderApprovalOverlay, 300);
+                return;
+            }
 
-                             requestAnimationFrame(function () {
-                                 requestLayoutKick(reason + ':post-resize');
-                                 requestAnimationFrame(function () {
-                                     renderApprovalOverlay();
-                                     if (scroll) scroll.classList.add('dx-page-ready');
-                                     console.log('[DX] page shown by', reason);
-                                 });
-                             });
-                         });
-                     });
-                 }
+            function parseA1CellLocal(a1Cell) {
+                const m = String(a1Cell || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
+                if (!m) return null;
+                return { colLabel: m[1], row: parseInt(m[2], 10) };
+            }
 
-                 function settle(reason) {
-                     clearTimeout(settleTimer);
-                     settleTimer = window.setTimeout(function () {
-                         requestLayoutKick(reason || 'dx-ready');
-                         if (hasRenderedContent()) {
-                             finalize(reason || 'dx-ready');
-                         }
-                     }, 120);
-                 }
+            function colLabelToIndex(label) {
+                let col = 0;
+                const s = String(label || '').trim().toUpperCase();
+                for (let i = 0; i < s.length; i++) col = col * 26 + (s.charCodeAt(i) - 64);
+                return col;
+            }
 
-                 observer = new MutationObserver(function () {
-                     if (done) return;
-                     if (hasRenderedContent()) {
-                         finalize('dx-dom-ready');
-                     }
-                 });
+            function colIndexToLabel(idx) {
+                let n = Number(idx || 0);
+                let out = '';
+                while (n > 0) {
+                    const r = (n - 1) % 26;
+                    out = String.fromCharCode(65 + r) + out;
+                    n = Math.floor((n - 1) / 26);
+                }
+                return out || 'A';
+            }
 
-                 observer.observe(wrap, {
-                     childList: true,
-                     subtree: true,
-                     attributes: false
-                 });
+            function parseA1RangeLocal(a1) {
+                const raw = String(a1 || '').trim().toUpperCase();
+                if (!raw) return null;
 
-                 window.__dxDetailOnEndSyncImpl = function (reason) {
-                     if (done) return;
-                     console.log('[DX] EndSynchronization fired:', reason);
-                     settle(reason || 'dx-sync');
-                 };
+                const parts = raw.split(':').map(v => v.trim()).filter(Boolean);
+                const start = parseA1CellLocal(parts[0]);
+                const end = parseA1CellLocal(parts[1] || parts[0]);
 
-                 if (window.__dxDetailOnEndSyncPending) {
-                     const pendingReason = window.__dxDetailOnEndSyncPending;
-                     window.__dxDetailOnEndSyncPending = null;
-                     settle(pendingReason || 'pending-sync');
-                 } else {
-                     settle('hook-start');
-                 }
+                if (!start || !end) return null;
 
-                 forceTimer1 = window.setTimeout(function () {
-                     if (done) return;
-                     requestLayoutKick('dx-force-1');
-                     if (hasRenderedContent()) {
-                         finalize('dx-force-1');
-                     }
-                 }, 1500);
+                const fromCol = Math.min(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
+                const toCol = Math.max(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
+                const fromRow = Math.min(start.row, end.row);
+                const toRow = Math.max(start.row, end.row);
 
-                 forceTimer2 = window.setTimeout(function () {
-                     if (done) return;
-                     requestLayoutKick('dx-force-2');
-                     if (hasRenderedContent()) {
-                         finalize('dx-force-2');
-                     }
-                 }, 4500);
+                return {
+                    raw,
+                    from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
+                    to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
+                };
+            }
 
-                 if (!window.__DETAIL_DX_RESIZE_BOUND__) {
-                     window.__DETAIL_DX_RESIZE_BOUND__ = true;
-                     window.addEventListener('resize', function () {
-                         requestAnimationFrame(function () {
-                             applyDxWrapSize('window-resize');
-                             renderApprovalOverlay();
-                         });
-                     }, { passive: true });
-                 }
-             }
+            function buildColumnRectMap() {
+                const colMap = {};
+                const cells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
 
-                // ================== 진입점 ==================
-                function run() {
-                    clearAlert();
-                    state.preview = readJsonFromScript('PreviewJson', {}) || {};
-                    state.descriptor = readJsonFromScript('DescriptorJson', {}) || {};
+                cells.forEach(function (el) {
+                    const label = String(el.textContent || '').trim().toUpperCase();
+                    if (!/^[A-Z]+$/.test(label)) return;
 
-                    state.approvalsData = Array.isArray(readJsonFromScript('ApprovalsJson', []))
-                        ? readJsonFromScript('ApprovalsJson', [])
-                        : [];
+                    const r = el.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) return;
 
-                    state.cooperationsData = Array.isArray(readJsonFromScript('CooperationsJson', []))
-                        ? readJsonFromScript('CooperationsJson', [])
-                        : [];
+                    const left = r.left - wrapRect.left;
+                    const right = r.right - wrapRect.left;
 
-                    const mapRows = readJsonFromScript('ApprovalCellsJson', []);
-                    state.approvalCellMap = {};
-                    if (Array.isArray(mapRows)) {
-                        mapRows.forEach(function (r) {
-                            const step = r.step || r.Step || r.slot || r.Slot;
-                            const a1 = r.a1 || r.A1 || r.cellA1 || r.CellA1;
-                            if (!step || !a1) return;
-                            state.approvalCellMap[step] = a1;
-                        });
+                    if (!colMap[label] || left < colMap[label].left) {
+                        colMap[label] = {
+                            left: left,
+                            right: right,
+                            width: right - left
+                        };
+                    }
+                });
+
+                return colMap;
+            }
+
+            function buildRowRectMap() {
+                const rowMap = {};
+                const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
+
+                let tileOffsetTop = 0;
+                const rowTiles = rhEl.querySelectorAll('.dxss-ht');
+
+                rowTiles.forEach(function (tile) {
+                    const tileHeight = parseFloat(tile.style.height || '0') || 0;
+                    const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
+
+                    cells.forEach(function (el) {
+                        const label = String(el.textContent || '').trim();
+                        if (!/^\d+$/.test(label)) return;
+
+                        const rowNo = parseInt(label, 10);
+                        const cellTop = parseFloat(el.style.top || '0') || 0;
+                        const cellHeight = parseFloat(el.style.height || '0') || 0;
+                        if (cellHeight <= 0) return;
+
+                        const top = rowBaseTop + tileOffsetTop + cellTop;
+                        const bottom = top + cellHeight;
+
+                        rowMap[rowNo] = {
+                            top: top,
+                            bottom: bottom,
+                            height: cellHeight
+                        };
+                    });
+
+                    tileOffsetTop += tileHeight;
+                });
+
+                return rowMap;
+            }
+
+            function normalizeMergeRange(rawMerge) {
+                const m = parseA1RangeLocal(rawMerge);
+                if (!m) return null;
+                return {
+                    fromCol: m.from.col,
+                    toCol: m.to.col,
+                    fromRow: m.from.row,
+                    toRow: m.to.row
+                };
+            }
+
+            function getPreviewMergeRanges() {
+                const preview = state.preview || {};
+                const rawMerges = Array.isArray(preview.merges) ? preview.merges : [];
+                const list = [];
+
+                rawMerges.forEach(function (m) {
+                    if (typeof m === 'string') {
+                        const parsed = normalizeMergeRange(m);
+                        if (parsed) list.push(parsed);
+                        return;
                     }
 
-                    applyDxWrapSize('run-init');
-                    renderViewLogs();
-                    renderApprovalsTable();
-                    initRecipientsFromSelected();
-                    initRecipientsChangeButton();
-                    initDocFileImageOverlay();
-                    initComments();
-                    initApproveButtons();
-                    initRecallButton();
-                    initPrintExport();
-                    hookDxReady();
+                    // 4-element 1-based 배열: [r1, c1, r2, c2]
+                    if (Array.isArray(m) && m.length >= 4) {
+                        const fromRow = parseInt(m[0], 10);
+                        const fromCol = parseInt(m[1], 10);
+                        const toRow   = parseInt(m[2], 10);
+                        const toCol   = parseInt(m[3], 10);
+
+                        if (
+                            Number.isFinite(fromCol) && Number.isFinite(toCol) &&
+                            Number.isFinite(fromRow) && Number.isFinite(toRow) &&
+                            fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0
+                        ) {
+                            list.push({
+                                fromCol: Math.min(fromCol, toCol),
+                                toCol: Math.max(fromCol, toCol),
+                                fromRow: Math.min(fromRow, toRow),
+                                toRow: Math.max(fromRow, toRow)
+                            });
+                        }
+                        return;
+                    }
+
+                    const a1 = m && (m.a1 || m.A1 || m.range || m.Range);
+                    if (typeof a1 === 'string') {
+                        const parsed = normalizeMergeRange(a1);
+                        if (parsed) list.push(parsed);
+                        return;
+                    }
+
+                    // s/e 객체형은 0-based 유지
+                    if (m && m.s && m.e) {
+                        const fromCol = Number(m.s.c || m.s.col || 0) + 1;
+                        const toCol = Number(m.e.c || m.e.col || 0) + 1;
+                        const fromRow = Number(m.s.r || m.s.row || 0) + 1;
+                        const toRow = Number(m.e.r || m.e.row || 0) + 1;
+
+                        if (fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0) {
+                            list.push({
+                                fromCol: Math.min(fromCol, toCol),
+                                toCol: Math.max(fromCol, toCol),
+                                fromRow: Math.min(fromRow, toRow),
+                                toRow: Math.max(fromRow, toRow)
+                            });
+                        }
+                    }
+                });
+
+                return list;
+            }
+
+            function expandRangeByMerges(range) {
+                if (!range) return null;
+
+                const merges = getPreviewMergeRanges();
+                let fromCol = range.from.col;
+                let toCol = range.to.col;
+                let fromRow = range.from.row;
+                let toRow = range.to.row;
+                let changed = true;
+
+                while (changed) {
+                    changed = false;
+
+                    merges.forEach(function (mg) {
+                        const overlapCol = !(mg.toCol < fromCol || mg.fromCol > toCol);
+                        const overlapRow = !(mg.toRow < fromRow || mg.fromRow > toRow);
+
+                        if (overlapCol && overlapRow) {
+                            const nextFromCol = Math.min(fromCol, mg.fromCol);
+                            const nextToCol = Math.max(toCol, mg.toCol);
+                            const nextFromRow = Math.min(fromRow, mg.fromRow);
+                            const nextToRow = Math.max(toRow, mg.toRow);
+
+                            if (
+                                nextFromCol !== fromCol ||
+                                nextToCol !== toCol ||
+                                nextFromRow !== fromRow ||
+                                nextToRow !== toRow
+                            ) {
+                                fromCol = nextFromCol;
+                                toCol = nextToCol;
+                                fromRow = nextFromRow;
+                                toRow = nextToRow;
+                                changed = true;
+                            }
+                        }
+                    });
                 }
 
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', run);
-                } else {
-                    run();
+                return {
+                    raw: range.raw,
+                    from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
+                    to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
+                };
+            }
+
+            function getRangeBox(range, colRectMap, rowRectMap) {
+                if (!range) return null;
+
+                const expanded = expandRangeByMerges(range);
+
+                const c1 = colRectMap[expanded.from.colLabel];
+                const c2 = colRectMap[expanded.to.colLabel];
+                const r1 = rowRectMap[expanded.from.row];
+                const r2 = rowRectMap[expanded.to.row];
+
+                if (!c1 || !c2 || !r1 || !r2) return null;
+
+                const left = Math.min(c1.left, c2.left);
+                const right = Math.max(c1.right, c2.right);
+                const top = Math.min(r1.top, r2.top);
+                const bottom = Math.max(r1.bottom, r2.bottom);
+
+                const box = {
+                    x: left,
+                    y: top,
+                    w: Math.max(1, right - left),
+                    h: Math.max(1, bottom - top)
+                };
+
+                console.log('[DX-DBG] expanded-range-box', {
+                    raw: range.raw,
+                    expandedFrom: expanded.from.colLabel + expanded.from.row,
+                    expandedTo: expanded.to.colLabel + expanded.to.row,
+                    box: box
+                });
+
+                return box;
+            }
+
+            function normalizeBucketName(v) {
+                const s = String(v || '').trim().toLowerCase();
+                if (!s) return '';
+                if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
+                if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
+                return '';
+            }
+
+            function inferBucketFromRow(row) {
+                const candidates = [
+                    row.kind, row.Kind,
+                    row.type, row.Type,
+                    row.group, row.Group,
+                    row.section, row.Section,
+                    row.category, row.Category,
+                    row.mode, row.Mode,
+                    row.stampType, row.StampType,
+                    row.approvalType, row.ApprovalType
+                ];
+
+                for (let i = 0; i < candidates.length; i++) {
+                    const bucket = normalizeBucketName(candidates[i]);
+                    if (bucket) return bucket;
                 }
-            })();
+
+                const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
+                if (roleKey.startsWith('C')) return 'cooperation';
+                if (roleKey.startsWith('A')) return 'approval';
+
+                if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
+                return 'approval';
+            }
+
+            function __rangePickFirst() {
+                for (let i = 0; i < arguments.length; i++) {
+                    const v = arguments[i];
+                    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+                }
+                return null;
+            }
+
+            function __rangeToFinite(v) {
+                const n = Number(v);
+                return isFinite(n) ? n : null;
+            }
+
+            function __rangeToColNo(v, zeroBased) {
+                if (v == null || String(v).trim() === '') return null;
+
+                const s = String(v).trim().toUpperCase();
+                if (/^[A-Z]+$/.test(s)) return colLabelToIndex(s);
+
+                const n = __rangeToFinite(v);
+                if (n == null) return null;
+
+                return zeroBased ? (n + 1) : n;
+            }
+
+            function __rangeToRowNo(v, zeroBased) {
+                if (v == null || String(v).trim() === '') return null;
+
+                const n = __rangeToFinite(v);
+                if (n == null) return null;
+
+                return zeroBased ? (n + 1) : n;
+            }
+
+            function __normalizeA1Text(v) {
+                const raw = String(v || '').trim().toUpperCase();
+                if (!raw) return '';
+
+                const parsed = parseA1RangeLocal(raw);
+                return parsed ? parsed.raw : '';
+            }
+
+            function __buildMappedA1FromRow(row) {
+                if (!row) return '';
+
+                if (typeof row === 'string') {
+                    return __normalizeA1Text(row);
+                }
+
+                if (typeof row !== 'object') return '';
+
+                const directRange =
+                    __normalizeA1Text(__rangePickFirst(
+                        row.a1Range, row.A1Range,
+                        row.rangeA1, row.RangeA1,
+                        row.cellRange, row.CellRange,
+                        row.range, row.Range,
+                        row.address, row.Address,
+                        row.ref, row.Ref
+                    ));
+
+                if (directRange) return directRange;
+
+                const anchorA1 =
+                    __normalizeA1Text(__rangePickFirst(
+                        row.a1, row.A1,
+                        row.cellA1, row.CellA1,
+                        row.anchorA1, row.AnchorA1,
+                        row.startA1, row.StartA1
+                    ));
+
+                const anchor = anchorA1 ? parseA1RangeLocal(anchorA1) : null;
+
+                let fromCol =
+                    __rangeToColNo(__rangePickFirst(
+                        row.fromCol, row.FromCol,
+                        row.startCol, row.StartCol,
+                        row.firstCol, row.FirstCol,
+                        row.leftCol, row.LeftCol,
+                        row.col1, row.Col1
+                    ), false);
+
+                let toCol =
+                    __rangeToColNo(__rangePickFirst(
+                        row.toCol, row.ToCol,
+                        row.endCol, row.EndCol,
+                        row.lastCol, row.LastCol,
+                        row.rightCol, row.RightCol,
+                        row.col2, row.Col2
+                    ), false);
+
+                let fromRow =
+                    __rangeToRowNo(__rangePickFirst(
+                        row.fromRow, row.FromRow,
+                        row.startRow, row.StartRow,
+                        row.firstRow, row.FirstRow,
+                        row.topRow, row.TopRow,
+                        row.row1, row.Row1
+                    ), false);
+
+                let toRow =
+                    __rangeToRowNo(__rangePickFirst(
+                        row.toRow, row.ToRow,
+                        row.endRow, row.EndRow,
+                        row.lastRow, row.LastRow,
+                        row.bottomRow, row.BottomRow,
+                        row.row2, row.Row2
+                    ), false);
+
+                if (fromCol == null) {
+                    fromCol = __rangeToColNo(__rangePickFirst(
+                        row.sc, row.SC,
+                        row.scol, row.SCol,
+                        row.startCol0, row.StartCol0,
+                        row.fromCol0, row.FromCol0
+                    ), true);
+                }
+
+                if (toCol == null) {
+                    toCol = __rangeToColNo(__rangePickFirst(
+                        row.ec, row.EC,
+                        row.ecol, row.ECol,
+                        row.endCol0, row.EndCol0,
+                        row.toCol0, row.ToCol0
+                    ), true);
+                }
+
+                if (fromRow == null) {
+                    fromRow = __rangeToRowNo(__rangePickFirst(
+                        row.sr, row.SR,
+                        row.srow, row.SRow,
+                        row.startRow0, row.StartRow0,
+                        row.fromRow0, row.FromRow0
+                    ), true);
+                }
+
+                if (toRow == null) {
+                    toRow = __rangeToRowNo(__rangePickFirst(
+                        row.er, row.ER,
+                        row.erow, row.ERow,
+                        row.endRow0, row.EndRow0,
+                        row.toRow0, row.ToRow0
+                    ), true);
+                }
+
+                const colSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
+                    row.colSpan, row.ColSpan,
+                    row.columnSpan, row.ColumnSpan,
+                    row.spanX, row.SpanX,
+                    row.widthCells, row.WidthCells
+                )) || 1);
+
+                const rowSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
+                    row.rowSpan, row.RowSpan,
+                    row.heightSpan, row.HeightSpan,
+                    row.spanY, row.SpanY,
+                    row.heightCells, row.HeightCells
+                )) || 1);
+
+                if (anchor) {
+                    if (fromCol == null) fromCol = anchor.from.col;
+                    if (fromRow == null) fromRow = anchor.from.row;
+
+                    if (toCol == null) {
+                        if (anchor.to && anchor.to.col && anchor.to.col !== anchor.from.col) toCol = anchor.to.col;
+                        else if (colSpan > 1) toCol = fromCol + colSpan - 1;
+                        else toCol = fromCol;
+                    }
+
+                    if (toRow == null) {
+                        if (anchor.to && anchor.to.row && anchor.to.row !== anchor.from.row) toRow = anchor.to.row;
+                        else if (rowSpan > 1) toRow = fromRow + rowSpan - 1;
+                        else toRow = fromRow;
+                    }
+                }
+
+                if (
+                    fromCol == null || toCol == null ||
+                    fromRow == null || toRow == null ||
+                    fromCol <= 0 || toCol <= 0 ||
+                    fromRow <= 0 || toRow <= 0
+                ) {
+                    return anchorA1 || '';
+                }
+
+                const finalFromCol = Math.min(fromCol, toCol);
+                const finalToCol = Math.max(fromCol, toCol);
+                const finalFromRow = Math.min(fromRow, toRow);
+                const finalToRow = Math.max(fromRow, toRow);
+
+                const out =
+                    colIndexToLabel(finalFromCol) + finalFromRow +
+                    ':' +
+                    colIndexToLabel(finalToCol) + finalToRow;
+
+                return __normalizeA1Text(out);
+            }
+       
+            function buildLocalCellMap() {
+                const rows = readJsonFromScript('ApprovalCellsJson', []);
+                const built = {
+                    approval: { byStep: {}, byRoleKey: {} },
+                    cooperation: { byStep: {}, byRoleKey: {} }
+                };
+
+                if (!Array.isArray(rows)) return built;
+
+                rows.forEach(function (row) {
+                    const resolvedA1 = __buildMappedA1FromRow(row);
+                    if (!resolvedA1) return;
+
+                    const bucket = inferStampBucketFromRow(row);
+                    const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
+                    const roleKey = String(row.roleKey || row.RoleKey || '').trim();
+
+                    const payload = {
+                        row: row,
+                        a1: resolvedA1
+                    };
+
+                    if (step != null && step !== '') built[bucket].byStep[String(step)] = payload;
+                    if (roleKey) built[bucket].byRoleKey[roleKey] = payload;
+                });
+
+                return built;
+            }
+
+
+            const localMap = buildLocalCellMap();
+            const legacyApprovalMap = state.approvalCellMap || { byStep: {}, byRoleKey: {} };
+            const legacyCooperationMap = state.cooperationCellMap || { byStep: {}, byRoleKey: {} };
+
+            function __unwrapMappedA1(v) {
+                if (!v) return '';
+                if (typeof v === 'string') return __normalizeA1Text(v);
+                if (typeof v === 'object') {
+                    if (v.a1) return __normalizeA1Text(v.a1);
+                    return __buildMappedA1FromRow(v.row || v);
+                }
+                return '';
+            }
+       
+            function resolveMappedA1(raw, step, bucketName) {
+                const roleKey = String(raw.roleKey || raw.RoleKey || '').trim();
+                const bucket = bucketName === 'cooperation' ? 'cooperation' : 'approval';
+
+                if (roleKey && localMap[bucket].byRoleKey[roleKey]) {
+                    return __unwrapMappedA1(localMap[bucket].byRoleKey[roleKey]);
+                }
+
+                if (localMap[bucket].byStep[String(step)]) {
+                    return __unwrapMappedA1(localMap[bucket].byStep[String(step)]);
+                }
+
+                const legacyBucketMap = bucket === 'cooperation'
+                    ? legacyCooperationMap
+                    : legacyApprovalMap;
+
+                if (legacyBucketMap && typeof legacyBucketMap === 'object') {
+                    if (roleKey && legacyBucketMap.byRoleKey && legacyBucketMap.byRoleKey[roleKey]) {
+                        return __unwrapMappedA1(legacyBucketMap.byRoleKey[roleKey]);
+                    }
+
+                    if (legacyBucketMap.byStep && legacyBucketMap.byStep[String(step)]) {
+                        return __unwrapMappedA1(legacyBucketMap.byStep[String(step)]);
+                    }
+                }
+
+                // approval 만 하위 호환 flat fallback 허용
+                // cooperation 은 여기로 내려오면 다시 approval 좌표를 참조하게 되므로 금지
+                if (bucket === 'approval') {
+                    const legacyFlat = state.approvalCellMap;
+                    if (legacyFlat && typeof legacyFlat === 'object') {
+                        if (roleKey && legacyFlat[roleKey]) return __unwrapMappedA1(legacyFlat[roleKey]);
+                        if (legacyFlat[String(step)]) return __unwrapMappedA1(legacyFlat[String(step)]);
+                        if (legacyFlat[step]) return __unwrapMappedA1(legacyFlat[step]);
+                    }
+                }
+                return __buildMappedA1FromRow(raw);
+            }
+
+            function getStampLayout(box, kind) {
+                return {
+                    x: box.x,
+                    y: box.y,
+                    w: box.w,
+                    h: box.h,
+                    placementMode: 'boxed',
+                    padX: 0,
+                    padTop: kind === 'status' ? 1 : 2,
+                    captionHeight: 14,
+                    bodyBottomPad: 0,
+                    targetWidthRatio: 1,
+                    targetHeightRatio: 1,
+                    maxWidthRatio: 1,
+                    maxHeightRatio: 1,
+                    scaleBoost: 1
+                };
+            }
+
+            function resolveStampMeta(raw) {
+                const STAMP_BASE = '/images/signatures/';
+                const HOLDING_STAMP = STAMP_BASE + 'holding.png';
+                const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
+                const APPROVED_STAMP = STAMP_BASE + 'approved.png';
+
+                const actionRaw = String(raw.action || raw.Action || '').trim().toUpperCase();
+                const statusRaw = String(raw.status || raw.Status || '').trim().toUpperCase();
+                const sigPathRaw = String(raw.signaturePath || raw.SignaturePath || '').trim();
+
+                if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
+                    if (sigPathRaw) {
+                        return {
+                            stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
+                            fallbackUrl: APPROVED_STAMP,
+                            kind: 'signature'
+                        };
+                    }
+                    return {
+                        stampUrl: APPROVED_STAMP,
+                        fallbackUrl: APPROVED_STAMP,
+                        kind: 'status'
+                    };
+                }
+
+                if (
+                    actionRaw === 'HOLD' ||
+                    statusRaw === 'HOLD' ||
+                    statusRaw === 'ONHOLD' ||
+                    statusRaw.startsWith('PENDINGHOLD')
+                ) {
+                    return {
+                        stampUrl: HOLDING_STAMP,
+                        fallbackUrl: HOLDING_STAMP,
+                        kind: 'status'
+                    };
+                }
+
+                if (actionRaw === 'REJECT' || statusRaw === 'REJECTED') {
+                    return {
+                        stampUrl: REJECTED_STAMP,
+                        fallbackUrl: REJECTED_STAMP,
+                        kind: 'status'
+                    };
+                }
+
+                if (actionRaw === 'COOPERATE' || statusRaw === 'COOPERATED') {
+                    if (sigPathRaw) {
+                        return {
+                            stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
+                            fallbackUrl: APPROVED_STAMP,
+                            kind: 'signature'
+                        };
+                    }
+                    return {
+                        stampUrl: APPROVED_STAMP,
+                        fallbackUrl: APPROVED_STAMP,
+                        kind: 'status'
+                    };
+                }
+
+                return null;
+            }
+
+            function appendStamp(raw, step, a1, debugPrefix, bucketName, colRectMap, rowRectMap) {
+                const range = parseA1RangeLocal(a1);
+                if (!range) return;
+
+                const box = getRangeBox(range, colRectMap, rowRectMap);
+                if (!box || box.w < 8 || box.h < 8) return;
+
+                const meta = resolveStampMeta(raw);
+                if (!meta || !meta.stampUrl) return;
+
+                const captionText = formatApprovalCaption(raw);
+                const fit = getStampLayout(box, meta.kind);
+
+                const div = buildStampDiv(
+                    fit.x,
+                    fit.y,
+                    fit.w,
+                    fit.h,
+                    meta.stampUrl,
+                    captionText,
+                    meta.fallbackUrl,
+                    {
+                        placementMode: fit.placementMode,
+                        padX: fit.padX,
+                        padTop: fit.padTop,
+                        captionHeight: fit.captionHeight,
+                        bodyBottomPad: fit.bodyBottomPad,
+                        targetWidthRatio: fit.targetWidthRatio,
+                        targetHeightRatio: fit.targetHeightRatio,
+                        maxWidthRatio: fit.maxWidthRatio,
+                        maxHeightRatio: fit.maxHeightRatio,
+                        scaleBoost: fit.scaleBoost
+                    }
+                );
+
+                overlay.appendChild(div);
+
+                console.log(
+                    `[DX] ${debugPrefix} stamp`,
+                    'bucket=' + bucketName,
+                    'step=' + step,
+                    'a1=' + a1,
+                    'box=(' + Math.round(box.x) + ',' + Math.round(box.y) + ',' + Math.round(box.w) + ',' + Math.round(box.h) + ')',
+                    'placementMode=' + fit.placementMode,
+                    'padX=' + fit.padX,
+                    'padTop=' + fit.padTop,
+                    'captionHeight=' + fit.captionHeight,
+                    'bodyBottomPad=' + fit.bodyBottomPad,
+                    'scaleBoost=' + fit.scaleBoost
+                );
+            }
+
+            const colRectMap = buildColumnRectMap();
+            const rowRectMap = buildRowRectMap();
+
+            console.log(
+                '[DX] measured header maps',
+                'cols=' + Object.keys(colRectMap).length,
+                'rows=' + Object.keys(rowRectMap).length
+            );
+
+            overlay.style.position = 'absolute';
+            wrap.style.position = 'relative';
+
+            approvals.forEach(function (a, idx) {
+                let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
+                if (!step || !isFinite(step)) step = idx + 1;
+
+                const a1 = resolveMappedA1(a, step, 'approval');
+                if (!a1) return;
+
+                appendStamp(a, step, a1, 'approval', 'approval', colRectMap, rowRectMap);
+            });
+    
+            cooperations.forEach(function (c, idx) {
+                let step = parseInt(c.step || c.Step || c.stepOrder || c.StepOrder || c.slot || c.Slot || (idx + 1), 10);
+                if (!step || !isFinite(step)) step = idx + 1;
+
+                const a1 = resolveMappedA1(c, step, 'cooperation');
+                console.log('[DX] cooperation mapped a1', {
+                    step: step,
+                    roleKey: String(c.roleKey || c.RoleKey || ''),
+                    a1: a1,
+                    source: state.cooperationCellMap
+                });
+
+                if (!a1) return;
+
+                appendStamp(c, step, a1, 'cooperation', 'cooperation', colRectMap, rowRectMap);
+            });
+        }
+        
+        // ================== 파일 헬퍼 ==================
+        function normalizeCommentFiles(c) {
+            if (!c) return [];
+            const a = c.attachments || c.Attachments || c.files || c.Files ||
+                c.fileItems || c.FileItems || c.items || c.Items || null;
+            return Array.isArray(a) ? a : [];
+        }
+
+        function normalizeFileItem(f) {
+            if (!f) return null;
+            const fileKey = (f.fileKey || f.FileKey || f.key || f.Key || '').toString().trim();
+            if (!fileKey) return null;
+            const originalName = (f.originalName || f.OriginalName || f.name || f.Name || fileKey).toString();
+            const byteSize = Number(f.byteSize || f.ByteSize || f.size || f.Size || 0) || 0;
+            return { fileKey, originalName, byteSize, url: '/Doc/Download/' + encodeURIComponent(fileKey) };
+        }
+
+        function renderFilesHtml(c) {
+            const files = normalizeCommentFiles(c).map(normalizeFileItem).filter(Boolean);
+            if (!files.length) return '';
+            const lis = files.map(f => {
+                const sizeText = f.byteSize ? ` (${Number(f.byteSize).toLocaleString()} B)` : '';
+                return `<li><a href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${escapeHtml(f.originalName)}</a><span class="text-muted">${escapeHtml(sizeText)}</span></li>`;
+            }).join('');
+            return `<div class="doc-comment-files"><ul class="mb-0 ps-3">${lis}</ul></div>`;
+        }
+
+        function escapeHtml(s) {
+            return String(s || '').replace(/[&<>"']/g,
+                m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        function nl2br(s) {
+            return String(s || '').replace(/\n/g, '<br>');
+        }
+    
+        function cancelOverlayRefresh() {
+            if (state.overlayRefreshTimer) {
+                clearTimeout(state.overlayRefreshTimer);
+                state.overlayRefreshTimer = 0;
+            }
+            if (state.overlayRefreshRaf) {
+                cancelAnimationFrame(state.overlayRefreshRaf);
+                state.overlayRefreshRaf = 0;
+            }
+        }
+
+        // function renderApprovalOverlayStable(reason, pass) {
+        //     const currentPass = Number(pass || 0);
+
+        //     state.overlayRefreshRaf = requestAnimationFrame(function () {
+        //         requestAnimationFrame(function () {
+        //             try { applyDxWrapSize(reason + ':p' + currentPass); } catch (e) { }
+        //             try { renderApprovalOverlay(); } catch (e) { }
+
+        //             // 최대 2회까지만 (기존 5회 → 2회로 축소)
+        //             if (currentPass < 1) {
+        //                 state.overlayRefreshTimer = window.setTimeout(function () {
+        //                     renderApprovalOverlayStable(reason, currentPass + 1);
+        //                 }, 200);
+        //             } else {
+        //                 // 마지막 pass — ready 표시
+        //                 const scroll = document.getElementById('doc-scroll');
+        //                 if (scroll) scroll.classList.add('dx-page-ready');
+        //             }
+        //         });
+        //     });
+        // }
+                
+        function renderApprovalOverlayStable(reason, pass) {
+            const currentPass = Number(pass || 0);
+
+            state.overlayRefreshRaf = requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    try { renderApprovalOverlay(); } catch (e) { }
+
+                    if (currentPass < 1) {
+                        state.overlayRefreshTimer = window.setTimeout(function () {
+                            renderApprovalOverlayStable(reason, currentPass + 1);
+                        }, 200);
+                    } else {
+                        const scroll = document.getElementById('doc-scroll');
+                        if (scroll) scroll.classList.add('dx-page-ready');
+                    }
+                });
+            });
+        }
+
+        function scheduleOverlayRefresh(reason) {
+            cancelOverlayRefresh();
+            renderApprovalOverlayStable(reason || 'overlay-refresh', 0);
+        }
+
+        // function bindOverlayResizeObserver() {
+        //     if (state.overlayResizeObserver || typeof ResizeObserver === 'undefined') return;
+
+        //     const wrap = document.getElementById('dxDetailWrap');
+        //     if (!wrap) return;
+
+        //     // wrap만 관찰 (내부 요소 다수 관찰 시 과도한 콜백 발생)
+        //     let lastW = 0;
+        //     let lastH = 0;
+        //     let debounceTimer = 0;
+
+        //     state.overlayResizeObserver = new ResizeObserver(function (entries) {
+        //         if (!state.overlayReady) return;
+
+        //         // 실제 크기 변화가 있을 때만 반응
+        //         const entry = entries[0];
+        //         if (!entry) return;
+        //         const w = Math.round(entry.contentRect.width);
+        //         const h = Math.round(entry.contentRect.height);
+
+        //         if (w === lastW && h === lastH) return; // 변경 없으면 무시
+        //         lastW = w;
+        //         lastH = h;
+
+        //         // debounce 500ms (기존 즉시 → 지연)
+        //         clearTimeout(debounceTimer);
+        //         debounceTimer = setTimeout(function () {
+        //             scheduleOverlayRefresh('dx-resize-observer');
+        //         }, 500);
+        //     });
+
+        //     try { state.overlayResizeObserver.observe(wrap); } catch (e) { }
+        // }
+                
+        function bindOverlayResizeObserver() {
+            if (state.overlayResizeObserver || typeof ResizeObserver === 'undefined') return;
+
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return;
+
+            let debounceTimer = 0;
+
+            state.overlayResizeObserver = new ResizeObserver(function () {
+                if (!state.overlayReady) return;
+
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(function () {
+                    // 크기 재조정 없이 오버레이만 다시 그림
+                    try { renderApprovalOverlay(); } catch (e) { }
+                }, 500);
+            });
+
+            try { state.overlayResizeObserver.observe(wrap); } catch (e) { }
+        }
+
+        // ================== 수신자 ==================
+        function collectSelectedRecipientUserIds_Detail() {
+            function uniq(list) {
+                const seen = new Set(); const out = [];
+                for (const raw of (list || [])) {
+                    const s = String(raw || '').trim(); if (!s) continue;
+                    const k = s.toLowerCase(); if (seen.has(k)) continue;
+                    seen.add(k); out.push(s);
+                }
+                return out;
+            }
+            function parseRaw(raw) {
+                raw = String(raw || '').trim(); if (!raw) return [];
+                if (raw.startsWith('[')) {
+                    try {
+                        const arr = JSON.parse(raw);
+                        if (Array.isArray(arr)) return uniq(arr.map(x => String(x || '').trim()).filter(Boolean));
+                    } catch { }
+                }
+                return uniq(raw.split(/[,\s;]+/g).map(s => (s || '').trim()).filter(Boolean));
+            }
+            const root = document.getElementById('doc-recipient-select-detail');
+            if (root) {
+                const one = root.querySelector('input[name="SelectedRecipientUserIds"]')?.value ||
+                    root.querySelector('textarea[name="SelectedRecipientUserIds"]')?.value || '';
+                const parsedOne = parseRaw(one);
+                if (parsedOne.length) return parsedOne;
+                const ds = root.getAttribute('data-selected') || (root.dataset ? root.dataset.selected : '') || '';
+                const parsedDs = parseRaw(ds);
+                if (parsedDs.length) return parsedDs;
+            }
+            return [];
+        }
+
+        function initRecipientsFromSelected() {
+            if (!Array.isArray(selectedIds) || selectedIds.length === 0) return;
+            let tries = 0;
+            const timer = setInterval(function () {
+                tries++;
+                const root = document.getElementById('doc-recipient-select-detail');
+                if (!root) { if (tries >= 60) clearInterval(timer); return; }
+                const anyCb = root.querySelector('.org-ms-checkbox[data-node-type="User"]');
+                if (!anyCb) { if (tries >= 60) clearInterval(timer); return; }
+                clearInterval(timer);
+                const joined = selectedIds.join(',');
+                const hidden = root.querySelector('[data-role="org-ms-value"]');
+                if (hidden) hidden.value = joined;
+                const nameField = root.querySelector('input[name="SelectedRecipientUserIds"], textarea[name="SelectedRecipientUserIds"]');
+                if (nameField) nameField.value = joined;
+                selectedIds.forEach(function (id) {
+                    const cb = root.querySelector('.org-ms-checkbox[data-node-type="User"][data-node-id="' + id + '"]');
+                    if (!cb) return;
+                    cb.checked = true;
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                root.dispatchEvent(new Event('change', { bubbles: true }));
+            }, 50);
+        }
+
+        function initRecipientsChangeButton() {
+            const btn = document.getElementById('btnRecipientsChange');
+            if (!btn) return;
+            btn.addEventListener('click', async function () {
+                const ids = collectSelectedRecipientUserIds_Detail() || [];
+                if (!docId) return;
+                const EBC = window.EBCSRF || window.EBCsrf;
+                if (!EBC || typeof EBC.json !== 'function') return;
+                try {
+                    const res = await EBC.json('/Doc/UpdateShares', { docId, selectedRecipientUserIds: ids }, 'POST');
+                    if (!res || res.ok === false) throw { payload: res };
+                    location.reload();
+                } catch { showAlert(T('DOC_Err_SaveFailed'), 'alert-danger'); }
+            });
+        }
+    
+        // ================== 이미지 오버레이 ==================
+        function initDocFileImageOverlay() {
+            const overlay = document.getElementById('ebImgOverlay');
+            const overlayImg = document.getElementById('ebImgOverlayImg');
+            if (!overlay || !overlayImg) return;
+            function closeOverlay() {
+                overlay.classList.remove('is-open');
+                overlay.setAttribute('aria-hidden', 'true');
+                overlayImg.src = '';
+            }
+            function openOverlay(src) {
+                if (!src) return;
+                overlayImg.src = src;
+                overlay.classList.add('is-open');
+                overlay.setAttribute('aria-hidden', 'false');
+            }
+            document.addEventListener('click', function (ev) {
+                const t = ev && ev.target;
+                if (!t) return;
+                if (t.classList && t.classList.contains('doc-attach-thumb')) {
+                    ev.preventDefault();
+                    openOverlay(t.getAttribute('data-fullsrc') || t.getAttribute('src') || '');
+                    return;
+                }
+                if (t === overlay || t === overlayImg) { ev.preventDefault(); closeOverlay(); }
+            }, true);
+            document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape' && overlay.classList.contains('is-open')) { ev.preventDefault(); closeOverlay(); }
+            });
+        }
+
+        // ================== 조회 로그 ==================
+        function renderViewLogs() {
+            const host = document.getElementById('viewlog-list');
+            if (!host) return;
+            let logs = readJsonFromScript('ViewLogsJson', []);
+            if (!Array.isArray(logs)) logs = [];
+            if (!logs.length) { host.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoViewLogs')}</div>`; return; }
+            logs.sort((a, b) => (a.viewedAt || '').localeCompare(b.viewedAt || ''));
+            const seen = new Set(); const rows = [];
+            logs.forEach(v => {
+                const key = v.userId || v.userName || '';
+                if (!key || seen.has(key)) return;
+                seen.add(key); rows.push(v);
+            });
+            host.innerHTML = '';
+            rows.forEach(v => {
+                const row = document.createElement('div');
+                row.textContent = `${v.viewedAtText || v.viewedAt || ''} - ${v.userName || v.userId || ''}`;
+                host.append(row);
+            });
+        }
+
+        // ================== 승인 테이블 ==================
+        function getActionedWhenText(row) {
+            return String(
+                row?.actedAtText || row?.ActedAtText ||
+                row?.approvalTimeText || row?.ApprovalTimeText ||
+                row?.approvedAtText || row?.ApprovedAtText ||
+                row?.actionTimeText || row?.ActionTimeText ||
+                row?.actedAt || row?.ActedAt ||
+                row?.approvalTime || row?.ApprovalTime ||
+                row?.approvedAt || row?.ApprovedAt ||
+                row?.actionTime || row?.ActionTime ||
+                ''
+            ).trim();
+        }
+
+        function formatRes(key) {
+            const fmt = T(key);
+            const args = Array.prototype.slice.call(arguments, 1);
+            return String(fmt || '').replace(/\{(\d+)\}/g, function (_, idx) {
+                const i = parseInt(idx, 10);
+                return (i >= 0 && i < args.length) ? String(args[i] ?? '') : _;
+            });
+        }
+
+        function getStepNo(row) {
+            const raw = row?.step ?? row?.stepOrder ?? row?.Step ?? row?.StepOrder ?? row?.slot ?? row?.Slot ?? '';
+            const n = Number(raw);
+            return Number.isFinite(n) && n > 0 ? n : 0;
+        }
+
+        function getRoleKeyText(row) {
+            return String(row?.roleKey || row?.RoleKey || '').trim().toUpperCase();
+        }
+
+        function getRoleKeySortNo(row) {
+            const rk = getRoleKeyText(row);
+            const m = rk.match(/(\d+)/);
+            if (m) return parseInt(m[1], 10);
+            return Number.MAX_SAFE_INTEGER;
+        }
+
+        function renderApprovalsTable() {
+            const tbody = document.getElementById('tbody-approvals');
+            if (!tbody) return;
+
+            let rows = readJsonFromScript('ApprovalTableRowsJson', []);
+            if (!Array.isArray(rows)) rows = [];
+
+            const approvals = Array.isArray(state.approvalsData) ? state.approvalsData.slice() : [];
+            const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData.slice() : [];
+
+            approvals.sort((a, b) => getStepNo(a) - getStepNo(b));
+            cooperations.sort((a, b) => {
+                const aa = getRoleKeySortNo(a);
+                const bb = getRoleKeySortNo(b);
+                if (aa !== bb) return aa - bb;
+                return getRoleKeyText(a).localeCompare(getRoleKeyText(b));
+            });
+
+            const root = document.getElementById('doc-scroll');
+            const isDocRecalled = String(root?.getAttribute('data-status') || '').toUpperCase() === 'RECALLED';
+            const creatorName = String(root?.getAttribute('data-creator-name') || '').trim();
+            const createdAt = String(root?.getAttribute('data-created-at') || '').trim();
+            const recalledAt = String(root?.getAttribute('data-recalled-at') || '').trim();
+
+            function buildFallbackRows() {
+                const list = [];
+                list.push({
+                    rowType: 'drafter',
+                    displayName: creatorName,
+                    roleText: T('DOC_Role_Submit'),
+                    status: isDocRecalled ? 'Recalled' : 'Created',
+                    actedAtText: isDocRecalled ? recalledAt : createdAt
+                });
+
+                approvals.forEach(function (a) {
+                    const stepNo = getStepNo(a);
+                    list.push({
+                        rowType: 'approval',
+                        roleKey: a?.roleKey || a?.RoleKey || '',
+                        displayName: getApprovalDisplayName(a),
+                        roleText: stepNo > 0 ? formatRes('DOC_Role_ApprovalFmt', stepNo) : '',
+                        status: String(a?.status || a?.Status || a?.action || a?.Action || 'Pending'),
+                        actedAtText: getActionedWhenText(a)
+                    });
+                });
+
+                cooperations.forEach(function (c) {
+                    list.push({
+                        rowType: 'cooperation',
+                        roleKey: c?.roleKey || c?.RoleKey || '',
+                        displayName: getApprovalDisplayName(c),
+                        roleText: T('DOC_Role_Cooperation'),
+                        status: String(c?.status || c?.Status || c?.action || c?.Action || 'Pending'),
+                        actedAtText: getActionedWhenText(c)
+                    });
+                });
+
+                return list;
+            }
+
+            if (!rows.length) rows = buildFallbackRows();
+
+            tbody.innerHTML = '';
+
+            rows.forEach(function (row) {
+                const rowType = String(row?.rowType || row?.RowType || '').toLowerCase();
+                const rowRoleKey = getRoleKeyText(row);
+                const rowSortOrder = Number(row?.sortOrder || row?.SortOrder || 0);
+
+                let rawDisplayName = String(row?.displayName || row?.DisplayName || '').trim();
+                const rawRoleText = String(row?.roleText || row?.RoleText || '').trim();
+                let rawStatus = String(row?.status || row?.Status || '').trim();
+                let rawWhen = String(row?.actedAtText || row?.ActedAtText || '').trim();
+
+                if (!rawDisplayName) {
+                    if (rowType === 'drafter') {
+                        rawDisplayName = creatorName;
+                    } else if (rowType === 'approval') {
+                        const matchedApproval = approvals.find(function (a) {
+                            const aRoleKey = getRoleKeyText(a);
+                            const aStep = getStepNo(a);
+                            if (rowRoleKey && aRoleKey) return rowRoleKey === aRoleKey;
+                            if (rowSortOrder > 0 && aStep > 0) return rowSortOrder === aStep;
+                            return false;
+                        });
+                        rawDisplayName = getApprovalDisplayName(matchedApproval);
+                    } else if (rowType === 'cooperation') {
+                        const matchedCooperation = cooperations.find(function (c) {
+                            const cRoleKey = getRoleKeyText(c);
+                            if (rowRoleKey && cRoleKey) return rowRoleKey === cRoleKey;
+                            return false;
+                        });
+                        rawDisplayName = getApprovalDisplayName(matchedCooperation);
+                    }
+                }
+
+                if (isDocRecalled && rowType !== 'drafter') {
+                    rawStatus = 'Pending';
+                    rawWhen = '';
+                }
+
+                const statusText = T(mapStatusKey(rawStatus)) || rawStatus;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${escapeHtml(rawDisplayName || '')}</td>
+                    <td>${escapeHtml(rawRoleText || '')}</td>
+                    <td>${escapeHtml(statusText || '')}</td>
+                    <td>${escapeHtml(rawWhen || '')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ================== 댓글 ==================
+        function initComments() {
+            const rawFetch = (window.fetch || function () { }).bind(window);
+            const EBC = (window.EBCSRF || window.EBCsrf) || {
+                async fetch(url, options) { return await rawFetch(url, options || {}); },
+                async json(url, payload, method = 'POST') {
+                    const res = await rawFetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: method === 'GET' ? undefined : JSON.stringify(payload || {})
+                    });
+                    const j = await res.json().catch(() => ({}));
+                    if (!res.ok) { const err = new Error('request failed'); err.payload = j; throw err; }
+                    return j;
+                }
+            };
+            const $list = document.getElementById('cmt-list');
+            const $alert = document.getElementById('cmt-alert');
+            const $count = document.getElementById('cmt-count');
+            const $body = document.getElementById('cmt-body');
+            const $submit = document.getElementById('cmt-submit');
+            const COMMENT_DEPTH_INDENT = 40;
+            let activeReply = null;
+
+            if (!docId) {
+                $alert.innerHTML = `<div class="alert alert-danger py-1 mb-1">${T('DOC_Err_DocumentNotFound')}</div>`;
+                return;
+            }
+            function showErr(msgs) {
+                $alert.innerHTML = `<div class="alert alert-danger py-1 mb-1">${(msgs || []).map(escapeHtml).join('<br>')}</div>`;
+            }
+            async function loadComments() {
+                try {
+                    const res = await EBC.fetch('/Doc/Comments?docId=' + encodeURIComponent(docId), { method: 'GET', headers: { 'Accept': 'application/json' } });
+                    const data = await res.json().catch(() => ({}));
+                    renderComments(Array.isArray(data.items) ? data.items : []);
+                } catch (e) { console.error('loadComments error', e); showErr([T('DOC_Err_LoadFailed')]); }
+            }
+            function renderComments(items) {
+                $list.innerHTML = ''; activeReply = null;
+                if (!items.length) { $count.textContent = ''; $list.innerHTML = `<div class="text-muted">${T('DOC_Msg_NoComments')}</div>`; return; }
+                $count.textContent = T('DOC_Cmt_Count').replace('{n}', items.length);
+                items.forEach(c => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'doc-comment-item';
+                    const depthRaw = (typeof c.depth === 'number') ? c.depth : parseInt(c.depth || '0', 10) || 0;
+                    wrap.style.marginLeft = (Math.max(0, Math.min(depthRaw, 4)) * COMMENT_DEPTH_INDENT) + 'px';
+                    const cid = c.id || c.commentId || c.CommentId;
+                    if (cid != null) wrap.dataset.commentId = String(cid);
+                    let actionsHtml = '';
+                    if (cid != null) {
+                        const btns = [];
+                        btns.push(`<button type="button" class="btn btn-link btn-sm p-0" data-reply-id="${String(cid)}">${escapeHtml(T('DOC_Btn_Reply'))}</button>`);
+                        if (!!c.canEdit) btns.push(`<button type="button" class="btn btn-link btn-sm p-0 ms-2" data-edit-id="${String(cid)}">${escapeHtml(T('_CM_Edit'))}</button>`);
+                        if (!!c.canDelete) btns.push(`<button type="button" class="btn btn-link btn-sm p-0 ms-2 text-danger" data-delete-id="${String(cid)}">${escapeHtml(T('_CM_Delete'))}</button>`);
+                        actionsHtml = `<span class="ms-auto">${btns.join(' ')}</span>`;
+                    }
+                    wrap.innerHTML = `
+                        <div class="doc-comment-meta d-flex align-items-center">
+                            <span><strong>${escapeHtml(c.createdBy || '')}</strong></span>
+                            <span class="ms-2">${escapeHtml(c.createdAt || '')}</span>
+                            ${actionsHtml}
+                        </div>
+                        <div class="doc-comment-body">${nl2br(escapeHtml(c.body || ''))}</div>
+                        ${renderFilesHtml(c)}`;
+                    $list.append(wrap);
+                });
+            }
+            $submit?.addEventListener('click', async () => {
+                const body = ($body.value || '').trim();
+                if (!body) { showErr([T('DOC_Val_Required')]); return; }
+                try {
+                    await EBC.json('/Doc/Comments', { docId, parentCommentId: null, body, files: [] }, 'POST');
+                    $body.value = '';
+                    await loadComments();
+                } catch (e) { const p = e && e.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
+            });
+            $list.addEventListener('click', async (e) => {
+                const replyBtn  = e.target.closest('button[data-reply-id]');
+                const editBtn   = e.target.closest('button[data-edit-id]');
+                const deleteBtn = e.target.closest('button[data-delete-id]');
+                if (replyBtn)  { toggleReplyForm(replyBtn.getAttribute('data-reply-id'), replyBtn.closest('.doc-comment-item')); return; }
+                if (editBtn)   { toggleEditForm(editBtn.getAttribute('data-edit-id'), editBtn.closest('.doc-comment-item')); return; }
+                if (deleteBtn) {
+                    const cid = deleteBtn.getAttribute('data-delete-id');
+                    if (!cid || !confirm(T('DOC_Confirm_DeleteComment') || '삭제하시겠습니까?')) return;
+                    try {
+                        const res = await EBC.fetch(`/Doc/Comments/${encodeURIComponent(cid)}?docId=${encodeURIComponent(docId)}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+                        const j = await res.json().catch(() => ({}));
+                        if (!res.ok || j.ok === false) throw { payload: j };
+                        await loadComments();
+                    } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_DeleteFailed')]); }
+                    return;
+                }
+                const submitBtn = e.target.closest('button[data-reply-submit]');
+                if (submitBtn) {
+                    const form = submitBtn.closest('.doc-comment-reply');
+                    if (!form || !activeReply?.parentId) return;
+                    const textarea = form.querySelector('textarea');
+                    const body = (textarea?.value || '').trim();
+                    if (!body) { showErr([T('DOC_Val_Required')]); return; }
+                    try {
+                        await EBC.json('/Doc/Comments', { docId, parentCommentId: activeReply.parentId, body, files: [] }, 'POST');
+                        if (textarea) textarea.value = '';
+                        removeReplyForm();
+                        await loadComments();
+                    } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
+                    return;
+                }
+                const cancelBtn = e.target.closest('button[data-reply-cancel]');
+                if (cancelBtn) removeReplyForm();
+            });
+            function toggleReplyForm(parentId, itemEl) {
+                if (!parentId || !itemEl) return;
+                if (activeReply && activeReply.parentId === parentId) { removeReplyForm(); return; }
+                removeReplyForm();
+                const form = document.createElement('div');
+                form.className = 'doc-comment-reply mt-2';
+                const parentIndent = parseInt(window.getComputedStyle(itemEl).marginLeft || '0', 10) || 0;
+                form.style.marginLeft = (parentIndent + COMMENT_DEPTH_INDENT / 2) + 'px';
+                form.innerHTML = `
+                    <textarea class="form-control form-control-sm mb-1" rows="2" placeholder="${escapeHtml(T('DOC_Placeholder_Reply'))}"></textarea>
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-sm btn-primary" data-reply-submit>${escapeHtml(T('DOC_Btn_ReplyPost'))}</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-reply-cancel>${escapeHtml(T('DOC_Btn_Cancel'))}</button>
+                    </div>`;
+                itemEl.append(form);
+                activeReply = { parentId, form };
+            }
+            function removeReplyForm() {
+                if (activeReply?.form?.parentNode) activeReply.form.parentNode.removeChild(activeReply.form);
+                activeReply = null;
+            }
+            function toggleEditForm(commentId, itemEl) {
+                if (!commentId || !itemEl) return;
+                const existing = itemEl.querySelector('.doc-comment-edit');
+                if (existing) { existing.remove(); return; }
+                const originalText = itemEl.querySelector('.doc-comment-body')?.textContent || '';
+                const form = document.createElement('div');
+                form.className = 'doc-comment-edit mt-1';
+                form.innerHTML = `
+                    <textarea class="form-control form-control-sm mb-1" rows="2">${escapeHtml(originalText)}</textarea>
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-sm btn-primary" data-edit-submit="${commentId}">${escapeHtml(T('_CM_Edit'))}</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-edit-cancel>${escapeHtml(T('DOC_Btn_Cancel'))}</button>
+                    </div>`;
+                itemEl.append(form);
+                form.addEventListener('click', async (e) => {
+                    const submit = e.target.closest('button[data-edit-submit]');
+                    const cancel = e.target.closest('button[data-edit-cancel]');
+                    if (cancel) { form.remove(); return; }
+                    if (submit) {
+                        const tid = submit.getAttribute('data-edit-submit');
+                        const textarea = form.querySelector('textarea');
+                        const body = (textarea?.value || '').trim();
+                        if (!body) { showErr([T('DOC_Val_Required')]); return; }
+                        try {
+                            await EBC.json(`/Doc/Comments/${encodeURIComponent(tid)}`, { docId, body }, 'PUT');
+                            await loadComments();
+                        } catch (err) { const p = err && err.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
+                    }
+                }, { once: true });
+            }
+            loadComments();
+        }
+
+        // ================== 승인 버튼 ==================
+        function initApproveButtons() {
+            const EBC = window.EBCSRF || window.EBCsrf || {};
+            if (!docId) return;
+            async function call(action) {
+                try {
+                    const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action }, 'POST');
+                    if (!res || res.ok === false) throw { payload: res };
+                    showAlert(T('DOC_Msg_Approve_Success'), 'alert-success');
+                    location.reload();
+                } catch (e) {
+                    const p = e && e.payload;
+                    showAlert((p?.messages || [T('DOC_Err_SaveFailed')]).join('<br>'), 'alert-danger');
+                }
+            }
+            document.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Approve'); }));
+            document.querySelectorAll('[data-hold]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Hold'); }));
+            document.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Reject'); }));
+            document.querySelectorAll('[data-cooperate]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Cooperate'); }));                    
+            document.querySelectorAll('[data-cooperate-reject]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('CooperateReject'); }));
+        }
+
+        // ================== 회수 버튼 ==================
+        function initRecallButton() {
+            const EBC = window.EBCSRF || window.EBCsrf || {};
+            const btnRecall = document.getElementById('btnRecall');
+            if (!btnRecall || !docId) return;
+            btnRecall.addEventListener('click', async () => {
+                if (btnRecall.disabled) return;
+                try {
+                    const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action: 'Recall' }, 'POST');
+                    if (!res || res.ok === false) throw { payload: res };
+                    showAlert(T('DOC_Msg_Recall_Success') || T('DOC_Msg_Approve_Success'), 'alert-success');
+                    location.href = '/Doc/Board';
+                } catch (e) {
+                    const p = e && e.payload;
+                    showAlert((p?.messages || [T('DOC_Err_RequestFailed')]).join('<br>'), 'alert-danger');
+                }
+            });
+        }
+
+        // ================== 인쇄 & PDF 내보내기 ==================
+        function initPrintExport() {
+            const btnPrint = document.getElementById('btnPrint');
+            if (btnPrint) {
+                btnPrint.addEventListener('click', function () {
+                    const inst = getDxInstance();
+                    if (inst) {
+                        if (typeof inst.print === 'function') { try { inst.print(); return; } catch (e) { } }
+                        if (typeof inst.ExecuteGesture === 'function') { try { inst.ExecuteGesture('Print'); return; } catch (e) { } }
+                    }
+                    window.print();
+                });
+            }
+            const btnExport = document.getElementById('btnExport');
+            if (btnExport) {
+                btnExport.addEventListener('click', async function () {
+                    btnExport.disabled = true;
+                    btnExport.classList.add('btn-loading');
+                    const origHtml = btnExport.innerHTML;
+                    btnExport.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+                    function restoreBtn() { btnExport.disabled = false; btnExport.classList.remove('btn-loading'); btnExport.innerHTML = origHtml; }
+                    function loadScript(url) {
+                        return new Promise(function (resolve, reject) {
+                            if (url.includes('html2canvas') && typeof window.html2canvas === 'function') { resolve(); return; }
+                            if (url.includes('jspdf') && window.jspdf?.jsPDF) { resolve(); return; }
+                            var s = document.createElement('script');
+                            s.src = url; s.crossOrigin = 'anonymous';
+                            s.onload = resolve;
+                            s.onerror = () => reject(new Error('스크립트 로드 실패: ' + url));
+                            document.head.appendChild(s);
+                        });
+                    }
+                    try {
+                        if (typeof window.html2canvas !== 'function')
+                            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+                        if (!window.jspdf?.jsPDF)
+                            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+                        if (typeof window.html2canvas !== 'function') throw new Error('html2canvas 로드 실패');
+                        if (!window.jspdf?.jsPDF) throw new Error('jsPDF 로드 실패');
+
+                        const JsPDF = window.jspdf.jsPDF;
+                        const target = document.getElementById('dxDetailWrap');
+                        if (!target) throw new Error('캡처 대상 요소를 찾을 수 없습니다.');
+
+                        const canvas = await window.html2canvas(target, {
+                            scale: 2, useCORS: true, allowTaint: false,
+                            backgroundColor: '#ffffff', logging: false,
+                            width: target.offsetWidth, height: target.offsetHeight,
+                            scrollX: 0, scrollY: 0
+                        });
+
+                        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+                        const A4_W = 210;
+                        const pdfH = (canvas.height / canvas.width) * A4_W;
+                        const pdf = new JsPDF({ orientation: 'portrait', unit: 'mm', format: [A4_W, Math.max(pdfH, 297)] });
+                        pdf.addImage(imgData, 'JPEG', 0, 0, A4_W, pdfH);
+                        const root = document.getElementById('doc-scroll');
+                        const titleAttr = (root?.getAttribute('data-doc-title') || '').trim();
+                        pdf.save((titleAttr || docId || 'document') + '.pdf');
+                    } catch (err) {
+                        console.error('[PDF Export] 오류:', err);
+                        showAlert('PDF 변환 중 오류가 발생했습니다: ' + (err.message || String(err)), 'alert-danger');
+                    } finally { restoreBtn(); }
+                });
+            }
+        }
+
+        function hookDxReady() {
+             const wrap = document.getElementById('dxDetailWrap');
+             const scroll = document.getElementById('doc-scroll');
+             if (!wrap) return;
+
+             let done = false;
+             let settleTimer = 0;
+             let forceTimer1 = 0;
+             let forceTimer2 = 0;
+             let observer = null;
+
+             function getWbc() {
+                 return document.getElementById('dxDetailSheet_WBC')
+                     || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+             }
+
+             function getInnerScroll() {
+                 return document.getElementById('dxDetailSheet_ScrollContainer')
+                     || document.getElementById('dxDetailSheet_Grid')
+                     || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
+                     || document.querySelector('#dxDetailWrap [id$="_Grid"]');
+             }
+             
+             function hasRenderedContent() {
+                const wrap = document.getElementById('dxDetailWrap');
+                if (!wrap) return false;
+
+                const contentBox = getRenderedContentBox();
+                if (contentBox.width > 120 && contentBox.height > 120) return true;
+
+                const ctb = wrap.querySelector('[id*="_ctb."]');
+                if (ctb) {
+                    const r = ctb.getBoundingClientRect();
+                    if (r.width > 40 && r.height > 12) return true;
+                }
+
+                const ftc = wrap.querySelector('.dxss-ftc');
+                if (ftc) {
+                    const r = ftc.getBoundingClientRect();
+                    if (r.width > 40 && r.height > 12) return true;
+                }
+
+                return false;
+            }
+
+             function requestLayoutKick(reason) {
+                 try {
+                     applyDxWrapSize(reason);
+                 } catch (e) { }
+
+                 try {
+                     const inst = getDxInstance();
+                     if (inst && typeof inst.GetMainElement === 'function') {
+                         const el = inst.GetMainElement();
+                         if (el && typeof el.getBoundingClientRect === 'function') {
+                             el.getBoundingClientRect();
+                         }
+                     }
+                 } catch (e) { }
+
+                 try {
+                     window.dispatchEvent(new Event('resize'));
+                 } catch (e) { }
+
+                 const inner = getInnerScroll();
+                 if (inner) {
+                     try {
+                         if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+                         if (inner.scrollTop !== 0) inner.scrollTop = 0;
+                     } catch (e) { }
+                 }
+             }
+        
+             function forceDxRender() {
+                var wrap = document.getElementById('dxDetailWrap');
+                if (!wrap) return;
+
+                // 방법 1: window resize 이벤트
+                try { window.dispatchEvent(new Event('resize')); } catch (e) { }
+
+                // 방법 2: DX 인스턴스에 직접 AdjustControl 호출
+                try {
+                    var inst = getDxInstance();
+                    if (inst && typeof inst.AdjustControl === 'function') {
+                        inst.AdjustControl();
+                    }
+                } catch (e) { }
+
+                // 방법 3: wrap 크기를 1px 변경했다 복원 → DX 내부 레이아웃 강제 재계산
+                var h = wrap.style.getPropertyValue('height');
+                if (h) {
+                    var hVal = parseInt(h, 10) || 520;
+                    wrap.style.setProperty('height', (hVal + 1) + 'px', 'important');
+                    requestAnimationFrame(function () {
+                        wrap.style.setProperty('height', hVal + 'px', 'important');
+                    });
+                }
+            }
+
+            function waitForVisibleContent(callback) {
+                var attempts = 0;
+                var maxAttempts = 30; // 최대 3초 (30 × 100ms)
+
+                function check() {
+                    attempts++;
+
+                    // 실제로 셀 내용이 그려졌는지 확인
+                    var wrap = document.getElementById('dxDetailWrap');
+                    if (wrap) {
+                        var cells = wrap.querySelectorAll('[id*="_ctb."], .dxss-ftc, .dxss-htd');
+                        var hasVisible = false;
+                        for (var i = 0; i < cells.length; i++) {
+                            var r = cells[i].getBoundingClientRect();
+                            if (r.width > 20 && r.height > 10) {
+                                hasVisible = true;
+                                break;
+                            }
+                        }
+
+                        if (hasVisible) {
+                            requestAnimationFrame(function () {
+                                requestAnimationFrame(callback);
+                            });
+                            return;
+                        }
+                    }
+
+                    if (attempts < maxAttempts) {
+                        // 아직 안 보이면 DX에 다시 신호 보내고 재시도
+                        if (attempts % 5 === 0) {
+                            forceDxRender();
+                        }
+                        setTimeout(check, 100);
+                    } else {
+                        // 타임아웃 — 그래도 콜백은 실행
+                        console.warn('[DX] content not visible after timeout, proceeding anyway');
+                        forceDxRender();
+                        requestAnimationFrame(function () {
+                            requestAnimationFrame(callback);
+                        });
+                    }
+                }
+
+                check();
+            }
+                    
+             function finalize(reason) {
+                if (done) return;
+                if (!hasRenderedContent()) return;
+
+                done = true;
+                state.overlayReady = false;
+
+                clearTimeout(settleTimer);
+                clearTimeout(forceTimer1);
+                clearTimeout(forceTimer2);
+
+                if (observer) {
+                    observer.disconnect();
+                    observer = null;
+                }
+
+                // 1단계: wrap 크기 설정 + 스크롤 잠금
+                applyDxWrapSize(reason);
+                installOuterScrollOnly();
+
+                // 2단계: DX에 강제 resize 신호 → 렌더링 트리거
+                forceDxRender();
+
+                // 3단계: 콘텐츠가 보일 때까지 대기 후 오버레이 렌더
+                waitForVisibleContent(function () {
+                    renderApprovalOverlay();
+
+                    setTimeout(function () {
+                        renderApprovalOverlay();
+                        var scroll = document.getElementById('doc-scroll');
+                        if (scroll) scroll.classList.add('dx-page-ready');
+                        console.log('[DX] page shown by', reason);
+
+                        state.overlayReady = true;
+                        bindOverlayResizeObserver();
+                    }, 300);
+                });
+            }
+            
+            function settle(reason) {
+                 clearTimeout(settleTimer);
+                 settleTimer = window.setTimeout(function () {
+                     requestLayoutKick(reason || 'dx-ready');
+                     if (hasRenderedContent()) {
+                         finalize(reason || 'dx-ready');
+                     }
+                 }, 120);
+             }
+
+             observer = new MutationObserver(function () {
+                 if (done) return;
+                 if (hasRenderedContent()) {
+                     finalize('dx-dom-ready');
+                 }
+             });
+
+             observer.observe(wrap, {
+                 childList: true,
+                 subtree: true,
+                 attributes: false
+             });
+
+             window.__dxDetailOnEndSyncImpl = function (reason) {
+                 if (done) return;
+                 console.log('[DX] EndSynchronization fired:', reason);
+                 settle(reason || 'dx-sync');
+             };
+
+             if (window.__dxDetailOnEndSyncPending) {
+                 const pendingReason = window.__dxDetailOnEndSyncPending;
+                 window.__dxDetailOnEndSyncPending = null;
+                 settle(pendingReason || 'pending-sync');
+             } else {
+                 settle('hook-start');
+             }
+
+             forceTimer1 = window.setTimeout(function () {
+                 if (done) return;
+                 requestLayoutKick('dx-force-1');
+                 if (hasRenderedContent()) {
+                     finalize('dx-force-1');
+                 }
+             }, 1500);
+
+             forceTimer2 = window.setTimeout(function () {
+                 if (done) return;
+                 requestLayoutKick('dx-force-2');
+                 if (hasRenderedContent()) {
+                     finalize('dx-force-2');
+                 }
+             }, 4500);
+
+             if (!window.__DETAIL_DX_RESIZE_BOUND__) {
+                 window.__DETAIL_DX_RESIZE_BOUND__ = true;
+                 window.addEventListener('resize', function () {
+                     requestAnimationFrame(function () {
+                         applyDxWrapSize('window-resize');
+                         renderApprovalOverlay();
+                     });
+                 }, { passive: true });
+             }
+        }
+       
+        // ================== 진입점 ==================
+        function run() {
+            clearAlert();
+
+            state.preview = readJsonFromScript('PreviewJson', {}) || {};
+            state.descriptor = readJsonFromScript('DescriptorJson', {}) || {};
+
+            state.approvalsData = Array.isArray(readJsonFromScript('ApprovalsJson', []))
+                ? readJsonFromScript('ApprovalsJson', [])
+                : [];
+
+            state.cooperationsData = Array.isArray(readJsonFromScript('CooperationsJson', []))
+                ? readJsonFromScript('CooperationsJson', [])
+                : [];
+
+            const mapRows = readJsonFromScript('ApprovalCellsJson', []);
+            const builtMap = buildLegacyApprovalCellMap(Array.isArray(mapRows) ? mapRows : []);
+
+            state.approvalCellMap = builtMap.approval || { byStep: {}, byRoleKey: {} };
+            state.cooperationCellMap = builtMap.cooperation || { byStep: {}, byRoleKey: {} };
+
+            console.log('approvalCellMap', state.approvalCellMap, mapRows);
+            console.log('cooperationCellMap', state.cooperationCellMap, mapRows);
+
+            applyDxWrapSize('run-init');
+            renderViewLogs();
+            renderApprovalsTable();
+            initRecipientsFromSelected();
+            initRecipientsChangeButton();
+            initDocFileImageOverlay();
+            initComments();
+            initApproveButtons();
+            initRecallButton();
+            initPrintExport();
+            hookDxReady();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run);
+        } else {
+            run();
+        }    
+    })();
     </script>
 }

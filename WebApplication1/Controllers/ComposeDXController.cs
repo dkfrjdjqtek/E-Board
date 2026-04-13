@@ -1914,11 +1914,68 @@ WHERE DocId = @DocId
             throw new InvalidOperationException("DocId collision could not be resolved after retries");
         }
 
-        private async Task SaveDocumentAsync(
-            string docId, string templateCode, string title, string status, string outputPath,
-            Dictionary<string, string> inputs, string approvalsJson, string cooperationsJson,
-            string descriptorJson, string userId, string userName, string compCd, string? departmentId,
-            int? templateVersionId = null)
+        // 2026.04.09 Changed: 문서 저장 시 CreatedByName과 ApproverDisplayText를 직급 이름 스냅샷으로 저장하도록 수정함
+
+        private async Task<string> BuildSnapshotDisplayNameAsync(
+            SqlConnection conn,
+            SqlTransaction tx,
+            string? userId,
+            string? fallbackText,
+            string? compCd)
+        {
+            var fallback = (fallbackText ?? string.Empty).Trim();
+
+            var effectiveUserId = string.IsNullOrWhiteSpace(userId)
+                ? await TryResolveUserIdAsync(conn, tx, fallback)
+                : userId?.Trim();
+
+            if (string.IsNullOrWhiteSpace(effectiveUserId))
+                return fallback;
+
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+SELECT TOP 1
+       COALESCE(NULLIF(LTRIM(RTRIM(pl.Name)), N''), NULLIF(LTRIM(RTRIM(pm.Name)), N''), N'') AS PositionName,
+       COALESCE(NULLIF(LTRIM(RTRIM(up.DisplayName)), N''), NULLIF(LTRIM(RTRIM(@FallbackText)), N''), u.UserName, u.Email, N'') AS DisplayName
+FROM dbo.UserProfiles up
+LEFT JOIN dbo.PositionMasters pm
+       ON pm.CompCd = up.CompCd
+      AND pm.Id = up.PositionId
+LEFT JOIN dbo.PositionMasterLoc pl
+       ON pl.PositionId = pm.Id
+      AND pl.LangCode = N'ko'
+LEFT JOIN dbo.AspNetUsers u
+       ON u.Id = up.UserId
+WHERE up.UserId = @UserId
+  AND (@CompCd = '' OR up.CompCd = @CompCd);";
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = effectiveUserId });
+            cmd.Parameters.Add(new SqlParameter("@CompCd", SqlDbType.VarChar, 10) { Value = compCd ?? string.Empty });
+            cmd.Parameters.Add(new SqlParameter("@FallbackText", SqlDbType.NVarChar, 200) { Value = fallback });
+
+            await using var rd = await cmd.ExecuteReaderAsync();
+            if (!await rd.ReadAsync())
+                return fallback;
+
+            var positionName = rd["PositionName"] as string ?? string.Empty;
+            var displayName = rd["DisplayName"] as string ?? string.Empty;
+
+            positionName = positionName.Trim();
+            displayName = displayName.Trim();
+
+            if (string.IsNullOrWhiteSpace(displayName))
+                return fallback;
+
+            if (string.IsNullOrWhiteSpace(positionName))
+                return displayName;
+
+            if (displayName.StartsWith(positionName + " ", StringComparison.Ordinal))
+                return displayName;
+
+            return $"{positionName} {displayName}".Trim();
+        }
+
+        private async Task SaveDocumentAsync(string docId, string templateCode, string title, string status, string outputPath, Dictionary<string, string> inputs, string approvalsJson, string cooperationsJson, string descriptorJson, string userId, string userName, string compCd, string? departmentId, int? templateVersionId = null)
         {
             if (string.IsNullOrWhiteSpace(compCd)) throw new InvalidOperationException("CompCd is required.");
 
@@ -1942,6 +1999,13 @@ WHERE DocId = @DocId
 
                 descriptorJson = UpsertDescriptorApprovalAndCooperationArrays(descriptorJson, approvalsJson, cooperationsJson);
 
+                var createdByDisplayText = await BuildSnapshotDisplayNameAsync(
+                    conn,
+                    (SqlTransaction)tx,
+                    userId,
+                    userName,
+                    compCd);
+
                 await using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = (SqlTransaction)tx;
@@ -1955,7 +2019,7 @@ WHERE DocId = @DocId
                     cmd.Parameters.Add(new SqlParameter("@CompCd", SqlDbType.VarChar, 10) { Value = compCd });
                     cmd.Parameters.Add(new SqlParameter("@DepartmentId", SqlDbType.VarChar, 12) { Value = string.IsNullOrWhiteSpace(departmentId) ? DBNull.Value : departmentId });
                     cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 450) { Value = userId ?? string.Empty });
-                    cmd.Parameters.Add(new SqlParameter("@CreatedByName", SqlDbType.NVarChar, 200) { Value = userName ?? string.Empty });
+                    cmd.Parameters.Add(new SqlParameter("@CreatedByName", SqlDbType.NVarChar, 200) { Value = (object?)createdByDisplayText ?? DBNull.Value });
                     cmd.Parameters.Add(new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1) { Value = (object?)descriptorJson ?? DBNull.Value });
                     await cmd.ExecuteNonQueryAsync();
                 }
@@ -1975,26 +2039,40 @@ WHERE DocId = @DocId
                     }
                 }
 
-                // approvals insert
                 try
                 {
                     using var aj = JsonDocument.Parse(approvalsJson ?? "[]");
                     var toInsert = new List<(int step, string roleKey, string approverValue)>();
                     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                     foreach (var el in aj.RootElement.EnumerateArray())
                     {
                         if (el.ValueKind != JsonValueKind.Object) continue;
+
                         string roleKey = string.Empty;
                         if (el.TryGetProperty("roleKey", out var rk) && rk.ValueKind == JsonValueKind.String) roleKey = rk.GetString() ?? string.Empty;
                         else if (el.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
 
                         int step = 0;
-                        if (el.TryGetProperty("Slot", out var pSlot)) { if (pSlot.ValueKind == JsonValueKind.Number) pSlot.TryGetInt32(out step); else if (pSlot.ValueKind == JsonValueKind.String) int.TryParse(pSlot.GetString(), out step); }
-                        if (step <= 0 && el.TryGetProperty("order", out var pOrd)) { if (pOrd.ValueKind == JsonValueKind.Number) pOrd.TryGetInt32(out step); else if (pOrd.ValueKind == JsonValueKind.String) int.TryParse(pOrd.GetString(), out step); }
-                        if (step <= 0 && !string.IsNullOrWhiteSpace(roleKey)) { var m = Regex.Match(roleKey.Trim(), @"(?i)^A(\d+)$"); if (m.Success) int.TryParse(m.Groups[1].Value, out step); }
+                        if (el.TryGetProperty("Slot", out var pSlot))
+                        {
+                            if (pSlot.ValueKind == JsonValueKind.Number) pSlot.TryGetInt32(out step);
+                            else if (pSlot.ValueKind == JsonValueKind.String) int.TryParse(pSlot.GetString(), out step);
+                        }
+                        if (step <= 0 && el.TryGetProperty("order", out var pOrd))
+                        {
+                            if (pOrd.ValueKind == JsonValueKind.Number) pOrd.TryGetInt32(out step);
+                            else if (pOrd.ValueKind == JsonValueKind.String) int.TryParse(pOrd.GetString(), out step);
+                        }
+                        if (step <= 0 && !string.IsNullOrWhiteSpace(roleKey))
+                        {
+                            var m = Regex.Match(roleKey.Trim(), @"(?i)^A(\d+)$");
+                            if (m.Success) int.TryParse(m.Groups[1].Value, out step);
+                        }
                         if (step <= 0) step = 1;
 
                         var rkNorm = string.IsNullOrWhiteSpace(roleKey) ? $"A{step}" : roleKey.Trim();
+
                         string? approverVal = null;
                         if (el.TryGetProperty("ApproverValue", out var pAV) && pAV.ValueKind == JsonValueKind.String) approverVal = pAV.GetString();
                         if (string.IsNullOrWhiteSpace(approverVal) && el.TryGetProperty("value", out var pV) && pV.ValueKind == JsonValueKind.String) approverVal = pV.GetString();
@@ -2002,68 +2080,107 @@ WHERE DocId = @DocId
 
                         var key = $"{step}|{rkNorm}|{approverVal.Trim()}";
                         if (!seen.Add(key)) continue;
+
                         toInsert.Add((step, rkNorm, approverVal.Trim()));
                     }
 
                     foreach (var item in toInsert.OrderBy(x => x.step))
                     {
                         string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
+                        var approverDisplayText = await BuildSnapshotDisplayNameAsync(
+                            conn,
+                            (SqlTransaction)tx,
+                            resolvedUserId,
+                            item.approverValue,
+                            compCd);
+
                         await using var acmd = conn.CreateCommand();
                         acmd.Transaction = (SqlTransaction)tx;
-                        acmd.CommandText = @"INSERT INTO dbo.DocumentApprovals (DocId, StepOrder, RoleKey, ApproverValue, UserId, Status, CreatedAt) VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, @UserId, 'Pending', SYSUTCDATETIME());";
+                        acmd.CommandText = @"INSERT INTO dbo.DocumentApprovals (DocId, StepOrder, RoleKey, ApproverValue, UserId, ApproverDisplayText, Status, CreatedAt) VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, @UserId, @ApproverDisplayText, 'Pending', SYSUTCDATETIME());";
                         acmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         acmd.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = item.step });
                         acmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 10) { Value = item.roleKey });
                         acmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 256) { Value = item.approverValue });
                         acmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
+                        acmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = (object?)approverDisplayText ?? DBNull.Value });
                         await acmd.ExecuteNonQueryAsync();
                     }
                 }
-                catch { }
+                catch
+                {
+                }
 
-                // cooperations insert
                 try
                 {
                     using var cj = JsonDocument.Parse(cooperationsJson ?? "[]");
                     var toInsert = new List<(string lineType, string roleKey, string approverValue)>();
                     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     int seq = 1;
+
                     foreach (var el in cj.RootElement.EnumerateArray())
                     {
                         if (el.ValueKind != JsonValueKind.Object) continue;
+
                         string roleKey = string.Empty;
                         if (el.TryGetProperty("roleKey", out var rk) && rk.ValueKind == JsonValueKind.String) roleKey = rk.GetString() ?? string.Empty;
                         else if (el.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
+
                         string lineType = "Cooperation";
                         if (el.TryGetProperty("lineType", out var lt1) && lt1.ValueKind == JsonValueKind.String) lineType = string.IsNullOrWhiteSpace(lt1.GetString()) ? "Cooperation" : lt1.GetString()!;
                         else if (el.TryGetProperty("LineType", out var lt2) && lt2.ValueKind == JsonValueKind.String) lineType = string.IsNullOrWhiteSpace(lt2.GetString()) ? "Cooperation" : lt2.GetString()!;
+
                         var roleKeyNorm = string.IsNullOrWhiteSpace(roleKey) ? $"C{seq}" : roleKey.Trim();
                         var approverVal = EnumerateCooperationValues(el).Select(v => (v ?? string.Empty).Trim()).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
-                        if (string.IsNullOrWhiteSpace(approverVal)) { seq++; continue; }
+                        if (string.IsNullOrWhiteSpace(approverVal))
+                        {
+                            seq++;
+                            continue;
+                        }
+
                         var key = $"{lineType}|{roleKeyNorm}|{approverVal}";
-                        if (!seen.Add(key)) { seq++; continue; }
-                        toInsert.Add((lineType, roleKeyNorm, approverVal)); seq++;
+                        if (!seen.Add(key))
+                        {
+                            seq++;
+                            continue;
+                        }
+
+                        toInsert.Add((lineType, roleKeyNorm, approverVal));
+                        seq++;
                     }
 
                     foreach (var item in toInsert)
                     {
                         string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
+                        var approverDisplayText = await BuildSnapshotDisplayNameAsync(
+                            conn,
+                            (SqlTransaction)tx,
+                            resolvedUserId,
+                            item.approverValue,
+                            compCd);
+
                         await using var ccmd = conn.CreateCommand();
                         ccmd.Transaction = (SqlTransaction)tx;
-                        ccmd.CommandText = @"INSERT INTO dbo.DocumentCooperations (DocId, LineType, RoleKey, ApproverValue, UserId, Status, CreatedAt) VALUES (@DocId, @LineType, @RoleKey, @ApproverValue, @UserId, 'Pending', SYSUTCDATETIME());";
+                        ccmd.CommandText = @"INSERT INTO dbo.DocumentCooperations (DocId, LineType, RoleKey, ApproverValue, UserId, ApproverDisplayText, Status, CreatedAt) VALUES (@DocId, @LineType, @RoleKey, @ApproverValue, @UserId, @ApproverDisplayText, 'Pending', SYSUTCDATETIME());";
                         ccmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         ccmd.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = item.lineType });
                         ccmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = item.roleKey });
                         ccmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = item.approverValue });
                         ccmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
+                        ccmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = (object?)approverDisplayText ?? DBNull.Value });
                         await ccmd.ExecuteNonQueryAsync();
                     }
                 }
-                catch { }
+                catch
+                {
+                }
 
                 await tx.CommitAsync();
             }
-            catch { await tx.RollbackAsync(); throw; }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
         }
 
         private static async Task<string?> TryResolveUserIdAsync(SqlConnection conn, SqlTransaction? tx, string? value)
