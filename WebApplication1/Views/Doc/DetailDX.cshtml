@@ -716,7 +716,7 @@ else
         <script type="application/json" id="ApprovalTableRowsJson">@Html.Raw(approvalTableRowsJson)</script>
 
         <script>
-            window.__RESX = @Html.Raw(JsonSerializer.Serialize(new {                    
+            window.__RESX = @Html.Raw(JsonSerializer.Serialize(new {
                 DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
                 DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
                 DOC_Err_LoadFailed = S["DOC_Err_LoadFailed"].Value,
@@ -747,15 +747,15 @@ else
                 DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
                 DOC_Btn_RecipientsChange = S["DOC_Btn_RecipientsChange"].Value,
                 DOC_Btn_CommentPost = S["DOC_Btn_CommentPost"].Value,
-                DOC_Placeholder_Comment = S["DOC_Placeholder_Comment"].Value,                    
-                DOC_Col_Role = S["DOC_Col_Role"].Value,                
+                DOC_Placeholder_Comment = S["DOC_Placeholder_Comment"].Value,
+                DOC_Col_Role = S["DOC_Col_Role"].Value,
                 DOC_Role_Submit = S["DOC_Role_Submit"].Value,
                 DOC_Role_ApprovalFmt = S["DOC_Role_ApprovalFmt"].Value,
                 DOC_Role_Cooperation = S["DOC_Role_CooperationFmt"].Value,
                 _CM_Edit = S["_CM_Edit"].Value,
-                _CM_Delete = S["_CM_Delete"].Value                
-            }));            
-                
+                _CM_Delete = S["_CM_Delete"].Value
+            }));
+
             window.__dxOpenRel = @Html.Raw(JsonSerializer.Serialize(openRel ?? string.Empty));
             window.__dxCallbackUrl = @Html.Raw(JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
             window.__dxExcelAbsPath = @Html.Raw(JsonSerializer.Serialize(excelPath ?? string.Empty));
@@ -767,6 +767,8 @@ else
             window.__dxRenderWidthPx = @Html.Raw(JsonSerializer.Serialize(renderWidthPx));
             window.__dxRenderHeightPx = @Html.Raw(JsonSerializer.Serialize(renderHeightPx));
             window.__dxRenderDiag = @Html.Raw(renderDiagJson);
+            
+            window.__dxDetailInternalHooksInstalled = false;
 
             function __dxDetailFire(reason) {
                 const why = reason || 'dx-unknown';
@@ -777,22 +779,124 @@ else
                 }
             }
 
-            window.__dxDetailOnInit = function () {
+            window.__dxDetailSyncing = false;
+
+            function __dxInstallInternalDocumentHooks(inst) {
+                if (!inst || window.__dxDetailInternalHooksInstalled) return;
+                window.__dxDetailInternalHooksInstalled = true;
+
+                function wrapMethod(name, fireReason) {
+                    const original = inst[name];
+                    if (typeof original !== 'function' || original.__dxWrapped) return;
+
+                    const wrapped = function () {
+                        const result = original.apply(this, arguments);
+                        try {
+                            console.log('[DX-INT]', name, {
+                                fireReason: fireReason,
+                                args: Array.prototype.slice.call(arguments)
+                            });
+                        } catch (e) { }
+
+                        try {
+                            requestAnimationFrame(function () {
+                                requestAnimationFrame(function () {
+                                    __dxDetailFire(fireReason);
+                                });
+                            });
+                        } catch (e) { }
+
+                        return result;
+                    };
+
+                    wrapped.__dxWrapped = true;
+                    wrapped.__dxOriginal = original;
+                    inst[name] = wrapped;
+                }
+
+                wrapMethod('processDocumentResponse', 'dx-process-document-response');
+                wrapMethod('onAfterDocumentResponseProcessed', 'dx-after-document-response');
+                wrapMethod('documentUploadingComplete', 'dx-document-uploading-complete');
+
+                console.log('[DX-INT] internal hooks installed');
+            }
+
+            window.__dxDetailSyncing = false;
+
+            window.__dxDetailOnInit = function (s, e) {
+                try {
+                    __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
+                } catch (ex) { }
+
+                console.log('[DX-EVT] Init', {
+                    sender: s,
+                    args: e,
+                    renderUsedLastCellA1: window.__dxRenderUsedLastCellA1,
+                    renderLastCellA1: window.__dxRenderLastCellA1
+                });
+
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
                         __dxDetailFire('dx-init-raf');
                     });
                 });
-
-                setTimeout(function () {
-                    __dxDetailFire('dx-init-timeout');
-                }, 350);
             };
 
-            window.__dxDetailOnEndSync = function () {
+            window.__dxDetailOnBeforeSend = function (s, e) {
+                try {
+                    __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
+                } catch (ex) { }
+
+                console.log('[DX-EVT] BeforeSend', {
+                    sender: s,
+                    args: e,
+                    dxSyncing: window.__dxDetailSyncing
+                });
+            };
+
+            window.__dxDetailOnBeginSync = function (s, e) {
+                window.__dxDetailSyncing = true;
+                try {
+                    if (window.__dxDetailState) window.__dxDetailState.dxSyncing = true;
+                } catch (ex) { }
+
+                try {
+                    __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
+                } catch (ex) { }
+
+                console.log('[DX-EVT] BeginSynchronization', {
+                    sender: s,
+                    args: e,
+                    dxSyncing: window.__dxDetailSyncing
+                });
+            };
+
+            window.__dxDetailOnEndSync = function (s, e) {
+                window.__dxDetailSyncing = false;
+                try {
+                    if (window.__dxDetailState) window.__dxDetailState.dxSyncing = false;
+                } catch (ex) { }
+
+                try {
+                    __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
+                } catch (ex) { }
+
+                console.log('[DX-EVT] EndSynchronization', {
+                    sender: s,
+                    args: e,
+                    dxSyncing: window.__dxDetailSyncing
+                });
+
                 __dxDetailFire('dx-end-sync');
             };
 
+            window.__dxDetailOnDocumentChanged = function (s, e) {
+                console.log('[DX-EVT] DocumentChanged', {
+                    sender: s,
+                    args: e,
+                    dxSyncing: window.__dxDetailSyncing
+                });
+            };
         </script>
 
         <div id="dxDetailWrap">
@@ -808,10 +912,12 @@ else
                 .ClientSideEvents(events =>
                 {
                     events.OnInit("__dxDetailOnInit");
+                    events.OnBeforeSend("__dxDetailOnBeforeSend");
+                    events.OnBeginSynchronization("__dxDetailOnBeginSync");
                     events.OnEndSynchronization("__dxDetailOnEndSync");
+                    events.OnDocumentChanged("__dxDetailOnDocumentChanged");
                 })
                 .WriteTo(ViewContext.Writer, HtmlEncoder.Default);
-
             }
             <div id="dxApprovalOverlay" class="dx-detail-overlay"></div>
         </div>
@@ -993,6 +1099,7 @@ else
         const $ = (q, r = document) => r.querySelector(q);
         const docId = "@(docId ?? "")";
         const compCd = "@(compCd ?? "")";
+
         const state = {
             preview: {},
             descriptor: {},
@@ -1000,29 +1107,30 @@ else
             cooperationsData: [],
             approvalCellMap: { byStep: {}, byRoleKey: {} },
             cooperationCellMap: { byStep: {}, byRoleKey: {} },
-            previewExtent: { width: 900, height: 520 },
+            previewExtent: { width: 0, height: 0 },
             renderExtent: { width: 0, height: 0, maxRow: 0, maxCol: 0, usedLastCellA1: 'A1', renderLastCellA1: 'B2' },
-            _effectiveMaxC: 0,
-            _colSum: 0,
             overlayRefreshTimer: 0,
             overlayRefreshRaf: 0,
             overlayResizeObserver: null,
-            overlayReady: false
+            overlayReady: false,
+            overlayRendering: false,
+            resizeTimer: 0,
+            dxSyncing: false
         };
-
+        window.__dxDetailState = state;
 
         // ================== 공통 유틸 ==================
         function decodeHtmlEntities(str) {
-                    if (str == null) return '';
-                    let s = String(str);
-                    s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
-                    s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
-                    s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-                        .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
-                    return s;
-                }
+            if (str == null) return '';
+            let s = String(str);
+            s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+            s = s.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+            s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+                .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+            return s;
+        }
 
-                const T = (m) => {
+        const T = (m) => {
             if (m == null) return '';
             if (Array.isArray(m)) return m.map(T).join('\n');
             const s = String(m);
@@ -1108,7 +1216,7 @@ else
             if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
             return '';
         }
-        
+
         function inferStampBucketFromRow(row) {
             if (!row) return 'approval';
 
@@ -1137,7 +1245,7 @@ else
             if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
             return 'approval';
         }
-        
+
         function buildLegacyApprovalCellMap(rows) {
             const built = {
                 approval: { byStep: {}, byRoleKey: {} },
@@ -1159,15 +1267,11 @@ else
 
                 if (step != null && step !== '') {
                     built[bucket].byStep[String(step)] = payload;
-
-                    // 구형 flat fallback 은 approval 만 유지
                     if (bucket === 'approval') built[String(step)] = a1;
                 }
 
                 if (roleKey) {
                     built[bucket].byRoleKey[roleKey] = payload;
-
-                    // 구형 flat fallback 은 approval 만 유지
                     if (bucket === 'approval') built[roleKey] = a1;
                 }
             });
@@ -1175,7 +1279,7 @@ else
             return built;
         }
 
-        // ================== DX 인스턴스 취득 ==================    
+        // ================== DX 인스턴스 취득 ==================
         function getDxInstance() {
             try { if (window.dxDetailSheet && typeof window.dxDetailSheet === 'object') return window.dxDetailSheet; } catch (e) { }
             try {
@@ -1195,170 +1299,293 @@ else
             } catch (e) { }
             return null;
         }
-    
-        // ================== 프리뷰 extent 계산 ==================            
-        function computePreviewExtent(preview) {
-            const serverMaxRow = Number(window.__dxRenderMaxRow || 0);
-            const serverMaxCol = Number(window.__dxRenderMaxCol || 0);
-            const serverWidthPx = Number(window.__dxRenderWidthPx || 0);
-            const serverHeightPx = Number(window.__dxRenderHeightPx || 0);
 
-            if (serverMaxRow > 0 && serverMaxCol > 0 && serverWidthPx > 0 && serverHeightPx > 0) {
-                const leftReservePx = 32;
-                const topReservePx = 22;
-                const rightReservePx = 72;
-                const bottomReservePx = 16;
+        // ================== 프리뷰 extent 계산 ==================
+        function colIndexToLabel(index) {
+            let n = Math.max(1, Number(index) || 1);
+            let s = '';
+            while (n > 0) {
+                const r = (n - 1) % 26;
+                s = String.fromCharCode(65 + r) + s;
+                n = Math.floor((n - 1) / 26);
+            }
+            return s || 'A';
+        }
 
-                const wrapWidth = Math.max(600, Math.ceil(serverWidthPx + leftReservePx + rightReservePx));
-                const wrapHeight = Math.max(520, Math.ceil(serverHeightPx + topReservePx + bottomReservePx));
+        function getPreviewLastCellInfo(preview) {
+            let maxRow = 0;
+            let maxCol = 0;
+            let cellsCount = 0;
+            let mergesCount = 0;
 
-                state.renderExtent = {
-                    width: serverWidthPx,
-                    height: serverHeightPx,
-                    wrapWidth: wrapWidth,
-                    wrapHeight: wrapHeight,
-                    maxRow: serverMaxRow,
-                    maxCol: serverMaxCol,
-                    usedLastCellA1: String(window.__dxRenderUsedLastCellA1 || 'A1'),
-                    renderLastCellA1: String(window.__dxRenderLastCellA1 || 'B2')
-                };
+            const cells = preview && preview.cells;
+            if (cells && typeof cells === 'object') {
+                if (Array.isArray(cells)) {
+                    cells.forEach(function (item) {
+                        if (!item) return;
 
-                console.log('[DX] render extent from server:', state.renderExtent);
-                console.log('[DX] render diag from server:', window.__dxRenderDiag);
+                        if (Array.isArray(item) && item.length >= 2) {
+                            const r = Number(item[0] || 0);
+                            const c = Number(item[1] || 0);
+                            if (r > maxRow) maxRow = r;
+                            if (c > maxCol) maxCol = c;
+                            cellsCount++;
+                            return;
+                        }
 
-                return {
-                    width: wrapWidth,
-                    height: wrapHeight
-                };
+                        const r = Number(item.row ?? item.r ?? item.Row ?? item.R ?? 0);
+                        const c = Number(item.col ?? item.c ?? item.Col ?? item.C ?? 0);
+                        if (r > maxRow) maxRow = r;
+                        if (c > maxCol) maxCol = c;
+                        cellsCount++;
+                    });
+                } else {
+                    Object.keys(cells).forEach(function (k) {
+                        const v = cells[k];
+                        let r = 0;
+                        let c = 0;
+
+                        let m = String(k).match(/^(\d+)\s*[:|,]\s*(\d+)$/);
+                        if (m) {
+                            r = Number(m[1]);
+                            c = Number(m[2]);
+                        } else {
+                            m = String(k).match(/^R(\d+)C(\d+)$/i);
+                            if (m) {
+                                r = Number(m[1]);
+                                c = Number(m[2]);
+                            } else {
+                                r = Number(v?.row ?? v?.r ?? v?.Row ?? v?.R ?? 0);
+                                c = Number(v?.col ?? v?.c ?? v?.Col ?? v?.C ?? 0);
+                            }
+                        }
+
+                        if (r > maxRow) maxRow = r;
+                        if (c > maxCol) maxCol = c;
+                        cellsCount++;
+                    });
+                }
             }
 
-            return { width: 900, height: 520 };
-        }
-        function getRenderedPageBox() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return { width: 0, height: 0 };
+            const merges = preview && preview.merges;
+            if (Array.isArray(merges)) {
+                merges.forEach(function (mg) {
+                    if (!mg) return;
 
-            const page =
-                wrap.querySelector('.dxss-print-area')
-                || wrap.querySelector('.dxss-page');
+                    let r2 = 0;
+                    let c2 = 0;
 
-            if (!page) return { width: 0, height: 0 };
+                    if (typeof mg === 'string') {
+                        const parts = String(mg).split(':');
+                        const end = parseA1(parts.length > 1 ? parts[1] : parts[0]);
+                        if (end) {
+                            r2 = Number(end.row1 || 0);
+                            c2 = Number(end.col1 || 0);
+                        }
+                    } else if (Array.isArray(mg) && mg.length >= 4) {
+                        r2 = Number(mg[2] || 0);
+                        c2 = Number(mg[3] || 0);
+                    } else {
+                        const a1 = mg.a1 || mg.A1 || mg.range || mg.Range || '';
+                        if (a1) {
+                            const parts = String(a1).split(':');
+                            const end = parseA1(parts.length > 1 ? parts[1] : parts[0]);
+                            if (end) {
+                                r2 = Number(end.row1 || 0);
+                                c2 = Number(end.col1 || 0);
+                            }
+                        } else {
+                            r2 = Number(mg.r2 ?? mg.row2 ?? mg.toRow ?? mg.endRow ?? 0);
+                            c2 = Number(mg.c2 ?? mg.col2 ?? mg.toCol ?? mg.endCol ?? 0);
+                        }
+                    }
 
-            const rect = page.getBoundingClientRect();
+                    if (r2 > maxRow) maxRow = r2;
+                    if (c2 > maxCol) maxCol = c2;
+                    mergesCount++;
+                });
+            }
+
+            if (maxRow <= 0) maxRow = 1;
+            if (maxCol <= 0) maxCol = 1;
+
             return {
-                width: Math.ceil(rect.width || 0),
-                height: Math.ceil(rect.height || 0)
+                lastRow: maxRow,
+                lastCol: maxCol,
+                lastCellA1: colIndexToLabel(maxCol) + String(maxRow),
+                extentRow: maxRow + 1,
+                extentCol: maxCol + 1,
+                extentA1: colIndexToLabel(maxCol + 1) + String(maxRow + 1),
+                cellsCount: cellsCount,
+                mergesCount: mergesCount
             };
         }
 
-        function getRenderedContentBox() {
+        function buildExtentColumnRectMap() {
             const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return { width: 0, height: 0 };
+            if (!wrap) return {};
 
-            const wbc =
-                document.getElementById('dxDetailSheet_WBC')
-                || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+            const wrapRect = wrap.getBoundingClientRect();
+            const map = {};
+            const cells = wrap.querySelectorAll('.dxss-htd[data-header-cell-index]');
 
-            const grid =
-                document.getElementById('dxDetailSheet_Grid')
-                || document.querySelector('#dxDetailWrap [id$="_Grid"]');
+            cells.forEach(function (el) {
+                const label = String(el.textContent || '').trim().toUpperCase();
+                if (!/^[A-Z]+$/.test(label)) return;
 
-            const pageBox = getRenderedPageBox();
+                const r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) return;
 
-            let width = pageBox.width;
-            let height = pageBox.height;
+                const left = r.left - wrapRect.left;
+                const right = r.right - wrapRect.left;
 
-            if (wbc) {
-                // scrollWidth/offsetWidth가 부모 컨테이너 크기(1000000 등)를 반환하는 경우 방지
-                // clientWidth만 사용하고, 서버 기준값의 2배를 초과하면 무시
-                const serverW = Number(state.renderExtent?.width || 0);
-                const maxSaneW = Math.max(2000, serverW * 2);
-                const wbcW = Math.ceil(wbc.clientWidth || 0);
-                if (wbcW > 0 && wbcW < maxSaneW) {
-                    width = Math.max(width, wbcW);
-                }
-                const wbcH = Math.ceil(wbc.clientHeight || 0);
-                if (wbcH > 0) {
-                    height = Math.max(height, wbcH);
-                }
-            }
+                map[label] = {
+                    left: left,
+                    right: right,
+                    width: Math.max(0, right - left)
+                };
+            });
 
-            if (grid) {
-                const serverW = Number(state.renderExtent?.width || 0);
-                const maxSaneW = Math.max(2000, serverW * 2);
-                const gridW = Math.ceil(grid.clientWidth || 0);
-                if (gridW > 0 && gridW < maxSaneW) {
-                    width = Math.max(width, gridW);
-                }
-                const gridH = Math.ceil(grid.clientHeight || 0);
-                if (gridH > 0) {
-                    height = Math.max(height, gridH);
-                }
-            }
-
-            return { width, height };
+            return map;
         }
 
-        // function applyDxWrapSize(reason) {
-        //     const wrap = document.getElementById('dxDetailWrap');
-        //     if (!wrap) return;
+        function buildExtentRowRectMap() {
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return {};
 
-        //     const ext = computePreviewExtent(state.preview);
-        //     const contentBox = getRenderedContentBox();
+            const rhEl =
+                document.getElementById('dxDetailSheet_RowHeader')
+                || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
 
-        //     let finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
-        //     let finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
+            if (!rhEl) return {};
 
-        //     const saneMinWidth = Math.floor(finalWidth * 0.85);
-        //     const saneMaxWidth = Math.ceil(finalWidth * 1.20);
-        //     const saneMinHeight = Math.floor(finalHeight * 0.85);
-        //     const saneMaxHeight = Math.ceil(finalHeight * 1.20);
+            const rowMap = {};
+            const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
+            let tileOffsetTop = 0;
+            const rowTiles = rhEl.querySelectorAll('.dxss-ht');
 
-        //     if (contentBox.width > 0) {
-        //         const candidateWidth = Math.ceil(contentBox.width + 8);
-        //         if (candidateWidth >= saneMinWidth && candidateWidth <= saneMaxWidth) {
-        //             finalWidth = Math.max(finalWidth, candidateWidth);
-        //         }
-        //     }
+            rowTiles.forEach(function (tile) {
+                const tileHeight = parseFloat(tile.style.height || '0') || 0;
+                const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
 
-        //     if (contentBox.height > 0) {
-        //         const candidateHeight = Math.ceil(contentBox.height + 8);
-        //         if (candidateHeight >= saneMinHeight && candidateHeight <= saneMaxHeight) {
-        //             finalHeight = Math.max(finalHeight, candidateHeight);
-        //         }
-        //     }
+                cells.forEach(function (el) {
+                    const label = String(el.textContent || '').trim();
+                    if (!/^\d+$/.test(label)) return;
 
-        //     // ── 크기 변경 없으면 skip (무한 루프 방지) ──
-        //     const prev = state.previewExtent;
-        //     if (prev && prev.width === finalWidth && prev.height === finalHeight) {
-        //         return; // 변경 없음
-        //     }
+                    const rowNo = parseInt(label, 10);
+                    const cellTop = parseFloat(el.style.top || '0') || 0;
+                    const cellHeight = parseFloat(el.style.height || '0') || 0;
+                    if (cellHeight <= 0) return;
 
-        //     state.previewExtent = { width: finalWidth, height: finalHeight };
+                    const top = rowBaseTop + tileOffsetTop + cellTop;
+                    const bottom = top + cellHeight;
 
-        //     wrap.style.setProperty('width', finalWidth + 'px', 'important');
-        //     wrap.style.setProperty('min-width', finalWidth + 'px', 'important');
-        //     wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
-        //     wrap.style.setProperty('height', finalHeight + 'px', 'important');
-        //     wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
-        //     wrap.style.setProperty('overflow', 'hidden', 'important');
+                    rowMap[rowNo] = {
+                        top: top,
+                        bottom: bottom,
+                        height: cellHeight
+                    };
+                });
+                tileOffsetTop += tileHeight;
+            });
+            return rowMap;
+        }
 
-        //     console.log('[DX] applyDxWrapSize:', 'reason=' + (reason || ''),
-        //         'finalWidth=' + finalWidth, 'finalHeight=' + finalHeight);
-        // }
-                
+        function computePreviewExtent(preview) {
+            const info = getPreviewLastCellInfo(preview || {});
+            const colRectMap = buildExtentColumnRectMap();
+            const rowRectMap = buildExtentRowRectMap();
+
+            const serverUsedLastCellA1 = String(window.__dxRenderUsedLastCellA1 || 'A1').trim().toUpperCase();
+            const serverRenderLastCellA1 = String(window.__dxRenderLastCellA1 || 'B2').trim().toUpperCase();
+            const serverWidthPx = Math.ceil(Number(window.__dxRenderWidthPx || 0));
+            const serverHeightPx = Math.ceil(Number(window.__dxRenderHeightPx || 0));
+
+            const usePreviewFallback = (serverUsedLastCellA1 === 'A1');
+            const selectedTargetA1 = usePreviewFallback ? info.extentA1 : serverRenderLastCellA1;
+            const selectedTarget = parseA1(selectedTargetA1);
+
+            const rightReservePx = 1;
+            const bottomReservePx = 1;
+            const fallbackColPx = 64;
+            const fallbackRowPx = 20;
+
+            let widthPx = 0;
+            let heightPx = 0;
+            let source = '';
+
+            if (selectedTarget) {
+                const targetColLabel = colIndexToLabel(selectedTarget.col1);
+                const targetRowNo = Number(selectedTarget.row1 || 0);
+                const targetColRect = colRectMap[targetColLabel] || null;
+                const targetRowRect = rowRectMap[targetRowNo] || null;
+
+                if (targetColRect && targetRowRect) {
+                    widthPx = Math.ceil(targetColRect.right + rightReservePx);
+                    heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
+                    source = usePreviewFallback ? 'preview-lastCell+1-measured' : 'server-renderLastCell-measured';
+                } else if (!usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
+                    widthPx = Math.ceil(serverWidthPx + rightReservePx);
+                    heightPx = Math.ceil(serverHeightPx + bottomReservePx);
+                    source = 'server-renderLastCell-serverPx';
+                }
+            }
+
+            if (widthPx <= 0 || heightPx <= 0) {
+                const fallbackCol = selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol;
+                const fallbackRow = selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow;
+
+                widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
+                heightPx = Math.ceil((fallbackRow * fallbackRowPx) + bottomReservePx);
+                source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
+            }
+
+            state.renderExtent = {
+                width: widthPx,
+                height: heightPx,
+                wrapWidth: Math.max(600, widthPx),
+                wrapHeight: Math.max(520, heightPx),
+                maxRow: selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow,
+                maxCol: selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol,
+                usedLastCellA1: serverUsedLastCellA1,
+                renderLastCellA1: selectedTargetA1,
+                source: source
+            };
+
+            console.log('[DX] lastCell extent:', {
+                serverUsedLastCellA1: serverUsedLastCellA1,
+                serverRenderLastCellA1: serverRenderLastCellA1,
+                previewLastCellA1: info.lastCellA1,
+                previewLastCellPlus1A1: info.extentA1,
+                selectedTargetA1: selectedTargetA1,
+                selectedBy: usePreviewFallback ? 'preview-lastCell+1' : 'server-renderLastCell',
+                widthPx: widthPx,
+                heightPx: heightPx,
+                source: source
+            });
+
+            return {
+                width: Math.max(600, widthPx),
+                height: Math.max(520, heightPx)
+            };
+        }
+         
         function applyDxWrapSize(reason) {
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return;
 
             const ext = computePreviewExtent(state.preview);
-
             const finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
             const finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
 
-            // 크기 변경 없으면 skip
             const prev = state.previewExtent;
             if (prev && prev.width === finalWidth && prev.height === finalHeight) {
+                console.log('[DX] applyDxWrapSize skipped:',
+                    'reason=' + (reason || ''),
+                    'finalWidth=' + finalWidth,
+                    'finalHeight=' + finalHeight,
+                    'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
+                    'source=' + String(state.renderExtent.source || ''));
                 return;
             }
 
@@ -1369,11 +1596,17 @@ else
             wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
             wrap.style.setProperty('height', finalHeight + 'px', 'important');
             wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
+            wrap.style.setProperty('max-height', finalHeight + 'px', 'important');
             wrap.style.setProperty('overflow', 'hidden', 'important');
 
-            console.log('[DX] applyDxWrapSize:', 'reason=' + (reason || ''),
-                'finalWidth=' + finalWidth, 'finalHeight=' + finalHeight);
+            console.log('[DX] applyDxWrapSize:',
+                'reason=' + (reason || ''),
+                'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
+                'finalWidth=' + finalWidth,
+                'finalHeight=' + finalHeight,
+                'source=' + String(state.renderExtent.source || ''));
         }
+
         // ================== 외부 스크롤만 허용 ==================
         function installOuterScrollOnly() {
             const outer = document.getElementById('doc-scroll');
@@ -1430,7 +1663,7 @@ else
         function extractPersonName(full) {
             if (!full) return '';
             const s = String(full).trim();
-            if (s.indexOf('\u0040') >= 0) return '';   //  문자 포함 시 제외
+            if (s.indexOf('\u0040') >= 0) return '';
             let parts = s.split(/\s+/).filter(Boolean);
             if (!parts.length) return '';
             parts = parts.map(p => p.replace(/님$/, ''));
@@ -1461,6 +1694,39 @@ else
             if (parts.length >= 3) return parts.slice(parts.length - 2).join(' ');
             if (parts.length === 2) return parts.join(' ');
             return parts[0];
+        }
+
+        function seedDxHostSize() {
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return;
+
+            const currentW = Math.ceil(wrap.getBoundingClientRect().width || 0);
+            const currentH = Math.ceil(wrap.getBoundingClientRect().height || 0);
+
+            if (currentW > 32 && currentH > 32) {
+                console.log('[DX] seedDxHostSize skipped:', 'already-sized', currentW, currentH);
+                return;
+            }
+
+            const ext = computePreviewExtent(state.preview);
+            const seedWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
+            const seedHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
+
+            wrap.style.setProperty('width', seedWidth + 'px', 'important');
+            wrap.style.setProperty('min-width', seedWidth + 'px', 'important');
+            wrap.style.setProperty('max-width', seedWidth + 'px', 'important');
+            wrap.style.setProperty('height', seedHeight + 'px', 'important');
+            wrap.style.setProperty('min-height', seedHeight + 'px', 'important');
+            wrap.style.setProperty('max-height', seedHeight + 'px', 'important');
+            wrap.style.setProperty('overflow', 'hidden', 'important');
+
+            state.previewExtent = { width: seedWidth, height: seedHeight };
+
+            console.log('[DX] seedDxHostSize:',
+                'seedWidth=' + seedWidth,
+                'seedHeight=' + seedHeight,
+                'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
+                'source=' + String(state.renderExtent.source || ''));
         }
 
         // ================== A1 셀 주소 파싱 ==================
@@ -1539,8 +1805,7 @@ else
                     `max-width:${Math.round(capW + 24)}px`,
                     `height:${captionHeight}px`,
                     `line-height:${captionHeight}px`,
-                    //`font-size:${Math.max(8, Math.min(10, captionHeight - 2))}px`,
-                    'font-size:12px', // 기존 계산식 제거, 최소 12px 고정 보장
+                    'font-size:12px',
                     'text-align:center',
                     'color:#111',
                     'background:transparent',
@@ -1557,9 +1822,252 @@ else
                 div.appendChild(cap);
             }
 
+            function getBoundsFromMask(mask, width, height) {
+                let minX = width;
+                let minY = height;
+                let maxX = -1;
+                let maxY = -1;
+                let count = 0;
+
+                for (let py = 0; py < height; py++) {
+                    const rowBase = py * width;
+                    for (let px = 0; px < width; px++) {
+                        if (!mask[rowBase + px]) continue;
+                        count++;
+                        if (px < minX) minX = px;
+                        if (py < minY) minY = py;
+                        if (px > maxX) maxX = px;
+                        if (py > maxY) maxY = py;
+                    }
+                }
+
+                if (count <= 0 || maxX < minX || maxY < minY) return null;
+
+                return {
+                    minX: minX,
+                    minY: minY,
+                    maxX: maxX,
+                    maxY: maxY,
+                    count: count
+                };
+            }
+
+            function filterSmallComponents(mask, width, height, totalForegroundCount) {
+                const visited = new Uint8Array(mask.length);
+                const keptMask = new Uint8Array(mask.length);
+                const minArea = Math.max(6, Math.round(totalForegroundCount * 0.0015));
+
+                let keptCount = 0;
+                let unionMinX = width;
+                let unionMinY = height;
+                let unionMaxX = -1;
+                let unionMaxY = -1;
+
+                const stack = [];
+                const cells = [];
+
+                function pushNeighbor(nx, ny) {
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
+                    const nidx = ny * width + nx;
+                    if (visited[nidx] || !mask[nidx]) return;
+                    visited[nidx] = 1;
+                    stack.push(nidx);
+                }
+
+                for (let idx = 0; idx < mask.length; idx++) {
+                    if (!mask[idx] || visited[idx]) continue;
+
+                    visited[idx] = 1;
+                    stack.length = 0;
+                    cells.length = 0;
+                    stack.push(idx);
+
+                    let area = 0;
+                    let minX = width;
+                    let minY = height;
+                    let maxX = -1;
+                    let maxY = -1;
+
+                    while (stack.length) {
+                        const cur = stack.pop();
+                        cells.push(cur);
+                        area++;
+
+                        const py = Math.floor(cur / width);
+                        const px = cur - py * width;
+
+                        if (px < minX) minX = px;
+                        if (py < minY) minY = py;
+                        if (px > maxX) maxX = px;
+                        if (py > maxY) maxY = py;
+
+                        pushNeighbor(px - 1, py - 1);
+                        pushNeighbor(px,     py - 1);
+                        pushNeighbor(px + 1, py - 1);
+                        pushNeighbor(px - 1, py);
+                        pushNeighbor(px + 1, py);
+                        pushNeighbor(px - 1, py + 1);
+                        pushNeighbor(px,     py + 1);
+                        pushNeighbor(px + 1, py + 1);
+                    }
+
+                    if (area < minArea) continue;
+
+                    for (let i = 0; i < cells.length; i++) {
+                        keptMask[cells[i]] = 1;
+                    }
+
+                    keptCount += area;
+                    if (minX < unionMinX) unionMinX = minX;
+                    if (minY < unionMinY) unionMinY = minY;
+                    if (maxX > unionMaxX) unionMaxX = maxX;
+                    if (maxY > unionMaxY) unionMaxY = maxY;
+                }
+
+                return {
+                    keptMask: keptMask,
+                    keptCount: keptCount,
+                    bounds: (keptCount > 0 && unionMaxX >= unionMinX && unionMaxY >= unionMinY)
+                        ? { minX: unionMinX, minY: unionMinY, maxX: unionMaxX, maxY: unionMaxY, count: keptCount }
+                        : null,
+                    minArea: minArea
+                };
+            }
+
+            function buildForegroundBounds(imageEl) {
+                const srcW = Math.max(1, imageEl.naturalWidth || 1);
+                const srcH = Math.max(1, imageEl.naturalHeight || 1);
+
+                const srcCanvas = document.createElement('canvas');
+                srcCanvas.width = srcW;
+                srcCanvas.height = srcH;
+
+                const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+                if (!srcCtx) return null;
+                srcCtx.clearRect(0, 0, srcW, srcH);
+                srcCtx.drawImage(imageEl, 0, 0);
+
+                const scanCanvas = document.createElement('canvas');
+                scanCanvas.width = srcW;
+                scanCanvas.height = srcH;
+
+                const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+                if (!scanCtx) return null;
+
+                scanCtx.fillStyle = '#ffffff';
+                scanCtx.fillRect(0, 0, srcW, srcH);
+                scanCtx.drawImage(imageEl, 0, 0);
+
+                const srcImageData = srcCtx.getImageData(0, 0, srcW, srcH);
+                const scanImageData = scanCtx.getImageData(0, 0, srcW, srcH);
+
+                const srcData = srcImageData.data;
+                const scanData = scanImageData.data;
+                const gray = new Uint8Array(srcW * srcH);
+                const mask = new Uint8Array(srcW * srcH);
+
+                let borderSum = 0;
+                let borderCount = 0;
+
+                for (let py = 0; py < srcH; py++) {
+                    for (let px = 0; px < srcW; px++) {
+                        const i = (py * srcW + px) * 4;
+                        const r = scanData[i];
+                        const g = scanData[i + 1];
+                        const b = scanData[i + 2];
+                        const luminance = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+                        gray[py * srcW + px] = luminance;
+
+                        if (py === 0 || px === 0 || py === srcH - 1 || px === srcW - 1) {
+                            borderSum += luminance;
+                            borderCount++;
+                        }
+                    }
+                }
+
+                const bgGray = borderCount > 0 ? (borderSum / borderCount) : 255;
+                const threshold = Math.max(180, Math.min(245, Math.round(bgGray - 10)));
+
+                let foregroundCount = 0;
+
+                for (let py = 0; py < srcH; py++) {
+                    const rowBase = py * srcW;
+                    for (let px = 0; px < srcW; px++) {
+                        const idx = rowBase + px;
+                        const i = idx * 4;
+
+                        const luminance = gray[idx];
+                        const alpha = srcData[i + 3];
+
+                        if (luminance <= threshold) {
+                            mask[idx] = 1;
+                            foregroundCount++;
+                            continue;
+                        }
+
+                        if (alpha > 24 && luminance <= 252) {
+                            mask[idx] = 1;
+                            foregroundCount++;
+                        }
+                    }
+                }
+
+                if (foregroundCount <= 0) {
+                    return null;
+                }
+
+                const filtered = filterSmallComponents(mask, srcW, srcH, foregroundCount);
+                let bounds = filtered.bounds;
+
+                if (!bounds) {
+                    bounds = getBoundsFromMask(mask, srcW, srcH);
+                }
+
+                if (!bounds) {
+                    return null;
+                }
+
+                const pad = 1;
+                const minX = Math.max(0, bounds.minX - pad);
+                const minY = Math.max(0, bounds.minY - pad);
+                const maxX = Math.min(srcW - 1, bounds.maxX + pad);
+                const maxY = Math.min(srcH - 1, bounds.maxY + pad);
+
+                const cropW = Math.max(1, maxX - minX + 1);
+                const cropH = Math.max(1, maxY - minY + 1);
+
+                const cropCanvas = document.createElement('canvas');
+                cropCanvas.width = cropW;
+                cropCanvas.height = cropH;
+
+                const cropCtx = cropCanvas.getContext('2d');
+                if (!cropCtx) return null;
+
+                cropCtx.clearRect(0, 0, cropW, cropH);
+                cropCtx.drawImage(srcCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+                console.log('[DX-DBG] stamp-bounds', {
+                    originalW: srcW,
+                    originalH: srcH,
+                    cropW: cropW,
+                    cropH: cropH,
+                    bgGray: Math.round(bgGray),
+                    threshold: threshold,
+                    foregroundCount: foregroundCount,
+                    keptCount: filtered.keptCount,
+                    minArea: filtered.minArea,
+                    minX: minX,
+                    minY: minY,
+                    maxX: maxX,
+                    maxY: maxY
+                });
+
+                return cropCanvas.toDataURL('image/png');
+            }
+
             function applyImageBox() {
                 const bodyW = Math.max(8, boxW - padX * 2);
-                const bodyH = Math.max(8, boxH - padTop - captionHeight - bodyBottomPad);
+                const bodyH = Math.max(8, boxH - padTop - bodyBottomPad);
 
                 const nw = Math.max(1, Number(img.naturalWidth || 1));
                 const nh = Math.max(1, Number(img.naturalHeight || 1));
@@ -1580,8 +2088,8 @@ else
                     drawW = Math.max(1, Math.round(nw * scale));
                     drawH = Math.max(1, Math.round(nh * scale));
 
-                    const maxAllowedW = Math.max(boxW, Math.round(boxW * maxWidthRatio));
-                    const maxAllowedH = Math.max(boxH, Math.round(boxH * maxHeightRatio));
+                    const maxAllowedW = Math.max(bodyW, Math.round(bodyW * maxWidthRatio));
+                    const maxAllowedH = Math.max(bodyH, Math.round(bodyH * maxHeightRatio));
 
                     if (drawW > maxAllowedW || drawH > maxAllowedH) {
                         const capScale = Math.min(
@@ -1640,63 +2148,16 @@ else
             img.onload = function () {
                 try {
                     if (img.dataset.trimmed !== '1') {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = Math.max(1, img.naturalWidth || 1);
-                        canvas.height = Math.max(1, img.naturalHeight || 1);
-
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                            ctx.drawImage(img, 0, 0);
-
-                            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                            let minX = canvas.width;
-                            let minY = canvas.height;
-                            let maxX = -1;
-                            let maxY = -1;
-
-                            for (let py = 0; py < canvas.height; py++) {
-                                for (let px = 0; px < canvas.width; px++) {
-                                    const i = (py * canvas.width + px) * 4;
-                                    const alpha = data[i + 3];
-                                    if (alpha < 10) continue;
-
-                                    minX = Math.min(minX, px);
-                                    minY = Math.min(minY, py);
-                                    maxX = Math.max(maxX, px);
-                                    maxY = Math.max(maxY, py);
-                                }
-                            }
-
-                            if (maxX > minX && maxY > minY) {
-                                const cw = maxX - minX + 1;
-                                const ch = maxY - minY + 1;
-                                const crop = document.createElement('canvas');
-                                crop.width = cw;
-                                crop.height = ch;
-
-                                const cropCtx = crop.getContext('2d');
-                                if (cropCtx) {
-                                    cropCtx.drawImage(canvas, minX, minY, cw, ch, 0, 0, cw, ch);
-
-                                    console.log('[DX-DBG] stamp-trim', {
-                                        originalW: canvas.width,
-                                        originalH: canvas.height,
-                                        cropW: cw,
-                                        cropH: ch,
-                                        minX: minX,
-                                        minY: minY,
-                                        maxX: maxX,
-                                        maxY: maxY
-                                    });
-
-                                    img.dataset.trimmed = '1';
-                                    img.src = crop.toDataURL('image/png');
-                                    return;
-                                }
-                            }
+                        const trimmedDataUrl = buildForegroundBounds(img);
+                        if (trimmedDataUrl) {
+                            img.dataset.trimmed = '1';
+                            img.src = trimmedDataUrl;
+                            return;
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.warn('[DX-DBG] stamp-trim-failed', e);
+                }
 
                 applyImageBox();
             };
@@ -1720,788 +2181,816 @@ else
         function renderApprovalOverlay() {
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return;
-
-            const overlay = document.getElementById('dxApprovalOverlay') || wrap;
-            overlay.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
-
-                console.log('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
-
-            const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
-            const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
-            if (!approvals.length && !cooperations.length) return;
-
-            const chEl =
-                document.getElementById('dxDetailSheet_ColumnHeader') ||
-                document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
-
-            const rhEl =
-                document.getElementById('dxDetailSheet_RowHeader') ||
-                document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-
-            if (!chEl || !rhEl) {
-                setTimeout(renderApprovalOverlay, 300);
+            if (state.overlayRendering) {
+                console.log('[DX] renderApprovalOverlay skipped: overlayRendering');
                 return;
             }
 
-            const wrapRect = wrap.getBoundingClientRect();
-            const chRect = chEl.getBoundingClientRect();
-            const rhRect = rhEl.getBoundingClientRect();
+            state.overlayRendering = true;
 
-            if (chRect.width < 50 || rhRect.height < 50) {
-                setTimeout(renderApprovalOverlay, 300);
-                return;
-            }
+            try {
+                const overlay = document.getElementById('dxApprovalOverlay') || wrap;
+                overlay.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
 
-            function parseA1CellLocal(a1Cell) {
-                const m = String(a1Cell || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
-                if (!m) return null;
-                return { colLabel: m[1], row: parseInt(m[2], 10) };
-            }
-
-            function colLabelToIndex(label) {
-                let col = 0;
-                const s = String(label || '').trim().toUpperCase();
-                for (let i = 0; i < s.length; i++) col = col * 26 + (s.charCodeAt(i) - 64);
-                return col;
-            }
-
-            function colIndexToLabel(idx) {
-                let n = Number(idx || 0);
-                let out = '';
-                while (n > 0) {
-                    const r = (n - 1) % 26;
-                    out = String.fromCharCode(65 + r) + out;
-                    n = Math.floor((n - 1) / 26);
+                if (!window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__) {
+                    window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__ = true;
+                    console.log('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
                 }
-                return out || 'A';
-            }
 
-            function parseA1RangeLocal(a1) {
-                const raw = String(a1 || '').trim().toUpperCase();
-                if (!raw) return null;
+                const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
+                const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
+                if (!approvals.length && !cooperations.length) return;
 
-                const parts = raw.split(':').map(v => v.trim()).filter(Boolean);
-                const start = parseA1CellLocal(parts[0]);
-                const end = parseA1CellLocal(parts[1] || parts[0]);
+                const chEl =
+                    document.getElementById('dxDetailSheet_ColumnHeader') ||
+                    document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
 
-                if (!start || !end) return null;
+                const rhEl =
+                    document.getElementById('dxDetailSheet_RowHeader') ||
+                    document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
 
-                const fromCol = Math.min(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
-                const toCol = Math.max(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
-                const fromRow = Math.min(start.row, end.row);
-                const toRow = Math.max(start.row, end.row);
-
-                return {
-                    raw,
-                    from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
-                    to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
-                };
-            }
-
-            function buildColumnRectMap() {
-                const colMap = {};
-                const cells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                cells.forEach(function (el) {
-                    const label = String(el.textContent || '').trim().toUpperCase();
-                    if (!/^[A-Z]+$/.test(label)) return;
-
-                    const r = el.getBoundingClientRect();
-                    if (r.width <= 0 || r.height <= 0) return;
-
-                    const left = r.left - wrapRect.left;
-                    const right = r.right - wrapRect.left;
-
-                    if (!colMap[label] || left < colMap[label].left) {
-                        colMap[label] = {
-                            left: left,
-                            right: right,
-                            width: right - left
-                        };
+                if (!chEl || !rhEl) {
+                    if (state.overlayRetryCount < 6) {
+                        clearTimeout(state.overlayRetryTimer);
+                        state.overlayRetryTimer = setTimeout(function () {
+                            state.overlayRetryCount++;
+                            console.log('[DX] renderApprovalOverlay retry: missing headers', state.overlayRetryCount);
+                            renderApprovalOverlay();
+                        }, 300);
+                    } else {
+                        console.warn('[DX] renderApprovalOverlay stopped: missing headers');
                     }
-                });
+                    return;
+                }
 
-                return colMap;
-            }
+                const wrapRect = wrap.getBoundingClientRect();
+                const chRect = chEl.getBoundingClientRect();
+                const rhRect = rhEl.getBoundingClientRect();
 
-            function buildRowRectMap() {
-                const rowMap = {};
-                const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
+                if (chRect.width < 50 || rhRect.height < 50) {
+                    if (state.overlayRetryCount < 6) {
+                        clearTimeout(state.overlayRetryTimer);
+                        state.overlayRetryTimer = setTimeout(function () {
+                            state.overlayRetryCount++;
+                            console.log('[DX] renderApprovalOverlay retry: header size too small', state.overlayRetryCount, chRect.width, rhRect.height);
+                            renderApprovalOverlay();
+                        }, 300);
+                    } else {
+                        console.warn('[DX] renderApprovalOverlay stopped: header size too small');
+                    }
+                    return;
+                }
 
-                let tileOffsetTop = 0;
-                const rowTiles = rhEl.querySelectorAll('.dxss-ht');
+                state.overlayRetryCount = 0;
 
-                rowTiles.forEach(function (tile) {
-                    const tileHeight = parseFloat(tile.style.height || '0') || 0;
-                    const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
+                function parseA1CellLocal(a1Cell) {
+                    const m = String(a1Cell || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
+                    if (!m) return null;
+                    return { colLabel: m[1], row: parseInt(m[2], 10) };
+                }
+
+                function colLabelToIndex(label) {
+                    let col = 0;
+                    const s = String(label || '').trim().toUpperCase();
+                    for (let i = 0; i < s.length; i++) col = col * 26 + (s.charCodeAt(i) - 64);
+                    return col;
+                }
+
+                function colIndexToLabel(idx) {
+                    let n = Number(idx || 0);
+                    let out = '';
+                    while (n > 0) {
+                        const r = (n - 1) % 26;
+                        out = String.fromCharCode(65 + r) + out;
+                        n = Math.floor((n - 1) / 26);
+                    }
+                    return out || 'A';
+                }
+
+                function parseA1RangeLocal(a1) {
+                    const raw = String(a1 || '').trim().toUpperCase();
+                    if (!raw) return null;
+
+                    const parts = raw.split(':').map(v => v.trim()).filter(Boolean);
+                    const start = parseA1CellLocal(parts[0]);
+                    const end = parseA1CellLocal(parts[1] || parts[0]);
+
+                    if (!start || !end) return null;
+
+                    const fromCol = Math.min(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
+                    const toCol = Math.max(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
+                    const fromRow = Math.min(start.row, end.row);
+                    const toRow = Math.max(start.row, end.row);
+
+                    return {
+                        raw,
+                        from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
+                        to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
+                    };
+                }
+
+                function buildColumnRectMap() {
+                    const colMap = {};
+                    const cells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
 
                     cells.forEach(function (el) {
-                        const label = String(el.textContent || '').trim();
-                        if (!/^\d+$/.test(label)) return;
+                        const label = String(el.textContent || '').trim().toUpperCase();
+                        if (!/^[A-Z]+$/.test(label)) return;
 
-                        const rowNo = parseInt(label, 10);
-                        const cellTop = parseFloat(el.style.top || '0') || 0;
-                        const cellHeight = parseFloat(el.style.height || '0') || 0;
-                        if (cellHeight <= 0) return;
+                        const r = el.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) return;
 
-                        const top = rowBaseTop + tileOffsetTop + cellTop;
-                        const bottom = top + cellHeight;
+                        const left = r.left - wrapRect.left;
+                        const right = r.right - wrapRect.left;
 
-                        rowMap[rowNo] = {
-                            top: top,
-                            bottom: bottom,
-                            height: cellHeight
-                        };
+                        if (!colMap[label] || left < colMap[label].left) {
+                            colMap[label] = {
+                                left: left,
+                                right: right,
+                                width: right - left
+                            };
+                        }
                     });
 
-                    tileOffsetTop += tileHeight;
-                });
+                    return colMap;
+                }
 
-                return rowMap;
-            }
+                function buildRowRectMap() {
+                    const rowMap = {};
+                    const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
 
-            function normalizeMergeRange(rawMerge) {
-                const m = parseA1RangeLocal(rawMerge);
-                if (!m) return null;
-                return {
-                    fromCol: m.from.col,
-                    toCol: m.to.col,
-                    fromRow: m.from.row,
-                    toRow: m.to.row
-                };
-            }
+                    let tileOffsetTop = 0;
+                    const rowTiles = rhEl.querySelectorAll('.dxss-ht');
 
-            function getPreviewMergeRanges() {
-                const preview = state.preview || {};
-                const rawMerges = Array.isArray(preview.merges) ? preview.merges : [];
-                const list = [];
+                    rowTiles.forEach(function (tile) {
+                        const tileHeight = parseFloat(tile.style.height || '0') || 0;
+                        const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
 
-                rawMerges.forEach(function (m) {
-                    if (typeof m === 'string') {
-                        const parsed = normalizeMergeRange(m);
-                        if (parsed) list.push(parsed);
-                        return;
-                    }
+                        cells.forEach(function (el) {
+                            const label = String(el.textContent || '').trim();
+                            if (!/^\d+$/.test(label)) return;
 
-                    // 4-element 1-based 배열: [r1, c1, r2, c2]
-                    if (Array.isArray(m) && m.length >= 4) {
-                        const fromRow = parseInt(m[0], 10);
-                        const fromCol = parseInt(m[1], 10);
-                        const toRow   = parseInt(m[2], 10);
-                        const toCol   = parseInt(m[3], 10);
+                            const rowNo = parseInt(label, 10);
+                            const cellTop = parseFloat(el.style.top || '0') || 0;
+                            const cellHeight = parseFloat(el.style.height || '0') || 0;
+                            if (cellHeight <= 0) return;
 
-                        if (
-                            Number.isFinite(fromCol) && Number.isFinite(toCol) &&
-                            Number.isFinite(fromRow) && Number.isFinite(toRow) &&
-                            fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0
-                        ) {
-                            list.push({
-                                fromCol: Math.min(fromCol, toCol),
-                                toCol: Math.max(fromCol, toCol),
-                                fromRow: Math.min(fromRow, toRow),
-                                toRow: Math.max(fromRow, toRow)
-                            });
+                            const top = rowBaseTop + tileOffsetTop + cellTop;
+                            const bottom = top + cellHeight;
+
+                            rowMap[rowNo] = {
+                                top: top,
+                                bottom: bottom,
+                                height: cellHeight
+                            };
+                        });
+
+                        tileOffsetTop += tileHeight;
+                    });
+
+                    return rowMap;
+                }
+
+                function normalizeMergeRange(rawMerge) {
+                    const m = parseA1RangeLocal(rawMerge);
+                    if (!m) return null;
+                    return {
+                        fromCol: m.from.col,
+                        toCol: m.to.col,
+                        fromRow: m.from.row,
+                        toRow: m.to.row
+                    };
+                }
+
+                function getPreviewMergeRanges() {
+                    const preview = state.preview || {};
+                    const rawMerges = Array.isArray(preview.merges) ? preview.merges : [];
+                    const list = [];
+
+                    rawMerges.forEach(function (m) {
+                        if (typeof m === 'string') {
+                            const parsed = normalizeMergeRange(m);
+                            if (parsed) list.push(parsed);
+                            return;
                         }
-                        return;
-                    }
 
-                    const a1 = m && (m.a1 || m.A1 || m.range || m.Range);
-                    if (typeof a1 === 'string') {
-                        const parsed = normalizeMergeRange(a1);
-                        if (parsed) list.push(parsed);
-                        return;
-                    }
-
-                    // s/e 객체형은 0-based 유지
-                    if (m && m.s && m.e) {
-                        const fromCol = Number(m.s.c || m.s.col || 0) + 1;
-                        const toCol = Number(m.e.c || m.e.col || 0) + 1;
-                        const fromRow = Number(m.s.r || m.s.row || 0) + 1;
-                        const toRow = Number(m.e.r || m.e.row || 0) + 1;
-
-                        if (fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0) {
-                            list.push({
-                                fromCol: Math.min(fromCol, toCol),
-                                toCol: Math.max(fromCol, toCol),
-                                fromRow: Math.min(fromRow, toRow),
-                                toRow: Math.max(fromRow, toRow)
-                            });
-                        }
-                    }
-                });
-
-                return list;
-            }
-
-            function expandRangeByMerges(range) {
-                if (!range) return null;
-
-                const merges = getPreviewMergeRanges();
-                let fromCol = range.from.col;
-                let toCol = range.to.col;
-                let fromRow = range.from.row;
-                let toRow = range.to.row;
-                let changed = true;
-
-                while (changed) {
-                    changed = false;
-
-                    merges.forEach(function (mg) {
-                        const overlapCol = !(mg.toCol < fromCol || mg.fromCol > toCol);
-                        const overlapRow = !(mg.toRow < fromRow || mg.fromRow > toRow);
-
-                        if (overlapCol && overlapRow) {
-                            const nextFromCol = Math.min(fromCol, mg.fromCol);
-                            const nextToCol = Math.max(toCol, mg.toCol);
-                            const nextFromRow = Math.min(fromRow, mg.fromRow);
-                            const nextToRow = Math.max(toRow, mg.toRow);
+                        if (Array.isArray(m) && m.length >= 4) {
+                            const fromRow = parseInt(m[0], 10);
+                            const fromCol = parseInt(m[1], 10);
+                            const toRow = parseInt(m[2], 10);
+                            const toCol = parseInt(m[3], 10);
 
                             if (
-                                nextFromCol !== fromCol ||
-                                nextToCol !== toCol ||
-                                nextFromRow !== fromRow ||
-                                nextToRow !== toRow
+                                Number.isFinite(fromCol) && Number.isFinite(toCol) &&
+                                Number.isFinite(fromRow) && Number.isFinite(toRow) &&
+                                fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0
                             ) {
-                                fromCol = nextFromCol;
-                                toCol = nextToCol;
-                                fromRow = nextFromRow;
-                                toRow = nextToRow;
-                                changed = true;
+                                list.push({
+                                    fromCol: Math.min(fromCol, toCol),
+                                    toCol: Math.max(fromCol, toCol),
+                                    fromRow: Math.min(fromRow, toRow),
+                                    toRow: Math.max(fromRow, toRow)
+                                });
+                            }
+                            return;
+                        }
+
+                        const a1 = m && (m.a1 || m.A1 || m.range || m.Range);
+                        if (typeof a1 === 'string') {
+                            const parsed = normalizeMergeRange(a1);
+                            if (parsed) list.push(parsed);
+                            return;
+                        }
+
+                        if (m && m.s && m.e) {
+                            const fromCol = Number(m.s.c || m.s.col || 0) + 1;
+                            const toCol = Number(m.e.c || m.e.col || 0) + 1;
+                            const fromRow = Number(m.s.r || m.s.row || 0) + 1;
+                            const toRow = Number(m.e.r || m.e.row || 0) + 1;
+
+                            if (fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0) {
+                                list.push({
+                                    fromCol: Math.min(fromCol, toCol),
+                                    toCol: Math.max(fromCol, toCol),
+                                    fromRow: Math.min(fromRow, toRow),
+                                    toRow: Math.max(fromRow, toRow)
+                                });
                             }
                         }
                     });
+
+                    return list;
                 }
 
-                return {
-                    raw: range.raw,
-                    from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
-                    to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
-                };
-            }
+                function expandRangeByMerges(range) {
+                    if (!range) return null;
 
-            function getRangeBox(range, colRectMap, rowRectMap) {
-                if (!range) return null;
+                    const merges = getPreviewMergeRanges();
+                    let fromCol = range.from.col;
+                    let toCol = range.to.col;
+                    let fromRow = range.from.row;
+                    let toRow = range.to.row;
+                    let changed = true;
 
-                const expanded = expandRangeByMerges(range);
+                    while (changed) {
+                        changed = false;
 
-                const c1 = colRectMap[expanded.from.colLabel];
-                const c2 = colRectMap[expanded.to.colLabel];
-                const r1 = rowRectMap[expanded.from.row];
-                const r2 = rowRectMap[expanded.to.row];
+                        merges.forEach(function (mg) {
+                            const overlapCol = !(mg.toCol < fromCol || mg.fromCol > toCol);
+                            const overlapRow = !(mg.toRow < fromRow || mg.fromRow > toRow);
 
-                if (!c1 || !c2 || !r1 || !r2) return null;
+                            if (overlapCol && overlapRow) {
+                                const nextFromCol = Math.min(fromCol, mg.fromCol);
+                                const nextToCol = Math.max(toCol, mg.toCol);
+                                const nextFromRow = Math.min(fromRow, mg.fromRow);
+                                const nextToRow = Math.max(toRow, mg.toRow);
 
-                const left = Math.min(c1.left, c2.left);
-                const right = Math.max(c1.right, c2.right);
-                const top = Math.min(r1.top, r2.top);
-                const bottom = Math.max(r1.bottom, r2.bottom);
+                                if (
+                                    nextFromCol !== fromCol ||
+                                    nextToCol !== toCol ||
+                                    nextFromRow !== fromRow ||
+                                    nextToRow !== toRow
+                                ) {
+                                    fromCol = nextFromCol;
+                                    toCol = nextToCol;
+                                    fromRow = nextFromRow;
+                                    toRow = nextToRow;
+                                    changed = true;
+                                }
+                            }
+                        });
+                    }
 
-                const box = {
-                    x: left,
-                    y: top,
-                    w: Math.max(1, right - left),
-                    h: Math.max(1, bottom - top)
-                };
-
-                console.log('[DX-DBG] expanded-range-box', {
-                    raw: range.raw,
-                    expandedFrom: expanded.from.colLabel + expanded.from.row,
-                    expandedTo: expanded.to.colLabel + expanded.to.row,
-                    box: box
-                });
-
-                return box;
-            }
-
-            function normalizeBucketName(v) {
-                const s = String(v || '').trim().toLowerCase();
-                if (!s) return '';
-                if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
-                if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
-                return '';
-            }
-
-            function inferBucketFromRow(row) {
-                const candidates = [
-                    row.kind, row.Kind,
-                    row.type, row.Type,
-                    row.group, row.Group,
-                    row.section, row.Section,
-                    row.category, row.Category,
-                    row.mode, row.Mode,
-                    row.stampType, row.StampType,
-                    row.approvalType, row.ApprovalType
-                ];
-
-                for (let i = 0; i < candidates.length; i++) {
-                    const bucket = normalizeBucketName(candidates[i]);
-                    if (bucket) return bucket;
+                    return {
+                        raw: range.raw,
+                        from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
+                        to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
+                    };
                 }
 
-                const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
-                if (roleKey.startsWith('C')) return 'cooperation';
-                if (roleKey.startsWith('A')) return 'approval';
+                function getRangeBox(range, colRectMap, rowRectMap) {
+                    if (!range) return null;
 
-                if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
-                return 'approval';
-            }
+                    const expanded = expandRangeByMerges(range);
 
-            function __rangePickFirst() {
-                for (let i = 0; i < arguments.length; i++) {
-                    const v = arguments[i];
-                    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-                }
-                return null;
-            }
+                    const c1 = colRectMap[expanded.from.colLabel];
+                    const c2 = colRectMap[expanded.to.colLabel];
+                    const r1 = rowRectMap[expanded.from.row];
+                    const r2 = rowRectMap[expanded.to.row];
 
-            function __rangeToFinite(v) {
-                const n = Number(v);
-                return isFinite(n) ? n : null;
-            }
+                    if (!c1 || !c2 || !r1 || !r2) return null;
 
-            function __rangeToColNo(v, zeroBased) {
-                if (v == null || String(v).trim() === '') return null;
+                    const left = Math.min(c1.left, c2.left);
+                    const right = Math.max(c1.right, c2.right);
+                    const top = Math.min(r1.top, r2.top);
+                    const bottom = Math.max(r1.bottom, r2.bottom);
 
-                const s = String(v).trim().toUpperCase();
-                if (/^[A-Z]+$/.test(s)) return colLabelToIndex(s);
+                    const box = {
+                        x: left,
+                        y: top,
+                        w: Math.max(1, right - left),
+                        h: Math.max(1, bottom - top)
+                    };
 
-                const n = __rangeToFinite(v);
-                if (n == null) return null;
+                    console.log('[DX-DBG] expanded-range-box', {
+                        raw: range.raw,
+                        expandedFrom: expanded.from.colLabel + expanded.from.row,
+                        expandedTo: expanded.to.colLabel + expanded.to.row,
+                        box: box
+                    });
 
-                return zeroBased ? (n + 1) : n;
-            }
-
-            function __rangeToRowNo(v, zeroBased) {
-                if (v == null || String(v).trim() === '') return null;
-
-                const n = __rangeToFinite(v);
-                if (n == null) return null;
-
-                return zeroBased ? (n + 1) : n;
-            }
-
-            function __normalizeA1Text(v) {
-                const raw = String(v || '').trim().toUpperCase();
-                if (!raw) return '';
-
-                const parsed = parseA1RangeLocal(raw);
-                return parsed ? parsed.raw : '';
-            }
-
-            function __buildMappedA1FromRow(row) {
-                if (!row) return '';
-
-                if (typeof row === 'string') {
-                    return __normalizeA1Text(row);
+                    return box;
                 }
 
-                if (typeof row !== 'object') return '';
-
-                const directRange =
-                    __normalizeA1Text(__rangePickFirst(
-                        row.a1Range, row.A1Range,
-                        row.rangeA1, row.RangeA1,
-                        row.cellRange, row.CellRange,
-                        row.range, row.Range,
-                        row.address, row.Address,
-                        row.ref, row.Ref
-                    ));
-
-                if (directRange) return directRange;
-
-                const anchorA1 =
-                    __normalizeA1Text(__rangePickFirst(
-                        row.a1, row.A1,
-                        row.cellA1, row.CellA1,
-                        row.anchorA1, row.AnchorA1,
-                        row.startA1, row.StartA1
-                    ));
-
-                const anchor = anchorA1 ? parseA1RangeLocal(anchorA1) : null;
-
-                let fromCol =
-                    __rangeToColNo(__rangePickFirst(
-                        row.fromCol, row.FromCol,
-                        row.startCol, row.StartCol,
-                        row.firstCol, row.FirstCol,
-                        row.leftCol, row.LeftCol,
-                        row.col1, row.Col1
-                    ), false);
-
-                let toCol =
-                    __rangeToColNo(__rangePickFirst(
-                        row.toCol, row.ToCol,
-                        row.endCol, row.EndCol,
-                        row.lastCol, row.LastCol,
-                        row.rightCol, row.RightCol,
-                        row.col2, row.Col2
-                    ), false);
-
-                let fromRow =
-                    __rangeToRowNo(__rangePickFirst(
-                        row.fromRow, row.FromRow,
-                        row.startRow, row.StartRow,
-                        row.firstRow, row.FirstRow,
-                        row.topRow, row.TopRow,
-                        row.row1, row.Row1
-                    ), false);
-
-                let toRow =
-                    __rangeToRowNo(__rangePickFirst(
-                        row.toRow, row.ToRow,
-                        row.endRow, row.EndRow,
-                        row.lastRow, row.LastRow,
-                        row.bottomRow, row.BottomRow,
-                        row.row2, row.Row2
-                    ), false);
-
-                if (fromCol == null) {
-                    fromCol = __rangeToColNo(__rangePickFirst(
-                        row.sc, row.SC,
-                        row.scol, row.SCol,
-                        row.startCol0, row.StartCol0,
-                        row.fromCol0, row.FromCol0
-                    ), true);
+                function normalizeBucketName(v) {
+                    const s = String(v || '').trim().toLowerCase();
+                    if (!s) return '';
+                    if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
+                    if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
+                    return '';
                 }
 
-                if (toCol == null) {
-                    toCol = __rangeToColNo(__rangePickFirst(
-                        row.ec, row.EC,
-                        row.ecol, row.ECol,
-                        row.endCol0, row.EndCol0,
-                        row.toCol0, row.ToCol0
-                    ), true);
+                function inferBucketFromRow(row) {
+                    const candidates = [
+                        row.kind, row.Kind,
+                        row.type, row.Type,
+                        row.group, row.Group,
+                        row.section, row.Section,
+                        row.category, row.Category,
+                        row.mode, row.Mode,
+                        row.stampType, row.StampType,
+                        row.approvalType, row.ApprovalType
+                    ];
+
+                    for (let i = 0; i < candidates.length; i++) {
+                        const bucket = normalizeBucketName(candidates[i]);
+                        if (bucket) return bucket;
+                    }
+
+                    const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
+                    if (roleKey.startsWith('C')) return 'cooperation';
+                    if (roleKey.startsWith('A')) return 'approval';
+
+                    if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
+                    return 'approval';
                 }
 
-                if (fromRow == null) {
-                    fromRow = __rangeToRowNo(__rangePickFirst(
-                        row.sr, row.SR,
-                        row.srow, row.SRow,
-                        row.startRow0, row.StartRow0,
-                        row.fromRow0, row.FromRow0
-                    ), true);
+                function __rangePickFirst() {
+                    for (let i = 0; i < arguments.length; i++) {
+                        const v = arguments[i];
+                        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+                    }
+                    return null;
                 }
 
-                if (toRow == null) {
-                    toRow = __rangeToRowNo(__rangePickFirst(
-                        row.er, row.ER,
-                        row.erow, row.ERow,
-                        row.endRow0, row.EndRow0,
-                        row.toRow0, row.ToRow0
-                    ), true);
+                function __rangeToFinite(v) {
+                    const n = Number(v);
+                    return isFinite(n) ? n : null;
                 }
 
-                const colSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
-                    row.colSpan, row.ColSpan,
-                    row.columnSpan, row.ColumnSpan,
-                    row.spanX, row.SpanX,
-                    row.widthCells, row.WidthCells
-                )) || 1);
+                function __rangeToColNo(v, zeroBased) {
+                    if (v == null || String(v).trim() === '') return null;
 
-                const rowSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
-                    row.rowSpan, row.RowSpan,
-                    row.heightSpan, row.HeightSpan,
-                    row.spanY, row.SpanY,
-                    row.heightCells, row.HeightCells
-                )) || 1);
+                    const s = String(v).trim().toUpperCase();
+                    if (/^[A-Z]+$/.test(s)) return colLabelToIndex(s);
 
-                if (anchor) {
-                    if (fromCol == null) fromCol = anchor.from.col;
-                    if (fromRow == null) fromRow = anchor.from.row;
+                    const n = __rangeToFinite(v);
+                    if (n == null) return null;
+
+                    return zeroBased ? (n + 1) : n;
+                }
+
+                function __rangeToRowNo(v, zeroBased) {
+                    if (v == null || String(v).trim() === '') return null;
+
+                    const n = __rangeToFinite(v);
+                    if (n == null) return null;
+
+                    return zeroBased ? (n + 1) : n;
+                }
+
+                function __normalizeA1Text(v) {
+                    const raw = String(v || '').trim().toUpperCase();
+                    if (!raw) return '';
+
+                    const parsed = parseA1RangeLocal(raw);
+                    return parsed ? parsed.raw : '';
+                }
+
+                function __buildMappedA1FromRow(row) {
+                    if (!row) return '';
+
+                    if (typeof row === 'string') {
+                        return __normalizeA1Text(row);
+                    }
+
+                    if (typeof row !== 'object') return '';
+
+                    const directRange =
+                        __normalizeA1Text(__rangePickFirst(
+                            row.a1Range, row.A1Range,
+                            row.rangeA1, row.RangeA1,
+                            row.cellRange, row.CellRange,
+                            row.range, row.Range,
+                            row.address, row.Address,
+                            row.ref, row.Ref
+                        ));
+
+                    if (directRange) return directRange;
+
+                    const anchorA1 =
+                        __normalizeA1Text(__rangePickFirst(
+                            row.a1, row.A1,
+                            row.cellA1, row.CellA1,
+                            row.anchorA1, row.AnchorA1,
+                            row.startA1, row.StartA1
+                        ));
+
+                    const anchor = anchorA1 ? parseA1RangeLocal(anchorA1) : null;
+
+                    let fromCol =
+                        __rangeToColNo(__rangePickFirst(
+                            row.fromCol, row.FromCol,
+                            row.startCol, row.StartCol,
+                            row.firstCol, row.FirstCol,
+                            row.leftCol, row.LeftCol,
+                            row.col1, row.Col1
+                        ), false);
+
+                    let toCol =
+                        __rangeToColNo(__rangePickFirst(
+                            row.toCol, row.ToCol,
+                            row.endCol, row.EndCol,
+                            row.lastCol, row.LastCol,
+                            row.rightCol, row.RightCol,
+                            row.col2, row.Col2
+                        ), false);
+
+                    let fromRow =
+                        __rangeToRowNo(__rangePickFirst(
+                            row.fromRow, row.FromRow,
+                            row.startRow, row.StartRow,
+                            row.firstRow, row.FirstRow,
+                            row.topRow, row.TopRow,
+                            row.row1, row.Row1
+                        ), false);
+
+                    let toRow =
+                        __rangeToRowNo(__rangePickFirst(
+                            row.toRow, row.ToRow,
+                            row.endRow, row.EndRow,
+                            row.lastRow, row.LastRow,
+                            row.bottomRow, row.BottomRow,
+                            row.row2, row.Row2
+                        ), false);
+
+                    if (fromCol == null) {
+                        fromCol = __rangeToColNo(__rangePickFirst(
+                            row.sc, row.SC,
+                            row.scol, row.SCol,
+                            row.startCol0, row.StartCol0,
+                            row.fromCol0, row.FromCol0
+                        ), true);
+                    }
 
                     if (toCol == null) {
-                        if (anchor.to && anchor.to.col && anchor.to.col !== anchor.from.col) toCol = anchor.to.col;
-                        else if (colSpan > 1) toCol = fromCol + colSpan - 1;
-                        else toCol = fromCol;
+                        toCol = __rangeToColNo(__rangePickFirst(
+                            row.ec, row.EC,
+                            row.ecol, row.ECol,
+                            row.endCol0, row.EndCol0,
+                            row.toCol0, row.ToCol0
+                        ), true);
+                    }
+
+                    if (fromRow == null) {
+                        fromRow = __rangeToRowNo(__rangePickFirst(
+                            row.sr, row.SR,
+                            row.srow, row.SRow,
+                            row.startRow0, row.StartRow0,
+                            row.fromRow0, row.FromRow0
+                        ), true);
                     }
 
                     if (toRow == null) {
-                        if (anchor.to && anchor.to.row && anchor.to.row !== anchor.from.row) toRow = anchor.to.row;
-                        else if (rowSpan > 1) toRow = fromRow + rowSpan - 1;
-                        else toRow = fromRow;
+                        toRow = __rangeToRowNo(__rangePickFirst(
+                            row.er, row.ER,
+                            row.erow, row.ERow,
+                            row.endRow0, row.EndRow0,
+                            row.toRow0, row.ToRow0
+                        ), true);
                     }
+
+                    const colSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
+                        row.colSpan, row.ColSpan,
+                        row.columnSpan, row.ColumnSpan,
+                        row.spanX, row.SpanX,
+                        row.widthCells, row.WidthCells
+                    )) || 1);
+
+                    const rowSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
+                        row.rowSpan, row.RowSpan,
+                        row.heightSpan, row.HeightSpan,
+                        row.spanY, row.SpanY,
+                        row.heightCells, row.HeightCells
+                    )) || 1);
+
+                    if (anchor) {
+                        if (fromCol == null) fromCol = anchor.from.col;
+                        if (fromRow == null) fromRow = anchor.from.row;
+
+                        if (toCol == null) {
+                            if (anchor.to && anchor.to.col && anchor.to.col !== anchor.from.col) toCol = anchor.to.col;
+                            else if (colSpan > 1) toCol = fromCol + colSpan - 1;
+                            else toCol = fromCol;
+                        }
+
+                        if (toRow == null) {
+                            if (anchor.to && anchor.to.row && anchor.to.row !== anchor.from.row) toRow = anchor.to.row;
+                            else if (rowSpan > 1) toRow = fromRow + rowSpan - 1;
+                            else toRow = fromRow;
+                        }
+                    }
+
+                    if (
+                        fromCol == null || toCol == null ||
+                        fromRow == null || toRow == null ||
+                        fromCol <= 0 || toCol <= 0 ||
+                        fromRow <= 0 || toRow <= 0
+                    ) {
+                        return anchorA1 || '';
+                    }
+
+                    const finalFromCol = Math.min(fromCol, toCol);
+                    const finalToCol = Math.max(fromCol, toCol);
+                    const finalFromRow = Math.min(fromRow, toRow);
+                    const finalToRow = Math.max(fromRow, toRow);
+
+                    const out =
+                        colIndexToLabel(finalFromCol) + finalFromRow +
+                        ':' +
+                        colIndexToLabel(finalToCol) + finalToRow;
+
+                    return __normalizeA1Text(out);
                 }
 
-                if (
-                    fromCol == null || toCol == null ||
-                    fromRow == null || toRow == null ||
-                    fromCol <= 0 || toCol <= 0 ||
-                    fromRow <= 0 || toRow <= 0
-                ) {
-                    return anchorA1 || '';
-                }
-
-                const finalFromCol = Math.min(fromCol, toCol);
-                const finalToCol = Math.max(fromCol, toCol);
-                const finalFromRow = Math.min(fromRow, toRow);
-                const finalToRow = Math.max(fromRow, toRow);
-
-                const out =
-                    colIndexToLabel(finalFromCol) + finalFromRow +
-                    ':' +
-                    colIndexToLabel(finalToCol) + finalToRow;
-
-                return __normalizeA1Text(out);
-            }
-       
-            function buildLocalCellMap() {
-                const rows = readJsonFromScript('ApprovalCellsJson', []);
-                const built = {
-                    approval: { byStep: {}, byRoleKey: {} },
-                    cooperation: { byStep: {}, byRoleKey: {} }
-                };
-
-                if (!Array.isArray(rows)) return built;
-
-                rows.forEach(function (row) {
-                    const resolvedA1 = __buildMappedA1FromRow(row);
-                    if (!resolvedA1) return;
-
-                    const bucket = inferStampBucketFromRow(row);
-                    const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
-                    const roleKey = String(row.roleKey || row.RoleKey || '').trim();
-
-                    const payload = {
-                        row: row,
-                        a1: resolvedA1
+                function buildLocalCellMap() {
+                    const rows = readJsonFromScript('ApprovalCellsJson', []);
+                    const built = {
+                        approval: { byStep: {}, byRoleKey: {} },
+                        cooperation: { byStep: {}, byRoleKey: {} }
                     };
 
-                    if (step != null && step !== '') built[bucket].byStep[String(step)] = payload;
-                    if (roleKey) built[bucket].byRoleKey[roleKey] = payload;
-                });
+                    if (!Array.isArray(rows)) return built;
 
-                return built;
-            }
+                    rows.forEach(function (row) {
+                        const resolvedA1 = __buildMappedA1FromRow(row);
+                        if (!resolvedA1) return;
 
+                        const bucket = inferStampBucketFromRow(row);
+                        const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
+                        const roleKey = String(row.roleKey || row.RoleKey || '').trim();
 
-            const localMap = buildLocalCellMap();
-            const legacyApprovalMap = state.approvalCellMap || { byStep: {}, byRoleKey: {} };
-            const legacyCooperationMap = state.cooperationCellMap || { byStep: {}, byRoleKey: {} };
+                        const payload = {
+                            row: row,
+                            a1: resolvedA1
+                        };
 
-            function __unwrapMappedA1(v) {
-                if (!v) return '';
-                if (typeof v === 'string') return __normalizeA1Text(v);
-                if (typeof v === 'object') {
-                    if (v.a1) return __normalizeA1Text(v.a1);
-                    return __buildMappedA1FromRow(v.row || v);
-                }
-                return '';
-            }
-       
-            function resolveMappedA1(raw, step, bucketName) {
-                const roleKey = String(raw.roleKey || raw.RoleKey || '').trim();
-                const bucket = bucketName === 'cooperation' ? 'cooperation' : 'approval';
+                        if (step != null && step !== '') built[bucket].byStep[String(step)] = payload;
+                        if (roleKey) built[bucket].byRoleKey[roleKey] = payload;
+                    });
 
-                if (roleKey && localMap[bucket].byRoleKey[roleKey]) {
-                    return __unwrapMappedA1(localMap[bucket].byRoleKey[roleKey]);
+                    return built;
                 }
 
-                if (localMap[bucket].byStep[String(step)]) {
-                    return __unwrapMappedA1(localMap[bucket].byStep[String(step)]);
+                const localMap = buildLocalCellMap();
+                const legacyApprovalMap = state.approvalCellMap || { byStep: {}, byRoleKey: {} };
+                const legacyCooperationMap = state.cooperationCellMap || { byStep: {}, byRoleKey: {} };
+
+                function __unwrapMappedA1(v) {
+                    if (!v) return '';
+                    if (typeof v === 'string') return __normalizeA1Text(v);
+                    if (typeof v === 'object') {
+                        if (v.a1) return __normalizeA1Text(v.a1);
+                        return __buildMappedA1FromRow(v.row || v);
+                    }
+                    return '';
                 }
 
-                const legacyBucketMap = bucket === 'cooperation'
-                    ? legacyCooperationMap
-                    : legacyApprovalMap;
+                function resolveMappedA1(raw, step, bucketName) {
+                    const roleKey = String(raw.roleKey || raw.RoleKey || '').trim();
+                    const bucket = bucketName === 'cooperation' ? 'cooperation' : 'approval';
 
-                if (legacyBucketMap && typeof legacyBucketMap === 'object') {
-                    if (roleKey && legacyBucketMap.byRoleKey && legacyBucketMap.byRoleKey[roleKey]) {
-                        return __unwrapMappedA1(legacyBucketMap.byRoleKey[roleKey]);
+                    if (roleKey && localMap[bucket].byRoleKey[roleKey]) {
+                        return __unwrapMappedA1(localMap[bucket].byRoleKey[roleKey]);
                     }
 
-                    if (legacyBucketMap.byStep && legacyBucketMap.byStep[String(step)]) {
-                        return __unwrapMappedA1(legacyBucketMap.byStep[String(step)]);
+                    if (localMap[bucket].byStep[String(step)]) {
+                        return __unwrapMappedA1(localMap[bucket].byStep[String(step)]);
                     }
+
+                    const legacyBucketMap = bucket === 'cooperation'
+                        ? legacyCooperationMap
+                        : legacyApprovalMap;
+
+                    if (legacyBucketMap && typeof legacyBucketMap === 'object') {
+                        if (roleKey && legacyBucketMap.byRoleKey && legacyBucketMap.byRoleKey[roleKey]) {
+                            return __unwrapMappedA1(legacyBucketMap.byRoleKey[roleKey]);
+                        }
+
+                        if (legacyBucketMap.byStep && legacyBucketMap.byStep[String(step)]) {
+                            return __unwrapMappedA1(legacyBucketMap.byStep[String(step)]);
+                        }
+                    }
+
+                    if (bucket === 'approval') {
+                        const legacyFlat = state.approvalCellMap;
+                        if (legacyFlat && typeof legacyFlat === 'object') {
+                            if (roleKey && legacyFlat[roleKey]) return __unwrapMappedA1(legacyFlat[roleKey]);
+                            if (legacyFlat[String(step)]) return __unwrapMappedA1(legacyFlat[String(step)]);
+                            if (legacyFlat[step]) return __unwrapMappedA1(legacyFlat[step]);
+                        }
+                    }
+                    return __buildMappedA1FromRow(raw);
                 }
 
-                // approval 만 하위 호환 flat fallback 허용
-                // cooperation 은 여기로 내려오면 다시 approval 좌표를 참조하게 되므로 금지
-                if (bucket === 'approval') {
-                    const legacyFlat = state.approvalCellMap;
-                    if (legacyFlat && typeof legacyFlat === 'object') {
-                        if (roleKey && legacyFlat[roleKey]) return __unwrapMappedA1(legacyFlat[roleKey]);
-                        if (legacyFlat[String(step)]) return __unwrapMappedA1(legacyFlat[String(step)]);
-                        if (legacyFlat[step]) return __unwrapMappedA1(legacyFlat[step]);
-                    }
+                function getStampLayout(box, kind) {
+                    return {
+                        x: box.x,
+                        y: box.y,
+                        w: box.w,
+                        h: box.h,
+                        placementMode: 'boxed',
+                        padX: 0,
+                        padTop: kind === 'status' ? 1 : 2,
+                        captionHeight: 14,
+                        bodyBottomPad: 0,
+                        targetWidthRatio: 1,
+                        targetHeightRatio: 1,
+                        maxWidthRatio: 1,
+                        maxHeightRatio: 1,
+                        scaleBoost: 1
+                    };
                 }
-                return __buildMappedA1FromRow(raw);
-            }
 
-            function getStampLayout(box, kind) {
-                return {
-                    x: box.x,
-                    y: box.y,
-                    w: box.w,
-                    h: box.h,
-                    placementMode: 'boxed',
-                    padX: 0,
-                    padTop: kind === 'status' ? 1 : 2,
-                    captionHeight: 14,
-                    bodyBottomPad: 0,
-                    targetWidthRatio: 1,
-                    targetHeightRatio: 1,
-                    maxWidthRatio: 1,
-                    maxHeightRatio: 1,
-                    scaleBoost: 1
-                };
-            }
+                function resolveStampMeta(raw) {
+                    const STAMP_BASE = '/images/signatures/';
+                    const HOLDING_STAMP = STAMP_BASE + 'holding.png';
+                    const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
+                    const APPROVED_STAMP = STAMP_BASE + 'approved.png';
 
-            function resolveStampMeta(raw) {
-                const STAMP_BASE = '/images/signatures/';
-                const HOLDING_STAMP = STAMP_BASE + 'holding.png';
-                const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
-                const APPROVED_STAMP = STAMP_BASE + 'approved.png';
+                    const actionRaw = String(raw.action || raw.Action || '').trim().toUpperCase();
+                    const statusRaw = String(raw.status || raw.Status || '').trim().toUpperCase();
+                    const sigPathRaw = String(raw.signaturePath || raw.SignaturePath || '').trim();
 
-                const actionRaw = String(raw.action || raw.Action || '').trim().toUpperCase();
-                const statusRaw = String(raw.status || raw.Status || '').trim().toUpperCase();
-                const sigPathRaw = String(raw.signaturePath || raw.SignaturePath || '').trim();
-
-                if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
-                    if (sigPathRaw) {
+                    if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
+                        if (sigPathRaw) {
+                            return {
+                                stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
+                                fallbackUrl: APPROVED_STAMP,
+                                kind: 'signature'
+                            };
+                        }
                         return {
-                            stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
+                            stampUrl: APPROVED_STAMP,
                             fallbackUrl: APPROVED_STAMP,
-                            kind: 'signature'
+                            kind: 'status'
                         };
                     }
-                    return {
-                        stampUrl: APPROVED_STAMP,
-                        fallbackUrl: APPROVED_STAMP,
-                        kind: 'status'
-                    };
-                }
 
-                if (
-                    actionRaw === 'HOLD' ||
-                    statusRaw === 'HOLD' ||
-                    statusRaw === 'ONHOLD' ||
-                    statusRaw.startsWith('PENDINGHOLD')
-                ) {
-                    return {
-                        stampUrl: HOLDING_STAMP,
-                        fallbackUrl: HOLDING_STAMP,
-                        kind: 'status'
-                    };
-                }
-
-                if (actionRaw === 'REJECT' || statusRaw === 'REJECTED') {
-                    return {
-                        stampUrl: REJECTED_STAMP,
-                        fallbackUrl: REJECTED_STAMP,
-                        kind: 'status'
-                    };
-                }
-
-                if (actionRaw === 'COOPERATE' || statusRaw === 'COOPERATED') {
-                    if (sigPathRaw) {
+                    if (
+                        actionRaw === 'HOLD' ||
+                        statusRaw === 'HOLD' ||
+                        statusRaw === 'ONHOLD' ||
+                        statusRaw.startsWith('PENDINGHOLD')
+                    ) {
                         return {
-                            stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
-                            fallbackUrl: APPROVED_STAMP,
-                            kind: 'signature'
+                            stampUrl: HOLDING_STAMP,
+                            fallbackUrl: HOLDING_STAMP,
+                            kind: 'status'
                         };
                     }
-                    return {
-                        stampUrl: APPROVED_STAMP,
-                        fallbackUrl: APPROVED_STAMP,
-                        kind: 'status'
-                    };
+
+                    if (actionRaw === 'REJECT' || statusRaw === 'REJECTED') {
+                        return {
+                            stampUrl: REJECTED_STAMP,
+                            fallbackUrl: REJECTED_STAMP,
+                            kind: 'status'
+                        };
+                    }
+
+                    if (actionRaw === 'COOPERATE' || statusRaw === 'COOPERATED') {
+                        if (sigPathRaw) {
+                            return {
+                                stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
+                                fallbackUrl: APPROVED_STAMP,
+                                kind: 'signature'
+                            };
+                        }
+                        return {
+                            stampUrl: APPROVED_STAMP,
+                            fallbackUrl: APPROVED_STAMP,
+                            kind: 'status'
+                        };
+                    }
+
+                    return null;
                 }
 
-                return null;
-            }
+                function appendStamp(raw, step, a1, debugPrefix, bucketName, colRectMap, rowRectMap) {
+                    const range = parseA1RangeLocal(a1);
+                    if (!range) return;
 
-            function appendStamp(raw, step, a1, debugPrefix, bucketName, colRectMap, rowRectMap) {
-                const range = parseA1RangeLocal(a1);
-                if (!range) return;
+                    const box = getRangeBox(range, colRectMap, rowRectMap);
+                    if (!box || box.w < 8 || box.h < 8) return;
 
-                const box = getRangeBox(range, colRectMap, rowRectMap);
-                if (!box || box.w < 8 || box.h < 8) return;
+                    const meta = resolveStampMeta(raw);
+                    if (!meta || !meta.stampUrl) return;
 
-                const meta = resolveStampMeta(raw);
-                if (!meta || !meta.stampUrl) return;
+                    const captionText = formatApprovalCaption(raw);
+                    const fit = getStampLayout(box, meta.kind);
 
-                const captionText = formatApprovalCaption(raw);
-                const fit = getStampLayout(box, meta.kind);
+                    const div = buildStampDiv(
+                        fit.x,
+                        fit.y,
+                        fit.w,
+                        fit.h,
+                        meta.stampUrl,
+                        captionText,
+                        meta.fallbackUrl,
+                        {
+                            placementMode: fit.placementMode,
+                            padX: fit.padX,
+                            padTop: fit.padTop,
+                            captionHeight: fit.captionHeight,
+                            bodyBottomPad: fit.bodyBottomPad,
+                            targetWidthRatio: fit.targetWidthRatio,
+                            targetHeightRatio: fit.targetHeightRatio,
+                            maxWidthRatio: fit.maxWidthRatio,
+                            maxHeightRatio: fit.maxHeightRatio,
+                            scaleBoost: fit.scaleBoost
+                        }
+                    );
 
-                const div = buildStampDiv(
-                    fit.x,
-                    fit.y,
-                    fit.w,
-                    fit.h,
-                    meta.stampUrl,
-                    captionText,
-                    meta.fallbackUrl,
-                    {
-                        placementMode: fit.placementMode,
-                        padX: fit.padX,
-                        padTop: fit.padTop,
-                        captionHeight: fit.captionHeight,
-                        bodyBottomPad: fit.bodyBottomPad,
-                        targetWidthRatio: fit.targetWidthRatio,
-                        targetHeightRatio: fit.targetHeightRatio,
-                        maxWidthRatio: fit.maxWidthRatio,
-                        maxHeightRatio: fit.maxHeightRatio,
-                        scaleBoost: fit.scaleBoost
-                    }
-                );
+                    overlay.appendChild(div);
 
-                overlay.appendChild(div);
+                    console.log(
+                        `[DX] ${debugPrefix} stamp`,
+                        'bucket=' + bucketName,
+                        'step=' + step,
+                        'a1=' + a1,
+                        'box=(' + Math.round(box.x) + ',' + Math.round(box.y) + ',' + Math.round(box.w) + ',' + Math.round(box.h) + ')',
+                        'placementMode=' + fit.placementMode,
+                        'padX=' + fit.padX,
+                        'padTop=' + fit.padTop,
+                        'captionHeight=' + fit.captionHeight,
+                        'bodyBottomPad=' + fit.bodyBottomPad,
+                        'scaleBoost=' + fit.scaleBoost
+                    );
+                }
+
+                const colRectMap = buildColumnRectMap();
+                const rowRectMap = buildRowRectMap();
 
                 console.log(
-                    `[DX] ${debugPrefix} stamp`,
-                    'bucket=' + bucketName,
-                    'step=' + step,
-                    'a1=' + a1,
-                    'box=(' + Math.round(box.x) + ',' + Math.round(box.y) + ',' + Math.round(box.w) + ',' + Math.round(box.h) + ')',
-                    'placementMode=' + fit.placementMode,
-                    'padX=' + fit.padX,
-                    'padTop=' + fit.padTop,
-                    'captionHeight=' + fit.captionHeight,
-                    'bodyBottomPad=' + fit.bodyBottomPad,
-                    'scaleBoost=' + fit.scaleBoost
+                    '[DX] measured header maps',
+                    'cols=' + Object.keys(colRectMap).length,
+                    'rows=' + Object.keys(rowRectMap).length
                 );
-            }
 
-            const colRectMap = buildColumnRectMap();
-            const rowRectMap = buildRowRectMap();
+                overlay.style.position = 'absolute';
+                wrap.style.position = 'relative';
 
-            console.log(
-                '[DX] measured header maps',
-                'cols=' + Object.keys(colRectMap).length,
-                'rows=' + Object.keys(rowRectMap).length
-            );
+                approvals.forEach(function (a, idx) {
+                    let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
+                    if (!step || !isFinite(step)) step = idx + 1;
 
-            overlay.style.position = 'absolute';
-            wrap.style.position = 'relative';
+                    const a1 = resolveMappedA1(a, step, 'approval');
+                    if (!a1) return;
 
-            approvals.forEach(function (a, idx) {
-                let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
-                if (!step || !isFinite(step)) step = idx + 1;
-
-                const a1 = resolveMappedA1(a, step, 'approval');
-                if (!a1) return;
-
-                appendStamp(a, step, a1, 'approval', 'approval', colRectMap, rowRectMap);
-            });
-    
-            cooperations.forEach(function (c, idx) {
-                let step = parseInt(c.step || c.Step || c.stepOrder || c.StepOrder || c.slot || c.Slot || (idx + 1), 10);
-                if (!step || !isFinite(step)) step = idx + 1;
-
-                const a1 = resolveMappedA1(c, step, 'cooperation');
-                console.log('[DX] cooperation mapped a1', {
-                    step: step,
-                    roleKey: String(c.roleKey || c.RoleKey || ''),
-                    a1: a1,
-                    source: state.cooperationCellMap
+                    appendStamp(a, step, a1, 'approval', 'approval', colRectMap, rowRectMap);
                 });
 
-                if (!a1) return;
+                cooperations.forEach(function (c, idx) {
+                    let step = parseInt(c.step || c.Step || c.stepOrder || c.StepOrder || c.slot || c.Slot || (idx + 1), 10);
+                    if (!step || !isFinite(step)) step = idx + 1;
 
-                appendStamp(c, step, a1, 'cooperation', 'cooperation', colRectMap, rowRectMap);
-            });
+                    const a1 = resolveMappedA1(c, step, 'cooperation');
+                    console.log('[DX] cooperation mapped a1', {
+                        step: step,
+                        roleKey: String(c.roleKey || c.RoleKey || ''),
+                        a1: a1,
+                        source: state.cooperationCellMap
+                    });
+
+                    if (!a1) return;
+
+                    appendStamp(c, step, a1, 'cooperation', 'cooperation', colRectMap, rowRectMap);
+                });
+            } finally {
+                state.overlayRendering = false;
+            }
         }
-        
+
         // ================== 파일 헬퍼 ==================
         function normalizeCommentFiles(c) {
             if (!c) return [];
@@ -2537,7 +3026,7 @@ else
         function nl2br(s) {
             return String(s || '').replace(/\n/g, '<br>');
         }
-    
+
         function cancelOverlayRefresh() {
             if (state.overlayRefreshTimer) {
                 clearTimeout(state.overlayRefreshTimer);
@@ -2549,34 +3038,12 @@ else
             }
         }
 
-        // function renderApprovalOverlayStable(reason, pass) {
-        //     const currentPass = Number(pass || 0);
-
-        //     state.overlayRefreshRaf = requestAnimationFrame(function () {
-        //         requestAnimationFrame(function () {
-        //             try { applyDxWrapSize(reason + ':p' + currentPass); } catch (e) { }
-        //             try { renderApprovalOverlay(); } catch (e) { }
-
-        //             // 최대 2회까지만 (기존 5회 → 2회로 축소)
-        //             if (currentPass < 1) {
-        //                 state.overlayRefreshTimer = window.setTimeout(function () {
-        //                     renderApprovalOverlayStable(reason, currentPass + 1);
-        //                 }, 200);
-        //             } else {
-        //                 // 마지막 pass — ready 표시
-        //                 const scroll = document.getElementById('doc-scroll');
-        //                 if (scroll) scroll.classList.add('dx-page-ready');
-        //             }
-        //         });
-        //     });
-        // }
-                
         function renderApprovalOverlayStable(reason, pass) {
             const currentPass = Number(pass || 0);
 
             state.overlayRefreshRaf = requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
-                    try { renderApprovalOverlay(); } catch (e) { }
+                    try { renderApprovalOverlay(); } catch (e) { console.warn('[DX] renderApprovalOverlayStable failed', e); }
 
                     if (currentPass < 1) {
                         state.overlayRefreshTimer = window.setTimeout(function () {
@@ -2595,40 +3062,6 @@ else
             renderApprovalOverlayStable(reason || 'overlay-refresh', 0);
         }
 
-        // function bindOverlayResizeObserver() {
-        //     if (state.overlayResizeObserver || typeof ResizeObserver === 'undefined') return;
-
-        //     const wrap = document.getElementById('dxDetailWrap');
-        //     if (!wrap) return;
-
-        //     // wrap만 관찰 (내부 요소 다수 관찰 시 과도한 콜백 발생)
-        //     let lastW = 0;
-        //     let lastH = 0;
-        //     let debounceTimer = 0;
-
-        //     state.overlayResizeObserver = new ResizeObserver(function (entries) {
-        //         if (!state.overlayReady) return;
-
-        //         // 실제 크기 변화가 있을 때만 반응
-        //         const entry = entries[0];
-        //         if (!entry) return;
-        //         const w = Math.round(entry.contentRect.width);
-        //         const h = Math.round(entry.contentRect.height);
-
-        //         if (w === lastW && h === lastH) return; // 변경 없으면 무시
-        //         lastW = w;
-        //         lastH = h;
-
-        //         // debounce 500ms (기존 즉시 → 지연)
-        //         clearTimeout(debounceTimer);
-        //         debounceTimer = setTimeout(function () {
-        //             scheduleOverlayRefresh('dx-resize-observer');
-        //         }, 500);
-        //     });
-
-        //     try { state.overlayResizeObserver.observe(wrap); } catch (e) { }
-        // }
-                
         function bindOverlayResizeObserver() {
             if (state.overlayResizeObserver || typeof ResizeObserver === 'undefined') return;
 
@@ -2642,8 +3075,8 @@ else
 
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(function () {
-                    // 크기 재조정 없이 오버레이만 다시 그림
-                    try { renderApprovalOverlay(); } catch (e) { }
+                    console.log('[DX] overlay resize observer refresh');
+                    try { renderApprovalOverlay(); } catch (e) { console.warn('[DX] overlay resize observer failed', e); }
                 }, 500);
             });
 
@@ -2721,10 +3154,12 @@ else
                     const res = await EBC.json('/Doc/UpdateShares', { docId, selectedRecipientUserIds: ids }, 'POST');
                     if (!res || res.ok === false) throw { payload: res };
                     location.reload();
-                } catch { showAlert(T('DOC_Err_SaveFailed'), 'alert-danger'); }
+                } catch {
+                    showAlert(T('DOC_Err_SaveFailed'), 'alert-danger');
+                }
             });
         }
-    
+
         // ================== 이미지 오버레이 ==================
         function initDocFileImageOverlay() {
             const overlay = document.getElementById('ebImgOverlay');
@@ -3011,11 +3446,11 @@ else
                 } catch (e) { const p = e && e.payload; showErr(p?.messages || [T('DOC_Err_SaveFailed')]); }
             });
             $list.addEventListener('click', async (e) => {
-                const replyBtn  = e.target.closest('button[data-reply-id]');
-                const editBtn   = e.target.closest('button[data-edit-id]');
+                const replyBtn = e.target.closest('button[data-reply-id]');
+                const editBtn = e.target.closest('button[data-edit-id]');
                 const deleteBtn = e.target.closest('button[data-delete-id]');
-                if (replyBtn)  { toggleReplyForm(replyBtn.getAttribute('data-reply-id'), replyBtn.closest('.doc-comment-item')); return; }
-                if (editBtn)   { toggleEditForm(editBtn.getAttribute('data-edit-id'), editBtn.closest('.doc-comment-item')); return; }
+                if (replyBtn) { toggleReplyForm(replyBtn.getAttribute('data-reply-id'), replyBtn.closest('.doc-comment-item')); return; }
+                if (editBtn) { toggleEditForm(editBtn.getAttribute('data-edit-id'), editBtn.closest('.doc-comment-item')); return; }
                 if (deleteBtn) {
                     const cid = deleteBtn.getAttribute('data-delete-id');
                     if (!cid || !confirm(T('DOC_Confirm_DeleteComment') || '삭제하시겠습니까?')) return;
@@ -3117,7 +3552,7 @@ else
             document.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Approve'); }));
             document.querySelectorAll('[data-hold]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Hold'); }));
             document.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Reject'); }));
-            document.querySelectorAll('[data-cooperate]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Cooperate'); }));                    
+            document.querySelectorAll('[data-cooperate]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('Cooperate'); }));
             document.querySelectorAll('[data-cooperate-reject]').forEach(btn => btn.addEventListener('click', () => { if (!btn.disabled) call('CooperateReject'); }));
         }
 
@@ -3208,255 +3643,248 @@ else
         }
 
         function hookDxReady() {
-             const wrap = document.getElementById('dxDetailWrap');
-             const scroll = document.getElementById('doc-scroll');
-             if (!wrap) return;
+            const wrap = document.getElementById('dxDetailWrap');
+            const scroll = document.getElementById('doc-scroll');
+            if (!wrap) return;
 
-             let done = false;
-             let settleTimer = 0;
-             let forceTimer1 = 0;
-             let forceTimer2 = 0;
-             let observer = null;
+            let finalized = false;
+            let rafId = 0;
+            let domObserver = null;
+            let sizeObserver = null;
+            let stableSignature = '';
+            let stableCount = 0;
+            let readySignal = false;
+            let readyReason = '';
 
-             function getWbc() {
-                 return document.getElementById('dxDetailSheet_WBC')
-                     || document.querySelector('#dxDetailWrap [id$="_WBC"]');
-             }
+            function getWbc() {
+                return document.getElementById('dxDetailSheet_WBC')
+                    || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+            }
 
-             function getInnerScroll() {
-                 return document.getElementById('dxDetailSheet_ScrollContainer')
-                     || document.getElementById('dxDetailSheet_Grid')
-                     || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
-                     || document.querySelector('#dxDetailWrap [id$="_Grid"]');
-             }
-             
-             function hasRenderedContent() {
-                const wrap = document.getElementById('dxDetailWrap');
-                if (!wrap) return false;
+            function getPage() {
+                return wrap.querySelector('.dxss-print-area')
+                    || wrap.querySelector('.dxss-page');
+            }
 
-                const contentBox = getRenderedContentBox();
-                if (contentBox.width > 120 && contentBox.height > 120) return true;
+            function getInnerScroll() {
+                return document.getElementById('dxDetailSheet_ScrollContainer')
+                    || document.getElementById('dxDetailSheet_Grid')
+                    || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
+                    || document.querySelector('#dxDetailWrap [id$="_Grid"]');
+            }
 
-                const ctb = wrap.querySelector('[id*="_ctb."]');
-                if (ctb) {
-                    const r = ctb.getBoundingClientRect();
-                    if (r.width > 40 && r.height > 12) return true;
+            function readBox(el) {
+                if (!el) return { width: 0, height: 0 };
+                const rect = el.getBoundingClientRect();
+                return {
+                    width: Math.max(
+                        Math.ceil(rect.width || 0),
+                        Math.ceil(el.clientWidth || 0),
+                        Math.ceil(el.offsetWidth || 0)
+                    ),
+                    height: Math.max(
+                        Math.ceil(rect.height || 0),
+                        Math.ceil(el.clientHeight || 0),
+                        Math.ceil(el.offsetHeight || 0)
+                    )
+                };
+            }
+
+            function hasVisibleContent() {
+                const wbcBox = readBox(getWbc());
+                const pageBox = readBox(getPage());
+
+                if ((wbcBox.width > 120 && wbcBox.height > 120) || (pageBox.width > 120 && pageBox.height > 120)) {
+                    return true;
                 }
 
-                const ftc = wrap.querySelector('.dxss-ftc');
-                if (ftc) {
-                    const r = ftc.getBoundingClientRect();
-                    if (r.width > 40 && r.height > 12) return true;
+                const visibleTargets = wrap.querySelectorAll('[id*="_ctb."], .dxss-ftc');
+                for (let i = 0; i < visibleTargets.length; i++) {
+                    const r = visibleTargets[i].getBoundingClientRect();
+                    if (r.width > 20 && r.height > 10) return true;
                 }
 
                 return false;
             }
 
-             function requestLayoutKick(reason) {
-                 try {
-                     applyDxWrapSize(reason);
-                 } catch (e) { }
+            function getSignature() {
+                const wbcBox = readBox(getWbc());
+                const pageBox = readBox(getPage());
 
-                 try {
-                     const inst = getDxInstance();
-                     if (inst && typeof inst.GetMainElement === 'function') {
-                         const el = inst.GetMainElement();
-                         if (el && typeof el.getBoundingClientRect === 'function') {
-                             el.getBoundingClientRect();
-                         }
-                     }
-                 } catch (e) { }
+                return JSON.stringify({
+                    w: wbcBox.width,
+                    h: wbcBox.height,
+                    pw: pageBox.width,
+                    ph: pageBox.height
+                });
+            }
 
-                 try {
-                     window.dispatchEvent(new Event('resize'));
-                 } catch (e) { }
-
-                 const inner = getInnerScroll();
-                 if (inner) {
-                     try {
-                         if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
-                         if (inner.scrollTop !== 0) inner.scrollTop = 0;
-                     } catch (e) { }
-                 }
-             }
-        
-             function forceDxRender() {
-                var wrap = document.getElementById('dxDetailWrap');
-                if (!wrap) return;
-
-                // 방법 1: window resize 이벤트
-                try { window.dispatchEvent(new Event('resize')); } catch (e) { }
-
-                // 방법 2: DX 인스턴스에 직접 AdjustControl 호출
+            function requestLayoutKick(reason) {
                 try {
-                    var inst = getDxInstance();
+                    const inst = getDxInstance();
                     if (inst && typeof inst.AdjustControl === 'function') {
                         inst.AdjustControl();
                     }
                 } catch (e) { }
 
-                // 방법 3: wrap 크기를 1px 변경했다 복원 → DX 내부 레이아웃 강제 재계산
-                var h = wrap.style.getPropertyValue('height');
-                if (h) {
-                    var hVal = parseInt(h, 10) || 520;
-                    wrap.style.setProperty('height', (hVal + 1) + 'px', 'important');
-                    requestAnimationFrame(function () {
-                        wrap.style.setProperty('height', hVal + 'px', 'important');
-                    });
+                const inner = getInnerScroll();
+                if (inner) {
+                    try {
+                        if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+                        if (inner.scrollTop !== 0) inner.scrollTop = 0;
+                    } catch (e) { }
                 }
+
+                console.log('[DX] requestLayoutKick:', reason || '');
             }
 
-            function waitForVisibleContent(callback) {
-                var attempts = 0;
-                var maxAttempts = 30; // 최대 3초 (30 × 100ms)
-
-                function check() {
-                    attempts++;
-
-                    // 실제로 셀 내용이 그려졌는지 확인
-                    var wrap = document.getElementById('dxDetailWrap');
-                    if (wrap) {
-                        var cells = wrap.querySelectorAll('[id*="_ctb."], .dxss-ftc, .dxss-htd');
-                        var hasVisible = false;
-                        for (var i = 0; i < cells.length; i++) {
-                            var r = cells[i].getBoundingClientRect();
-                            if (r.width > 20 && r.height > 10) {
-                                hasVisible = true;
-                                break;
-                            }
-                        }
-
-                        if (hasVisible) {
-                            requestAnimationFrame(function () {
-                                requestAnimationFrame(callback);
-                            });
-                            return;
-                        }
-                    }
-
-                    if (attempts < maxAttempts) {
-                        // 아직 안 보이면 DX에 다시 신호 보내고 재시도
-                        if (attempts % 5 === 0) {
-                            forceDxRender();
-                        }
-                        setTimeout(check, 100);
-                    } else {
-                        // 타임아웃 — 그래도 콜백은 실행
-                        console.warn('[DX] content not visible after timeout, proceeding anyway');
-                        forceDxRender();
-                        requestAnimationFrame(function () {
-                            requestAnimationFrame(callback);
-                        });
-                    }
-                }
-
-                check();
+            function isReadyReason(reason) {
+                const r = String(reason || '').toLowerCase();
+                return r.indexOf('dx-end-sync') >= 0
+                    || r.indexOf('dx-after-document-response') >= 0
+                    || r.indexOf('dx-process-document-response') >= 0;
             }
-                    
-             function finalize(reason) {
-                if (done) return;
-                if (!hasRenderedContent()) return;
 
-                done = true;
-                state.overlayReady = false;
+            function finalize(reason) {
+                if (finalized) return;
+                finalized = true;
 
-                clearTimeout(settleTimer);
-                clearTimeout(forceTimer1);
-                clearTimeout(forceTimer2);
+                if (rafId) cancelAnimationFrame(rafId);
+                if (domObserver) domObserver.disconnect();
+                if (sizeObserver) sizeObserver.disconnect();
 
-                if (observer) {
-                    observer.disconnect();
-                    observer = null;
-                }
-
-                // 1단계: wrap 크기 설정 + 스크롤 잠금
-                applyDxWrapSize(reason);
+                applyDxWrapSize(reason || 'dx-stable');
                 installOuterScrollOnly();
+                renderApprovalOverlay();
 
-                // 2단계: DX에 강제 resize 신호 → 렌더링 트리거
-                forceDxRender();
-
-                // 3단계: 콘텐츠가 보일 때까지 대기 후 오버레이 렌더
-                waitForVisibleContent(function () {
-                    renderApprovalOverlay();
-
-                    setTimeout(function () {
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        applyDxWrapSize((reason || 'dx-stable') + '-postoverlay');
                         renderApprovalOverlay();
-                        var scroll = document.getElementById('doc-scroll');
-                        if (scroll) scroll.classList.add('dx-page-ready');
-                        console.log('[DX] page shown by', reason);
 
+                        if (scroll) scroll.classList.add('dx-page-ready');
                         state.overlayReady = true;
                         bindOverlayResizeObserver();
-                    }, 300);
+
+                        console.log('[DX] page shown by', reason || 'dx-stable');
+                    });
                 });
             }
-            
-            function settle(reason) {
-                 clearTimeout(settleTimer);
-                 settleTimer = window.setTimeout(function () {
-                     requestLayoutKick(reason || 'dx-ready');
-                     if (hasRenderedContent()) {
-                         finalize(reason || 'dx-ready');
-                     }
-                 }, 120);
-             }
 
-             observer = new MutationObserver(function () {
-                 if (done) return;
-                 if (hasRenderedContent()) {
-                     finalize('dx-dom-ready');
-                 }
-             });
+            function evaluateStable(reason) {
+                if (finalized) return;
+                if (state.dxSyncing) return;
+                if (!readySignal) {
+                    console.log('[DX] stable-check blocked: waiting-ready-signal', reason || '');
+                    return;
+                }
+                if (!hasVisibleContent()) return;
 
-             observer.observe(wrap, {
-                 childList: true,
-                 subtree: true,
-                 attributes: false
-             });
+                const sig = getSignature();
+                const parsed = JSON.parse(sig);
 
-             window.__dxDetailOnEndSyncImpl = function (reason) {
-                 if (done) return;
-                 console.log('[DX] EndSynchronization fired:', reason);
-                 settle(reason || 'dx-sync');
-             };
+                if (parsed.w <= 0 || parsed.h <= 0) return;
 
-             if (window.__dxDetailOnEndSyncPending) {
-                 const pendingReason = window.__dxDetailOnEndSyncPending;
-                 window.__dxDetailOnEndSyncPending = null;
-                 settle(pendingReason || 'pending-sync');
-             } else {
-                 settle('hook-start');
-             }
+                if (sig === stableSignature) {
+                    stableCount++;
+                } else {
+                    stableSignature = sig;
+                    stableCount = 1;
+                }
 
-             forceTimer1 = window.setTimeout(function () {
-                 if (done) return;
-                 requestLayoutKick('dx-force-1');
-                 if (hasRenderedContent()) {
-                     finalize('dx-force-1');
-                 }
-             }, 1500);
+                console.log('[DX] stable-check:', {
+                    reason: reason || '',
+                    readyReason: readyReason,
+                    stableCount: stableCount,
+                    signature: parsed
+                });
 
-             forceTimer2 = window.setTimeout(function () {
-                 if (done) return;
-                 requestLayoutKick('dx-force-2');
-                 if (hasRenderedContent()) {
-                     finalize('dx-force-2');
-                 }
-             }, 4500);
+                if (stableCount >= 2) {
+                    finalize(readyReason || reason || 'dx-stable');
+                    return;
+                }
 
-             if (!window.__DETAIL_DX_RESIZE_BOUND__) {
-                 window.__DETAIL_DX_RESIZE_BOUND__ = true;
-                 window.addEventListener('resize', function () {
-                     requestAnimationFrame(function () {
-                         applyDxWrapSize('window-resize');
-                         renderApprovalOverlay();
-                     });
-                 }, { passive: true });
-             }
+                rafId = requestAnimationFrame(function () {
+                    rafId = requestAnimationFrame(function () {
+                        evaluateStable((reason || 'dx-stable') + '-raf');
+                    });
+                });
+            }
+
+            function scheduleEvaluate(reason) {
+                if (!readySignal && !isReadyReason(reason)) {
+                    console.log('[DX] scheduleEvaluate ignored:', reason || '');
+                    return;
+                }
+
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(function () {
+                    rafId = requestAnimationFrame(function () {
+                        evaluateStable(reason || 'dx-eval');
+                    });
+                });
+            }
+
+            domObserver = new MutationObserver(function () {
+                if (!finalized) scheduleEvaluate('dx-dom-mutation');
+            });
+
+            domObserver.observe(wrap, {
+                childList: true,
+                subtree: true,
+                attributes: false
+            });
+
+            if (typeof ResizeObserver !== 'undefined') {
+                sizeObserver = new ResizeObserver(function () {
+                    if (!finalized) scheduleEvaluate('dx-resize-observer');
+                });
+
+                [wrap, getWbc(), getPage()].filter(Boolean).forEach(function (el) {
+                    sizeObserver.observe(el);
+                });
+            }
+
+            window.__dxDetailOnEndSyncImpl = function (reason) {
+                state.dxSyncing = false;
+
+                if (isReadyReason(reason)) {
+                    readySignal = true;
+                    readyReason = reason || '';
+                    stableCount = 0;
+                    stableSignature = '';
+                    console.log('[DX] ready-signal accepted:', readyReason);
+                } else {
+                    console.log('[DX] ready-signal ignored:', reason || '');
+                }
+
+                requestLayoutKick(reason || 'dx-end-sync');
+                scheduleEvaluate(reason || 'dx-end-sync');
+            };
+
+            if (window.__dxDetailOnEndSyncPending) {
+                const pendingReason = window.__dxDetailOnEndSyncPending;
+                window.__dxDetailOnEndSyncPending = null;
+                requestLayoutKick(pendingReason || 'pending-sync');
+                scheduleEvaluate(pendingReason || 'pending-sync');
+            } else {
+                requestLayoutKick('hook-start');
+            }
+
+            if (!window.__DETAIL_DX_RESIZE_BOUND__) {
+                window.__DETAIL_DX_RESIZE_BOUND__ = true;
+                window.addEventListener('resize', function () {
+                    requestLayoutKick('window-resize');
+                    if (state.overlayReady) {
+                        applyDxWrapSize('window-resize');
+                        renderApprovalOverlay();
+                    } else {
+                        scheduleEvaluate('window-resize');
+                    }
+                }, { passive: true });
+            }
         }
-       
-        // ================== 진입점 ==================
+
         function run() {
             clearAlert();
 
@@ -3480,7 +3908,9 @@ else
             console.log('approvalCellMap', state.approvalCellMap, mapRows);
             console.log('cooperationCellMap', state.cooperationCellMap, mapRows);
 
-            applyDxWrapSize('run-init');
+            // 0높이 데드락 방지용 시드
+            seedDxHostSize();
+
             renderViewLogs();
             renderApprovalsTable();
             initRecipientsFromSelected();
@@ -3497,7 +3927,7 @@ else
             document.addEventListener('DOMContentLoaded', run);
         } else {
             run();
-        }    
+        }
     })();
     </script>
 }

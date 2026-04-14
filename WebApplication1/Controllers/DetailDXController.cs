@@ -799,71 +799,95 @@ ORDER BY v.ViewedAt DESC;";
             return Math.Round((heightPt <= 0 ? 15d : heightPt) * 96d / 72d, 2);
         }
 
-
         private static bool HasVisibleBorder(IXLCell cell)
         {
+            if (cell == null) return false;
+
             var b = cell.Style.Border;
             return b.LeftBorder != XLBorderStyleValues.None
                 || b.RightBorder != XLBorderStyleValues.None
                 || b.TopBorder != XLBorderStyleValues.None
-                || b.BottomBorder != XLBorderStyleValues.None;
+                || b.BottomBorder != XLBorderStyleValues.None
+                || b.DiagonalBorder != XLBorderStyleValues.None;
         }
 
         private static bool HasVisibleFill(IXLCell cell)
         {
+            if (cell == null) return false;
+
             var f = cell.Style.Fill;
-            if (f.PatternType != XLFillPatternValues.None) return true;
+            if (f == null) return false;
 
-            try
-            {
-                var bg = f.BackgroundColor;
-                if (bg != null && !bg.Equals(XLColor.NoColor) && !bg.Equals(XLColor.FromIndex(64)))
-                    return true;
-            }
-            catch { }
-
-            return false;
+            return f.PatternType != null
+                && f.PatternType != XLFillPatternValues.None;
         }
 
-        private static bool HasMeaningfulValue(IXLCell cell)
+
+        private static bool HasStrongExtentSignal(IXLCell cell)
         {
-            if (cell == null)
-                return false;
+            if (cell == null) return false;
 
             try
             {
-                if (cell.DataType == XLDataType.Blank)
-                    return false;
-
-                var s = cell.GetString();
-                if (!string.IsNullOrWhiteSpace(s))
+                if (cell.HasFormula)
                     return true;
 
-                return cell.DataType == XLDataType.Number
-                    || cell.DataType == XLDataType.DateTime
-                    || cell.DataType == XLDataType.Boolean
-                    || cell.DataType == XLDataType.TimeSpan
-                    || cell.DataType == XLDataType.Error;
+                if (cell.DataType != XLDataType.Blank)
+                {
+                    var s = cell.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        return true;
+
+                    if (cell.DataType == XLDataType.Number
+                        || cell.DataType == XLDataType.DateTime
+                        || cell.DataType == XLDataType.Boolean
+                        || cell.DataType == XLDataType.TimeSpan
+                        || cell.DataType == XLDataType.Error)
+                        return true;
+                }
+
+                if (HasVisibleBorder(cell))
+                    return true;
+
+                return false;
             }
             catch
             {
                 try
                 {
                     var fallback = cell.Value.ToString();
-                    return !string.IsNullOrWhiteSpace(fallback);
+                    if (!string.IsNullOrWhiteSpace(fallback))
+                        return true;
                 }
                 catch
                 {
-                    return false;
                 }
+
+                try
+                {
+                    if (HasVisibleBorder(cell))
+                        return true;
+                }
+                catch
+                {
+                }
+
+                return false;
             }
         }
 
-        private static bool TryGetMergeBounds(
-            List<(int r1, int c1, int r2, int c2)> mergedRanges,
-            int row,
-            int col,
-            out (int r1, int c1, int r2, int c2) bounds)
+        private static bool HasWeakExtentSignal(IXLCell cell)
+        {
+            // fill-only 셀은 약한 신호로만 취급
+            return HasVisibleFill(cell) && !HasVisibleBorder(cell);
+        }
+
+        private static bool HasMeaningfulValue(IXLCell cell)
+        {
+            return HasStrongExtentSignal(cell) || HasWeakExtentSignal(cell);
+        }
+
+        private static bool TryGetMergeBounds(List<(int r1, int c1, int r2, int c2)> mergedRanges, int row, int col, out (int r1, int c1, int r2, int c2) bounds)
         {
             foreach (var mr in mergedRanges)
             {
@@ -928,24 +952,24 @@ ORDER BY v.ViewedAt DESC;";
                 ))
                 .ToList();
 
-            var scanOptions = XLCellsUsedOptions.AllContents;
+            // 값/서식 모두 후보에 넣되, 최종 반영은 strong/weak 규칙으로 나눔
+            var scanOptions = XLCellsUsedOptions.All;
 
             int maxRow = 1;
             int maxCol = 1;
             bool found = false;
 
-            foreach (var cell in ws.CellsUsed(scanOptions))
-            {
-                if (!HasMeaningfulValue(cell))
-                    continue;
+            var weakCells = new List<IXLCell>();
 
+            void ApplyCell(IXLCell cell)
+            {
                 var row = cell.Address.RowNumber;
                 var col = cell.Address.ColumnNumber;
 
                 if (TryGetMergeBounds(merged, row, col, out var mb))
                 {
                     if (mb.r1 != row || mb.c1 != col)
-                        continue;
+                        return;
 
                     if (mb.r2 > maxRow) maxRow = mb.r2;
                     if (mb.c2 > maxCol) maxCol = mb.c2;
@@ -959,12 +983,52 @@ ORDER BY v.ViewedAt DESC;";
                 found = true;
             }
 
+            // 1차: 값/수식/보더 기준으로 본체 범위 확정
+            foreach (var cell in ws.CellsUsed(scanOptions))
+            {
+                if (HasStrongExtentSignal(cell))
+                {
+                    ApplyCell(cell);
+                }
+                else if (HasWeakExtentSignal(cell))
+                {
+                    weakCells.Add(cell);
+                }
+            }
+
+            // strong 신호가 하나도 없으면 약한 신호만으로 fallback
             if (!found)
-                return (1, 1, "A1", merged);
+            {
+                foreach (var cell in weakCells)
+                    ApplyCell(cell);
+
+                if (!found)
+                    return (1, 1, "A1", merged);
+
+                return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
+            }
+
+            // 2차: fill-only 셀은 "본체 바로 아래/오른쪽 1칸"까지만 허용
+            // -> B43:Y43 는 포함, C54:K61/M54:M61 같은 고립 하단 블록은 제외
+            var strongMaxRow = maxRow;
+            var strongMaxCol = maxCol;
+
+            foreach (var cell in weakCells)
+            {
+                var row = cell.Address.RowNumber;
+                var col = cell.Address.ColumnNumber;
+
+                if (row > strongMaxRow + 1)
+                    continue;
+
+                if (col > strongMaxCol + 1)
+                    continue;
+
+                ApplyCell(cell);
+            }
 
             return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
         }
-
 
         private static string BuildStampRectsJsonFromExcel(string excelPath, string approvalCellsJson, string approvalsJson, string cooperationsJson, ILogger? log = null)
         {
@@ -2260,7 +2324,20 @@ ORDER BY dc.RoleKey;";
                 var renderMaxRow = Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1);
                 var renderMaxCol = Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1);
 
-                var scanOptions = XLCellsUsedOptions.AllContents;
+                var scanOptions = XLCellsUsedOptions.All;
+
+                bool IncludeDiagCell(IXLCell c)
+                {
+                    if (HasStrongExtentSignal(c))
+                        return true;
+
+                    if (HasWeakExtentSignal(c)
+                        && c.Address.RowNumber <= usedMaxRow
+                        && c.Address.ColumnNumber <= usedMaxCol)
+                        return true;
+
+                    return false;
+                }
 
                 int ExpandCol(IXLCell c)
                 {
@@ -2288,7 +2365,7 @@ ORDER BY dc.RoleKey;";
                 foreach (var row in ws.RowsUsed(scanOptions))
                 {
                     var lastCol = row.CellsUsed(scanOptions)
-                        .Where(HasMeaningfulValue)
+                        .Where(IncludeDiagCell)
                         .Select(ExpandCol)
                         .DefaultIfEmpty(0)
                         .Max();
@@ -2327,7 +2404,7 @@ ORDER BY dc.RoleKey;";
                 for (int c = Math.Max(1, usedMaxCol - 3); c <= Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1); c++)
                 {
                     var samples = ws.Column(c).CellsUsed(scanOptions)
-                        .Where(HasMeaningfulValue)
+                        .Where(IncludeDiagCell)
                         .Take(5)
                         .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
                         .ToList();
@@ -2338,7 +2415,7 @@ ORDER BY dc.RoleKey;";
                         Col = c,
                         Hidden = ws.Column(c).IsHidden,
                         Width = Math.Round(ws.Column(c).Width <= 0 ? 8.43 : ws.Column(c).Width, 2),
-                        UsedCount = ws.Column(c).CellsUsed(scanOptions).Count(HasMeaningfulValue),
+                        UsedCount = ws.Column(c).CellsUsed(scanOptions).Count(IncludeDiagCell),
                         Sample = samples
                     });
                 }
@@ -2347,7 +2424,7 @@ ORDER BY dc.RoleKey;";
                 for (int r = Math.Max(1, usedMaxRow - 3); r <= Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1); r++)
                 {
                     var samples = ws.Row(r).CellsUsed(scanOptions)
-                        .Where(HasMeaningfulValue)
+                        .Where(IncludeDiagCell)
                         .Take(5)
                         .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
                         .ToList();
@@ -2357,7 +2434,7 @@ ORDER BY dc.RoleKey;";
                         Row = r,
                         Hidden = ws.Row(r).IsHidden,
                         Height = Math.Round(ws.Row(r).Height <= 0 ? 15 : ws.Row(r).Height, 2),
-                        UsedCount = ws.Row(r).CellsUsed(scanOptions).Count(HasMeaningfulValue),
+                        UsedCount = ws.Row(r).CellsUsed(scanOptions).Count(IncludeDiagCell),
                         Sample = samples
                     });
                 }
@@ -2386,6 +2463,8 @@ ORDER BY dc.RoleKey;";
                 return "{}";
             }
         }
+
+
 
         private string BuildRoleText(string? roleKey, string rowType)
         {
