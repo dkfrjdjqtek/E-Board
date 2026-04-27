@@ -717,7 +717,11 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.ExcelPath = dxOpenAbsPath ?? string.Empty;
             ViewBag.OpenRel = openRel ?? string.Empty;
 
-            var request = HttpContext.Request;
+            var http = HttpContext;
+            if (http == null)
+                throw new InvalidOperationException("HttpContext is not available.");
+            var request = http.Request;
+
             ViewBag.DxCallbackUrl = $"{request.Scheme}://{request.Host}/Doc/dx-callback";
             ViewBag.DxDocumentId = "detail_" + (id ?? Guid.NewGuid().ToString("N"));
             ViewBag.CanRecall = caps.canRecall;
@@ -818,8 +822,9 @@ ORDER BY v.ViewedAt DESC;";
             var f = cell.Style.Fill;
             if (f == null) return false;
 
-            return f.PatternType != null
-                && f.PatternType != XLFillPatternValues.None;
+            return f.PatternType != XLFillPatternValues.None;
+            //return f.PatternType != null
+            //    && f.PatternType != XLFillPatternValues.None;
         }
 
 
@@ -1436,36 +1441,127 @@ ORDER BY v.ViewedAt DESC;";
             // ── 회수 ──────────────────────────────────────────────────────────
             if (actionLower == "recall")
             {
+                var requesterId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
                 var csR = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
                 await using var conn = new SqlConnection(csR);
                 await conn.OpenAsync();
 
-                await using (var cmd = conn.CreateCommand())
+                // 1) 작성자 본인만 회수 가능
+                var authorId = await GetDocumentAuthorUserIdAsync(conn, dto.docId!);
+                if (string.IsNullOrWhiteSpace(authorId) ||
+                    string.IsNullOrWhiteSpace(requesterId) ||
+                    !string.Equals(authorId.Trim(), requesterId.Trim(), StringComparison.OrdinalIgnoreCase))
                 {
-                    cmd.CommandText = @"
+                    return Forbid();
+                }
+
+                await using var tx = conn.BeginTransaction();
+
+                try
+                {
+                    string docStatus = string.Empty;
+                    await using (var ds = conn.CreateCommand())
+                    {
+                        ds.Transaction = tx;
+                        ds.CommandText = @"
+SELECT TOP (1) Status
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+                        ds.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+                        docStatus = (await ds.ExecuteScalarAsync() as string) ?? string.Empty;
+                    }
+
+                    // 2) 문서 상태가 Pending 계열이 아니면 회수 불가
+                    if (string.IsNullOrWhiteSpace(docStatus) ||
+                        !docStatus.StartsWith("Pending", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await tx.RollbackAsync();
+                        return Conflict(new { messages = new[] { "DOC_Err_BadRequest" } });
+                    }
+
+                    // 3) 결재 진행 이력이 1건이라도 있으면 회수 불가
+                    int progressedApprovalCount = 0;
+                    await using (var ckAp = conn.CreateCommand())
+                    {
+                        ckAp.Transaction = tx;
+                        ckAp.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND (
+        ActedAt IS NOT NULL
+        OR (
+            NULLIF(LTRIM(RTRIM(ISNULL(Action, N''))), N'') IS NOT NULL
+            AND ISNULL(Action, N'') <> N'Recalled'
+        )
+      );";
+                        ckAp.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+                        progressedApprovalCount = Convert.ToInt32(await ckAp.ExecuteScalarAsync());
+                    }
+
+                    if (progressedApprovalCount > 0)
+                    {
+                        await tx.RollbackAsync();
+                        return Conflict(new { messages = new[] { "DOC_Err_BadRequest" } });
+                    }
+
+                    // 4) 협조 진행 이력이 1건이라도 있으면 회수 불가
+                    int progressedCooperationCount = 0;
+                    await using (var ckCo = conn.CreateCommand())
+                    {
+                        ckCo.Transaction = tx;
+                        ckCo.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND (
+        ActedAt IS NOT NULL
+        OR (
+            NULLIF(LTRIM(RTRIM(ISNULL(Action, N''))), N'') IS NOT NULL
+            AND ISNULL(Action, N'') <> N'Recalled'
+        )
+      );";
+                        ckCo.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+                        progressedCooperationCount = Convert.ToInt32(await ckCo.ExecuteScalarAsync());
+                    }
+
+                    if (progressedCooperationCount > 0)
+                    {
+                        await tx.RollbackAsync();
+                        return Conflict(new { messages = new[] { "DOC_Err_BadRequest" } });
+                    }
+
+                    // 5) 문서 상태만 회수 처리
+                    int docAffected = 0;
+                    await using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = @"
 UPDATE dbo.Documents
 SET Status = N'Recalled'
 WHERE DocId = @DocId
-  AND ISNULL(Status,N'') LIKE N'Pending%';";
-                    cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                    await cmd.ExecuteNonQueryAsync();
-                }
+  AND ISNULL(Status, N'') LIKE N'Pending%';";
+                        cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+                        docAffected = await cmd.ExecuteNonQueryAsync();
+                    }
 
-                await using (var ac = conn.CreateCommand())
+                    if (docAffected <= 0)
+                    {
+                        await tx.RollbackAsync();
+                        return Conflict(new { messages = new[] { "DOC_Err_BadRequest" } });
+                    }
+
+                    await tx.CommitAsync();
+                    return Json(new { ok = true, docId = dto.docId, status = "Recalled" });
+                }
+                catch (Exception exRecall)
                 {
-                    ac.CommandText = @"
-UPDATE dbo.DocumentApprovals
-SET Action    = N'Recalled',
-    ActedAt   = SYSUTCDATETIME(),
-    ActorName = @actor
-WHERE DocId = @DocId
-  AND ISNULL(Status,N'Pending') LIKE N'Pending%';";
-                    ac.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                    ac.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = _helper.GetCurrentUserDisplayNameStrict() ?? string.Empty });
-                    await ac.ExecuteNonQueryAsync();
+                    try { await tx.RollbackAsync(); } catch { }
+                    _log.LogError(exRecall, "Recall failed docId={docId}", dto.docId);
+                    return StatusCode(StatusCodes.Status500InternalServerError,
+                        new { messages = new[] { "DOC_Err_RequestFailed" } });
                 }
-
-                return Json(new { ok = true, docId = dto.docId, status = "Recalled" });
             }
 
             // ── 협조 확인
@@ -1473,7 +1569,6 @@ WHERE DocId = @DocId
             {
                 var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
                 var approverName = _helper.GetCurrentUserDisplayNameStrict();
-
                 string? coopDisplayText = null;
                 string? coopSignaturePath = null;
                 try
@@ -1486,13 +1581,10 @@ WHERE DocId = @DocId
 SELECT TOP (1)
        u.DisplayName,
        COALESCE(pl.Name, pm.Name, N'') AS PositionName,
-       COALESCE(dl.Name, dm.Name, N'') AS DepartmentName,
        u.SignatureRelativePath         AS SignaturePath
 FROM dbo.UserProfiles AS u
-LEFT JOIN dbo.DepartmentMasters   AS dm ON dm.CompCd = u.CompCd AND dm.Id       = u.DepartmentId
-LEFT JOIN dbo.DepartmentMasterLoc AS dl ON dl.DepartmentId = dm.Id AND dl.LangCode = N'ko'
-LEFT JOIN dbo.PositionMasters     AS pm ON pm.CompCd = u.CompCd AND pm.Id       = u.PositionId
-LEFT JOIN dbo.PositionMasterLoc   AS pl ON pl.PositionId   = pm.Id AND pl.LangCode = N'ko'
+LEFT JOIN dbo.PositionMasters     AS pm ON pm.CompCd = u.CompCd AND pm.Id = u.PositionId
+LEFT JOIN dbo.PositionMasterLoc  AS pl ON pl.PositionId = pm.Id AND pl.LangCode = N'ko'
 WHERE u.UserId = @uid;";
                     up.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
                     await using var r = await up.ExecuteReaderAsync();
@@ -1500,9 +1592,13 @@ WHERE u.UserId = @uid;";
                     {
                         var disp = r["DisplayName"] as string ?? string.Empty;
                         var pos = r["PositionName"] as string ?? string.Empty;
-                        var dept = r["DepartmentName"] as string ?? string.Empty;
                         var sig = r["SignaturePath"] as string ?? string.Empty;
-                        coopDisplayText = string.Join(" ", new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                        var actorDisplayText = string.Join(" ", new[] { pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                        if (!string.IsNullOrWhiteSpace(actorDisplayText))
+                            approverName = actorDisplayText;
+
+                        coopDisplayText = actorDisplayText;
                         coopSignaturePath = string.IsNullOrWhiteSpace(sig) ? null : sig;
                     }
                 }
@@ -1631,7 +1727,6 @@ WHERE DocId = @DocId
             {
                 var approverId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
                 var approverName = _helper.GetCurrentUserDisplayNameStrict();
-
                 string? coopDisplayText = null;
                 try
                 {
@@ -1642,13 +1737,10 @@ WHERE DocId = @DocId
                     up.CommandText = @"
 SELECT TOP (1)
        u.DisplayName,
-       COALESCE(pl.Name, pm.Name, N'') AS PositionName,
-       COALESCE(dl.Name, dm.Name, N'') AS DepartmentName
+       COALESCE(pl.Name, pm.Name, N'') AS PositionName
 FROM dbo.UserProfiles AS u
-LEFT JOIN dbo.DepartmentMasters   AS dm ON dm.CompCd = u.CompCd AND dm.Id       = u.DepartmentId
-LEFT JOIN dbo.DepartmentMasterLoc AS dl ON dl.DepartmentId = dm.Id AND dl.LangCode = N'ko'
-LEFT JOIN dbo.PositionMasters     AS pm ON pm.CompCd = u.CompCd AND pm.Id       = u.PositionId
-LEFT JOIN dbo.PositionMasterLoc   AS pl ON pl.PositionId   = pm.Id AND pl.LangCode = N'ko'
+LEFT JOIN dbo.PositionMasters   AS pm ON pm.CompCd = u.CompCd AND pm.Id = u.PositionId
+LEFT JOIN dbo.PositionMasterLoc AS pl ON pl.PositionId = pm.Id AND pl.LangCode = N'ko'
 WHERE u.UserId = @uid;";
                     up.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
 
@@ -1657,8 +1749,12 @@ WHERE u.UserId = @uid;";
                     {
                         var disp = r["DisplayName"] as string ?? string.Empty;
                         var pos = r["PositionName"] as string ?? string.Empty;
-                        var dept = r["DepartmentName"] as string ?? string.Empty;
-                        coopDisplayText = string.Join(" ", new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                        var actorDisplayText = string.Join(" ", new[] { pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                        if (!string.IsNullOrWhiteSpace(actorDisplayText))
+                            approverName = actorDisplayText;
+
+                        coopDisplayText = actorDisplayText;
                     }
                 }
                 catch (Exception ex)
@@ -1739,10 +1835,8 @@ WHERE Id = @Id;";
 
             var approverId2 = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
             var approverName2 = _helper.GetCurrentUserDisplayNameStrict();
-
             string? approverDisplayText = null;
             string? signatureRelativePath = null;
-
             try
             {
                 var csP = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
@@ -1753,13 +1847,10 @@ WHERE Id = @Id;";
 SELECT TOP (1)
        u.DisplayName,
        COALESCE(pl.Name, pm.Name, N'') AS PositionName,
-       COALESCE(dl.Name, dm.Name, N'') AS DepartmentName,
-       u.SignatureRelativePath AS SignaturePath
+       u.SignatureRelativePath         AS SignaturePath
 FROM dbo.UserProfiles AS u
-LEFT JOIN dbo.DepartmentMasters     AS dm ON dm.CompCd = u.CompCd AND dm.Id       = u.DepartmentId
-LEFT JOIN dbo.DepartmentMasterLoc   AS dl ON dl.DepartmentId = dm.Id AND dl.LangCode = N'ko'
-LEFT JOIN dbo.PositionMasters       AS pm ON pm.CompCd = u.CompCd AND pm.Id       = u.PositionId
-LEFT JOIN dbo.PositionMasterLoc     AS pl ON pl.PositionId   = pm.Id AND pl.LangCode = N'ko'
+LEFT JOIN dbo.PositionMasters   AS pm ON pm.CompCd = u.CompCd AND pm.Id = u.PositionId
+LEFT JOIN dbo.PositionMasterLoc AS pl ON pl.PositionId = pm.Id AND pl.LangCode = N'ko'
 WHERE u.UserId = @uid;";
                 up.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId2 });
 
@@ -1768,15 +1859,19 @@ WHERE u.UserId = @uid;";
                 {
                     var disp = r["DisplayName"] as string ?? string.Empty;
                     var pos = r["PositionName"] as string ?? string.Empty;
-                    var dept = r["DepartmentName"] as string ?? string.Empty;
                     var sig = r["SignaturePath"] as string ?? string.Empty;
-                    approverDisplayText = string.Join(" ", new[] { dept, pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                    var actorDisplayText = string.Join(" ", new[] { pos, disp }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                    if (!string.IsNullOrWhiteSpace(actorDisplayText))
+                        approverName2 = actorDisplayText;
+
+                    approverDisplayText = actorDisplayText;
                     signatureRelativePath = string.IsNullOrWhiteSpace(sig) ? null : sig;
                 }
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "ApproveOrHold: profile snapshot failed docId={docId}", dto.docId);
+                _log.LogError(ex, "approve/hold/reject: profile snapshot failed docId={docId}", dto.docId);
             }
 
             string newStatus = "Updated";
@@ -1799,27 +1894,88 @@ WHERE u.UserId = @uid;";
                 }
 
                 int? currentStep = null;
-                await using (var findStep = conn.CreateCommand())
+                // 문서의 현재 결재 차수 = 최소 Pending StepOrder
+                await using (var findCurrentStep = conn.CreateCommand())
                 {
-                    findStep.CommandText = @"
-SELECT TOP (1) StepOrder
+                    findCurrentStep.CommandText = @"
+SELECT MIN(StepOrder)
 FROM dbo.DocumentApprovals
 WHERE DocId = @DocId
-  AND ISNULL(Status,N'Pending') LIKE N'Pending%'
-  AND (UserId = @UserId OR ApproverValue = @UserId)
-ORDER BY StepOrder;";
-                    findStep.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                    findStep.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = approverId2 });
-                    var stepObj = await findStep.ExecuteScalarAsync();
+  AND ISNULL(Status, N'Pending') LIKE N'Pending%';";
+                    findCurrentStep.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                    var stepObj = await findCurrentStep.ExecuteScalarAsync();
                     if (stepObj != null && stepObj != DBNull.Value)
                         currentStep = Convert.ToInt32(stepObj);
                 }
 
-                if (currentStep == null)
+                if (currentStep == null || currentStep.Value <= 0)
+                    return Forbid();
+
+                // 현재 최소 Pending 차수에 대해서만 본인 결재 가능
+                bool isMyCurrentStep = false;
+                await using (var mineStep = conn.CreateCommand())
+                {
+                    mineStep.CommandText = @"
+SELECT TOP (1) 1
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder = @Step
+  AND ISNULL(Status, N'Pending') LIKE N'Pending%'
+  AND (
+        NULLIF(LTRIM(RTRIM(UserId)), N'') = @UserId
+     OR NULLIF(LTRIM(RTRIM(ApproverValue)), N'') = @UserId
+  );";
+                    mineStep.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                    mineStep.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = currentStep.Value });
+                    mineStep.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = approverId2 });
+
+                    var mineObj = await mineStep.ExecuteScalarAsync();
+                    isMyCurrentStep = (mineObj != null && mineObj != DBNull.Value);
+                }
+
+                if (!isMyCurrentStep)
                     return Forbid();
 
                 var step = currentStep.Value;
                 actedStep = step;
+
+                if (actionLower == "approve")
+                {
+                    bool isCurrentFinalApprovalStep = true;
+                    await using (var nextStepChk = conn.CreateCommand())
+                    {
+                        nextStepChk.CommandText = @"
+SELECT TOP 1 1
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder > @Step
+ORDER BY StepOrder;";
+                        nextStepChk.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+                        nextStepChk.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = currentStep.Value });
+
+                        var nextObj = await nextStepChk.ExecuteScalarAsync();
+                        isCurrentFinalApprovalStep = (nextObj == null || nextObj == DBNull.Value);
+                    }
+
+                    if (isCurrentFinalApprovalStep)
+                    {
+                        int remainingCooperationCount = 0;
+                        await using (var remainCoopCmd = conn.CreateCommand())
+                        {
+                            remainCoopCmd.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND ISNULL(Status, N'Pending') NOT IN (N'Cooperated', N'Recalled');";
+                            remainCoopCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId! });
+
+                            remainingCooperationCount = Convert.ToInt32(await remainCoopCmd.ExecuteScalarAsync());
+                        }
+
+                        if (remainingCooperationCount > 0)
+                            return Conflict(new { messages = new[] { "DOC_Err_BadRequest" } });
+                    }
+                }
 
                 if (actionLower == "hold")
                 {
@@ -2622,34 +2778,88 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
 
-            string? status = null;
-            string? createdBy = null;
+            string docStatus = string.Empty;
+            string createdBy = string.Empty;
 
-            await using (var cmd = conn.CreateCommand())
+            await using (var doc = conn.CreateCommand())
             {
-                cmd.CommandText = @"SELECT TOP 1 Status, CreatedBy FROM dbo.Documents WHERE DocId = @id;";
-                cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
-                await using var r = await cmd.ExecuteReaderAsync();
-                if (await r.ReadAsync())
-                {
-                    status = r["Status"] as string ?? string.Empty;
-                    createdBy = r["CreatedBy"] as string ?? string.Empty;
-                }
+                doc.CommandText = @"
+SELECT TOP 1
+       ISNULL(CreatedBy, N'') AS CreatedBy,
+       ISNULL(Status,    N'') AS Status
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+                doc.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+                await using var r = await doc.ExecuteReaderAsync();
+                if (!await r.ReadAsync())
+                    return (false, false, false, false, false);
+
+                createdBy = r["CreatedBy"]?.ToString() ?? string.Empty;
+                docStatus = r["Status"]?.ToString() ?? string.Empty;
             }
 
-            if (status == null) return (false, false, false, false, false);
+            var isCreator = string.Equals(createdBy.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase);
+            var isPendingDoc = !string.IsNullOrWhiteSpace(docStatus)
+                && docStatus.StartsWith("Pending", StringComparison.OrdinalIgnoreCase);
+            var isRecalled = !string.IsNullOrWhiteSpace(docStatus)
+                && docStatus.StartsWith("Recalled", StringComparison.OrdinalIgnoreCase);
+            var isFinal = !string.IsNullOrWhiteSpace(docStatus)
+                && !isPendingDoc
+                && !string.Equals(docStatus, "Draft", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(docStatus, "Created", StringComparison.OrdinalIgnoreCase);
 
-            var st = status ?? string.Empty;
-            var isCreator = string.Equals(createdBy ?? string.Empty, userId, StringComparison.OrdinalIgnoreCase);
-            var isRecalled = st.Equals("Recalled", StringComparison.OrdinalIgnoreCase);
-            var isFinal = st.StartsWith("Approved", StringComparison.OrdinalIgnoreCase)
-                         || st.StartsWith("Rejected", StringComparison.OrdinalIgnoreCase);
-            var canRecall = isCreator && st.StartsWith("Pending", StringComparison.OrdinalIgnoreCase);
+            int progressedApprovalCount = 0;
+            await using (var ap = conn.CreateCommand())
+            {
+                ap.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND (
+        ActedAt IS NOT NULL
+        OR (
+            NULLIF(LTRIM(RTRIM(ISNULL(Action, N''))), N'') IS NOT NULL
+            AND ISNULL(Action, N'') <> N'Recalled'
+        )
+      );";
+                ap.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                progressedApprovalCount = Convert.ToInt32(await ap.ExecuteScalarAsync());
+            }
+
+            int progressedCooperationCount = 0;
+            await using (var co = conn.CreateCommand())
+            {
+                co.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND (
+        ActedAt IS NOT NULL
+        OR (
+            NULLIF(LTRIM(RTRIM(ISNULL(Action, N''))), N'') IS NOT NULL
+            AND ISNULL(Action, N'') <> N'Recalled'
+        )
+      );";
+                co.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                progressedCooperationCount = Convert.ToInt32(await co.ExecuteScalarAsync());
+            }
+
+            var canRecall =
+                isCreator
+                && isPendingDoc
+                && progressedApprovalCount == 0
+                && progressedCooperationCount == 0;
 
             bool canCooperate = false;
             await using (var coopCmd = conn.CreateCommand())
             {
-                coopCmd.CommandText = @"SELECT TOP 1 1 FROM dbo.DocumentCooperations WHERE DocId=@id AND UserId=@uid AND ISNULL(Status,N'Pending')=N'Pending';";
+                coopCmd.CommandText = @"
+SELECT TOP 1 1
+FROM dbo.DocumentCooperations
+WHERE DocId = @id
+  AND UserId = @uid
+  AND ISNULL(Status, N'Pending') = N'Pending';";
                 coopCmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 coopCmd.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = userId });
                 var coopObj = await coopCmd.ExecuteScalarAsync();
@@ -2659,40 +2869,80 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
             int currentStep = 0;
             await using (var cmd2 = conn.CreateCommand())
             {
-                cmd2.CommandText = @"SELECT MIN(StepOrder) FROM dbo.DocumentApprovals WHERE DocId=@id AND ISNULL(Status,N'Pending') LIKE N'Pending%';";
+                cmd2.CommandText = @"
+SELECT MIN(StepOrder)
+FROM dbo.DocumentApprovals
+WHERE DocId = @id
+  AND ISNULL(Status, N'Pending') LIKE N'Pending%';";
                 cmd2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 var obj = await cmd2.ExecuteScalarAsync();
-                if (obj != null && obj != DBNull.Value) currentStep = Convert.ToInt32(obj);
+                if (obj != null && obj != DBNull.Value)
+                    currentStep = Convert.ToInt32(obj);
             }
 
             if (currentStep == 0 || isFinal || isRecalled)
                 return (canRecall, false, false, false, canCooperate);
 
-            string? stepUserId = null;
-            string stepStatus = string.Empty;
-
+            bool canDo = false;
             await using (var cmd3 = conn.CreateCommand())
             {
-                cmd3.CommandText = @"SELECT TOP 1 UserId, ISNULL(Status,N'Pending') AS Status FROM dbo.DocumentApprovals WHERE DocId=@id AND StepOrder=@step;";
+                cmd3.CommandText = @"
+SELECT TOP (1) 1
+FROM dbo.DocumentApprovals
+WHERE DocId = @id
+  AND StepOrder = @step
+  AND ISNULL(Status, N'Pending') LIKE N'Pending%'
+  AND (
+        NULLIF(LTRIM(RTRIM(UserId)), N'') = @uid
+     OR NULLIF(LTRIM(RTRIM(ApproverValue)), N'') = @uid
+  );";
                 cmd3.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 cmd3.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = currentStep });
-                await using var r = await cmd3.ExecuteReaderAsync();
-                if (await r.ReadAsync())
-                {
-                    stepUserId = r["UserId"] as string ?? string.Empty;
-                    stepStatus = r["Status"] as string ?? string.Empty;
-                }
+                cmd3.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = userId });
+
+                var mineObj = await cmd3.ExecuteScalarAsync();
+                canDo = (mineObj != null && mineObj != DBNull.Value);
             }
 
-            if (string.IsNullOrWhiteSpace(stepUserId))
+            if (!canDo)
                 return (canRecall, false, false, false, canCooperate);
 
-            var isMyStep = string.Equals(stepUserId, userId, StringComparison.OrdinalIgnoreCase);
-            var isPending = stepStatus.StartsWith("Pending", StringComparison.OrdinalIgnoreCase);
-            var canDo = isMyStep && isPending && !isRecalled && !isFinal;
+            bool isCurrentFinalApprovalStep = true;
+            await using (var nextCmd = conn.CreateCommand())
+            {
+                nextCmd.CommandText = @"
+SELECT TOP 1 1
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder > @Step
+ORDER BY StepOrder;";
+                nextCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                nextCmd.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = currentStep });
+                var nextObj = await nextCmd.ExecuteScalarAsync();
+                isCurrentFinalApprovalStep = (nextObj == null || nextObj == DBNull.Value);
+            }
+
+            if (isCurrentFinalApprovalStep)
+            {
+                int remainingCooperationCount = 0;
+                await using (var remainCmd = conn.CreateCommand())
+                {
+                    remainCmd.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentCooperations
+WHERE DocId = @DocId
+  AND ISNULL(Status, N'Pending') NOT IN (N'Cooperated', N'Recalled');";
+                    remainCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    remainingCooperationCount = Convert.ToInt32(await remainCmd.ExecuteScalarAsync());
+                }
+
+                if (remainingCooperationCount > 0)
+                    return (canRecall, false, false, false, canCooperate);
+            }
 
             return (canRecall, canDo, canDo, canDo, canCooperate);
         }
+
 
         private async Task<string?> GetDocumentAuthorUserIdAsync(SqlConnection conn, string docId)
         {

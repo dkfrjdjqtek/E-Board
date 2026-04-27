@@ -16,11 +16,11 @@ namespace WebApplication1.Controllers
     [Route("DxSheet")]
     public class DxSheetController : Controller
     {
-        // ✅ /DxSheet/Test
+        //  /DxSheet/Test
         [HttpGet("Test")]
         public IActionResult Test(string? openName = null)
         {
-            // ✅ 이 플래그가 켜진 View에서는 _Layout 이 DX Spreadsheet 리소스를 head에 로드합니다.
+            //  이 플래그가 켜진 View에서는 _Layout 이 DX Spreadsheet 리소스를 head에 로드합니다.
             ViewData["UseDxSpreadsheet"] = true;
 
             // (유지) 기본 파일명
@@ -77,7 +77,7 @@ namespace WebApplication1.Controllers
             return View("~/Views/DxSheet/Test.cshtml");
         }
 
-        // ✅ DX Spreadsheet 콜백 (중복 라우트 금지: 여기만 남겨야 합니다)
+        //  DX Spreadsheet 콜백 (중복 라우트 금지: 여기만 남겨야 합니다)
         // View에서 var dxCbUrl = "/DxSheet/DxSpreadsheetRequest"; 로 호출되는 엔드포인트
         [AcceptVerbs("GET", "POST")]
         [Route("DxSpreadsheetRequest")]

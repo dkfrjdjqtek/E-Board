@@ -70,8 +70,8 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 return RedirectToPage("./ForgotPasswordConfirmation");
             }
 
-            if (!user.EmailConfirmed)
-                return RedirectToPage("./ForgotPasswordConfirmation");
+            //if (!user.EmailConfirmed)
+            //    return RedirectToPage("./ForgotPasswordConfirmation");
 
             var subject = _S["FP_Email_Subject"];
 

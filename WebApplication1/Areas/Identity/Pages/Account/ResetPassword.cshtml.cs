@@ -78,7 +78,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             if (!ModelState.IsValid) return Page();
             if (string.IsNullOrEmpty(Input.Code))
             {
-                ModelState.AddModelError(string.Empty, _S["_CM_InvalidToken"]); 
+                ModelState.AddModelError(string.Empty, _S["_CM_InvalidToken"]);
                 return Page();
             }
 
@@ -89,11 +89,26 @@ namespace WebApplication1.Areas.Identity.Pages.Account
 
             var result = await _userManager.ResetPasswordAsync(user, Input.Code!, Input.Password);
             if (result.Succeeded)
+            {
+                if (!user.EmailConfirmed)
+                {
+                    user.EmailConfirmed = true;
+
+                    var updateResult = await _userManager.UpdateAsync(user);
+                    if (!updateResult.Succeeded)
+                    {
+                        foreach (var e in updateResult.Errors)
+                            ModelState.AddModelError(string.Empty, e.Description);
+
+                        return Page();
+                    }
+                }
+
                 return RedirectToPage("./ResetPasswordConfirmation");
+            }
 
             foreach (var e in result.Errors)
             {
-                // 토큰 오류를 강제로 리소스 메시지로 치환
                 if (string.Equals(e.Code, nameof(IdentityErrorDescriber.InvalidToken), StringComparison.OrdinalIgnoreCase))
                     ModelState.AddModelError(string.Empty, _S["_CM_InvalidToken"]);
                 else

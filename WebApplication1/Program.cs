@@ -260,7 +260,7 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
 
-    // ✅ 어떤 라우트 형태든 잡히게 완화
+    //  어떤 라우트 형태든 잡히게 완화
     if (path.IndexOf("DxSpreadsheetRequest", StringComparison.OrdinalIgnoreCase) >= 0)
     {
         var sw = Stopwatch.StartNew();
@@ -347,7 +347,8 @@ app.Use(async (ctx, next) =>
             ctx.Request.Query["returnUrl"].FirstOrDefault()
             ?? (ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString)
         );
-        ctx.Response.Redirect(to, permanent: true);
+        //ctx.Response.Redirect(to, permanent: true);
+        ctx.Response.Redirect(to, permanent: false);
         return;
     }
     await next();
@@ -385,7 +386,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// ✅ Auth는 엔드포인트 매핑 전에
+//  Auth는 엔드포인트 매핑 전에
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -393,7 +394,7 @@ app.UseAuthorization();
 //  MapDevExpressControls() 호출은 제거(현재 참조 패키지에 메서드가 없어서 CS1061 발생)
 app.UseDevExpressControls();
 
-// ✅ (추가) 앱 유입/엔드포인트 등록 진단용
+//  (추가) 앱 유입/엔드포인트 등록 진단용
 app.MapGet("/DocumentTemplatesDX/ping", () => Results.Ok(new { ok = true, t = DateTimeOffset.Now }))
    .AllowAnonymous();
 

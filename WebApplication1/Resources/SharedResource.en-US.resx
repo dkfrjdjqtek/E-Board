@@ -1284,4 +1284,13 @@
   <data name="PUSH_CooperationPending" xml:space="preserve">
     <value>Pending cooperation {0}</value>
   </data>
+  <data name="DOC_Filter_ApprovalView_Rejected" xml:space="preserve">
+    <value>Rejected</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Vetoed" xml:space="preserve">
+    <value>Vetoed</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
+    <value>Recalled</value>
+  </data>
 </root>

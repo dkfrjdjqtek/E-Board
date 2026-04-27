@@ -1,6 +1,7 @@
-﻿// 2026.04.10 Changed: 협조 거부 상태를 빨간 도트로 렌더링하고 협조 전체 반려 시 "반려됨" 라벨을 표시하도록 수정
-(function () {
+﻿(function () {
     'use strict';
+
+    var __docBoardCurrentUserId = '';
 
     function $(sel, root) {
         try { return (root || document).querySelector(sel); } catch { return null; }
@@ -76,9 +77,11 @@
             box.className = 'eb-topbar-toast';
             if (kind === 'danger') box.classList.add('eb-topbar-toast--danger');
             else box.classList.add('eb-topbar-toast--success');
+
             var msg = document.createElement('div');
             msg.className = 'eb-topbar-toast__msg';
             msg.textContent = String(message);
+
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'eb-topbar-toast__close';
@@ -88,9 +91,11 @@
                 '<path fill="currentColor" d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 1 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/>' +
                 '</svg>';
             btn.addEventListener('click', function () { try { box.remove(); } catch { } });
+
             box.appendChild(msg);
             box.appendChild(btn);
             host.appendChild(box);
+
             setTimeout(function () { try { box.remove(); } catch { } }, 3500);
         } catch { }
     }
@@ -100,6 +105,7 @@
         approve: 'background:#4a8fdd;',
         reject: 'background:#e05252;',
         recall: 'background:#2c2c2c;',
+        hold: 'background:#f2c94c;',
         collab: 'background:#c0c0c0;',
         wait: 'background:#c0c0c0;',
         todo: 'background:#c0c0c0;'
@@ -116,7 +122,6 @@
     function makeDots(total, done, currentDotType) {
         var wrap = document.createElement('span');
         wrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-
         for (var i = 0; i < total; i++) {
             if (i < done) wrap.appendChild(makeDot('done'));
             else if (i === done) wrap.appendChild(makeDot(currentDotType));
@@ -153,20 +158,76 @@
 
     function getDotLabel(key, i18n) {
         var labels = (i18n && i18n.DOT_LABELS) ? i18n.DOT_LABELS : {};
-        var defaults = { ApprovedDone: '승인됨', RejectedDone: '반려됨', RecalledDone: '회수됨' };
+        var defaults = {
+            ApprovedDone: '승인됨',
+            RejectedDone: '반려됨',
+            VetoedDone: '부결됨',
+            RecalledDone: '회수됨',
+            Pending: '대기'
+        };
         return labels[key] || defaults[key] || key;
     }
 
-    function parseStepKeySet(v) {
-        return new Set(
-            String(v ?? '')
-                .split(',')
-                .map(function (x) { return parseInt(String(x).trim(), 10); })
-                .filter(function (x) { return Number.isFinite(x) && x > 0; })
-        );
+    function normalizeId(v) {
+        return String(v ?? '').trim().toLowerCase();
     }
 
-    function buildStatusCell(item, i18n) {
+    function readCurrentUserId(root) {
+        var dataCurrentUserId = '';
+        try {
+            var anyEl = document.querySelector('[data-current-user-id]');
+            dataCurrentUserId = anyEl ? (anyEl.getAttribute('data-current-user-id') || '') : '';
+        } catch { }
+
+        var candidates = [
+            root && root.dataset ? root.dataset.currentUserId : '',
+            root && root.dataset ? root.dataset.currentUserid : '',
+            root && root.dataset ? root.dataset.userId : '',
+            root && root.dataset ? root.dataset.userid : '',
+            document.body && document.body.dataset ? document.body.dataset.currentUserId : '',
+            document.body && document.body.dataset ? document.body.dataset.currentUserid : '',
+            document.body && document.body.dataset ? document.body.dataset.userId : '',
+            document.body && document.body.dataset ? document.body.dataset.userid : '',
+            (document.querySelector('meta[name="current-user-id"]') || {}).content || '',
+            (document.querySelector('meta[name="CurrentUserId"]') || {}).content || '',
+            (document.querySelector('input[name="CurrentUserId"]') || {}).value || '',
+            (document.querySelector('input[name="currentUserId"]') || {}).value || '',
+            dataCurrentUserId,
+            window.__CURRENT_USER_ID__ || '',
+            window.currentUserId || ''
+        ];
+
+        for (var i = 0; i < candidates.length; i++) {
+            var id = normalizeId(candidates[i]);
+            if (id) return id;
+        }
+        return '';
+    }
+
+    function getStatusBase(raw) {
+        if (!raw) return 'Pending';
+        var s = String(raw).trim().toUpperCase();
+        if (s.indexOf('PENDINGHOLD') === 0) return 'OnHold';
+        if (s === 'HOLD' || s.indexOf('ONHOLD') === 0 || s.indexOf('ON HOLD') === 0) return 'OnHold';
+        if (s.indexOf('PENDING') === 0) return 'Pending';
+        if (s === 'APPROVE' || s.indexOf('APPROVED') === 0) return 'Approved';
+        if (s === 'REJECT' || s.indexOf('REJECTED') === 0) return 'Rejected';
+        if (s === 'RECALL' || s.indexOf('RECALLED') === 0) return 'Recalled';
+        return raw;
+    }
+
+    function normalizeApprovalStepType(step) {
+        var status = String((step && step.status) || '').trim().toUpperCase();
+        var action = String((step && step.action) || '').trim().toUpperCase();
+
+        if (action === 'APPROVE' || status.indexOf('APPROVED') === 0) return 'approve';
+        if (action === 'REJECT' || status.indexOf('REJECTED') === 0) return 'reject';
+        if (action === 'RECALL' || status.indexOf('RECALLED') === 0) return 'recall';
+        if (action === 'HOLD' || status === 'HOLD' || status.indexOf('ONHOLD') === 0 || status.indexOf('PENDINGHOLD') === 0) return 'hold';
+        return 'todo';
+    }
+
+    function buildStatusCell(item, i18n, boardState) {
         var wrap = document.createElement('div');
         wrap.setAttribute('style', 'display:inline-flex;align-items:center;gap:5px;white-space:nowrap;');
 
@@ -178,98 +239,235 @@
         var base = getStatusBase(rawStatus);
 
         var totalA = asInt(item.totalApprovers ?? item.TotalApprovers ?? 0);
-        var doneA = asInt(item.completedApprovers ?? item.CompletedApprovers ?? 0);
+        var completedA = asInt(item.completedApprovers ?? item.CompletedApprovers ?? 0);
         var actorName = String(item.resultSummary || item.ResultSummary || '').trim();
 
-        var apDotType, apLabel, apLabelColor;
+        var coopTotal = asInt(item.coopTotalSteps ?? item.CoopTotalSteps ?? 0);
+        var coopDoneKeys = String(item.coopDoneKeys ?? item.CoopDoneKeys ?? '');
+        var coopRejectedKeys = String(item.coopRejectedKeys ?? item.CoopRejectedKeys ?? '');
+        var coopHoldKeys = String(item.coopHoldKeys ?? item.CoopHoldKeys ?? '');
+        var coopRecalledKeys = String(item.coopRecalledKeys ?? item.CoopRecalledKeys ?? '');
+        var coopName = String(item.coopPendingName ?? item.CoopPendingName ?? '').trim();
+        var coopPos = String(item.coopPendingPosition ?? item.CoopPendingPosition ?? '').trim();
 
-        if (base === 'Approved') {
-            apDotType = 'approve';
-            apLabel = getDotLabel('ApprovedDone', i18n);
-            apLabelColor = '#4a8fdd';
-            doneA = totalA;
-        } else if (base === 'Rejected') {
-            apDotType = 'reject';
-            apLabel = getDotLabel('RejectedDone', i18n);
-            apLabelColor = '#e05252';
-        } else if (base === 'Recalled') {
-            apDotType = 'recall';
-            apLabel = getDotLabel('RecalledDone', i18n);
-            apLabelColor = '#2c2c2c';
-        } else {
-            apDotType = 'wait';
-            apLabel = null;
-            apLabelColor = null;
+        function isCompletedBoardView() {
+            try {
+                if (!boardState || !boardState.tab) return false;
+                if (boardState.tab === 'created') return String(boardState.createdSub || '') === 'completed';
+                if (boardState.tab === 'approval') return String(boardState.approvalSub || '') === 'completed';
+                if (boardState.tab === 'cooperation') return String(boardState.cooperationSub || '') === 'completed';
+                if (boardState.tab === 'shared') return String(boardState.sharedSub || '') === 'completed';
+            } catch { }
+            return false;
         }
+
+        function parseKeySet(raw) {
+            var set = new Set();
+            String(raw || '')
+                .split(',')
+                .map(function (x) { return asInt(x); })
+                .filter(function (x) { return x > 0; })
+                .forEach(function (x) { set.add(x); });
+            return set;
+        }
+
+        function getLabelColor(key) {
+            if (key === 'ApprovedDone') return '#4a8fdd';
+            if (key === 'RejectedDone') return '#e05252';
+            if (key === 'VetoedDone') return '#e05252';
+            if (key === 'RecalledDone') return '#2c2c2c';
+            if (key === 'Pending') return '#8a8a8a';
+            return '#4a8fdd';
+        }
+
+        function buildProgressDots(total, done, currentType) {
+            var safeTotal = asInt(total);
+            var safeDone = asInt(done);
+            var stepWrap = document.createElement('span');
+            stepWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
+
+            for (var i = 1; i <= safeTotal; i++) {
+                if (i <= safeDone) stepWrap.appendChild(makeDot('approve'));
+                else if (i === safeDone + 1) stepWrap.appendChild(makeDot(currentType || 'todo'));
+                else stepWrap.appendChild(makeDot('todo'));
+            }
+            return stepWrap;
+        }
+
+        function readApprovalLaneState() {
+            var steps = Array.isArray(item.approvalSteps) ? item.approvalSteps.slice() : [];
+            var stateObj = {
+                approved: false,
+                rejected: false,
+                recalled: false,
+                onHold: false,
+                pending: false,
+                doneCount: 0,
+                steps: steps
+            };
+
+            if (steps.length > 0) {
+                steps.sort(function (a, b) {
+                    return asInt(a.stepOrder) - asInt(b.stepOrder);
+                });
+
+                var allApproved = steps.length > 0;
+                for (var i = 0; i < steps.length; i++) {
+                    var t = normalizeApprovalStepType(steps[i]);
+
+                    if (t === 'approve') stateObj.doneCount += 1;
+                    else allApproved = false;
+
+                    if (t === 'reject') stateObj.rejected = true;
+                    else if (t === 'recall') stateObj.recalled = true;
+                    else if (t === 'hold') stateObj.onHold = true;
+                    else if (t === 'todo') stateObj.pending = true;
+                }
+
+                stateObj.approved = allApproved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold;
+                if (!stateObj.approved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold) {
+                    stateObj.pending = true;
+                }
+                return stateObj;
+            }
+
+            stateObj.doneCount = completedA;
+
+            if (base === 'Recalled') {
+                stateObj.recalled = true;
+                return stateObj;
+            }
+            if (base === 'OnHold') {
+                stateObj.onHold = true;
+                return stateObj;
+            }
+            if (base === 'Approved') {
+                stateObj.approved = (totalA <= 0) ? true : (completedA >= totalA);
+                stateObj.pending = !stateObj.approved;
+                return stateObj;
+            }
+            if (base === 'Rejected') {
+                if (totalA > 0 && completedA >= totalA) stateObj.approved = true;
+                else stateObj.rejected = true;
+                return stateObj;
+            }
+
+            stateObj.pending = true;
+            return stateObj;
+        }
+
+        function readCoopLaneState() {
+            var doneSet = parseKeySet(coopDoneKeys);
+            var rejectedSet = parseKeySet(coopRejectedKeys);
+            var holdSet = parseKeySet(coopHoldKeys);
+            var recalledSet = parseKeySet(coopRecalledKeys);
+
+            var stateObj = {
+                approved: false,
+                rejected: rejectedSet.size > 0,
+                recalled: recalledSet.size > 0,
+                onHold: holdSet.size > 0,
+                pending: false,
+                doneCount: doneSet.size,
+                doneSet: doneSet,
+                rejectedSet: rejectedSet,
+                holdSet: holdSet,
+                recalledSet: recalledSet
+            };
+
+            if (coopTotal <= 0) return stateObj;
+
+            stateObj.approved = !stateObj.rejected && !stateObj.recalled && !stateObj.onHold && doneSet.size >= coopTotal;
+            stateObj.pending = !stateObj.approved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold;
+            return stateObj;
+        }
+
+        function resolveCompletedLaneLabelKey(laneState, otherLaneState, isDocumentRecalled) {
+            if (isDocumentRecalled || laneState.recalled) return 'RecalledDone';
+            if (laneState.rejected) return 'RejectedDone';
+            if (otherLaneState.rejected) return 'VetoedDone';
+            if (laneState.approved) return 'ApprovedDone';
+            if (laneState.onHold || laneState.pending) return 'Pending';
+            return '';
+        }
+
+        function resolveOngoingLaneLabelKey(laneState) {
+            if (laneState.recalled) return 'RecalledDone';
+            if (laneState.rejected) return 'RejectedDone';
+            if (laneState.approved) return 'ApprovedDone';
+            return '';
+        }
+
+        var approvalState = readApprovalLaneState();
+        var coopState = readCoopLaneState();
+        var docRecalled = (base === 'Recalled');
+        var completedView = isCompletedBoardView();
+
+        var approvalLabelKey = completedView
+            ? resolveCompletedLaneLabelKey(approvalState, coopState, docRecalled)
+            : resolveOngoingLaneLabelKey(approvalState);
+
+        var coopLabelKey = completedView
+            ? resolveCompletedLaneLabelKey(coopState, approvalState, docRecalled)
+            : resolveOngoingLaneLabelKey(coopState);
 
         if (totalA > 0) {
-            wrap.appendChild(makeDots(totalA, doneA, apDotType));
+            var steps = approvalState.steps || [];
+            if (steps.length > 0) {
+                var stepWrap = document.createElement('span');
+                stepWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
+
+                for (var i = 0; i < steps.length; i++) {
+                    stepWrap.appendChild(makeDot(normalizeApprovalStepType(steps[i])));
+                }
+
+                for (var j = steps.length + 1; j <= totalA; j++) {
+                    stepWrap.appendChild(makeDot('todo'));
+                }
+
+                wrap.appendChild(stepWrap);
+            } else {
+                if (approvalState.recalled) wrap.appendChild(buildProgressDots(totalA, 0, 'recall'));
+                else if (approvalState.rejected) wrap.appendChild(buildProgressDots(totalA, completedA, 'reject'));
+                else if (approvalState.onHold) wrap.appendChild(buildProgressDots(totalA, completedA, 'hold'));
+                else if (approvalState.approved) wrap.appendChild(buildProgressDots(totalA, totalA, 'approve'));
+                else wrap.appendChild(buildProgressDots(totalA, completedA, 'todo'));
+            }
         }
 
-        if (apLabel) {
-            wrap.appendChild(makeLabelSpan(apLabel, apLabelColor));
-        } else if (actorName) {
+        if (approvalLabelKey) {
+            wrap.appendChild(makeLabelSpan(getDotLabel(approvalLabelKey, i18n), getLabelColor(approvalLabelKey)));
+        } else if (!completedView && actorName) {
             var nameSpan = document.createElement('span');
             nameSpan.setAttribute('style', 'font-size:15px;color:inherit;white-space:nowrap;');
             nameSpan.textContent = actorName;
             wrap.appendChild(nameSpan);
         }
 
-        var coopTotal = asInt(item.coopTotalSteps ?? item.CoopTotalSteps ?? 0);
-        var coopDoneKeys = parseStepKeySet(item.coopDoneKeys ?? item.CoopDoneKeys ?? '');
-        var coopRejectedKeys = parseStepKeySet(item.coopRejectedKeys ?? item.CoopRejectedKeys ?? '');
-        var coopName = String(item.coopPendingName ?? item.CoopPendingName ?? '').trim();
-        var coopPos = String(item.coopPendingPosition ?? item.CoopPendingPosition ?? '').trim();
-
         if (coopTotal > 0) {
             wrap.appendChild(makeDivider());
 
-            var coopRejected = coopRejectedKeys.size > 0;
-            var coopAllApproved = !coopRejected && coopDoneKeys.size >= coopTotal;
+            var coopWrap = document.createElement('span');
+            coopWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
 
-            if (coopRejected) {
-                var coopRejectWrap = document.createElement('span');
-                coopRejectWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-                for (var i = 1; i <= coopTotal; i++) {
-                    if (coopRejectedKeys.has(i)) coopRejectWrap.appendChild(makeDot('reject'));
-                    else if (coopDoneKeys.has(i)) coopRejectWrap.appendChild(makeDot('approve'));
-                    else coopRejectWrap.appendChild(makeDot('todo'));
-                }
-                wrap.appendChild(coopRejectWrap);
-                wrap.appendChild(makeLabelSpan(getDotLabel('RejectedDone', i18n), '#e05252'));
-            } else if (coopAllApproved) {
-                var coopWrap = document.createElement('span');
-                coopWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-                for (var j = 1; j <= coopTotal; j++) {
-                    coopWrap.appendChild(makeDot('approve'));
-                }
-                wrap.appendChild(coopWrap);
-                wrap.appendChild(makeLabelSpan(getDotLabel('ApprovedDone', i18n), '#4a8fdd'));
-            } else {
-                var coopProgressWrap = document.createElement('span');
-                coopProgressWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-                for (var k = 1; k <= coopTotal; k++) {
-                    coopProgressWrap.appendChild(makeDot(coopDoneKeys.has(k) ? 'approve' : 'collab'));
-                }
-                wrap.appendChild(coopProgressWrap);
-                if (coopName) {
-                    wrap.appendChild(makeNameSpan(coopName, coopPos));
-                }
+            for (var c = 1; c <= coopTotal; c++) {
+                if (coopState.recalledSet.has(c)) coopWrap.appendChild(makeDot('recall'));
+                else if (coopState.holdSet.has(c)) coopWrap.appendChild(makeDot('hold'));
+                else if (coopState.rejectedSet.has(c)) coopWrap.appendChild(makeDot('reject'));
+                else if (coopState.doneSet.has(c)) coopWrap.appendChild(makeDot('approve'));
+                else coopWrap.appendChild(makeDot('todo'));
+            }
+
+            wrap.appendChild(coopWrap);
+
+            if (coopLabelKey) {
+                wrap.appendChild(makeLabelSpan(getDotLabel(coopLabelKey, i18n), getLabelColor(coopLabelKey)));
+            } else if (!completedView && coopName) {
+                wrap.appendChild(makeNameSpan(coopName, coopPos));
             }
         }
 
         return wrap;
-    }
-
-    function getStatusBase(raw) {
-        if (!raw) return 'Pending';
-        var s = String(raw).trim().toUpperCase();
-        if (s.indexOf('PENDING') === 0) return 'Pending';
-        if (s === 'APPROVE' || s.indexOf('APPROVED') === 0) return 'Approved';
-        if (s === 'REJECT' || s.indexOf('REJECTED') === 0) return 'Rejected';
-        if (s === 'HOLD' || s.indexOf('ONHOLD') === 0 || s.indexOf('ON HOLD') === 0) return 'OnHold';
-        if (s === 'RECALL' || s.indexOf('RECALLED') === 0) return 'Recalled';
-        return raw;
     }
 
     function createBoard(root) {
@@ -277,6 +475,8 @@
             console.error('[DocBoard] root or dataset missing');
             return;
         }
+
+        __docBoardCurrentUserId = readCurrentUserId(root);
 
         var apiList = String(root.dataset.apiList || '');
         var apiBadges = String(root.dataset.apiBadges || '');
@@ -350,7 +550,6 @@
         var SNAPSHOT_PREFIX = 'docBoardSnapshot:';
 
         var i18n = safeParseI18n();
-        var STATUS_LABELS = i18n.STATUS_LABELS || {};
         var READ_LABEL = String(i18n.READ_LABEL || 'Viewed');
         var UNREAD_LABEL = String(i18n.UNREAD_LABEL || 'Unviewed');
         var LIST_LOADING = String(i18n.LIST_LOADING || 'Loading...');
@@ -397,7 +596,8 @@
             var j = await res.json().catch(function () { return null; });
             if (!res.ok || !j || j.ok !== true) {
                 var err = new Error('bulk approve failed');
-                err.payload = j; err.status = res.status;
+                err.payload = j;
+                err.status = res.status;
                 throw err;
             }
             return j;
@@ -432,10 +632,16 @@
         function saveStateToSession() {
             var map = readStateMap();
             map[state.tab] = {
-                tab: state.tab, page: state.page, pageSize: state.pageSize,
-                titleFilter: state.titleFilter, sort: state.sort, q: state.q,
-                createdSub: state.createdSub, approvalSub: state.approvalSub,
-                cooperationSub: state.cooperationSub, sharedSub: state.sharedSub
+                tab: state.tab,
+                page: state.page,
+                pageSize: state.pageSize,
+                titleFilter: state.titleFilter,
+                sort: state.sort,
+                q: state.q,
+                createdSub: state.createdSub,
+                approvalSub: state.approvalSub,
+                cooperationSub: state.cooperationSub,
+                sharedSub: state.sharedSub
             };
             writeStateMap(map);
         }
@@ -450,10 +656,10 @@
                 qs.set('sort', String(state.sort || 'created_desc'));
                 qs.set('q', String(state.q || ''));
 
-                if (state.tab === 'created') { qs.set('createdSub', String(state.createdSub || 'ongoing')); } else qs.delete('createdSub');
-                if (state.tab === 'approval') { qs.set('approvalSub', String(state.approvalSub || 'ongoing')); } else qs.delete('approvalSub');
-                if (state.tab === 'cooperation') { qs.set('cooperationSub', String(state.cooperationSub || 'ongoing')); } else qs.delete('cooperationSub');
-                if (state.tab === 'shared') { qs.set('sharedSub', String(state.sharedSub || 'ongoing')); } else qs.delete('sharedSub');
+                if (state.tab === 'created') qs.set('createdSub', String(state.createdSub || 'ongoing')); else qs.delete('createdSub');
+                if (state.tab === 'approval') qs.set('approvalSub', String(state.approvalSub || 'ongoing')); else qs.delete('approvalSub');
+                if (state.tab === 'cooperation') qs.set('cooperationSub', String(state.cooperationSub || 'ongoing')); else qs.delete('cooperationSub');
+                if (state.tab === 'shared') qs.set('sharedSub', String(state.sharedSub || 'ongoing')); else qs.delete('sharedSub');
 
                 var url = window.location.pathname + '?' + qs.toString();
                 if (replaceOnly) window.history.replaceState(null, '', url);
@@ -466,10 +672,12 @@
             var out = {};
             var tab = qs.get('tab');
             if (tab && allowedTabs.indexOf(tab) >= 0) out.tab = tab;
+
             var p = parseInt(qs.get('page') || '', 10);
             var ps = parseInt(qs.get('pageSize') || '', 10);
             if (!isNaN(p) && p > 0) out.page = p;
             if (!isNaN(ps) && ps > 0 && ps <= 100) out.pageSize = ps;
+
             var tf = qs.get('titleFilter'); if (tf) out.titleFilter = tf;
             var so = qs.get('sort'); if (so) out.sort = so;
             var q = qs.get('q'); if (q != null) out.q = q;
@@ -532,6 +740,7 @@
                 .forEach(function (o) { setOptionHidden(o, !isShared); });
             Array.from(filterTitle.querySelectorAll('option[data-nonshared-only="true"]'))
                 .forEach(function (o) { setOptionHidden(o, isShared); });
+
             var createdOnly = Array.from(filterTitle.querySelectorAll('option[data-created-only="true"]'));
             createdOnly.forEach(function (o) { setOptionHidden(o, state.tab !== 'created'); });
 
@@ -543,11 +752,20 @@
         }
 
         var state = {
-            tab: 'created', page: 1, pageSize: 20,
-            titleFilter: 'all', sort: 'created_desc', q: '',
-            createdSub: 'ongoing', approvalSub: 'ongoing',
-            cooperationSub: 'ongoing', sharedSub: 'ongoing'
+            tab: 'created',
+            page: 1,
+            pageSize: 20,
+            titleFilter: 'all',
+            sort: 'created_desc',
+            q: '',
+            createdSub: 'ongoing',
+            approvalSub: 'ongoing',
+            cooperationSub: 'ongoing',
+            sharedSub: 'ongoing'
         };
+
+        var forceRefreshInFlight = false;
+        var lastForceRefreshAt = 0;
 
         function applyStateToControls() {
             try {
@@ -571,6 +789,10 @@
             try { writeJson(SNAPSHOT_PREFIX + buildStateKey(), { at: Date.now(), res: res || null }); } catch { }
         }
 
+        function clearCurrentSnapshot() {
+            try { window.sessionStorage.removeItem(SNAPSHOT_PREFIX + buildStateKey()); } catch { }
+        }
+
         function tryRestoreSnapshot() {
             try {
                 var snap = readJson(SNAPSHOT_PREFIX + buildStateKey(), null);
@@ -584,34 +806,71 @@
 
         function ensureBulkUiVisible() {
             var show = isApprovalOngoing();
+
             if (pagingTools) pagingTools.hidden = !show;
 
+            if (!chkAllTop) {
+                chkAllTop = document.createElement('input');
+                chkAllTop.type = 'checkbox';
+                chkAllTop.id = 'chkAllTop';
+                chkAllTop.addEventListener('change', function () {
+                    setAllVisibleChecks(chkAllTop.checked);
+                });
+            }
+
+            if (noHeaderWrap) {
+                var headerHost = noHeaderWrap.querySelector('.doc-no-cell[data-bulk-header="1"]');
+                if (!headerHost) {
+                    var currentText = (noHeaderWrap.textContent || '').replace(/\s+/g, ' ').trim();
+                    var savedLabel = currentText || '번호';
+
+                    noHeaderWrap.innerHTML = '';
+
+                    headerHost = document.createElement('span');
+                    headerHost.className = 'doc-no-cell';
+                    headerHost.setAttribute('data-bulk-header', '1');
+                    headerHost.style.display = 'inline-flex';
+                    headerHost.style.alignItems = 'center';
+
+                    var labelEl = document.createElement('span');
+                    labelEl.setAttribute('data-no-label', '1');
+                    labelEl.textContent = savedLabel;
+
+                    headerHost.appendChild(chkAllTop);
+                    headerHost.appendChild(labelEl);
+                    noHeaderWrap.appendChild(headerHost);
+                } else {
+                    var labelEl2 = headerHost.querySelector('[data-no-label="1"]');
+                    if (!labelEl2) {
+                        labelEl2 = document.createElement('span');
+                        labelEl2.setAttribute('data-no-label', '1');
+                        labelEl2.textContent = '번호';
+                        headerHost.appendChild(labelEl2);
+                    }
+                    if (!headerHost.contains(chkAllTop)) {
+                        headerHost.insertBefore(chkAllTop, headerHost.firstChild);
+                    }
+                }
+
+                chkAllTop.style.display = show ? '' : 'none';
+                chkAllTop.style.marginRight = show ? '8px' : '0';
+                if (!show) chkAllTop.checked = false;
+            }
+
+            if (chkAllBottom) {
+                chkAllBottom.checked = false;
+                chkAllBottom.onchange = show
+                    ? function () { setAllVisibleChecks(chkAllBottom.checked); }
+                    : null;
+            }
+
             if (show) {
-                if (!chkAllTop) {
-                    chkAllTop = document.createElement('input');
-                    chkAllTop.type = 'checkbox';
-                    chkAllTop.id = 'chkAllTop';
-                    chkAllTop.addEventListener('change', function () { setAllVisibleChecks(chkAllTop.checked); });
-                }
-                if (noHeaderWrap && noHeaderWrap.dataset.bulkBound !== '1') {
-                    var noText = noHeaderWrap.textContent || '';
-                    noHeaderWrap.textContent = '';
-                    var wrapEl = document.createElement('span');
-                    wrapEl.className = 'doc-no-cell';
-                    wrapEl.appendChild(chkAllTop);
-                    var t = document.createElement('span');
-                    t.textContent = noText;
-                    wrapEl.appendChild(t);
-                    noHeaderWrap.appendChild(wrapEl);
-                    noHeaderWrap.dataset.bulkBound = '1';
-                }
-                if (chkAllBottom) chkAllBottom.onchange = function () { setAllVisibleChecks(chkAllBottom.checked); };
                 btnApproveBulk = findApproveButtonFallback();
-                if (btnApproveBulk) { try { btnApproveBulk.type = 'button'; } catch { } }
+                if (btnApproveBulk) {
+                    try { btnApproveBulk.type = 'button'; } catch { }
+                }
             } else {
                 selectedDocIds.clear();
-                if (chkAllBottom) chkAllBottom.checked = false;
-                if (chkAllTop) chkAllTop.checked = false;
                 updateBulkUiState();
             }
         }
@@ -705,24 +964,25 @@
             tr.dataset.docid = item.docId || item.DocId || '';
             tr.classList.remove('doc-row-hold');
 
-            var rawStatusCode = String(
-                item.statusCode || item.StatusCode ||
-                item.status || item.Status || ''
-            ).trim();
-            var baseStatus = getStatusBase(rawStatusCode);
-            var statusUpper = rawStatusCode.toUpperCase();
-
-            var isApprovalUnreadByStatus =
-                (statusUpper.indexOf('PENDINGA') === 0) ||
-                (statusUpper.indexOf('PENDINGHOLDA') === 0) ||
-                (baseStatus === 'Pending') ||
-                (baseStatus === 'OnHold');
-
             var rawIsRead = pick(item, ['isRead', 'IsRead', 'read', 'Read', 'is_viewed', 'isViewed', 'IsViewed']);
             var isRead = toBool(rawIsRead);
+
+            var rawIsMyPendingTurn = pick(item, ['isMyPendingTurn', 'IsMyPendingTurn']);
+            var isMyPendingTurn = toBool(rawIsMyPendingTurn);
+
+            var rawIsMyPendingCooperation = pick(item, ['isMyPendingCooperation', 'IsMyPendingCooperation']);
+            var isMyPendingCooperation = toBool(rawIsMyPendingCooperation);
+
+            var isApprovalOngoingTab =
+                (state.tab === 'approval' && String(state.approvalSub || '') === 'ongoing');
+
+            var isCooperationOngoingTab =
+                (state.tab === 'cooperation' && String(state.cooperationSub || '') === 'ongoing');
+
             var shouldBold =
-                (state.tab === 'approval' && isApprovalUnreadByStatus) ||
-                ((state.tab === 'created' || state.tab === 'cooperation' || state.tab === 'shared') && !isRead);
+                (isApprovalOngoingTab && isMyPendingTurn) ||
+                (isCooperationOngoingTab && isMyPendingCooperation) ||
+                ((state.tab === 'created' || state.tab === 'shared') && !isRead);
 
             if (shouldBold) tr.classList.add('doc-row-unread');
             else tr.classList.remove('doc-row-unread');
@@ -768,7 +1028,7 @@
 
             var tdStatus = document.createElement('td');
             tdStatus.style.textAlign = 'center';
-            tdStatus.appendChild(buildStatusCell(item, i18n));
+            tdStatus.appendChild(buildStatusCell(item, i18n, state));
 
             var tdResult = document.createElement('td');
             tdResult.textContent = isRead ? READ_LABEL : UNREAD_LABEL;
@@ -821,6 +1081,7 @@
         async function loadList() {
             try {
                 body.innerHTML = '<tr><td colspan="' + getColSpan() + '">' + LIST_LOADING + '</td></tr>';
+
                 var params = new URLSearchParams(window.location.search || '');
                 params.set('tab', state.tab || 'created');
                 params.set('page', String(state.page || 1));
@@ -828,20 +1089,26 @@
                 params.set('titleFilter', String(state.titleFilter || 'all'));
                 params.set('sort', String(state.sort || 'created_desc'));
                 params.set('q', String(state.q || ''));
-                if (state.tab === 'created') { params.set('createdSub', String(state.createdSub || 'ongoing')); } else params.delete('createdSub');
-                if (state.tab === 'approval') { params.set('approvalSub', String(state.approvalSub || 'ongoing')); } else params.delete('approvalSub');
-                if (state.tab === 'cooperation') { params.set('cooperationSub', String(state.cooperationSub || 'ongoing')); } else params.delete('cooperationSub');
-                if (state.tab === 'shared') { params.set('sharedSub', String(state.sharedSub || 'ongoing')); } else params.delete('sharedSub');
+
+                if (state.tab === 'created') params.set('createdSub', String(state.createdSub || 'ongoing')); else params.delete('createdSub');
+                if (state.tab === 'approval') params.set('approvalSub', String(state.approvalSub || 'ongoing')); else params.delete('approvalSub');
+                if (state.tab === 'cooperation') params.set('cooperationSub', String(state.cooperationSub || 'ongoing')); else params.delete('cooperationSub');
+                if (state.tab === 'shared') params.set('sharedSub', String(state.sharedSub || 'ongoing')); else params.delete('sharedSub');
+
                 params.set('_ts', String(Date.now()));
+
                 var url = apiList + (apiList.indexOf('?') >= 0 ? '&' : '?') + params.toString();
                 console.debug('[DocBoard] BoardData fetch:', url);
+
                 var r = await fetch(url, { method: 'GET', cache: 'no-store', headers: { 'Accept': 'application/json' } });
                 var res = await r.json().catch(function () { return null; });
+
                 if (!r.ok || !res) {
                     body.innerHTML = '<tr><td colspan="' + getColSpan() + '">' + LIST_EMPTY + '</td></tr>';
                     paging.innerHTML = '';
                     return;
                 }
+
                 saveSnapshot(res);
                 renderList(res);
             } catch (e) {
@@ -860,11 +1127,53 @@
                 var res = await fetch(url, { method: 'GET', cache: 'no-store', headers: { 'Accept': 'application/json' } });
                 var j = await res.json().catch(function () { return null; });
                 if (!res.ok || !j) return;
+
                 setBadgeDom('badge-created', j.createdUnread ?? j.CreatedUnread ?? j.created ?? j.Created ?? 0);
                 setBadgeDom('badge-approval', j.approvalPending ?? j.ApprovalPending ?? j.approval ?? j.Approval ?? 0);
                 setBadgeDom('badge-cooperation', j.cooperationPending ?? j.CooperationPending ?? j.cooperation ?? j.Cooperation ?? 0);
                 setBadgeDom('badge-shared', j.sharedUnread ?? j.SharedUnread ?? j.shared ?? j.Shared ?? 0);
             } catch { }
+        }
+
+        async function forceRefreshBoard(reason) {
+            var now = Date.now();
+            if (forceRefreshInFlight) return;
+            if ((now - lastForceRefreshAt) < 300) return;
+
+            forceRefreshInFlight = true;
+            lastForceRefreshAt = now;
+
+            try {
+                selectedDocIds.clear();
+                if (chkAllTop) chkAllTop.checked = false;
+                if (chkAllBottom) chkAllBottom.checked = false;
+
+                clearCurrentSnapshot();
+                ensureBulkUiVisible();
+
+                console.debug('[DocBoard] force refresh by', reason || '');
+                await refreshBadges();
+                await loadList();
+            } catch (e) {
+                console.error('[DocBoard] force refresh failed:', e);
+            } finally {
+                forceRefreshInFlight = false;
+            }
+        }
+
+        function isBackForwardNavigation(ev) {
+            try {
+                if (ev && ev.persisted) return true;
+            } catch { }
+            try {
+                if (window.performance && typeof window.performance.getEntriesByType === 'function') {
+                    var nav = window.performance.getEntriesByType('navigation');
+                    if (nav && nav.length > 0 && nav[0] && nav[0].type === 'back_forward') {
+                        return true;
+                    }
+                }
+            } catch { }
+            return false;
         }
 
         function restoreInitialState() {
@@ -925,11 +1234,15 @@
             t.addEventListener('click', function () {
                 var nextTab = t.dataset.tab;
                 if (!nextTab || allowedTabs.indexOf(nextTab) < 0) return;
+
                 state.tab = nextTab;
+
                 var s = readStateForTabFromSession(state.tab);
                 if (s) {
-                    state.page = s.page || 1; state.pageSize = s.pageSize || 20;
-                    state.titleFilter = s.titleFilter || 'all'; state.sort = s.sort || 'created_desc';
+                    state.page = s.page || 1;
+                    state.pageSize = s.pageSize || 20;
+                    state.titleFilter = s.titleFilter || 'all';
+                    state.sort = s.sort || 'created_desc';
                     state.q = s.q || '';
                     state.createdSub = s.createdSub || state.createdSub || 'ongoing';
                     state.approvalSub = s.approvalSub || state.approvalSub || 'ongoing';
@@ -941,6 +1254,7 @@
                     state.sort = filterSort.value || 'created_desc';
                     state.q = filterQuery.value || '';
                 }
+
                 selectedDocIds.clear();
                 applyStateToControls();
                 applyTabUi();
@@ -988,19 +1302,35 @@
             if (u.approvalSub) state.approvalSub = u.approvalSub;
             if (u.cooperationSub) state.cooperationSub = u.cooperationSub;
             if (u.sharedSub) state.sharedSub = u.sharedSub;
+
             selectedDocIds.clear();
             applyStateToControls();
             applyTabUi();
             saveStateToSession();
+
             var snap = tryRestoreSnapshot();
             if (snap) renderList(snap);
+
             loadList();
             refreshBadges();
         });
 
+        window.addEventListener('pageshow', function (ev) {
+            if (!isBackForwardNavigation(ev)) return;
+            forceRefreshBoard('pageshow');
+        });
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState !== 'visible') return;
+            if (!document.getElementById('docBoard')) return;
+            forceRefreshBoard('visibilitychange');
+        });
+
         restoreInitialState();
+
         var snap = tryRestoreSnapshot();
         if (snap) renderList(snap);
+
         loadList();
         refreshBadges();
     }
@@ -1016,11 +1346,16 @@
     };
 
     window.DocBoard = window.DocBoard || {};
-    window.DocBoard.init = function (rootEl) { return window.EBDocBoard.init(rootEl); };
+    window.DocBoard.init = function (rootEl) {
+        return window.EBDocBoard.init(rootEl);
+    };
 
     document.addEventListener('DOMContentLoaded', function () {
         var root = document.getElementById('docBoard') || document.querySelector('[data-api-list]');
-        if (!root) { console.warn('[DocBoard] root not found for auto init'); return; }
+        if (!root) {
+            console.warn('[DocBoard] root not found for auto init');
+            return;
+        }
         window.EBDocBoard.init(root);
     });
 })();

@@ -508,7 +508,7 @@ function dedupeFilesKeepFirst(files) {
             text.style.whiteSpace = 'nowrap';
             text.textContent = `${f.name} (${Number(f.size || 0) || 0})`;
 
-            // ✅ 삭제 버튼 추가
+            //  삭제 버튼 추가
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
             delBtn.className = 'btn btn-outline-secondary';
@@ -568,7 +568,7 @@ function dedupeFilesKeepFirst(files) {
         e.stopPropagation();
         if (!fileInput) return;
 
-        // ✅ 기존 선택 파일을 캐시(사용자가 새로 선택해도 기본 동작으로 덮어써지므로, change에서 병합할 것)
+        //  기존 선택 파일을 캐시(사용자가 새로 선택해도 기본 동작으로 덮어써지므로, change에서 병합할 것)
         try {
             const cur = Array.from(fileInput.files || []);
             window.__attach_prev_files = dedupeFilesKeepFirst(cur);
@@ -586,10 +586,10 @@ function dedupeFilesKeepFirst(files) {
         const prev = Array.isArray(window.__attach_prev_files) ? window.__attach_prev_files : [];
         const now = Array.from(fileInput?.files || []);
 
-        // ✅ 병합 + 중복 제거(이름|사이즈 시그니처 기준, 기존 dedupe 사용)
+        //  병합 + 중복 제거(이름|사이즈 시그니처 기준, 기존 dedupe 사용)
         const merged = dedupeFilesKeepFirst([ ...prev, ...now ]);
 
-        // ✅ 실제 input.files 를 병합 결과로 재구성(DataTransfer 사용)
+        //  실제 input.files 를 병합 결과로 재구성(DataTransfer 사용)
         if (typeof setFileInputFiles === 'function') {
             setFileInputFiles(fileInput, merged);
         }

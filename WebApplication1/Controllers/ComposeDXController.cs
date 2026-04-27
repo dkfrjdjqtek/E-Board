@@ -393,9 +393,16 @@ namespace WebApplication1.Controllers
 
                 if (sheet.Id == null) return false;
 
-                var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(sheet.Id);
+                var relId = sheet.Id?.Value;
+                if (string.IsNullOrWhiteSpace(relId))
+                    return false;
+
+                var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(relId);
                 var worksheet = wsPart.Worksheet;
                 if (worksheet == null) return false;
+                //var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(sheet.Id);
+                //var worksheet = wsPart.Worksheet;
+                //if (worksheet == null) return false;
 
                 var sfp = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetFormatProperties>();
                 if (sfp?.DefaultColumnWidth?.Value != null && sfp.DefaultColumnWidth.Value > 0)
@@ -1875,10 +1882,7 @@ WHERE DocId = @DocId
             }
         }
 
-        private async Task<(string docId, string outputPath)> SaveDocumentWithCollisionGuardAsync(
-            string docId, string templateCode, string title, string status, string outputPath,
-            Dictionary<string, string> inputs, string approvalsJson, string cooperationsJson,
-            string descriptorJson, string userId, string userName, string compCd, string? departmentId)
+        private async Task<(string docId, string outputPath)> SaveDocumentWithCollisionGuardAsync(string docId, string templateCode, string title, string status, string outputPath, Dictionary<string, string> inputs, string approvalsJson, string cooperationsJson, string descriptorJson, string userId, string userName, string compCd, string? departmentId)
         {
             static string WithNewSuffix(string baseDocId)
             {
@@ -1914,65 +1918,85 @@ WHERE DocId = @DocId
             throw new InvalidOperationException("DocId collision could not be resolved after retries");
         }
 
-        // 2026.04.09 Changed: 문서 저장 시 CreatedByName과 ApproverDisplayText를 직급 이름 스냅샷으로 저장하도록 수정함
-
-        private async Task<string> BuildSnapshotDisplayNameAsync(
-            SqlConnection conn,
-            SqlTransaction tx,
-            string? userId,
-            string? fallbackText,
-            string? compCd)
+        private async Task<string> BuildSnapshotDisplayNameAsync(SqlConnection conn, SqlTransaction tx, string? userId, string? fallbackText, string? compCd)
         {
+            static string ComposeDisplay(string? positionName, string? displayName, string fallback)
+            {
+                var pos = (positionName ?? string.Empty).Trim();
+                var name = (displayName ?? string.Empty).Trim();
+                var fb = (fallback ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(name))
+                    name = fb;
+
+                if (string.IsNullOrWhiteSpace(name))
+                    return fb;
+
+                if (string.IsNullOrWhiteSpace(pos))
+                    return name;
+
+                if (name.StartsWith(pos + " ", StringComparison.OrdinalIgnoreCase))
+                    return name;
+
+                return $"{pos} {name}".Trim();
+            }
+
             var fallback = (fallbackText ?? string.Empty).Trim();
 
-            var effectiveUserId = string.IsNullOrWhiteSpace(userId)
+            var resolvedUserId = string.IsNullOrWhiteSpace(userId)
                 ? await TryResolveUserIdAsync(conn, tx, fallback)
-                : userId?.Trim();
+                : userId!.Trim();
 
-            if (string.IsNullOrWhiteSpace(effectiveUserId))
+            if (string.IsNullOrWhiteSpace(resolvedUserId))
                 return fallback;
 
             await using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = @"
+;WITH C AS
+(
+    SELECT
+        u.Id,
+        u.UserName,
+        u.Email,
+        up.CompCd,
+        up.PositionId,
+        COALESCE(NULLIF(LTRIM(RTRIM(up.DisplayName)), N''), NULLIF(LTRIM(RTRIM(u.UserName)), N''), NULLIF(LTRIM(RTRIM(u.Email)), N''), N'') AS DisplayName
+    FROM dbo.AspNetUsers u
+    LEFT JOIN dbo.UserProfiles up
+        ON up.UserId = u.Id
+    WHERE u.Id = @UserId
+)
 SELECT TOP 1
        COALESCE(NULLIF(LTRIM(RTRIM(pl.Name)), N''), NULLIF(LTRIM(RTRIM(pm.Name)), N''), N'') AS PositionName,
-       COALESCE(NULLIF(LTRIM(RTRIM(up.DisplayName)), N''), NULLIF(LTRIM(RTRIM(@FallbackText)), N''), u.UserName, u.Email, N'') AS DisplayName
-FROM dbo.UserProfiles up
+       COALESCE(NULLIF(LTRIM(RTRIM(C.DisplayName)), N''), NULLIF(LTRIM(RTRIM(@FallbackText)), N''), N'') AS DisplayName
+FROM C
 LEFT JOIN dbo.PositionMasters pm
-       ON pm.CompCd = up.CompCd
-      AND pm.Id = up.PositionId
+       ON pm.Id = C.PositionId
+      AND pm.CompCd = C.CompCd
 LEFT JOIN dbo.PositionMasterLoc pl
        ON pl.PositionId = pm.Id
       AND pl.LangCode = N'ko'
-LEFT JOIN dbo.AspNetUsers u
-       ON u.Id = up.UserId
-WHERE up.UserId = @UserId
-  AND (@CompCd = '' OR up.CompCd = @CompCd);";
-            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = effectiveUserId });
+ORDER BY
+    CASE WHEN @CompCd <> '' AND C.CompCd = @CompCd THEN 0 ELSE 1 END,
+    CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(pl.Name)), N''), NULLIF(LTRIM(RTRIM(pm.Name)), N''), N'') <> N'' THEN 0 ELSE 1 END,
+    CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(C.DisplayName)), N''), N'') <> N'' THEN 0 ELSE 1 END;";
+
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = resolvedUserId });
             cmd.Parameters.Add(new SqlParameter("@CompCd", SqlDbType.VarChar, 10) { Value = compCd ?? string.Empty });
-            cmd.Parameters.Add(new SqlParameter("@FallbackText", SqlDbType.NVarChar, 200) { Value = fallback });
+            cmd.Parameters.Add(new SqlParameter("@FallbackText", SqlDbType.NVarChar, 256) { Value = fallback });
 
             await using var rd = await cmd.ExecuteReaderAsync();
-            if (!await rd.ReadAsync())
-                return fallback;
+            if (await rd.ReadAsync())
+            {
+                var positionName = rd["PositionName"] as string ?? string.Empty;
+                var displayName = rd["DisplayName"] as string ?? string.Empty;
+                var result = ComposeDisplay(positionName, displayName, fallback);
+                if (!string.IsNullOrWhiteSpace(result))
+                    return result;
+            }
 
-            var positionName = rd["PositionName"] as string ?? string.Empty;
-            var displayName = rd["DisplayName"] as string ?? string.Empty;
-
-            positionName = positionName.Trim();
-            displayName = displayName.Trim();
-
-            if (string.IsNullOrWhiteSpace(displayName))
-                return fallback;
-
-            if (string.IsNullOrWhiteSpace(positionName))
-                return displayName;
-
-            if (displayName.StartsWith(positionName + " ", StringComparison.Ordinal))
-                return displayName;
-
-            return $"{positionName} {displayName}".Trim();
+            return fallback;
         }
 
         private async Task SaveDocumentAsync(string docId, string templateCode, string title, string status, string outputPath, Dictionary<string, string> inputs, string approvalsJson, string cooperationsJson, string descriptorJson, string userId, string userName, string compCd, string? departmentId, int? templateVersionId = null)
@@ -1994,22 +2018,65 @@ WHERE up.UserId = @UserId
                     vCmd.CommandText = @"SELECT TOP (1) v.Id FROM dbo.DocTemplateVersion AS v JOIN dbo.DocTemplateMaster AS m ON v.TemplateId = m.Id WHERE m.DocCode = @TemplateCode ORDER BY v.VersionNo DESC, v.Id DESC;";
                     vCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode });
                     var obj = await vCmd.ExecuteScalarAsync();
-                    if (obj != null && obj != DBNull.Value && int.TryParse(obj.ToString(), out var vid)) effectiveTemplateVersionId = vid;
+                    if (obj != null && obj != DBNull.Value && int.TryParse(obj.ToString(), out var vid))
+                        effectiveTemplateVersionId = vid;
                 }
 
                 descriptorJson = UpsertDescriptorApprovalAndCooperationArrays(descriptorJson, approvalsJson, cooperationsJson);
 
-                var createdByDisplayText = await BuildSnapshotDisplayNameAsync(
-                    conn,
-                    (SqlTransaction)tx,
-                    userId,
-                    userName,
-                    compCd);
+                // 저장 전체를 막지 않도록 snapshot 조회는 안전 fallback 처리
+                var createdByDisplayText = (userName ?? string.Empty).Trim();
+                try
+                {
+                    var snap = await BuildSnapshotDisplayNameAsync(
+                        conn,
+                        (SqlTransaction)tx,
+                        userId,
+                        userName,
+                        compCd);
+
+                    if (!string.IsNullOrWhiteSpace(snap))
+                        createdByDisplayText = snap.Trim();
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "SaveDocument BuildSnapshotDisplayNameAsync failed for CreatedBy. docId={docId}, userId={userId}, compCd={compCd}", docId, userId, compCd);
+                }
 
                 await using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = (SqlTransaction)tx;
-                    cmd.CommandText = @"INSERT INTO dbo.Documents (DocId, TemplateCode, TemplateVersionId, TemplateTitle, Status, OutputPath, CompCd, DepartmentId, CreatedBy, CreatedByName, CreatedAt, DescriptorJson) VALUES (@DocId, @TemplateCode, @TemplateVersionId, @TemplateTitle, @Status, @OutputPath, @CompCd, @DepartmentId, @CreatedBy, @CreatedByName, SYSUTCDATETIME(), @DescriptorJson);";
+                    cmd.CommandText = @"
+INSERT INTO dbo.Documents
+(
+    DocId,
+    TemplateCode,
+    TemplateVersionId,
+    TemplateTitle,
+    Status,
+    OutputPath,
+    CompCd,
+    DepartmentId,
+    CreatedBy,
+    CreatedByName,
+    CreatedAt,
+    DescriptorJson
+)
+VALUES
+(
+    @DocId,
+    @TemplateCode,
+    @TemplateVersionId,
+    @TemplateTitle,
+    @Status,
+    @OutputPath,
+    @CompCd,
+    @DepartmentId,
+    @CreatedBy,
+    @CreatedByName,
+    SYSUTCDATETIME(),
+    @DescriptorJson
+);";
                     cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                     cmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode });
                     cmd.Parameters.Add(new SqlParameter("@TemplateVersionId", SqlDbType.Int) { Value = (object?)effectiveTemplateVersionId ?? DBNull.Value });
@@ -2019,7 +2086,7 @@ WHERE up.UserId = @UserId
                     cmd.Parameters.Add(new SqlParameter("@CompCd", SqlDbType.VarChar, 10) { Value = compCd });
                     cmd.Parameters.Add(new SqlParameter("@DepartmentId", SqlDbType.VarChar, 12) { Value = string.IsNullOrWhiteSpace(departmentId) ? DBNull.Value : departmentId });
                     cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 450) { Value = userId ?? string.Empty });
-                    cmd.Parameters.Add(new SqlParameter("@CreatedByName", SqlDbType.NVarChar, 200) { Value = (object?)createdByDisplayText ?? DBNull.Value });
+                    cmd.Parameters.Add(new SqlParameter("@CreatedByName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(createdByDisplayText) ? DBNull.Value : createdByDisplayText });
                     cmd.Parameters.Add(new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1) { Value = (object?)descriptorJson ?? DBNull.Value });
                     await cmd.ExecuteNonQueryAsync();
                 }
@@ -2029,6 +2096,7 @@ WHERE up.UserId = @UserId
                     foreach (var kv in inputs)
                     {
                         if (string.IsNullOrWhiteSpace(kv.Key)) continue;
+
                         await using var icmd = conn.CreateCommand();
                         icmd.Transaction = (SqlTransaction)tx;
                         icmd.CommandText = @"INSERT INTO dbo.DocumentInputs (DocId, FieldKey, FieldValue, CreatedAt) VALUES (@DocId, @FieldKey, @FieldValue, SYSUTCDATETIME());";
@@ -2087,27 +2155,65 @@ WHERE up.UserId = @UserId
                     foreach (var item in toInsert.OrderBy(x => x.step))
                     {
                         string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
-                        var approverDisplayText = await BuildSnapshotDisplayNameAsync(
-                            conn,
-                            (SqlTransaction)tx,
-                            resolvedUserId,
-                            item.approverValue,
-                            compCd);
+
+                        string approverDisplayText = item.approverValue;
+                        try
+                        {
+                            var snap = await BuildSnapshotDisplayNameAsync(
+                                conn,
+                                (SqlTransaction)tx,
+                                resolvedUserId,
+                                item.approverValue,
+                                compCd);
+
+                            if (!string.IsNullOrWhiteSpace(snap))
+                                approverDisplayText = snap.Trim();
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "SaveDocument approval snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, item.approverValue);
+                        }
 
                         await using var acmd = conn.CreateCommand();
                         acmd.Transaction = (SqlTransaction)tx;
-                        acmd.CommandText = @"INSERT INTO dbo.DocumentApprovals (DocId, StepOrder, RoleKey, ApproverValue, UserId, ApproverDisplayText, Status, CreatedAt) VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, @UserId, @ApproverDisplayText, 'Pending', SYSUTCDATETIME());";
+                        acmd.CommandText = @"
+INSERT INTO dbo.DocumentApprovals
+(
+    DocId,
+    StepOrder,
+    RoleKey,
+    ApproverValue,
+    UserId,
+    ActorName,
+    ApproverDisplayText,
+    Status,
+    CreatedAt
+)
+VALUES
+(
+    @DocId,
+    @StepOrder,
+    @RoleKey,
+    @ApproverValue,
+    @UserId,
+    @ActorName,
+    @ApproverDisplayText,
+    'Pending',
+    SYSUTCDATETIME()
+);";
                         acmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         acmd.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = item.step });
                         acmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 10) { Value = item.roleKey });
                         acmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 256) { Value = item.approverValue });
                         acmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
-                        acmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = (object?)approverDisplayText ?? DBNull.Value });
+                        acmd.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
+                        acmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
                         await acmd.ExecuteNonQueryAsync();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _log.LogWarning(ex, "SaveDocument approvals insert failed docId={docId}", docId);
                 }
 
                 try
@@ -2151,27 +2257,65 @@ WHERE up.UserId = @UserId
                     foreach (var item in toInsert)
                     {
                         string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
-                        var approverDisplayText = await BuildSnapshotDisplayNameAsync(
-                            conn,
-                            (SqlTransaction)tx,
-                            resolvedUserId,
-                            item.approverValue,
-                            compCd);
+
+                        string approverDisplayText = item.approverValue;
+                        try
+                        {
+                            var snap = await BuildSnapshotDisplayNameAsync(
+                                conn,
+                                (SqlTransaction)tx,
+                                resolvedUserId,
+                                item.approverValue,
+                                compCd);
+
+                            if (!string.IsNullOrWhiteSpace(snap))
+                                approverDisplayText = snap.Trim();
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "SaveDocument cooperation snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, item.approverValue);
+                        }
 
                         await using var ccmd = conn.CreateCommand();
                         ccmd.Transaction = (SqlTransaction)tx;
-                        ccmd.CommandText = @"INSERT INTO dbo.DocumentCooperations (DocId, LineType, RoleKey, ApproverValue, UserId, ApproverDisplayText, Status, CreatedAt) VALUES (@DocId, @LineType, @RoleKey, @ApproverValue, @UserId, @ApproverDisplayText, 'Pending', SYSUTCDATETIME());";
+                        ccmd.CommandText = @"
+INSERT INTO dbo.DocumentCooperations
+(
+    DocId,
+    LineType,
+    RoleKey,
+    ApproverValue,
+    UserId,
+    ActorName,
+    ApproverDisplayText,
+    Status,
+    CreatedAt
+)
+VALUES
+(
+    @DocId,
+    @LineType,
+    @RoleKey,
+    @ApproverValue,
+    @UserId,
+    @ActorName,
+    @ApproverDisplayText,
+    'Pending',
+    SYSUTCDATETIME()
+);";
                         ccmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         ccmd.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = item.lineType });
                         ccmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = item.roleKey });
                         ccmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = item.approverValue });
                         ccmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
-                        ccmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = (object?)approverDisplayText ?? DBNull.Value });
+                        ccmd.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
+                        ccmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
                         await ccmd.ExecuteNonQueryAsync();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _log.LogWarning(ex, "SaveDocument cooperations insert failed docId={docId}", docId);
                 }
 
                 await tx.CommitAsync();
@@ -2200,68 +2344,174 @@ WHERE up.UserId = @UserId
             return string.IsNullOrWhiteSpace(id) ? null : id;
         }
 
-        private async Task EnsureApprovalsAndSyncAsync(string docId, string docCode)
+        private async Task EnsureApprovalsAndSyncAsync(string docId, string templateCode)
         {
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
+
             try
             {
-                string? descriptorJson = null;
-                await using (var cmd = conn.CreateCommand()) { cmd.Transaction = (SqlTransaction)tx; cmd.CommandText = @"SELECT TOP (1) DescriptorJson FROM dbo.Documents WHERE DocId = @DocId;"; cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId }); var obj = await cmd.ExecuteScalarAsync(); if (obj != null && obj != DBNull.Value) descriptorJson = Convert.ToString(obj); }
-                if (string.IsNullOrWhiteSpace(descriptorJson)) { await tx.CommitAsync(); return; }
+                string approvalsJson = "[]";
+                string compCd = string.Empty;
 
-                var approvals = new List<(int StepOrder, string RoleKey, string? ApproverValue)>();
+                await using (var metaCmd = conn.CreateCommand())
+                {
+                    metaCmd.Transaction = (SqlTransaction)tx;
+                    metaCmd.CommandText = @"
+SELECT TOP 1 DescriptorJson, CompCd
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+                    metaCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+                    await using var rd = await metaCmd.ExecuteReaderAsync();
+                    if (await rd.ReadAsync())
+                    {
+                        approvalsJson = rd["DescriptorJson"] as string ?? "[]";
+                        compCd = rd["CompCd"] as string ?? string.Empty;
+                    }
+                }
+
+                approvalsJson = ExtractApprovalsJson(approvalsJson);
+
+                var approvals = new List<(int StepOrder, string RoleKey, string ApproverValue)>();
                 try
                 {
-                    using var dj = JsonDocument.Parse(descriptorJson);
-                    var root = dj.RootElement;
-                    if (root.TryGetProperty("approvals", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    using var aj = JsonDocument.Parse(string.IsNullOrWhiteSpace(approvalsJson) ? "[]" : approvalsJson);
+                    if (aj.RootElement.ValueKind == JsonValueKind.Array)
                     {
-                        int i = 0;
-                        foreach (var a in arr.EnumerateArray())
+                        int seq = 1;
+                        foreach (var a in aj.RootElement.EnumerateArray())
                         {
-                            string? approverValue = null;
-                            if (a.TryGetProperty("value", out var v1) && v1.ValueKind == JsonValueKind.String) approverValue = v1.GetString();
-                            else if (a.TryGetProperty("approverValue", out var v2) && v2.ValueKind == JsonValueKind.String) approverValue = v2.GetString();
-                            else if (a.TryGetProperty("ApproverValue", out var v3) && v3.ValueKind == JsonValueKind.String) approverValue = v3.GetString();
-                            if (string.IsNullOrWhiteSpace(approverValue)) { i++; continue; }
+                            if (a.ValueKind != JsonValueKind.Object) continue;
 
-                            int stepOrder = i + 1;
-                            if (a.TryGetProperty("order", out var ordEl)) { if (ordEl.ValueKind == JsonValueKind.Number && ordEl.TryGetInt32(out var on)) stepOrder = on; else if (ordEl.ValueKind == JsonValueKind.String && int.TryParse(ordEl.GetString(), out var os)) stepOrder = os; }
-                            else if (a.TryGetProperty("slot", out var slotEl)) { if (slotEl.ValueKind == JsonValueKind.Number && slotEl.TryGetInt32(out var sn)) stepOrder = sn; else if (slotEl.ValueKind == JsonValueKind.String && int.TryParse(slotEl.GetString(), out var ss)) stepOrder = ss; }
+                            string? approverValue = null;
+                            if (a.TryGetProperty("ApproverValue", out var av1) && av1.ValueKind == JsonValueKind.String) approverValue = av1.GetString();
+                            else if (a.TryGetProperty("approverValue", out var av2) && av2.ValueKind == JsonValueKind.String) approverValue = av2.GetString();
+                            else if (a.TryGetProperty("value", out var av3) && av3.ValueKind == JsonValueKind.String) approverValue = av3.GetString();
+
+                            approverValue = (approverValue ?? string.Empty).Trim();
+                            if (string.IsNullOrWhiteSpace(approverValue)) continue;
 
                             string roleKey = string.Empty;
                             if (a.TryGetProperty("roleKey", out var rk1) && rk1.ValueKind == JsonValueKind.String) roleKey = rk1.GetString() ?? string.Empty;
                             else if (a.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
-                            if (string.IsNullOrWhiteSpace(roleKey)) roleKey = $"A{stepOrder}";
-                            approvals.Add((stepOrder, roleKey, approverValue!.Trim())); i++;
+
+                            int stepOrder = 0;
+                            if (a.TryGetProperty("Slot", out var pSlot))
+                            {
+                                if (pSlot.ValueKind == JsonValueKind.Number) pSlot.TryGetInt32(out stepOrder);
+                                else if (pSlot.ValueKind == JsonValueKind.String) int.TryParse(pSlot.GetString(), out stepOrder);
+                            }
+                            if (stepOrder <= 0 && a.TryGetProperty("order", out var pOrd))
+                            {
+                                if (pOrd.ValueKind == JsonValueKind.Number) pOrd.TryGetInt32(out stepOrder);
+                                else if (pOrd.ValueKind == JsonValueKind.String) int.TryParse(pOrd.GetString(), out stepOrder);
+                            }
+                            if (stepOrder <= 0 && !string.IsNullOrWhiteSpace(roleKey))
+                            {
+                                var m = Regex.Match(roleKey.Trim(), @"(?i)^A(\d+)$");
+                                if (m.Success) int.TryParse(m.Groups[1].Value, out stepOrder);
+                            }
+                            if (stepOrder <= 0) stepOrder = seq;
+
+                            approvals.Add((
+                                stepOrder,
+                                string.IsNullOrWhiteSpace(roleKey) ? $"A{stepOrder}" : roleKey.Trim(),
+                                approverValue));
+
+                            seq++;
                         }
                     }
                 }
-                catch (Exception ex) { _log.LogWarning(ex, "EnsureApprovalsAndSyncAsync parse failed docId={docId}", docId); }
-
-                if (approvals.Count == 0) { await tx.CommitAsync(); return; }
-
-                await using (var del = conn.CreateCommand()) { del.Transaction = (SqlTransaction)tx; del.CommandText = @"DELETE FROM dbo.DocumentApprovals WHERE DocId = @DocId;"; del.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId }); await del.ExecuteNonQueryAsync(); }
-
-                var ordered = approvals.OrderBy(a => a.StepOrder).ThenBy(a => a.RoleKey, StringComparer.OrdinalIgnoreCase).ToList();
-                for (int idx = 0; idx < ordered.Count; idx++)
+                catch (Exception ex)
                 {
-                    var a = ordered[idx]; var stepOrder = idx + 1; var roleKey = $"A{stepOrder}";
+                    _log.LogWarning(ex, "EnsureApprovalsAndSyncAsync parse failed docId={docId}", docId);
+                }
+
+                await using (var del = conn.CreateCommand())
+                {
+                    del.Transaction = (SqlTransaction)tx;
+                    del.CommandText = @"DELETE FROM dbo.DocumentApprovals WHERE DocId = @DocId;";
+                    del.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    await del.ExecuteNonQueryAsync();
+                }
+
+                foreach (var a in approvals
+                    .GroupBy(x => new
+                    {
+                        StepOrder = x.StepOrder,
+                        RoleKey = (x.RoleKey ?? string.Empty).Trim().ToUpperInvariant(),
+                        ApproverValue = (x.ApproverValue ?? string.Empty).Trim().ToUpperInvariant()
+                    })
+                    .Select(g => g.First())
+                    .OrderBy(x => x.StepOrder))
+                {
+                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, a.ApproverValue);
+
+                    string snapshotText = a.ApproverValue;
+                    try
+                    {
+                        var snap = await BuildSnapshotDisplayNameAsync(
+                            conn,
+                            (SqlTransaction)tx,
+                            resolvedUserId,
+                            a.ApproverValue,
+                            compCd);
+
+                        if (!string.IsNullOrWhiteSpace(snap))
+                            snapshotText = snap.Trim();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "EnsureApprovalsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, a.RoleKey, a.ApproverValue);
+                    }
+
                     await using var ins = conn.CreateCommand();
                     ins.Transaction = (SqlTransaction)tx;
-                    ins.CommandText = @"INSERT INTO dbo.DocumentApprovals (DocId, StepOrder, RoleKey, ApproverValue, Status, CreatedAt) VALUES (@DocId, @StepOrder, @RoleKey, @ApproverValue, N'Pending', SYSUTCDATETIME());";
+                    ins.CommandText = @"
+INSERT INTO dbo.DocumentApprovals
+(
+    DocId,
+    StepOrder,
+    RoleKey,
+    ApproverValue,
+    UserId,
+    ActorName,
+    ApproverDisplayText,
+    Status,
+    CreatedAt
+)
+VALUES
+(
+    @DocId,
+    @StepOrder,
+    @RoleKey,
+    @ApproverValue,
+    @UserId,
+    @ActorName,
+    @ApproverDisplayText,
+    N'Pending',
+    SYSUTCDATETIME()
+);";
                     ins.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
-                    ins.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = stepOrder });
-                    ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = roleKey });
-                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = a.ApproverValue! });
+                    ins.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = a.StepOrder });
+                    ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = a.RoleKey });
+                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = a.ApproverValue });
+                    ins.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
+                    ins.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
+                    ins.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
                     await ins.ExecuteNonQueryAsync();
                 }
+
                 await tx.CommitAsync();
             }
-            catch (Exception ex) { try { await tx.RollbackAsync(); } catch { } _log.LogError(ex, "EnsureApprovalsAndSyncAsync failed docId={docId}", docId); }
+            catch (Exception ex)
+            {
+                try { await tx.RollbackAsync(); } catch { }
+                _log.LogError(ex, "EnsureApprovalsAndSyncAsync failed docId={docId}", docId);
+            }
         }
 
         private async Task EnsureCooperationsAndSyncAsync(string docId, string cooperationsJson)
@@ -2270,48 +2520,138 @@ WHERE up.UserId = @UserId
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
+
             try
             {
+                string compCd = string.Empty;
+                await using (var compCmd = conn.CreateCommand())
+                {
+                    compCmd.Transaction = (SqlTransaction)tx;
+                    compCmd.CommandText = @"SELECT TOP 1 CompCd FROM dbo.Documents WHERE DocId = @DocId;";
+                    compCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    compCd = ((await compCmd.ExecuteScalarAsync() as string) ?? string.Empty).Trim();
+                }
+
                 var cooperations = new List<(string LineType, string RoleKey, string ApproverValue)>();
                 try
                 {
                     using var cj = JsonDocument.Parse(string.IsNullOrWhiteSpace(cooperationsJson) ? "[]" : cooperationsJson);
                     if (cj.RootElement.ValueKind == JsonValueKind.Array)
                     {
-                        int i = 1;
+                        int seq = 1;
                         foreach (var c in cj.RootElement.EnumerateArray())
                         {
                             if (c.ValueKind != JsonValueKind.Object) continue;
-                            var value = EnumerateCooperationValues(c).Select(v => (v ?? string.Empty).Trim()).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
-                            if (string.IsNullOrWhiteSpace(value)) continue;
+
+                            var approverValue = EnumerateCooperationValues(c)
+                                .Select(v => (v ?? string.Empty).Trim())
+                                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+
+                            if (string.IsNullOrWhiteSpace(approverValue)) continue;
+
                             string roleKey = string.Empty;
                             if (c.TryGetProperty("roleKey", out var rk1) && rk1.ValueKind == JsonValueKind.String) roleKey = rk1.GetString() ?? string.Empty;
                             else if (c.TryGetProperty("RoleKey", out var rk2) && rk2.ValueKind == JsonValueKind.String) roleKey = rk2.GetString() ?? string.Empty;
+
                             string lineType = NormalizeCooperationLineType(null);
                             if (c.TryGetProperty("lineType", out var lt1) && lt1.ValueKind == JsonValueKind.String) lineType = NormalizeCooperationLineType(lt1.GetString());
                             else if (c.TryGetProperty("LineType", out var lt2) && lt2.ValueKind == JsonValueKind.String) lineType = NormalizeCooperationLineType(lt2.GetString());
-                            cooperations.Add((lineType, string.IsNullOrWhiteSpace(roleKey) ? $"C{i}" : roleKey.Trim(), value)); i++;
+
+                            cooperations.Add((
+                                lineType,
+                                string.IsNullOrWhiteSpace(roleKey) ? $"C{seq}" : roleKey.Trim(),
+                                approverValue));
+
+                            seq++;
                         }
                     }
                 }
-                catch (Exception ex) { _log.LogWarning(ex, "EnsureCooperationsAndSyncAsync parse failed docId={docId}", docId); }
-
-                await using (var del = conn.CreateCommand()) { del.Transaction = (SqlTransaction)tx; del.CommandText = @"DELETE FROM dbo.DocumentCooperations WHERE DocId = @DocId;"; del.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId }); await del.ExecuteNonQueryAsync(); }
-
-                foreach (var c in cooperations.GroupBy(x => new { L = (x.LineType ?? "").Trim().ToUpperInvariant(), R = (x.RoleKey ?? "").Trim().ToUpperInvariant(), A = (x.ApproverValue ?? "").Trim().ToUpperInvariant() }).Select(g => g.First()))
+                catch (Exception ex)
                 {
+                    _log.LogWarning(ex, "EnsureCooperationsAndSyncAsync parse failed docId={docId}", docId);
+                }
+
+                await using (var del = conn.CreateCommand())
+                {
+                    del.Transaction = (SqlTransaction)tx;
+                    del.CommandText = @"DELETE FROM dbo.DocumentCooperations WHERE DocId = @DocId;";
+                    del.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    await del.ExecuteNonQueryAsync();
+                }
+
+                foreach (var c in cooperations
+                    .GroupBy(x => new
+                    {
+                        LineType = (x.LineType ?? string.Empty).Trim().ToUpperInvariant(),
+                        RoleKey = (x.RoleKey ?? string.Empty).Trim().ToUpperInvariant(),
+                        ApproverValue = (x.ApproverValue ?? string.Empty).Trim().ToUpperInvariant()
+                    })
+                    .Select(g => g.First()))
+                {
+                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, c.ApproverValue);
+
+                    string snapshotText = c.ApproverValue;
+                    try
+                    {
+                        var snap = await BuildSnapshotDisplayNameAsync(
+                            conn,
+                            (SqlTransaction)tx,
+                            resolvedUserId,
+                            c.ApproverValue,
+                            compCd);
+
+                        if (!string.IsNullOrWhiteSpace(snap))
+                            snapshotText = snap.Trim();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "EnsureCooperationsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, c.RoleKey, c.ApproverValue);
+                    }
+
                     await using var ins = conn.CreateCommand();
                     ins.Transaction = (SqlTransaction)tx;
-                    ins.CommandText = @"INSERT INTO dbo.DocumentCooperations (DocId, LineType, RoleKey, ApproverValue, Status, CreatedAt) VALUES (@DocId, @LineType, @RoleKey, @ApproverValue, N'Pending', SYSUTCDATETIME());";
+                    ins.CommandText = @"
+INSERT INTO dbo.DocumentCooperations
+(
+    DocId,
+    LineType,
+    RoleKey,
+    ApproverValue,
+    UserId,
+    ActorName,
+    ApproverDisplayText,
+    Status,
+    CreatedAt
+)
+VALUES
+(
+    @DocId,
+    @LineType,
+    @RoleKey,
+    @ApproverValue,
+    @UserId,
+    @ActorName,
+    @ApproverDisplayText,
+    N'Pending',
+    SYSUTCDATETIME()
+);";
                     ins.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                     ins.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = c.LineType });
                     ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = c.RoleKey });
                     ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = c.ApproverValue });
+                    ins.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
+                    ins.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
+                    ins.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
                     await ins.ExecuteNonQueryAsync();
                 }
+
                 await tx.CommitAsync();
             }
-            catch (Exception ex) { try { await tx.RollbackAsync(); } catch { } _log.LogError(ex, "EnsureCooperationsAndSyncAsync failed docId={docId}", docId); }
+            catch (Exception ex)
+            {
+                try { await tx.RollbackAsync(); } catch { }
+                _log.LogError(ex, "EnsureCooperationsAndSyncAsync failed docId={docId}", docId);
+            }
         }
 
         // 2026.04.06 Changed: 최종 저장 문서에도 시트 격자선 숨김을 적용하여 DetailDX에서 기본 엑셀 격자가 보이지 않게 함

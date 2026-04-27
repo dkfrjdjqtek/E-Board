@@ -1284,4 +1284,13 @@
   <data name="PUSH_CooperationPending" xml:space="preserve">
     <value>待协作 {0}</value>
   </data>
+  <data name="DOC_Filter_ApprovalView_Rejected" xml:space="preserve">
+    <value>已驳回</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Vetoed" xml:space="preserve">
+    <value>已否决</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
+    <value>已撤回</value>
+  </data>
 </root>

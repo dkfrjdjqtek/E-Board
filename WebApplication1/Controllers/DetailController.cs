@@ -1099,7 +1099,7 @@ ORDER BY v.ViewedAt DESC;";
             // 선택값 정리(본인 제외, 중복 제거)
             var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x.Trim())
+                .Select(x => x!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -1227,15 +1227,15 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
                 // ===== (추가) 공유 변경 성공 후 "추가된 공유자"에게 웹푸시 알림 =====
                 try
                 {
-                    var ids = (newlyAdded ?? new List<string>())
+                    var ids = newlyAdded
                         .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => x.Trim())
+                        .Select(x => x!.Trim())
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList();
 
                     if (ids.Count > 0)
                     {
-                        await using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? "");
+                        using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? "");
                         await connPush.OpenAsync();
 
                         await DocControllerHelper.SendSharedUnreadBadgeAsync(
@@ -1243,7 +1243,7 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
                             S: _S,
                             conn: connPush,
                             targetUserIds: ids,
-                            url: "/", // 배지형 알림은 "/" 통일(정책 유지). 기존 동작(url 비움) 유지하려면 "" 로 변경
+                            url: "/",
                             tag: "badge-shared"
                         );
                     }
@@ -1947,7 +1947,7 @@ WHERE ParentCommentId = @Id AND DocId = @DocId AND IsDeleted = 0;";
                 });
             }
 
-            // ✅ 핵심 수정: CreatedBy 값이 UserId / UserName / Email 혼재되어도 수정 허용
+            //  핵심 수정: CreatedBy 값이 UserId / UserName / Email 혼재되어도 수정 허용
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
 UPDATE dbo.DocumentComments

@@ -1284,4 +1284,13 @@
   <data name="PUSH_CooperationPending" xml:space="preserve">
     <value>협조 대기 {0}건</value>
   </data>
+  <data name="DOC_Filter_ApprovalView_Rejected" xml:space="preserve">
+    <value>반려됨</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Vetoed" xml:space="preserve">
+    <value>부결됨</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
+    <value>회수됨</value>
+  </data>
 </root>

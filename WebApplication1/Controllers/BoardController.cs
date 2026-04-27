@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// 2026.04.17 Changed: approvalPending 배지 및 다음 결재자 알림 카운트를 현재 사용자 Pending 승인행 기준으로 반려 없는 문서만 계산하도록 수정함
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
@@ -60,6 +61,7 @@ namespace WebApplication1.Controllers
             return View("~/Views/Doc/Board.cshtml");
         }
 
+        // 2026.04.16 Changed: 벌크 승인 시 현재 사용자 승인 차례 문서만 승인되도록 현재 차수 판정과 승인 업데이트 조건을 보강함
         [HttpPost("BulkApprove")]
         [ValidateAntiForgeryToken]
         [Produces("application/json")]
@@ -138,6 +140,7 @@ WHERE u.UserId = @uid;";
                 userAgent = userAgent.Substring(0, 1024);
 
             var results = new List<BulkApproveItemResult>(DocIds.Count);
+            var nextApproverIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? "";
             await using var conn = new SqlConnection(cs);
@@ -166,21 +169,38 @@ END";
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            var nextApproverIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             async Task<int> GetApprovalPendingCountAsync(string targetUserId)
             {
                 await using var connCnt = new SqlConnection(cs);
                 await connCnt.OpenAsync();
 
                 var sqlCnt = @"
-SELECT COUNT(1)
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
+SELECT COUNT(DISTINCT a.DocId) AS ApprovalPendingCount
+FROM dbo.DocumentApprovals a
 WHERE a.UserId = @UserId
   AND ISNULL(a.Status, N'') = N'Pending'
-  AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
-  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.DocumentApprovals ar
+      WHERE ar.DocId = a.DocId
+        AND
+        (
+            ISNULL(ar.Status, N'') LIKE N'Rejected%'
+            OR ISNULL(ar.Action, N'') LIKE N'reject%'
+        )
+  )
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.DocumentCooperations cr
+      WHERE cr.DocId = a.DocId
+        AND
+        (
+            ISNULL(cr.Status, N'') LIKE N'Rejected%'
+            OR ISNULL(cr.Action, N'') LIKE N'reject%'
+        )
+  );";
 
                 await using var cmdCnt = new SqlCommand(sqlCnt, connCnt);
                 cmdCnt.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
@@ -226,15 +246,30 @@ WHERE DocId = @DocId;";
                     await using (var findStep = conn.CreateCommand())
                     {
                         findStep.CommandText = @"
-SELECT TOP (1) StepOrder
-FROM dbo.DocumentApprovals
-WHERE DocId = @DocId
-  AND ISNULL(Status,N'Pending') LIKE N'Pending%'
+SELECT TOP (1) a.StepOrder
+FROM dbo.DocumentApprovals a
+JOIN dbo.Documents d
+  ON d.DocId = a.DocId
+WHERE a.DocId = @DocId
   AND (
-        UserId = @UserId
-        OR ApproverValue = @UserId
+        (
+            ISNULL(a.Status, N'') = N'Pending'
+            AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+        )
+        OR
+        (
+            (
+                ISNULL(a.Status, N'') IN (N'PendingHold', N'OnHold')
+                OR ISNULL(a.Action, N'') = N'hold'
+            )
+            AND ISNULL(d.Status, N'') = N'PendingHoldA' + CAST(a.StepOrder AS nvarchar(10))
+        )
       )
-ORDER BY StepOrder;";
+  AND (
+        a.UserId = @UserId
+        OR a.ApproverValue = @UserId
+      )
+ORDER BY a.StepOrder;";
                         findStep.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         findStep.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = approverId });
 
@@ -256,15 +291,37 @@ ORDER BY StepOrder;";
                     await using (var u = conn.CreateCommand())
                     {
                         u.CommandText = @"
-UPDATE dbo.DocumentApprovals
+UPDATE a
 SET Action              = N'approve',
     ActedAt             = SYSUTCDATETIME(),
     ActorName           = @actor,
     Status              = N'Approved',
-    UserId              = COALESCE(UserId, @uid),
-    ApproverDisplayText = COALESCE(@displayText, ApproverDisplayText),
-    SignaturePath       = COALESCE(@sigPath, SignaturePath)
-WHERE DocId = @id AND StepOrder = @step;";
+    UserId              = COALESCE(a.UserId, @uid),
+    ApproverDisplayText = COALESCE(@displayText, a.ApproverDisplayText),
+    SignaturePath       = COALESCE(@sigPath, a.SignaturePath)
+FROM dbo.DocumentApprovals a
+JOIN dbo.Documents d
+  ON d.DocId = a.DocId
+WHERE a.DocId = @id
+  AND a.StepOrder = @step
+  AND (
+        a.UserId = @uid
+        OR a.ApproverValue = @uid
+      )
+  AND (
+        (
+            ISNULL(a.Status, N'') = N'Pending'
+            AND ISNULL(d.Status, N'') = N'PendingA' + CAST(a.StepOrder AS nvarchar(10))
+        )
+        OR
+        (
+            (
+                ISNULL(a.Status, N'') IN (N'PendingHold', N'OnHold')
+                OR ISNULL(a.Action, N'') = N'hold'
+            )
+            AND ISNULL(d.Status, N'') = N'PendingHoldA' + CAST(a.StepOrder AS nvarchar(10))
+        )
+      );";
                         u.Parameters.Add(new SqlParameter("@actor", SqlDbType.NVarChar, 200) { Value = approverName });
                         u.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = approverId });
                         u.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
@@ -275,8 +332,8 @@ WHERE DocId = @id AND StepOrder = @step;";
                         var affected = await u.ExecuteNonQueryAsync();
                         if (affected <= 0)
                         {
-                            item.Result = "failed";
-                            item.Reason = "bad_request";
+                            item.Result = "skipped";
+                            item.Reason = "not_my_turn";
                             results.Add(item);
                             continue;
                         }
@@ -375,8 +432,7 @@ WHERE a.DocId = @DocId
                 results
             });
         }
-                
-        // 2026.04.10 Changed: 상신 결재 협조 공유 문서함의 진행 완료 판정을 문서 전체 기준(회수 반려 전체완료 보류 포함)으로 통일하고 협조 탭의 회수 문서 및 협조 반려를 정상 반영하도록 수정
+
         [HttpGet("BoardData")]
         public async Task<IActionResult> BoardData(string tab = "created", int page = 1, int pageSize = 20, string titleFilter = "all", string sort = "created_desc", string? q = null, string approvalView = "all", string approvalSub = "ongoing", string createdSub = "ongoing", string cooperationSub = "ongoing", string sharedSub = "ongoing")
         {
@@ -418,8 +474,33 @@ WHERE a.DocId = @DocId
 OUTER APPLY(
     SELECT
         COUNT(1) AS TotalSteps,
-        SUM(CASE WHEN ISNULL(da.Action,N'') = N'approve' OR ISNULL(da.Status,N'') = N'Approved' THEN 1 ELSE 0 END) AS DoneSteps,
-        MAX(CASE WHEN ISNULL(da.Action,N'') = N'reject' OR ISNULL(da.Status,N'') LIKE N'Rejected%' THEN 1 ELSE 0 END) AS HasRejected
+        (
+            SELECT COUNT(1)
+            FROM dbo.DocumentApprovals da2
+            WHERE da2.DocId = d.DocId
+              AND da2.StepOrder <=
+                  ISNULL(
+                      (
+                          SELECT MIN(da3.StepOrder) - 1
+                          FROM dbo.DocumentApprovals da3
+                          WHERE da3.DocId = d.DocId
+                            AND NOT (
+                                   ISNULL(da3.Action, N'') = N'approve'
+                                OR ISNULL(da3.Status, N'') = N'Approved'
+                            )
+                      ),
+                      (
+                          SELECT COUNT(1)
+                          FROM dbo.DocumentApprovals da4
+                          WHERE da4.DocId = d.DocId
+                      )
+                  )
+        ) AS DoneSteps,
+        MAX(CASE
+                WHEN ISNULL(da.Action, N'') = N'reject'
+                  OR ISNULL(da.Status, N'') LIKE N'Rejected%'
+                THEN 1 ELSE 0
+            END) AS HasRejected
     FROM dbo.DocumentApprovals da
     WHERE da.DocId = d.DocId
 ) stepAgg";
@@ -486,23 +567,52 @@ OUTER APPLY(
       AND ISNULL(cc2.Action, N'') <> N'Recalled'
 ) coopAgg";
 
-            const string outerApplyCoopAggEmpty = @"
+            const string outerApplyCurrentPendingStep = @"
 OUTER APPLY(
     SELECT
-        CAST(0 AS int)             AS CoopTotal,
-        CAST(0 AS int)             AS CoopDoneCount,
-        CAST(0 AS int)             AS CoopRejectedCount,
-        CAST(N'' AS nvarchar(max)) AS CoopDoneKeys,
-        CAST(N'' AS nvarchar(max)) AS CoopRejectedKeys,
-        CAST(N'' AS nvarchar(200)) AS CoopPendingName,
-        CAST(N'' AS nvarchar(200)) AS CoopPendingPosition
-) coopAgg";
+        ISNULL(
+            (
+                SELECT MIN(da3.StepOrder)
+                FROM dbo.DocumentApprovals da3
+                WHERE da3.DocId = d.DocId
+                  AND NOT (
+                         ISNULL(da3.Action, N'') = N'approve'
+                      OR ISNULL(da3.Status, N'') = N'Approved'
+                  )
+            ),
+            0
+        ) AS CurrentPendingStepOrder
+) curStep";
+
+            const string outerApplyCurrentApproval = @"
+OUTER APPLY(
+    SELECT TOP(1)
+        pa.StepOrder            AS CurrentStepOrder,
+        ISNULL(pa.UserId,N'')   AS CurrentUserId,
+        ISNULL(pa.Status,N'')   AS CurrentStatus,
+        ISNULL(pa.Action,N'')   AS CurrentAction
+    FROM dbo.DocumentApprovals pa
+    WHERE pa.DocId = d.DocId
+      AND pa.StepOrder = ISNULL(curStep.CurrentPendingStepOrder, 0)
+    ORDER BY pa.StepOrder ASC
+) curAppr";
 
             const string outerApplyDocStage = @"
 OUTER APPLY(
     SELECT
         CASE WHEN ISNULL(d.Status, N'') LIKE N'Recalled%' OR ISNULL(d.Status, N'') LIKE N'Recall%' THEN 1 ELSE 0 END AS IsRecalled,
-        CASE WHEN ISNULL(d.Status, N'') LIKE N'PendingHold%' OR ISNULL(d.Status, N'') LIKE N'OnHold%' THEN 1 ELSE 0 END AS IsOnHold,
+        CASE
+            WHEN EXISTS (
+                SELECT 1
+                FROM dbo.DocumentApprovals dh
+                WHERE dh.DocId = d.DocId
+                  AND (
+                        ISNULL(dh.Status, N'') IN (N'PendingHold', N'OnHold')
+                     OR ISNULL(dh.Action, N'') = N'hold'
+                  )
+            ) THEN 1
+            ELSE 0
+        END AS IsOnHold,
         CASE WHEN ISNULL(stepAgg.HasRejected, 0) > 0 OR ISNULL(d.Status, N'') LIKE N'Rejected%' THEN 1 ELSE 0 END AS IsApprovalRejected,
         CASE WHEN ISNULL(coopAgg.CoopRejectedCount, 0) > 0 THEN 1 ELSE 0 END AS IsCoopRejected,
         CASE
@@ -597,28 +707,22 @@ OUTER APPLY(
             ELSE N'Pending'
         END AS ResultVerbKey,
         COALESCE(
-            CASE
-                WHEN docStage.IsOnHold = 1 OR docStage.IsOngoing = 1 THEN
-                (
-                    SELECT TOP(1) COALESCE(upP.DisplayName, N'')
-                    FROM dbo.DocumentApprovals pa
-                    LEFT JOIN dbo.UserProfiles upP ON upP.UserId = pa.UserId
-                    WHERE pa.DocId = d.DocId
-                      AND ISNULL(pa.Status, N'Pending') LIKE N'Pending%'
-                    ORDER BY pa.StepOrder ASC
-                )
-            END,
-            CASE
-                WHEN docStage.IsOnHold = 1 OR docStage.IsOngoing = 1 THEN
-                (
-                    SELECT TOP(1) COALESCE(upCP.DisplayName, N'')
-                    FROM dbo.DocumentCooperations pc
-                    LEFT JOIN dbo.UserProfiles upCP ON upCP.UserId = pc.UserId
-                    WHERE pc.DocId = d.DocId
-                      AND ISNULL(pc.Status, N'Pending') = N'Pending'
-                    ORDER BY pc.RoleKey ASC
-                )
-            END,
+            (
+                SELECT TOP(1) COALESCE(upP.DisplayName, N'')
+                FROM dbo.DocumentApprovals pa
+                LEFT JOIN dbo.UserProfiles upP ON upP.UserId = pa.UserId
+                WHERE pa.DocId = d.DocId
+                  AND pa.StepOrder = ISNULL(curStep.CurrentPendingStepOrder, 0)
+                ORDER BY pa.StepOrder ASC
+            ),
+            (
+                SELECT TOP(1) COALESCE(upCP.DisplayName, N'')
+                FROM dbo.DocumentCooperations pc
+                LEFT JOIN dbo.UserProfiles upCP ON upCP.UserId = pc.UserId
+                WHERE pc.DocId = d.DocId
+                  AND ISNULL(pc.Status, N'Pending') = N'Pending'
+                ORDER BY pc.RoleKey ASC
+            ),
             (
                 SELECT TOP(1) COALESCE(upA.DisplayName, da.ActorName, N'')
                 FROM dbo.DocumentApprovals da
@@ -647,32 +751,26 @@ OUTER APPLY(
             N''
         ) AS ResultActorName,
         COALESCE(
-            CASE
-                WHEN docStage.IsOnHold = 1 OR docStage.IsOngoing = 1 THEN
-                (
-                    SELECT TOP(1) COALESCE(pmLoc.Name, pm.Name, N'')
-                    FROM dbo.DocumentApprovals pa
-                    LEFT JOIN dbo.UserProfiles upP ON upP.UserId = pa.UserId
-                    LEFT JOIN dbo.PositionMasters pm ON pm.CompCd = upP.CompCd AND pm.Id = upP.PositionId
-                    LEFT JOIN dbo.PositionMasterLoc pmLoc ON pmLoc.PositionId = pm.Id AND pmLoc.LangCode = @LangCode
-                    WHERE pa.DocId = d.DocId
-                      AND ISNULL(pa.Status, N'Pending') LIKE N'Pending%'
-                    ORDER BY pa.StepOrder ASC
-                )
-            END,
-            CASE
-                WHEN docStage.IsOnHold = 1 OR docStage.IsOngoing = 1 THEN
-                (
-                    SELECT TOP(1) COALESCE(pmLoc.Name, pm.Name, N'')
-                    FROM dbo.DocumentCooperations pc
-                    LEFT JOIN dbo.UserProfiles upCP ON upCP.UserId = pc.UserId
-                    LEFT JOIN dbo.PositionMasters pm ON pm.CompCd = upCP.CompCd AND pm.Id = upCP.PositionId
-                    LEFT JOIN dbo.PositionMasterLoc pmLoc ON pmLoc.PositionId = pm.Id AND pmLoc.LangCode = @LangCode
-                    WHERE pc.DocId = d.DocId
-                      AND ISNULL(pc.Status, N'Pending') = N'Pending'
-                    ORDER BY pc.RoleKey ASC
-                )
-            END,
+            (
+                SELECT TOP(1) COALESCE(pmLoc.Name, pm.Name, N'')
+                FROM dbo.DocumentApprovals pa
+                LEFT JOIN dbo.UserProfiles upP ON upP.UserId = pa.UserId
+                LEFT JOIN dbo.PositionMasters pm ON pm.CompCd = upP.CompCd AND pm.Id = upP.PositionId
+                LEFT JOIN dbo.PositionMasterLoc pmLoc ON pmLoc.PositionId = pm.Id AND pmLoc.LangCode = @LangCode
+                WHERE pa.DocId = d.DocId
+                  AND pa.StepOrder = ISNULL(curStep.CurrentPendingStepOrder, 0)
+                ORDER BY pa.StepOrder ASC
+            ),
+            (
+                SELECT TOP(1) COALESCE(pmLoc.Name, pm.Name, N'')
+                FROM dbo.DocumentCooperations pc
+                LEFT JOIN dbo.UserProfiles upCP ON upCP.UserId = pc.UserId
+                LEFT JOIN dbo.PositionMasters pm ON pm.CompCd = upCP.CompCd AND pm.Id = upCP.PositionId
+                LEFT JOIN dbo.PositionMasterLoc pmLoc ON pmLoc.PositionId = pm.Id AND pmLoc.LangCode = @LangCode
+                WHERE pc.DocId = d.DocId
+                  AND ISNULL(pc.Status, N'Pending') = N'Pending'
+                ORDER BY pc.RoleKey ASC
+            ),
             (
                 SELECT TOP(1) COALESCE(pmLoc.Name, pm.Name, N'')
                 FROM dbo.DocumentApprovals da
@@ -713,6 +811,23 @@ OUTER APPLY(
     WHERE v.DocId = d.DocId
       AND v.ViewerId = @UserId
 ) vAny";
+
+            const string outerApplyMyPendingCooperation = @"
+OUTER APPLY(
+    SELECT
+        CASE
+            WHEN EXISTS (
+                SELECT 1
+                FROM dbo.DocumentCooperations cx
+                WHERE cx.DocId = d.DocId
+                  AND cx.UserId = @UserId
+                  AND ISNULL(cx.Status, N'Pending') = N'Pending'
+                  AND ISNULL(cx.Action, N'') NOT IN (N'Cooperate', N'Reject', N'Rejected', N'Recalled')
+            )
+            THEN CAST(1 AS bit)
+            ELSE CAST(0 AS bit)
+        END AS IsMyPendingCooperation
+) myCoop";
 
             string whereCreatedSub = "";
             {
@@ -759,7 +874,9 @@ OUTER APPLY(
 SELECT COUNT(1)
 FROM dbo.Documents d
 " + outerApplyStepAgg + @"
-" + outerApplyCoopAggEmpty + @"
+" + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 WHERE d.CreatedBy = @UserId" + whereCreatedSub + whereSearch + whereTitleFilter + ";";
 
@@ -769,6 +886,14 @@ SELECT
     d.TemplateTitle,
     d.CreatedAt,
     ISNULL(d.Status, N'') AS Status,
+    CASE
+        WHEN docStage.IsRecalled = 1 THEN N'Recalled'
+        WHEN docStage.IsApprovalRejected = 1 OR docStage.IsCoopRejected = 1 THEN N'Rejected'
+        WHEN docStage.IsOnHold = 1 THEN N'OnHold'
+        WHEN docStage.IsFullyApproved = 1 THEN N'Approved'
+        WHEN ISNULL(curStep.CurrentPendingStepOrder, 0) > 0 THEN N'Pending'
+        ELSE ISNULL(d.Status, N'')
+    END AS StatusCode,
     up.DisplayName AS AuthorName,
     (SELECT COUNT(1) FROM dbo.DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
     CAST(0 AS bit) AS HasAttachment,
@@ -782,7 +907,9 @@ SELECT
 FROM dbo.Documents d
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
-" + outerApplyCoopAggEmpty + @"
+" + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
@@ -798,8 +925,11 @@ FROM dbo.DocumentApprovals a
 JOIN dbo.Documents d ON a.DocId = d.DocId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
-WHERE a.UserId = @UserId" + whereApprovalSub + whereSearch + whereTitleFilter + ";";
+WHERE a.UserId = @UserId
+  AND docStage.IsRecalled = 0" + whereApprovalSub + whereSearch + whereTitleFilter + ";";
 
                 sqlList = @"
 SELECT DISTINCT
@@ -808,10 +938,11 @@ SELECT DISTINCT
     d.CreatedAt,
     ISNULL(d.Status, N'') AS Status,
     CASE
-        WHEN docStage.IsOngoing = 1 THEN N'Pending'
-        WHEN docStage.IsCompleted = 1 AND docStage.IsRecalled = 1 THEN N'Recalled'
-        WHEN docStage.IsCompleted = 1 AND (docStage.IsApprovalRejected = 1 OR docStage.IsCoopRejected = 1) THEN N'Rejected'
+        WHEN docStage.IsRecalled = 1 THEN N'Recalled'
+        WHEN docStage.IsApprovalRejected = 1 OR docStage.IsCoopRejected = 1 THEN N'Rejected'
+        WHEN docStage.IsOnHold = 1 THEN N'OnHold'
         WHEN docStage.IsFullyApproved = 1 THEN N'Approved'
+        WHEN ISNULL(curStep.CurrentPendingStepOrder, 0) > 0 THEN N'Pending'
         ELSE ISNULL(d.Status, N'')
     END AS StatusCode,
     up.DisplayName AS AuthorName,
@@ -823,16 +954,43 @@ SELECT DISTINCT
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
 " + coopSelectCols + @"
-    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
+    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead,       
+    ISNULL(a.StepOrder, 0) AS MyStepOrder,
+    CAST(
+        CASE
+            WHEN a.StepOrder = ISNULL(curStep.CurrentPendingStepOrder, 0)
+             AND (
+                    ISNULL(a.Status, N'') IN (N'Pending', N'PendingHold', N'OnHold')
+                 OR ISNULL(a.Action, N'') = N'hold'
+                 )
+             AND
+                 (
+                    EXISTS
+                    (
+                        SELECT 1
+                        FROM dbo.DocumentApprovals nx
+                        WHERE nx.DocId = d.DocId
+                          AND nx.StepOrder > a.StepOrder
+                    )
+                    OR ISNULL(coopAgg.CoopTotal, 0) = 0
+                    OR ISNULL(coopAgg.CoopDoneCount, 0) >= ISNULL(coopAgg.CoopTotal, 0)
+                 )
+            THEN 1
+            ELSE 0
+        END AS bit
+    ) AS IsMyPendingTurn
 FROM dbo.DocumentApprovals a
 JOIN dbo.Documents d ON a.DocId = d.DocId
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
-WHERE a.UserId = @UserId" + whereApprovalSub + whereSearch + whereTitleFilter + $@"
+WHERE a.UserId = @UserId
+  AND docStage.IsRecalled = 0" + whereApprovalSub + whereSearch + whereTitleFilter + $@"
 {orderBy}
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             }
@@ -855,6 +1013,8 @@ SELECT COUNT(1)
 " + cooperationBase + @"
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 WHERE 1 = 1" + whereCooperationSub + whereSearch + whereTitleFilter + ";";
 
@@ -873,14 +1033,18 @@ SELECT
     ISNULL(rs.ResultActorName, N'') AS ResultActorName,
     ISNULL(rs.ResultActorPosition, N'') AS ResultActorPosition,
 " + coopSelectCols + @"
-    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
+    CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead,
+    CAST(ISNULL(myCoop.IsMyPendingCooperation, 0) AS bit) AS IsMyPendingCooperation
 " + cooperationBase + @"
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
+" + outerApplyMyPendingCooperation + @"
 WHERE 1 = 1" + whereCooperationSub + whereSearch + whereTitleFilter + $@"
 {orderBy}
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
@@ -912,6 +1076,8 @@ FROM dbo.DocumentShares s
 JOIN dbo.Documents d ON s.DocId = d.DocId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 " + outerApplyIsReadAny + @"
 WHERE s.UserId = @UserId" + whereShareActive + whereSharedSub + whereSharedReadCount + whereSearch + whereTitleFilter + ";";
@@ -937,6 +1103,8 @@ JOIN dbo.Documents d ON s.DocId = d.DocId
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
+" + outerApplyCurrentPendingStep + @"
+" + outerApplyCurrentApproval + @"
 " + outerApplyDocStage + @"
 " + outerApplyResultActor + @"
 " + outerApplyIsReadAny + @"
@@ -1016,6 +1184,15 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                 int ordStatusCode = -1;
                 try { ordStatusCode = rdr.GetOrdinal("StatusCode"); } catch { ordStatusCode = -1; }
 
+                int ordIsMyPendingTurn = -1;
+                try { ordIsMyPendingTurn = rdr.GetOrdinal("IsMyPendingTurn"); } catch { ordIsMyPendingTurn = -1; }
+
+                int ordIsMyPendingCooperation = -1;
+                try { ordIsMyPendingCooperation = rdr.GetOrdinal("IsMyPendingCooperation"); } catch { ordIsMyPendingCooperation = -1; }
+
+                int ordMyStepOrder = -1;
+                try { ordMyStepOrder = rdr.GetOrdinal("MyStepOrder"); } catch { ordMyStepOrder = -1; }
+
                 while (await rdr.ReadAsync())
                 {
                     var createdAtLocal = (rdr["CreatedAt"] is DateTime utc)
@@ -1048,11 +1225,65 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                         else isRead = Convert.ToInt32(v) == 1;
                     }
 
+                    var isMyPendingTurn = false;
+                    if (ordIsMyPendingTurn >= 0 && rdr[ordIsMyPendingTurn] != DBNull.Value)
+                    {
+                        var v = rdr[ordIsMyPendingTurn];
+                        if (v is bool b) isMyPendingTurn = b;
+                        else isMyPendingTurn = Convert.ToInt32(v) == 1;
+                    }
+
+                    var isMyPendingCooperation = false;
+                    if (ordIsMyPendingCooperation >= 0 && rdr[ordIsMyPendingCooperation] != DBNull.Value)
+                    {
+                        var v = rdr[ordIsMyPendingCooperation];
+                        if (v is bool b) isMyPendingCooperation = b;
+                        else isMyPendingCooperation = Convert.ToInt32(v) == 1;
+                    }
+
+                    var myStepOrder = 0;
+                    if (ordMyStepOrder >= 0 && rdr[ordMyStepOrder] != DBNull.Value)
+                    {
+                        myStepOrder = Convert.ToInt32(rdr[ordMyStepOrder]);
+                    }
+
                     var coopTotal = rdr["CoopTotalSteps"] is int ct ? ct : Convert.ToInt32(rdr["CoopTotalSteps"]);
                     var coopPendName = rdr["CoopPendingName"]?.ToString() ?? string.Empty;
                     var coopPendPos = rdr["CoopPendingPosition"]?.ToString() ?? string.Empty;
                     var coopDoneKeys = rdr["CoopDoneKeys"]?.ToString() ?? string.Empty;
                     var coopRejectedKeys = rdr["CoopRejectedKeys"]?.ToString() ?? string.Empty;
+
+                    var approvalSteps = new List<object>();
+                    if (string.Equals(tabKey, "approval", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(tabKey, "created", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await using var cmdSteps = conn.CreateCommand();
+                        cmdSteps.CommandText = @"
+SELECT
+    a.StepOrder,
+    ISNULL(a.UserId, N'')  AS UserId,
+    ISNULL(a.Status, N'')  AS Status,
+    ISNULL(a.Action, N'')  AS Action
+FROM dbo.DocumentApprovals a
+WHERE a.DocId = @DocId
+ORDER BY a.StepOrder ASC;";
+                        cmdSteps.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40)
+                        {
+                            Value = rdr["DocId"]?.ToString() ?? string.Empty
+                        });
+
+                        await using var stepRdr = await cmdSteps.ExecuteReaderAsync();
+                        while (await stepRdr.ReadAsync())
+                        {
+                            approvalSteps.Add(new
+                            {
+                                stepOrder = Convert.ToInt32(stepRdr["StepOrder"]),
+                                userId = stepRdr["UserId"]?.ToString() ?? string.Empty,
+                                status = stepRdr["Status"]?.ToString() ?? string.Empty,
+                                action = stepRdr["Action"]?.ToString() ?? string.Empty
+                            });
+                        }
+                    }
 
                     items.Add(new
                     {
@@ -1068,6 +1299,10 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                         hasAttachment = Convert.ToInt32(rdr["HasAttachment"]) == 1,
                         resultSummary = resultSummary,
                         isRead = isRead,
+                        isMyPendingTurn = isMyPendingTurn,
+                        myStepOrder = myStepOrder,
+                        approvalSteps = approvalSteps,
+                        isMyPendingCooperation = isMyPendingCooperation,
                         coopTotalSteps = coopTotal,
                         coopDoneKeys = coopDoneKeys,
                         coopRejectedKeys = coopRejectedKeys,
@@ -1080,62 +1315,240 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             return Json(new { total, page, pageSize, items });
         }
 
-
         [HttpGet("BoardBadges")]
         public async Task<IActionResult> BoardBadges()
         {
             var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             var connStr = _cfg.GetConnectionString("DefaultConnection");
+
             using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
             var sqlApprovalPending = @"
-SELECT COUNT(1)
-FROM DocumentApprovals a
-JOIN Documents d ON a.DocId = d.DocId
-WHERE a.UserId = @UserId
-  AND ISNULL(a.Status, N'') LIKE N'Pending%'
-  AND (
-        ISNULL(d.Status, N'') = N'PendingA'     + CAST(a.StepOrder AS nvarchar(10))
-     OR ISNULL(d.Status, N'') = N'PendingHoldA' + CAST(a.StepOrder AS nvarchar(10))
-  )
-  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
+WITH CurStep AS
+(
+    SELECT
+        d.DocId,
+        ISNULL(
+            (
+                SELECT MIN(a3.StepOrder)
+                FROM dbo.DocumentApprovals a3
+                WHERE a3.DocId = d.DocId
+                  AND ISNULL(a3.Status, N'Pending') LIKE N'Pending%'
+            ),
+            0
+        ) AS CurrentPendingStepOrder
+    FROM dbo.Documents d
+),
+ApprovalRejected AS
+(
+    SELECT
+        d.DocId,
+        MAX(CASE
+                WHEN a.DocId IS NOT NULL
+                 AND (
+                        ISNULL(a.Status, N'') LIKE N'Rejected%'
+                     OR ISNULL(a.Action, N'') LIKE N'reject%'
+                 )
+                THEN 1 ELSE 0
+            END) AS HasApprovalRejected
+    FROM dbo.Documents d
+    LEFT JOIN dbo.DocumentApprovals a
+      ON a.DocId = d.DocId
+    GROUP BY d.DocId
+),
+CoopAgg AS
+(
+    SELECT
+        d.DocId,
+        SUM(CASE
+                WHEN c.DocId IS NOT NULL
+                 AND ISNULL(c.Status, N'') <> N'Recalled'
+                 AND ISNULL(c.Action, N'') <> N'Recalled'
+                THEN 1 ELSE 0
+            END) AS CoopTotal,
+        SUM(CASE
+                WHEN c.DocId IS NOT NULL
+                 AND ISNULL(c.Status, N'') <> N'Recalled'
+                 AND ISNULL(c.Action, N'') <> N'Recalled'
+                 AND (
+                        ISNULL(c.Status, N'') = N'Cooperated'
+                     OR ISNULL(c.Action, N'') = N'Cooperate'
+                 )
+                THEN 1 ELSE 0
+            END) AS CoopDone,
+        MAX(CASE
+                WHEN c.DocId IS NOT NULL
+                 AND ISNULL(c.Status, N'') <> N'Recalled'
+                 AND ISNULL(c.Action, N'') <> N'Recalled'
+                 AND (
+                        ISNULL(c.Status, N'') LIKE N'Rejected%'
+                     OR ISNULL(c.Action, N'') IN (N'Reject', N'Rejected')
+                 )
+                THEN 1 ELSE 0
+            END) AS HasCoopRejected
+    FROM dbo.Documents d
+    LEFT JOIN dbo.DocumentCooperations c
+      ON c.DocId = d.DocId
+    GROUP BY d.DocId
+)
+SELECT COUNT(DISTINCT d.DocId)
+FROM dbo.Documents d
+JOIN CurStep cs
+  ON cs.DocId = d.DocId
+JOIN dbo.DocumentApprovals a
+  ON a.DocId = d.DocId
+ AND a.StepOrder = cs.CurrentPendingStepOrder
+LEFT JOIN ApprovalRejected ar
+  ON ar.DocId = d.DocId
+LEFT JOIN CoopAgg ca
+  ON ca.DocId = d.DocId
+WHERE cs.CurrentPendingStepOrder > 0
+  AND ISNULL(d.Status, N'') LIKE N'Pending%'
+  AND a.UserId = @UserId
+  AND ISNULL(a.Status, N'Pending') LIKE N'Pending%'
+  AND ISNULL(ar.HasApprovalRejected, 0) = 0
+  AND ISNULL(ca.HasCoopRejected, 0) = 0
+  AND
+  (
+        EXISTS
+        (
+            SELECT 1
+            FROM dbo.DocumentApprovals nx
+            WHERE nx.DocId = d.DocId
+              AND nx.StepOrder > a.StepOrder
+        )
+        OR ISNULL(ca.CoopTotal, 0) = 0
+        OR ISNULL(ca.CoopDone, 0) >= ISNULL(ca.CoopTotal, 0)
+  );";
 
             var sqlCooperationPending = @"
 SELECT COUNT(1)
 FROM (
     SELECT DISTINCT c.DocId
-    FROM DocumentCooperations c
-    JOIN Documents d ON c.DocId = d.DocId
+    FROM dbo.DocumentCooperations c
+    JOIN dbo.Documents d
+      ON d.DocId = c.DocId
+    OUTER APPLY
+    (
+        SELECT
+            CASE
+                WHEN ISNULL(d.Status, N'') LIKE N'Recalled%'
+                  OR ISNULL(d.Status, N'') LIKE N'Recall%'
+                THEN 0
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.DocumentApprovals aReject
+                    WHERE aReject.DocId = d.DocId
+                      AND
+                      (
+                          ISNULL(aReject.Status, N'') LIKE N'Rejected%'
+                          OR ISNULL(aReject.Action, N'') LIKE N'reject%'
+                      )
+                )
+                  OR ISNULL(d.Status, N'') LIKE N'Rejected%'
+                THEN 0
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.DocumentCooperations cReject
+                    WHERE cReject.DocId = d.DocId
+                      AND
+                      (
+                          ISNULL(cReject.Status, N'') LIKE N'Rejected%'
+                          OR ISNULL(cReject.Action, N'') IN (N'Reject', N'Rejected')
+                      )
+                )
+                THEN 0
+                WHEN
+                (
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentApprovals aAll
+                        WHERE aAll.DocId = d.DocId
+                    ) = 0
+                    OR
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentApprovals aDone
+                        WHERE aDone.DocId = d.DocId
+                          AND
+                          (
+                              ISNULL(aDone.Action, N'') = N'approve'
+                              OR ISNULL(aDone.Status, N'') = N'Approved'
+                          )
+                    ) >=
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentApprovals aAll2
+                        WHERE aAll2.DocId = d.DocId
+                    )
+                )
+                AND
+                (
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentCooperations cAll
+                        WHERE cAll.DocId = d.DocId
+                          AND ISNULL(cAll.Status, N'') <> N'Recalled'
+                          AND ISNULL(cAll.Action, N'') <> N'Recalled'
+                    ) = 0
+                    OR
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentCooperations cDone
+                        WHERE cDone.DocId = d.DocId
+                          AND ISNULL(cDone.Status, N'') <> N'Recalled'
+                          AND ISNULL(cDone.Action, N'') <> N'Recalled'
+                          AND
+                          (
+                              ISNULL(cDone.Status, N'') = N'Cooperated'
+                              OR ISNULL(cDone.Action, N'') = N'Cooperate'
+                          )
+                    ) >=
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.DocumentCooperations cAll2
+                        WHERE cAll2.DocId = d.DocId
+                          AND ISNULL(cAll2.Status, N'') <> N'Recalled'
+                          AND ISNULL(cAll2.Action, N'') <> N'Recalled'
+                    )
+                )
+                THEN 0
+                ELSE 1
+            END AS IsOngoing
+    ) ds
     WHERE c.UserId = @UserId
-      AND ISNULL(c.Status, N'') NOT LIKE N'Recalled%'
-      AND NOT (
-            ISNULL(c.Status, N'') LIKE N'Approved%'
-         OR ISNULL(c.Status, N'') LIKE N'Rejected%'
-         OR ISNULL(c.Status, N'') LIKE N'Recalled%'
-         OR ISNULL(c.Status, N'') LIKE N'Recall%'
-         OR ISNULL(c.Status, N'') LIKE N'Cooperated%'
-      )
+      AND ISNULL(c.Status, N'Pending') = N'Pending'
+      AND ISNULL(c.Action, N'') NOT IN (N'Cooperate', N'Reject', N'Rejected', N'Recalled')
+      AND ds.IsOngoing = 1
 ) x;";
 
             var sqlCreatedUnread = @"
 SELECT COUNT(1)
-FROM Documents d
-WHERE d.CreatedBy = @UserId
-  AND NOT EXISTS (
-      SELECT 1
-      FROM DocumentViewLogs v
-      WHERE v.DocId = d.DocId
-        AND v.ViewerId = @UserId
-  );";
+FROM (
+    SELECT DISTINCT d.DocId
+    FROM Documents d
+    WHERE d.CreatedBy = @UserId
+      AND NOT EXISTS (
+          SELECT 1
+          FROM DocumentViewLogs v
+          WHERE v.DocId = d.DocId
+            AND v.ViewerId = @UserId
+      )
+) x;";
 
             var sqlSharedUnread = @"
 SELECT COUNT(1)
-FROM DocumentShares s
-WHERE s.UserId = @UserId
-  AND ISNULL(s.IsRevoked, 0) = 0
-  AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
-  AND ISNULL(s.IsRead, 0) = 0;";
+FROM (
+    SELECT DISTINCT s.DocId
+    FROM DocumentShares s
+    WHERE s.UserId = @UserId
+      AND ISNULL(s.IsRevoked, 0) = 0
+      AND (s.ExpireAt IS NULL OR s.ExpireAt > SYSUTCDATETIME())
+      AND ISNULL(s.IsRead, 0) = 0
+) x;";
 
             int approvalPending = 0;
             int cooperationPending = 0;
@@ -1166,7 +1579,13 @@ WHERE s.UserId = @UserId
                 createdUnread = Convert.ToInt32(await cmd.ExecuteScalarAsync());
             }
 
-            return Json(new { created = createdUnread, approvalPending, cooperationPending, sharedUnread });
+            return Json(new
+            {
+                created = createdUnread,
+                approvalPending,
+                cooperationPending,
+                sharedUnread
+            });
         }
 
         private static string ToLocalStringFromUtc(DateTime utc)

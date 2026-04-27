@@ -139,8 +139,21 @@ WHERE s.UserId = @UserId
         }
 
         [HttpGet]
+        //public IActionResult Login(string? returnUrl = null)
+        //{
+        //    ViewData["ReturnUrl"] = NormalizeReturnUrl(returnUrl);
+
+        //    StampEbValidateData();
+        //    return View(new LoginViewModel());
+        //}
+        
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Login(string? returnUrl = null)
         {
+            Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["Expires"] = "0";
+
             ViewData["ReturnUrl"] = NormalizeReturnUrl(returnUrl);
 
             StampEbValidateData();
@@ -240,7 +253,7 @@ WHERE s.UserId = @UserId
             return View(model);
         }
 
-        // ✅ 추가: GET /Account/Logout 이 들어와도 400 대신 로그인으로 보냄
+        //  추가: GET /Account/Logout 이 들어와도 400 대신 로그인으로 보냄
         [HttpGet]
         public async Task<IActionResult> Logout(string? returnUrl = null)
         {

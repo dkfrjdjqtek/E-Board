@@ -1,7 +1,4 @@
-﻿
-// 2026.01.14 Changed 구독 키(p256dh/auth)를 PushSubscription.getKey()로 추출해 Base64URL로 변환하여 서버로 전송하고 Unregister는 서버 비활성화를 먼저 수행하도록 고정
-
-(function () {
+﻿(function () {
     'use strict';
 
     const LS_KEY_LAST_ENDPOINT = 'EBPush.LastEndpoint';
@@ -20,7 +17,6 @@
         return output;
     }
 
-    // ArrayBuffer -> Base64URL (Push keys는 이 형태로 보내는 게 안전)
     function arrayBufferToBase64Url(buf) {
         if (!buf) return '';
         const bytes = new Uint8Array(buf);
@@ -39,7 +35,14 @@
     }
 
     async function registerSw() {
-        if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker not supported');
+        if (!('serviceWorker' in navigator)) {
+            throw new Error('ServiceWorker not supported');
+        }
+
+        if (!window.isSecureContext) {
+            throw new Error('ServiceWorker requires secure context');
+        }
+
         return await navigator.serviceWorker.register('/push/sw.js', { scope: '/push/' });
     }
 
@@ -95,8 +98,6 @@
     }
 
     function extractKeys(sub) {
-        // ✅ 표준 방식: getKey('p256dh'), getKey('auth')
-        // 반환값: ArrayBuffer
         try {
             const p256dhBuf = sub && sub.getKey ? sub.getKey('p256dh') : null;
             const authBuf = sub && sub.getKey ? sub.getKey('auth') : null;
@@ -130,7 +131,6 @@
         const endpoint = (sub && sub.endpoint) ? String(sub.endpoint) : '';
         rememberEndpoint(endpoint);
 
-        // 키 추출
         const keys = extractKeys(sub);
 
         if (sendToServer) {
@@ -142,9 +142,6 @@
                 },
                 UserAgent: navigator.userAgent
             };
-
-            // 디버그: 서버로 실제 보내는 payload 확인
-            // console.log('[EBPush] Subscribe payload=', payload);
 
             const res = await postJson('/Push/Subscribe', payload);
             if (!res.ok) {
@@ -180,7 +177,6 @@
         const reg = await registerSw();
         const sub = await getSubscriptionSafe(reg);
 
-        // ✅ 서버 정리를 먼저 한다(중요)
         const endpoint = (sub && sub.endpoint) ? String(sub.endpoint) : loadRememberedEndpoint();
 
         if (!endpoint) {

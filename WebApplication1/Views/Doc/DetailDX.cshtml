@@ -232,8 +232,8 @@ else
     #dxDetailWrap {
         position: relative !important;
         display: block !important;
-        overflow: hidden !important;
-        background: transparent !important;
+        overflow: visible !important;
+        background: #fff !important;
         border: 0 !important;
         outline: 0 !important;
         box-shadow: none !important;
@@ -446,9 +446,10 @@ else
             width: 100%;
             height: 100%;
             object-fit: contain;
-            image-rendering: -webkit-optimize-contrast;
+            /* image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
-            image-rendering: high-quality;
+            image-rendering: high-quality; */
+            image-rendering: auto;
             will-change: transform;
         }
 
@@ -901,23 +902,27 @@ else
 
         <div id="dxDetailWrap">
             @{
-                Html.DevExpress().Spreadsheet("dxDetailSheet")
-                .Height("100%")
-                .Width("100%")
-                .WorkDirectory(workDir)
-                .DocumentRequestHandlerUrl(dxCallbackUrl)
-                .Open(openRel)
-                .ReadOnly(true)
-                .ConfirmOnLosingChanges(c => c.Enabled(false))
-                .ClientSideEvents(events =>
+                var writer = ViewContext?.Writer;
+                if (writer != null)
                 {
-                    events.OnInit("__dxDetailOnInit");
-                    events.OnBeforeSend("__dxDetailOnBeforeSend");
-                    events.OnBeginSynchronization("__dxDetailOnBeginSync");
-                    events.OnEndSynchronization("__dxDetailOnEndSync");
-                    events.OnDocumentChanged("__dxDetailOnDocumentChanged");
-                })
-                .WriteTo(ViewContext.Writer, HtmlEncoder.Default);
+                    Html.DevExpress().Spreadsheet("dxDetailSheet")
+                    .Height("100%")
+                    .Width("100%")
+                    .WorkDirectory(workDir)
+                    .DocumentRequestHandlerUrl(dxCallbackUrl)
+                    .Open(openRel)
+                    .ReadOnly(true)
+                    .ConfirmOnLosingChanges(c => c.Enabled(false))
+                    .ClientSideEvents(events =>
+                    {
+                        events.OnInit("__dxDetailOnInit");
+                        events.OnBeforeSend("__dxDetailOnBeforeSend");
+                        events.OnBeginSynchronization("__dxDetailOnBeginSync");
+                        events.OnEndSynchronization("__dxDetailOnEndSync");
+                        events.OnDocumentChanged("__dxDetailOnDocumentChanged");
+                    })
+                    .WriteTo(writer, HtmlEncoder.Default);
+                }
             }
             <div id="dxApprovalOverlay" class="dx-detail-overlay"></div>
         </div>
@@ -1300,6 +1305,94 @@ else
             return null;
         }
 
+        // ================== 실제 DX 콘텐츠 크기 직접 측정 (2026.04.14 Added) ==================
+        function measureActualDxContent() {
+            var wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return null;
+
+            var maxW = 0;
+            var maxH = 0;
+
+            // 1) DX 내부 페이지/그리드 요소의 scrollWidth/Height, offsetWidth/Height
+            var candidates = wrap.querySelectorAll(
+                '.dxss-page, .dxss-page-border, .dxss-print-area, .dxss-md, ' +
+                '[id$="_Grid"], [id$="_WBC"], [id$="_ScrollContainer"], ' +
+                '.dxss-ftc, [class*="dxss-gc"]'
+            );
+            candidates.forEach(function (el) {
+                var sw = el.scrollWidth || 0;
+                var sh = el.scrollHeight || 0;
+                if (sw > maxW) maxW = sw;
+                if (sh > maxH) maxH = sh;
+                var ow = el.offsetWidth || 0;
+                var oh = el.offsetHeight || 0;
+                if (ow > maxW) maxW = ow;
+                if (oh > maxH) maxH = oh;
+            });
+
+            // 2) 셀 타일의 bounding rect로 최대 right/bottom 계산
+            var wrapRect = wrap.getBoundingClientRect();
+            var tiles = wrap.querySelectorAll('.dxss-ftc, [id*="_ctb."]');
+            tiles.forEach(function (el) {
+                var r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) return;
+                var right = r.right - wrapRect.left;
+                var bottom = r.bottom - wrapRect.top;
+                if (right > maxW) maxW = right;
+                if (bottom > maxH) maxH = bottom;
+            });
+
+            // 3) 행 헤더 scrollHeight (visibility:hidden이지만 layout 유지)
+            var rhEl = document.getElementById('dxDetailSheet_RowHeader')
+                || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
+            if (rhEl) {
+                var rh = rhEl.scrollHeight || rhEl.offsetHeight || 0;
+                if (rh > maxH) maxH = rh;
+            }
+
+            // 4) 컬럼 헤더 scrollWidth
+            var chEl = document.getElementById('dxDetailSheet_ColumnHeader')
+                || document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
+            if (chEl) {
+                var cw = chEl.scrollWidth || chEl.offsetWidth || 0;
+                if (cw > maxW) maxW = cw;
+            }
+
+            if (maxW <= 50 || maxH <= 50) return null;
+            return { width: Math.ceil(maxW), height: Math.ceil(maxH) };
+        }
+
+        // 실측값으로 wrap 크기 동기화 — DX 이벤트 핸들러에서 호출
+        function syncWrapToActualContent(reason) {
+            var actual = measureActualDxContent();
+            if (!actual) return false;
+
+            var newW = Math.max(600, actual.width + 4);
+            var newH = Math.max(520, actual.height + 4);
+
+            var prev = state.previewExtent || {};
+            var prevW = prev.width || 0;
+            var prevH = prev.height || 0;
+
+            if (Math.abs(newW - prevW) <= 10 && Math.abs(newH - prevH) <= 10) return false;
+
+            console.log('[DX] syncWrapToActualContent:', reason || '', {
+                prevW: prevW, prevH: prevH, newW: newW, newH: newH
+            });
+
+            state.previewExtent = { width: newW, height: newH };
+            var wrap = document.getElementById('dxDetailWrap');
+            if (wrap) {
+                wrap.style.setProperty('width', newW + 'px', 'important');
+                wrap.style.setProperty('min-width', newW + 'px', 'important');
+                wrap.style.setProperty('max-width', newW + 'px', 'important');
+                wrap.style.setProperty('height', newH + 'px', 'important');
+                wrap.style.setProperty('min-height', newH + 'px', 'important');
+                wrap.style.setProperty('max-height', newH + 'px', 'important');
+            }
+            return true;
+        }
+
         // ================== 프리뷰 extent 계산 ==================
         function colIndexToLabel(index) {
             let n = Math.max(1, Number(index) || 1);
@@ -1514,6 +1607,31 @@ else
             let heightPx = 0;
             let source = '';
 
+            // if (selectedTarget) {
+            //     const targetColLabel = colIndexToLabel(selectedTarget.col1);
+            //     const targetRowNo = Number(selectedTarget.row1 || 0);
+            //     const targetColRect = colRectMap[targetColLabel] || null;
+            //     const targetRowRect = rowRectMap[targetRowNo] || null;
+
+            //     if (targetColRect && targetRowRect) {
+            //         widthPx = Math.ceil(targetColRect.right + rightReservePx);
+            //         heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
+            //         source = usePreviewFallback ? 'preview-lastCell+1-measured' : 'server-renderLastCell-measured';
+            //     } else if (!usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
+            //         widthPx = Math.ceil(serverWidthPx + rightReservePx);
+            //         heightPx = Math.ceil(serverHeightPx + bottomReservePx);
+            //         source = 'server-renderLastCell-serverPx';
+            //     }
+            // }
+
+            // if (widthPx <= 0 || heightPx <= 0) {
+            //     const fallbackCol = selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol;
+            //     const fallbackRow = selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow;
+
+            //     widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
+            //     heightPx = Math.ceil((fallbackRow * fallbackRowPx) + bottomReservePx);
+            //     source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
+            // }
             if (selectedTarget) {
                 const targetColLabel = colIndexToLabel(selectedTarget.col1);
                 const targetRowNo = Number(selectedTarget.row1 || 0);
@@ -1524,10 +1642,69 @@ else
                     widthPx = Math.ceil(targetColRect.right + rightReservePx);
                     heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
                     source = usePreviewFallback ? 'preview-lastCell+1-measured' : 'server-renderLastCell-measured';
-                } else if (!usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
-                    widthPx = Math.ceil(serverWidthPx + rightReservePx);
-                    heightPx = Math.ceil(serverHeightPx + bottomReservePx);
-                    source = 'server-renderLastCell-serverPx';
+                } else {
+                    // 2026.04.14: DX 가상 스크롤로 마지막 행/열이 DOM에 없을 때 비례 추정
+                    // 폭: targetColRect가 있으면 사용, 없으면 측정된 열들에서 추정
+                    if (targetColRect) {
+                        widthPx = Math.ceil(targetColRect.right + rightReservePx);
+                    } else {
+                        // colRectMap에서 가장 오른쪽 열의 right 사용
+                        var maxColRight = 0;
+                        var maxColIdx = 0;
+                        var colKeys = Object.keys(colRectMap);
+                        colKeys.forEach(function (label) {
+                            var ci = 0;
+                            for (var i = 0; i < label.length; i++) ci = ci * 26 + (label.charCodeAt(i) - 64);
+                            if (colRectMap[label].right > maxColRight) {
+                                maxColRight = colRectMap[label].right;
+                                maxColIdx = ci;
+                            }
+                        });
+                        if (maxColRight > 0 && maxColIdx > 0 && selectedTarget.col1 > 0) {
+                            // 비례: (목표열/측정된 마지막열) × 마지막열 right
+                            widthPx = Math.ceil(maxColRight * (selectedTarget.col1 / maxColIdx) + rightReservePx);
+                        }
+                    }
+
+                    // 높이: targetRowRect가 있으면 사용, 없으면 측정된 행들에서 추정
+                    if (targetRowRect) {
+                        heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
+                    } else {
+                        // rowRectMap에서 마지막 행의 bottom과 행번호로 비례 추정
+                        var maxRowBottom = 0;
+                        var maxRowNo = 0;
+                        var rowKeys = Object.keys(rowRectMap);
+                        rowKeys.forEach(function (k) {
+                            var rn = parseInt(k, 10);
+                            if (rowRectMap[k].bottom > maxRowBottom) {
+                                maxRowBottom = rowRectMap[k].bottom;
+                                maxRowNo = rn;
+                            }
+                        });
+                        if (maxRowBottom > 0 && maxRowNo > 0 && targetRowNo > 0) {
+                            // 비례 추정: (목표행/측정된 마지막행) × 마지막행 bottom
+                            heightPx = Math.ceil(maxRowBottom * (targetRowNo / maxRowNo) + bottomReservePx);
+                            source = (usePreviewFallback ? 'preview' : 'server') + '-proportional';
+                            console.log('[DX] height proportional estimate:', {
+                                measuredLastRow: maxRowNo,
+                                measuredBottom: maxRowBottom,
+                                targetRow: targetRowNo,
+                                estimatedHeight: heightPx
+                            });
+                        }
+                    }
+
+                    // 둘 다 구했으면 source 설정
+                    if (widthPx > 0 && heightPx > 0 && !source) {
+                        source = (usePreviewFallback ? 'preview' : 'server') + '-partial-measured';
+                    }
+
+                    // 서버값 fallback
+                    if ((widthPx <= 0 || heightPx <= 0) && !usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
+                        if (widthPx <= 0) widthPx = Math.ceil(serverWidthPx + rightReservePx);
+                        if (heightPx <= 0) heightPx = Math.ceil(serverHeightPx + bottomReservePx);
+                        source = 'server-renderLastCell-serverPx';
+                    }
                 }
             }
 
@@ -1535,10 +1712,29 @@ else
                 const fallbackCol = selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol;
                 const fallbackRow = selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow;
 
-                widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
-                heightPx = Math.ceil((fallbackRow * fallbackRowPx) + bottomReservePx);
-                source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
+                // 2026.04.14: 측정된 행이 있으면 평균 높이 사용, 없으면 기존 20px
+                var avgRowPx = fallbackRowPx;
+                var measuredRowKeys = Object.keys(rowRectMap);
+                if (measuredRowKeys.length >= 2) {
+                    var mMaxBottom = 0;
+                    var mMaxRowNo = 0;
+                    measuredRowKeys.forEach(function (k) {
+                        var rn = parseInt(k, 10);
+                        if (rowRectMap[k].bottom > mMaxBottom) {
+                            mMaxBottom = rowRectMap[k].bottom;
+                            mMaxRowNo = rn;
+                        }
+                    });
+                    if (mMaxRowNo > 0 && mMaxBottom > 0) {
+                        avgRowPx = mMaxBottom / mMaxRowNo;
+                    }
+                }
+
+                if (widthPx <= 0) widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
+                if (heightPx <= 0) heightPx = Math.ceil((fallbackRow * avgRowPx) + bottomReservePx);
+                if (!source) source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
             }
+
 
             state.renderExtent = {
                 width: widthPx,
@@ -1564,11 +1760,28 @@ else
                 source: source
             });
 
+            // var actual = measureActualDxContent();
+            // if (actual && actual.width > 100 && actual.height > 100) {
+            //     var actualW = actual.width + 4;
+            //     var actualH = actual.height + 4;
+            //     if (Math.abs(actualW - widthPx) > 30 || Math.abs(actualH - heightPx) > 30) {
+            //         console.log('[DX] computePreviewExtent: actual override', {
+            //             calcW: widthPx, calcH: heightPx, actualW: actualW, actualH: actualH
+            //         });
+            //         widthPx = actualW;
+            //         heightPx = actualH;
+            //         state.renderExtent.width = widthPx;wrap.style.setProperty('width', finalWidth + 'px', 'important');
+            //         state.renderExtent.height = heightPx;
+            //         state.renderExtent.source = source + '+actual-measured';
+            //     }
+            // }
+
             return {
                 width: Math.max(600, widthPx),
                 height: Math.max(520, heightPx)
             };
         }
+
          
         function applyDxWrapSize(reason) {
             const wrap = document.getElementById('dxDetailWrap');
@@ -1597,7 +1810,9 @@ else
             wrap.style.setProperty('height', finalHeight + 'px', 'important');
             wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
             wrap.style.setProperty('max-height', finalHeight + 'px', 'important');
-            wrap.style.setProperty('overflow', 'hidden', 'important');
+            
+            //wrap.style.setProperty('overflow', 'hidden', 'important');
+            wrap.style.setProperty('overflow', 'visible', 'important');
 
             console.log('[DX] applyDxWrapSize:',
                 'reason=' + (reason || ''),
@@ -1718,7 +1933,11 @@ else
             wrap.style.setProperty('height', seedHeight + 'px', 'important');
             wrap.style.setProperty('min-height', seedHeight + 'px', 'important');
             wrap.style.setProperty('max-height', seedHeight + 'px', 'important');
-            wrap.style.setProperty('overflow', 'hidden', 'important');
+            
+            //wrap.style.setProperty('overflow', 'hidden', 'important');
+
+            //state.previewExtent = { width: seedWidth, height: seedHeight };
+            wrap.style.setProperty('overflow', 'visible', 'important');
 
             state.previewExtent = { width: seedWidth, height: seedHeight };
 
@@ -3751,14 +3970,15 @@ else
 
                 if (rafId) cancelAnimationFrame(rafId);
                 if (domObserver) domObserver.disconnect();
-                if (sizeObserver) sizeObserver.disconnect();
 
+                state.previewExtent = { width: 0, height: 0 };
                 applyDxWrapSize(reason || 'dx-stable');
                 installOuterScrollOnly();
                 renderApprovalOverlay();
 
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
+                        state.previewExtent = { width: 0, height: 0 };
                         applyDxWrapSize((reason || 'dx-stable') + '-postoverlay');
                         renderApprovalOverlay();
 
@@ -3767,6 +3987,35 @@ else
                         bindOverlayResizeObserver();
 
                         console.log('[DX] page shown by', reason || 'dx-stable');
+
+                        // DX 재렌더링 강제 — 2단계 AdjustControl
+                        try {
+                            var inst = getDxInstance();
+                            if (inst && typeof inst.AdjustControl === 'function') {
+                                inst.AdjustControl();
+                                // 1차 후 셀 확인, 없으면 재시도
+                                var retryCount = 0;
+                                var retryAdjust = function () {
+                                    retryCount++;
+                                    if (retryCount > 5) return;
+                                    requestAnimationFrame(function () {
+                                        requestAnimationFrame(function () {
+                                            if (!document.querySelector('.dxss-ftc')) {
+                                                console.log('[DX] finalize retry AdjustControl #' + retryCount);
+                                                try { inst.AdjustControl(); } catch (e) { }
+                                                retryAdjust();
+                                            } else {
+                                                console.log('[DX] finalize cells appeared after retry #' + retryCount);
+                                                state.previewExtent = { width: 0, height: 0 };
+                                                applyDxWrapSize('post-adjust-retry');
+                                                try { renderApprovalOverlay(); } catch (e) { }
+                                            }
+                                        });
+                                    });
+                                };
+                                retryAdjust();
+                            }
+                        } catch (e) { }
                     });
                 });
             }
@@ -3859,8 +4108,32 @@ else
                 }
 
                 requestLayoutKick(reason || 'dx-end-sync');
-                scheduleEvaluate(reason || 'dx-end-sync');
+
+                // 2026.04.14: finalize 이후 DX 이벤트 → 헤더 기반 재측정
+                if (finalized) {
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            // 셀 타일이 없으면 AdjustControl로 강제 렌더링
+                            var hasCells = !!document.querySelector('.dxss-ftc');
+                            if (!hasCells) {
+                                try {
+                                    var inst = window.dxDetailSheet;
+                                    if (inst && typeof inst.AdjustControl === 'function') {
+                                        console.log('[DX] post-finalize: no cells, forcing AdjustControl');
+                                        inst.AdjustControl();
+                                    }
+                                } catch (e) { }
+                            }
+                            state.previewExtent = { width: 0, height: 0 };
+                            applyDxWrapSize('post-finalize:' + (reason || ''));
+                            try { renderApprovalOverlay(); } catch (e) { }
+                        });
+                    });
+                } else {
+                    scheduleEvaluate(reason || 'dx-end-sync');
+                }
             };
+
 
             if (window.__dxDetailOnEndSyncPending) {
                 const pendingReason = window.__dxDetailOnEndSyncPending;

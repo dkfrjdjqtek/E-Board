@@ -34,7 +34,7 @@
         <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
     }
 
-    @* ✅ Spreadsheet 초기화 스크립트가 찍히는 화면인데 DxHead가 빠져도 동작하도록, (DisableDxAll이 아닌 경우에 한해) 레이아웃에서 Spreadsheet 리소스를 보장 로드 *@
+    @*  Spreadsheet 초기화 스크립트가 찍히는 화면인데 DxHead가 빠져도 동작하도록, (DisableDxAll이 아닌 경우에 한해) 레이아웃에서 Spreadsheet 리소스를 보장 로드 *@
     @if (__useDxSpreadsheet && !__disableDxAll)
     {
         <script>
@@ -84,26 +84,13 @@
         appAsm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "";
 
-        var mDt = Regex.Match(infoVerRaw, @"\b(?<d>\d{8})\.(?<t>\d{4})\b");
-        var d = mDt.Success ? mDt.Groups["d"].Value : "";
-        var t = mDt.Success ? mDt.Groups["t"].Value : "";
-
-        var mhParen = Regex.Match(infoVerRaw, @"\((?<h>[0-9a-fA-F]{4,40})\)");
-        var hRaw = mhParen.Success ? mhParen.Groups["h"].Value : "";
-
-        if (string.IsNullOrWhiteSpace(hRaw))
-        {
-            var mhAny = Regex.Match(infoVerRaw, @"\b(?<h>[0-9a-fA-F]{7,40})\b");
-            hRaw = mhAny.Success ? mhAny.Groups["h"].Value : "";
-        }
-
-        var h7 = "";
-        if (!string.IsNullOrWhiteSpace(hRaw))
-            h7 = (hRaw.Length >= 7) ? hRaw.Substring(0, 7) : hRaw;
+        var mBuild = Regex.Match(infoVerRaw, @"\b(?<d>\d{8})\.(?<n>\d{4})\b");
+        var d = mBuild.Success ? mBuild.Groups["d"].Value : "";
+        var n4 = mBuild.Success ? mBuild.Groups["n"].Value : "";
 
         var footerBuildText =
-        (!string.IsNullOrWhiteSpace(d) && !string.IsNullOrWhiteSpace(t) && !string.IsNullOrWhiteSpace(h7))
-        ? $"{d}.{t} ({h7})"
+        (!string.IsNullOrWhiteSpace(d) && !string.IsNullOrWhiteSpace(n4))
+        ? $"{d}.{n4}"
         : "";
 
         var footerBuildSuffix = string.IsNullOrWhiteSpace(footerBuildText)

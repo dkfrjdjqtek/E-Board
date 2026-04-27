@@ -197,10 +197,6 @@ else
     #dxComposeWrap [id$="_Grid"],
     #dxComposeWrap #dxComposeSheet_ScrollContainer,
     #dxComposeWrap [id$="_ScrollContainer"] {
-        left: 0 !important;
-        top: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
         margin: 0 !important;
         border: 0 !important;
         outline: 0 !important;
@@ -253,16 +249,34 @@ else
     #dxComposeWrap [id$="_ColumnHeader"],
     #dxComposeWrap [id$="_RowHeader"],
     #dxComposeWrap [id$="_SSB"] {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
-        min-width: 0 !important;
-        min-height: 0 !important;
-        max-width: 0 !important;
-        max-height: 0 !important;
-        overflow: hidden !important;
-        border: 0 !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        border-color: transparent !important;
         background: transparent !important;
+        box-shadow: none !important;
+    }
+
+        /* 헤더 내부 텍스트/아이콘도 같이 숨김 */
+        #dxComposeWrap #dxComposeSheet_ColumnHeader *,
+        #dxComposeWrap #dxComposeSheet_RowHeader *,
+        #dxComposeWrap #dxComposeSheet_SSB *,
+        #dxComposeWrap [id$="_ColumnHeader"] *,
+        #dxComposeWrap [id$="_RowHeader"] *,
+        #dxComposeWrap [id$="_SSB"] * {
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
+    /* 선택 오프셋 확인용으로 wrap 기준점은 유지 */
+    #dxComposeWrap {
+        position: relative !important;
+        display: block !important;
+        overflow: hidden !important;
+        background: transparent !important;
+        border: 0 !important;
+        outline: 0 !important;
         box-shadow: none !important;
     }
 

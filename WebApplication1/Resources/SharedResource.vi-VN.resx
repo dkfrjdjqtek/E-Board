@@ -1284,4 +1284,13 @@
   <data name="PUSH_CooperationPending" xml:space="preserve">
     <value>Chờ phối hợp {0}</value>
   </data>
+  <data name="DOC_Filter_ApprovalView_Rejected" xml:space="preserve">
+    <value>từ chối</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Vetoed" xml:space="preserve">
+    <value>Đã bác bỏ</value>
+  </data>
+  <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
+    <value>Đã thu hồi</value>
+  </data>
 </root>

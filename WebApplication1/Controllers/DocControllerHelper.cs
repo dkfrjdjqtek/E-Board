@@ -622,7 +622,7 @@ WHERE LTRIM(RTRIM(u.Email)) = @e OR u.NormalizedEmail = UPPER(@e);", conn);
             if (conn.State != ConnectionState.Open)
                 await conn.OpenAsync();
 
-            // ✅ 사용자가 원하는 PUSH_* 우선, 기존 LOGIN_* 키는 fallback
+            //  사용자가 원하는 PUSH_* 우선, 기존 LOGIN_* 키는 fallback
             var titleText = (S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
             var bodyTpl = (S?["PUSH_ApprovalPending"] ?? "PUSH_ApprovalPending").ToString(); // 예: "결재 대기 {0}건"
 
@@ -643,7 +643,7 @@ WHERE LTRIM(RTRIM(u.Email)) = @e OR u.NormalizedEmail = UPPER(@e);", conn);
             }
         }
 
-        // ✅ BoardBadges(sqlApprovalPending)와 동일 기준으로 집계 (PendingHold 포함, Pending% 포함)
+        //  BoardBadges(sqlApprovalPending)와 동일 기준으로 집계 (PendingHold 포함, Pending% 포함)
         private static async Task<int> GetApprovalPendingCountAsync(SqlConnection conn, string targetUserId)
         {
             await using var cmd = conn.CreateCommand();
@@ -662,7 +662,7 @@ WHERE a.UserId = @UserId
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
 
-        // ✅ conn을 외부에서 재사용하는 구조이므로, 여기서 무조건 OpenAsync 하지 않도록 수정
+        //  conn을 외부에서 재사용하는 구조이므로, 여기서 무조건 OpenAsync 하지 않도록 수정
         public static async Task<string> GetA1ApproverUserIdByDocAsync(SqlConnection conn, string xDocId)
         {
             if (conn == null) throw new ArgumentNullException(nameof(conn));
@@ -700,10 +700,10 @@ ORDER BY a.Id;";
 
             if (ids.Count == 0) return;
 
-            // ✅ 사용자가 원하는 PUSH_* 우선, 기존 LOGIN_* 키는 fallback
+            //  사용자가 원하는 PUSH_* 우선, 기존 LOGIN_* 키는 fallback
             var titleText = (S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
 
-            // ✅ 사용자가 변경한 PUSH__SharedUnread 우선 지원 (double underscore)
+            //  사용자가 변경한 PUSH__SharedUnread 우선 지원 (double underscore)
             var bodyTpl = (S?["PUSH_SharedUnread"] ?? "PUSH_SharedUnread").ToString();
 
             foreach (var uid in ids)
@@ -720,7 +720,7 @@ ORDER BY a.Id;";
             }
         }
 
-        // ✅ BoardBadges(sqlSharedUnread)와 동일 기준(IsRead=0)으로 집계
+        //  BoardBadges(sqlSharedUnread)와 동일 기준(IsRead=0)으로 집계
         private static async Task<int> GetSharedUnreadCountAsync(SqlConnection conn, string targetUserId)
         {
             await using var cmd = conn.CreateCommand();

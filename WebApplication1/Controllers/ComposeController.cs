@@ -1113,7 +1113,7 @@ VALUES (@DocId, @ActorId, @ChangeCode, @TargetUserId, NULL, @AfterJson, SYSUTCDA
             var authorDisplay = _helper.GetCurrentUserDisplayNameStrict();
             var fromAddress = _helper.ComposeAddress(fromEmail, authorDisplay);
 
-            // ✅ dto.DescriptorJson 프로퍼티가 없음 → 컴파일 에러 원인
+            //  dto.DescriptorJson 프로퍼티가 없음 → 컴파일 에러 원인
             // - 원래 의도는 "정규화된 descriptorJson"을 메일 로직에서 활용하려는 것이므로
             // - 현재 스켈레톤에서는 빈 값으로 두고, 수신자 fallback(DocumentApprovals 조회) 로직이 동작하도록 둔다
             var normalizedDesc = string.Empty;
@@ -1418,9 +1418,7 @@ ORDER BY Id;";
             {
                 var root = doc.RootElement;
                 if (root.TryGetProperty("inputs", out _)) return json!;
-                
-                var hasCoops = root.TryGetProperty("Cooperations", out var coopCheck);
-                // Fields → inputs (기존 동일)
+
                 List<(string key, string type, string a1)> inputs = new();
                 if (root.TryGetProperty("Fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Array)
                 {
@@ -1428,15 +1426,16 @@ ORDER BY Id;";
                     {
                         var key = f.TryGetProperty("Key", out var k) ? (k.GetString() ?? "").Trim() : "";
                         if (string.IsNullOrEmpty(key)) continue;
+
                         var type = f.TryGetProperty("Type", out var t) ? (t.GetString() ?? "Text") : "Text";
                         string a1 = "";
                         if (f.TryGetProperty("Cell", out var cell) && cell.ValueKind == JsonValueKind.Object)
                             a1 = cell.TryGetProperty("A1", out var a) ? (a.GetString() ?? "") : "";
+
                         inputs.Add((key, MapType(type), a1));
                     }
                 }
 
-                // Approvals → approvals (기존 동일)
                 var approvals = new List<object>();
                 if (root.TryGetProperty("Approvals", out var apprEl) && apprEl.ValueKind == JsonValueKind.Array)
                 {
@@ -1445,29 +1444,23 @@ ORDER BY Id;";
                     {
                         var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
                         var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
-                        string? cellA1 = null;
-                        if (a.TryGetProperty("Cell", out var cellEl) && cellEl.ValueKind == JsonValueKind.Object)
-                            cellEl.TryGetProperty("A1", out var a1El);  // ← 기존엔 이게 없었음
 
-                        // ✅ Cell.A1 보존
+                        string? cellA1 = null;
                         if (a.TryGetProperty("Cell", out var cEl) && cEl.ValueKind == JsonValueKind.Object)
                             if (cEl.TryGetProperty("A1", out var a1El2)) cellA1 = a1El2.GetString();
 
-                        var roleKey = $"A{index + 1}";
-                        var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
                         approvals.Add(new
                         {
-                            roleKey,
-                            approverType = mappedType,
+                            roleKey = $"A{index + 1}",
+                            approverType = MapApproverType(typ),
                             required = false,
                             value = val ?? string.Empty,
-                            cellA1 = cellA1 ?? string.Empty  // ✅ 추가
+                            cellA1 = cellA1 ?? string.Empty
                         });
                         index++;
                     }
                 }
 
-                // ✅ Cooperations → cooperations 신규 추가
                 var cooperations = new List<object>();
                 if (root.TryGetProperty("Cooperations", out var coopEl) && coopEl.ValueKind == JsonValueKind.Array)
                 {
@@ -1476,7 +1469,6 @@ ORDER BY Id;";
                     {
                         var typ = a.TryGetProperty("ApproverType", out var at) ? (at.GetString() ?? "Person") : "Person";
                         var val = a.TryGetProperty("ApproverValue", out var av) ? av.GetString() : null;
-                        var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule") ? typ : "Person";
 
                         string? cellA1 = null;
                         if (a.TryGetProperty("Cell", out var cEl) && cEl.ValueKind == JsonValueKind.Object)
@@ -1485,10 +1477,10 @@ ORDER BY Id;";
                         cooperations.Add(new
                         {
                             roleKey = $"C{index + 1}",
-                            approverType = mappedType,
+                            approverType = MapApproverType(typ),
                             lineType = "Cooperation",
                             value = val ?? string.Empty,
-                            cellA1 = cellA1 ?? string.Empty  // ✅ 핵심
+                            cellA1 = cellA1 ?? string.Empty
                         });
                         index++;
                     }
@@ -1498,13 +1490,19 @@ ORDER BY Id;";
                 {
                     inputs = inputs.Select(x => new { key = x.key, type = x.type, required = false, a1 = x.a1 }).ToList(),
                     approvals,
-                    cooperations,  // ✅ 추가
+                    cooperations,
                     version = "converted"
                 };
                 return JsonSerializer.Serialize(obj);
             }
-            catch { return EMPTY; }
-            finally { doc.Dispose(); }
+            catch
+            {
+                return EMPTY;
+            }
+            finally
+            {
+                doc.Dispose();
+            }
 
             static string MapType(string t)
             {
@@ -1586,7 +1584,7 @@ ORDER BY Id;";
                     var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule")
                         ? typ : "Person";
 
-                    // ✅ Cell.A1 보존
+                    //  Cell.A1 보존
                     string? cellA1 = null;
                     if (a.TryGetProperty("Cell", out var cellEl)
                         && cellEl.ValueKind == JsonValueKind.Object)
@@ -1607,7 +1605,7 @@ ORDER BY Id;";
                         approverType = mappedType,
                         lineType = "Cooperation",
                         value = val ?? string.Empty,
-                        cellA1 = cellA1 ?? string.Empty  // ✅ 핵심
+                        cellA1 = cellA1 ?? string.Empty  //  핵심
                     });
 
                     index++;
@@ -1747,7 +1745,7 @@ ORDER BY Id;";
                     var mappedType = (typ == "Person" || typ == "Role" || typ == "Rule")
                         ? typ : "Person";
 
-                    // ✅ Cell.A1 보존
+                    //  Cell.A1 보존
                     string? cellA1 = null;
                     if (a.TryGetProperty("Cell", out var cellEl)
                         && cellEl.ValueKind == JsonValueKind.Object)
@@ -1764,7 +1762,7 @@ ORDER BY Id;";
                         approverType = mappedType,
                         required = false,
                         value = val ?? string.Empty,
-                        cellA1 = cellA1 ?? string.Empty  // ✅ 추가
+                        cellA1 = cellA1 ?? string.Empty  //  추가
                     });
 
                     index++;
@@ -2955,7 +2953,7 @@ ORDER BY StepOrder;";
             [JsonPropertyName("approvals")]
             public List<object>? Approvals { get; set; }
 
-            [JsonPropertyName("cooperations")]  // ✅ 추가
+            [JsonPropertyName("cooperations")]  //  추가
             public List<object>? Cooperations { get; set; }
 
             [JsonPropertyName("flowGroups")]

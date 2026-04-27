@@ -20,6 +20,14 @@
             OnHold = S["DOC_Status_OnHold"].Value,
             Recalled = S["DOC_Status_Recalled"].Value
         },
+        DOT_LABELS = new
+        {
+            ApprovedDone = S["DOC_Filter_ApprovalView_Approved"].Value,
+            RejectedDone = S["DOC_Filter_ApprovalView_Rejected"].Value,
+            VetoedDone = S["DOC_Filter_ApprovalView_Vetoed"].Value,
+            RecalledDone = S["DOC_Filter_ApprovalView_Recalled"].Value,
+            Pending = S["DOC_Filter_ApprovalView_Pending"].Value
+        },
         READ_LABEL = S["DOC_Result_Viewed"].Value,
         UNREAD_LABEL = S["DOC_Result_Unviewed"].Value,
         LIST_LOADING = S["DOC_List_Loading"].Value,

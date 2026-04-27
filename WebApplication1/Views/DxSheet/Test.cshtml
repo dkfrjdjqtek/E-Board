@@ -1,1 +1,483 @@
-﻿ㄷ
+﻿﻿@* 2026.02.27 Changed: DX Spreadsheet 초기 렌더를 방해하지 않도록 렌더 완료 후에만 포커스 및 클릭 이동을 차단하고 Grid에 pointer-events none을 적용하여 완전 뷰어 동작을 보장 *@
+@using System.IO
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Hosting
+@inject IWebHostEnvironment Env
+
+@{
+    ViewData["Title"] = "DX Spreadsheet Test";
+    ViewData["DisableDxAll"] = true;
+
+    var workDir = Env.ContentRootPath;
+
+    var openName = (ViewBag.OpenName as string) ?? "sample.xlsx";
+    openName = System.IO.Path.GetFileName(openName);
+
+    var openRel = (ViewBag.OpenRel as string);
+    if (string.IsNullOrWhiteSpace(openRel))
+    {
+        openRel = System.IO.Path.Combine("App_Data", openName);
+    }
+
+    var lastRow = (ViewBag.LastRow is int) ? (int)ViewBag.LastRow : 0;
+    var lastCol = (ViewBag.LastCol is int) ? (int)ViewBag.LastCol : 0;
+    var lastA1 = (ViewBag.LastA1 as string) ?? "A1";
+
+    var targetHeightPx = (ViewBag.TargetHeightPx is int) ? (int)ViewBag.TargetHeightPx : 900;
+    var targetWidthPx = (ViewBag.TargetWidthPx is int) ? (int)ViewBag.TargetWidthPx : 900;
+    var targetA1 = (ViewBag.TargetA1 as string) ?? "";
+    var targetRow1 = (ViewBag.TargetRow1 is int) ? (int)ViewBag.TargetRow1 : 0;
+    var targetCol1 = (ViewBag.TargetCol1 is int) ? (int)ViewBag.TargetCol1 : 0;
+
+    var __padH = Math.Max(24, Math.Min(72, (int)Math.Ceiling(targetHeightPx * 0.02)));
+    var __padW = Math.Max(24, Math.Min(72, (int)Math.Ceiling(targetWidthPx * 0.02)));
+
+    var targetHeightSafePx = targetHeightPx + __padH;
+    var targetWidthSafePx = targetWidthPx + __padW;
+
+    var dbgExists = (ViewBag.DebugExists is bool) ? (bool)ViewBag.DebugExists : false;
+    var dbgSheetCount = (ViewBag.DebugSheetCount is int) ? (int)ViewBag.DebugSheetCount : 0;
+    var dbgSheetName = (ViewBag.DebugSheetName as string) ?? "";
+    var dbgUsedMode = (ViewBag.DebugUsedMode as string) ?? "";
+    var dbgErr = (ViewBag.DebugErr as string) ?? "";
+
+    var dxCbUrl = "/DxSheet/DxSpreadsheetRequest";
+}
+
+@section DxHead {
+    <script>
+        (function () {
+            try {
+                window.DevExpress = window.DevExpress || {};
+                window.DevExpress.trial = window.DevExpress.trial || {};
+                if (typeof window.DevExpress.trial.registerTrialPanelComponents !== 'function') {
+                    window.DevExpress.trial.registerTrialPanelComponents = function () { };
+                }
+            } catch (e) { }
+        })();
+    </script>
+
+    <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
+    <link rel="stylesheet" href="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.css" asp-append-version="true" />
+    <script src="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.js" asp-append-version="true"></script>
+
+    <style>
+        html, body {
+            height: 100% !important;
+            overflow: hidden !important;
+            overscroll-behavior: none !important;
+        }
+
+        #dxPage {
+            position: fixed !important;
+            top: var(--header-h,56px) !important;
+            right: 0 !important;
+            bottom: var(--footer-h,32px) !important;
+            left: var(--sidebar-w,270px) !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+            background: transparent !important;
+        }
+
+        #dxTopBar {
+            flex: 0 0 auto !important;
+            padding: 8px 12px !important;
+            display: flex !important;
+            gap: 10px !important;
+            align-items: center !important;
+            overflow: hidden !important;
+        }
+
+        #dxBodyScroll {
+            flex: 1 1 auto !important;
+            min-height: 0 !important;
+            overflow: auto !important;
+            overscroll-behavior: contain !important;
+            padding: 0 12px 12px 12px !important;
+        }
+
+        #dxSpreadsheetWrap {
+            position: relative !important;
+            display: block !important;
+            overflow: hidden !important;
+            background: transparent !important;
+            border: 0 !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+        }
+
+        #dxSpreadsheet {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #dxSpreadsheetWrap .dx-widget,
+        #dxSpreadsheetWrap .dx-widget > .dx-template-wrapper,
+        #dxSpreadsheetWrap .dxssControlSys {
+            height: 100% !important;
+            min-height: 100% !important;
+            max-height: 100% !important;
+        }
+
+        #dxSpreadsheetWrap #dxSpreadsheet_WBC,
+        #dxSpreadsheetWrap [id$="_WBC"],
+        #dxSpreadsheetWrap .dxss-md,
+        #dxSpreadsheetWrap .dxssControlSys,
+        #dxSpreadsheetWrap #dxSpreadsheet,
+        #dxSpreadsheetWrap .dx-widget,
+        #dxSpreadsheetWrap .dx-template-wrapper {
+            border: 0 !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
+        }
+
+        #dxSpreadsheetWrap #dxSpreadsheet_Grid,
+        #dxSpreadsheetWrap [id$="_Grid"],
+        #dxSpreadsheetWrap #dxSpreadsheet_ScrollContainer,
+        #dxSpreadsheetWrap [id$="_ScrollContainer"] {
+            left: 0 !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
+        }
+
+        #dxSpreadsheetWrap .dxss-page,
+        #dxSpreadsheetWrap .dxss-page-border,
+        #dxSpreadsheetWrap .dxss-print-area {
+            outline: 0 !important;
+            box-shadow: none !important;
+            border: 0 !important;
+        }
+
+        #dxSpreadsheetWrap .dx-ribbon,
+        #dxSpreadsheetWrap .dx-ribbon-container,
+        #dxSpreadsheetWrap .dx-ribbonPanel,
+        #dxSpreadsheetWrap .dxss-ribbon,
+        #dxSpreadsheetWrap .dxss-toolbar,
+        #dxSpreadsheetWrap .dxss-formula-bar,
+        #dxSpreadsheetWrap .dxss-name-box,
+        #dxSpreadsheetWrap [class*="dxss-ribbon"],
+        #dxSpreadsheetWrap [class*="dxss-toolbar"],
+        #dxSpreadsheetWrap [class*="dxss-formula"],
+        #dxSpreadsheetWrap [class*="dxss-name"] {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
+        }
+
+        #dxSpreadsheetWrap .dx-tabpanel-tabs {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
+        }
+
+        #dxSpreadsheetWrap ul.dxss-tab-container,
+        #dxSpreadsheetWrap .dxss-tab-container,
+        #dxSpreadsheetWrap [class*="dxss-tab-container"],
+        #dxSpreadsheetWrap [class*="dxss-tabs"] {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
+        }
+
+        #dxSpreadsheetWrap #dxSpreadsheet_ColumnHeader,
+        #dxSpreadsheetWrap #dxSpreadsheet_RowHeader,
+        #dxSpreadsheetWrap #dxSpreadsheet_SSB,
+        #dxSpreadsheetWrap [id$="_ColumnHeader"],
+        #dxSpreadsheetWrap [id$="_RowHeader"],
+        #dxSpreadsheetWrap [id$="_SSB"] {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            max-width: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
+            border: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        #dxSpreadsheetWrap #dxSpreadsheet_ScrollContainer,
+        #dxSpreadsheetWrap #dxSpreadsheet_Grid,
+        #dxSpreadsheetWrap [id$="_ScrollContainer"],
+        #dxSpreadsheetWrap [id$="_Grid"] {
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+        }
+
+            #dxSpreadsheetWrap #dxSpreadsheet_ScrollContainer::-webkit-scrollbar,
+            #dxSpreadsheetWrap #dxSpreadsheet_Grid::-webkit-scrollbar,
+            #dxSpreadsheetWrap [id$="_ScrollContainer"]::-webkit-scrollbar,
+            #dxSpreadsheetWrap [id$="_Grid"]::-webkit-scrollbar {
+                width: 0 !important;
+                height: 0 !important;
+            }
+
+        #dxSpreadsheetWrap #dxSpreadsheet_ScrollContainer,
+        #dxSpreadsheetWrap [id$="_ScrollContainer"] {
+            overflow: hidden !important;
+        }
+
+        /* 선택 오버레이만 투명 처리 */
+        #dxSpreadsheetWrap .dxss-case,
+        #dxSpreadsheetWrap .dxss-trbe,
+        #dxSpreadsheetWrap .dxss-brbe,
+        #dxSpreadsheetWrap .dxss-lrbe,
+        #dxSpreadsheetWrap .dxss-rrbe,
+        #dxSpreadsheetWrap .dxss-srbe {
+            opacity: 0 !important;
+            background: transparent !important;
+            border-color: transparent !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+            pointer-events: none !important;
+        }
+
+        #dxSpreadsheetWrap *, #dxSpreadsheetWrap *:focus {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+    </style>
+}
+
+<div id="dxPage">
+    <div id="dxTopBar">
+        <div style="font-weight:600;">DX Spreadsheet Test</div>
+        <div style="opacity:.7;">@openName</div>
+
+        <div style="margin-left:auto; font-size:12px; opacity:.85; display:flex; gap:10px; align-items:center;">
+            <div>LastCell: <b>@lastA1</b> (r0=@lastRow, c0=@lastCol)</div>
+            <div>Target: <b>@(string.IsNullOrWhiteSpace(targetA1) ? "-" : targetA1)</b> (r=@targetRow1,c=@targetCol1,h=@targetHeightPx,w=@targetWidthPx)</div>
+            <div>Pad: <b>@__padH</b>/<b>@__padW</b> → Safe: <b>@targetHeightSafePx</b>x<b>@targetWidthSafePx</b></div>
+            <div>Sheets: <b>@dbgSheetCount</b> <span style="opacity:.75;">@dbgSheetName</span></div>
+            <div>Mode: <b>@(string.IsNullOrWhiteSpace(dbgUsedMode) ? "-" : dbgUsedMode)</b></div>
+            <div>File: <b>@(dbgExists ? "OK" : "MISS")</b></div>
+            @if (!string.IsNullOrWhiteSpace(dbgErr))
+            {
+                <div style="color:#b91c1c;">Err: @dbgErr</div>
+            }
+        </div>
+    </div>
+
+    <div id="dxBodyScroll">
+        <div id="dxSpreadsheetWrap"
+             class="__report_view__"
+             style="height:@(targetHeightSafePx)px; min-height:@(targetHeightSafePx)px; width:@(targetWidthSafePx)px; min-width:@(targetWidthSafePx)px;">
+            @{
+                Html.DevExpress().Spreadsheet("dxSpreadsheet")
+                .Height("100%")
+                .Width("100%")
+                .WorkDirectory(workDir)
+                .DocumentRequestHandlerUrl(dxCbUrl)
+                .Open(openRel)
+                .ReadOnly(true)
+                .WriteTo(ViewContext.Writer, HtmlEncoder.Default);
+            }
+        </div>
+
+        <div style="height:16px;"></div>
+
+        <div style="border:1px solid #ddd; border-radius:8px; padding:12px; background:#fff;">
+            <div style="font-weight:600; margin-bottom:8px;">하단 영역 테스트</div>
+            <div style="opacity:.75;">첨부파일 로그 댓글 결재 UI가 이 위치에 이어서 배치되는 구조입니다.</div>
+            <div style="height:260px;"></div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            'use strict';
+
+            function $(sel, root) {
+                try { return (root || document).querySelector(sel); } catch { return null; }
+            }
+
+            function forceReadOnly() {
+                try {
+                    var inst = window.dxSpreadsheet;
+                    if (!inst) return false;
+
+                    if (typeof inst.setReadOnly === 'function') { inst.setReadOnly(true); return true; }
+                    if (typeof inst.option === 'function') { inst.option('readOnly', true); return true; }
+                    if ('readOnly' in inst) { inst.readOnly = true; return true; }
+                } catch (e) { }
+                return false;
+            }
+
+            function installOuterScrollOnly() {
+                var outer = document.getElementById('dxBodyScroll');
+                if (!outer) return;
+
+                var wrap = document.getElementById('dxSpreadsheetWrap');
+                if (!wrap) return;
+
+                var inner =
+                    document.getElementById('dxSpreadsheet_ScrollContainer')
+                    || document.getElementById('dxSpreadsheet_Grid')
+                    || $('[id$="_ScrollContainer"]', wrap)
+                    || $('[id$="_Grid"]', wrap);
+
+                if (!inner) return;
+
+                function lockInnerScroll() {
+                    if (inner.scrollTop !== 0) inner.scrollTop = 0;
+                    if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+                }
+
+                lockInnerScroll();
+
+                inner.addEventListener('scroll', function () {
+                    lockInnerScroll();
+                }, { passive: true });
+
+                function onWheelCapture(e) {
+                    var t = e.target;
+                    if (!t || !wrap.contains(t)) return;
+
+                    e.preventDefault();
+                    lockInnerScroll();
+
+                    var dy = (typeof e.deltaY === 'number') ? e.deltaY : 0;
+                    var dx = (typeof e.deltaX === 'number') ? e.deltaX : 0;
+
+                    if (dy) outer.scrollTop += dy;
+                    if (dx) outer.scrollLeft += dx;
+                }
+
+                if (!window.__DX_OUTER_WHEEL_INSTALLED__) {
+                    window.__DX_OUTER_WHEEL_INSTALLED__ = true;
+                    document.addEventListener('wheel', onWheelCapture, { capture: true, passive: false });
+                }
+
+                var lastTouchY = 0;
+                var lastTouchX = 0;
+
+                function onTouchStart(e) {
+                    if (!e.target || !wrap.contains(e.target)) return;
+                    var t = e.touches && e.touches[0];
+                    if (!t) return;
+                    lastTouchY = t.clientY;
+                    lastTouchX = t.clientX;
+                }
+
+                function onTouchMove(e) {
+                    if (!e.target || !wrap.contains(e.target)) return;
+                    var t = e.touches && e.touches[0];
+                    if (!t) return;
+
+                    e.preventDefault();
+                    lockInnerScroll();
+
+                    var dy = lastTouchY - t.clientY;
+                    var dx = lastTouchX - t.clientX;
+
+                    lastTouchY = t.clientY;
+                    lastTouchX = t.clientX;
+
+                    if (dy) outer.scrollTop += dy;
+                    if (dx) outer.scrollLeft += dx;
+                }
+
+                if (!window.__DX_OUTER_TOUCH_INSTALLED__) {
+                    window.__DX_OUTER_TOUCH_INSTALLED__ = true;
+                    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+                    document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+                }
+            }
+
+            // (D/C) 초기 렌더 후에만 "클릭/포커스/셀 이동"을 막는다
+            function lockViewerInteractionsAfterRender() {
+                var wrap = document.getElementById('dxSpreadsheetWrap');
+                if (!wrap) return false;
+
+                var grid =
+                    document.getElementById('dxSpreadsheet_Grid')
+                    || $('[id$="_Grid"]', wrap);
+
+                if (!grid) return false;
+
+                // 클릭/드래그로 셀 이동 자체를 막되, 초기 렌더에는 영향 없게 "지금 시점"에만 적용
+                try { grid.style.pointerEvents = 'none'; } catch (e) { }
+
+                // 혹시 DX가 내부 input으로 포커스를 잡아도 즉시 해제
+                if (!window.__DX_VIEWER_FOCUS_LOCK__) {
+                    window.__DX_VIEWER_FOCUS_LOCK__ = true;
+
+                    document.addEventListener('focusin', function (e) {
+                        var t = e.target;
+                        if (!t || !wrap.contains(t)) return;
+                        try { if (document.activeElement) document.activeElement.blur(); } catch { }
+                        e.stopPropagation();
+                    }, true);
+
+                    document.addEventListener('keydown', function (e) {
+                        var t = e.target;
+                        if (!t || !wrap.contains(t)) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, true);
+                }
+
+                return true;
+            }
+
+            window.addEventListener('load', function () {
+                // 1) 읽기 전용 강제 (짧게 재시도)
+                var triesRO = 0;
+                (function tickRO() {
+                    triesRO++;
+                    if (!forceReadOnly() && triesRO < 6) setTimeout(tickRO, 150);
+                })();
+
+                // 2) 외부 스크롤만 동작 (DX 렌더 타이밍 흡수)
+                var triesScroll = 0;
+                (function tickScroll() {
+                    triesScroll++;
+                    installOuterScrollOnly();
+
+                    var inner = document.getElementById('dxSpreadsheet_ScrollContainer')
+                        || document.getElementById('dxSpreadsheet_Grid');
+
+                    if (!inner && triesScroll < 3) {
+                        setTimeout(tickScroll, 200);
+                    }
+                })();
+
+                // 3) 렌더 완료 후 인터랙션 완전 차단(초기화 방해 금지)
+                var triesLock = 0;
+                (function tickLock() {
+                    triesLock++;
+                    if (!lockViewerInteractionsAfterRender() && triesLock < 20) {
+                        setTimeout(tickLock, 100);
+                    }
+                })();
+            });
+        })();
+    </script>
+}
