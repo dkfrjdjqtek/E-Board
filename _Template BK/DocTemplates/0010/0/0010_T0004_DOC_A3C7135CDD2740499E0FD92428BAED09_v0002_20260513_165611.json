@@ -1,0 +1,169 @@
+{
+  "docCode": "DOC_A3C7135CDD2740499E0FD92428BAED09",
+  "outTemplateId": 49,
+  "outVersionId": 10131,
+  "outVersionNo": 2,
+  "excelPath": "D:\\Development\\Web\\Client\\E-Board\\WebApplication1\\App_Data\\DocTemplates\\0010\\0\\0010_T0004_DOC_A3C7135CDD2740499E0FD92428BAED09_v0002_20260513_165611.xlsx",
+  "model": {
+    "CompCd": "0010",
+    "DepartmentId": 0,
+    "Kind": "T0004",
+    "DocName": "Common Report",
+    "Title": "Common Report",
+    "ApprovalCount": 1,
+    "Fields": [
+      {
+        "Key": "ET_11",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B11"
+        }
+      },
+      {
+        "Key": "ET_12",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B12"
+        }
+      },
+      {
+        "Key": "ET_13",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B13"
+        }
+      },
+      {
+        "Key": "ET_14",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B14"
+        }
+      },
+      {
+        "Key": "ET_15",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B15"
+        }
+      },
+      {
+        "Key": "RY_26",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B26"
+        }
+      },
+      {
+        "Key": "RY_27",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B27"
+        }
+      },
+      {
+        "Key": "RY_28",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B28"
+        }
+      },
+      {
+        "Key": "RY_29",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B29"
+        }
+      },
+      {
+        "Key": "RY_30",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B30"
+        }
+      }
+    ],
+    "Approvals": [
+      {
+        "Slot": 1,
+        "Part": "1",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "L11:L11"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "9a7ffeec-c2ca-48dd-aa88-d0a51ebdd0c9"
+      }
+    ],
+    "Cooperations": [
+      {
+        "Slot": 1,
+        "Part": "2",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "N11:N11"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "113a4248-036c-4b33-b767-42bb8f670dbc"
+      }
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "docCode": "DOC_C2DE053C39264113B632F1F0CF60BAA7",
+  "outTemplateId": 52,
+  "outVersionId": 10136,
+  "outVersionNo": 1,
+  "excelPath": "D:\\Development\\Web\\Client\\E-Board\\WebApplication1\\App_Data\\DocTemplates\\0001\\6\\0001_T0001_DOC_C2DE053C39264113B632F1F0CF60BAA7_v0001_20260519_134312.xlsx",
+  "model": {
+    "CompCd": "0001",
+    "DepartmentId": 6,
+    "Kind": "T0001",
+    "DocName": "Common Report",
+    "Title": "Common Report",
+    "ApprovalCount": 1,
+    "Fields": [
+      {
+        "Key": "A_11",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B11"
+        }
+      }
+    ],
+    "Approvals": [
+      {
+        "Slot": 1,
+        "Part": "B",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "J37:J40"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "7e209b69-71b8-4ad3-8ef1-94534dc12ce6"
+      }
+    ],
+    "Cooperations": [
+      {
+        "Slot": 1,
+        "Part": "C",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "L37:L40"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "7e209b69-71b8-4ad3-8ef1-94534dc12ce6"
+      }
+    ]
+  }
+}

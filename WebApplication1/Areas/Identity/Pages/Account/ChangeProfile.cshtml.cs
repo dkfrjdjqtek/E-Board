@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿// 2026.05.07 Changed: 일반 사용자 프로필 저장 시 사업장을 기존 프로필 사업장으로 고정하고 부서와 직급을 CompCd 기준으로 조회 및 검증
+using System.ComponentModel.DataAnnotations;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -48,8 +49,6 @@ namespace WebApplication1.Areas.Identity.Pages.Account
         // 2025.12.02 Added: 서명 이미지 미리보기 URL 바인딩용
         public string? SignatureImageUrl { get; set; }
 
-
-
         private static string Ui2() => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
         public ChangeProfileModel(
@@ -58,7 +57,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             ApplicationDbContext db,
             IEmailSender emailSender,
             IStringLocalizer<SharedResource> s,
-            IOptionsMonitor<DataProtectionTokenProviderOptions> tokenOpts, 
+            IOptionsMonitor<DataProtectionTokenProviderOptions> tokenOpts,
             IWebHostEnvironment env) // 2025.12.02 Added: 서명 저장용 환경 주입)
         {
             _userManager = userManager;
@@ -137,8 +136,6 @@ namespace WebApplication1.Areas.Identity.Pages.Account
 
         private async Task LoadParentFormAsync(ApplicationUser user)
         {
-            await LoadOptionsAsync(); // 드롭다운 유지
-
             var profile = await _db.UserProfiles
                 .AsNoTracking()
                 .SingleOrDefaultAsync(p => p.UserId == user.Id);
@@ -151,8 +148,11 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 DisplayName = profile?.DisplayName,
                 DepartmentId = profile?.DepartmentId,
                 PositionId = profile?.PositionId,
-                CompCd = profile?.CompCd
+                CompCd = (profile?.CompCd ?? string.Empty).Trim().ToUpperInvariant()
             };
+
+            await LoadOptionsAsync(); // 2026.05.07 Changed: CompCd 세팅 후 드롭다운 로드
+
             // 2025.12.02 Added: 사용자 서명 이미지 미리보기 경로 설정
             if (!string.IsNullOrEmpty(profile?.SignatureRelativePath))
             {
@@ -169,8 +169,6 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             var user = await _userManager.GetUserAsync(User);
             if (user is null) return RedirectToPage("/Account/Login");
 
-            await LoadOptionsAsync();
-
             var profile = await _db.UserProfiles.AsNoTracking()
                 .SingleOrDefaultAsync(p => p.UserId == user.Id);
 
@@ -182,8 +180,10 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 DisplayName = profile?.DisplayName,
                 DepartmentId = profile?.DepartmentId,
                 PositionId = profile?.PositionId,
-                CompCd = profile?.CompCd
+                CompCd = (profile?.CompCd ?? string.Empty).Trim().ToUpperInvariant()
             };
+
+            await LoadOptionsAsync(); // 2026.05.07 Changed: CompCd 세팅 후 드롭다운 로드
 
             // 2025.12.02 Added: 첫 진입 시 서명 이미지 미리보기 경로 설정
             if (!string.IsNullOrEmpty(profile?.SignatureRelativePath))
@@ -214,12 +214,30 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             var user = await _userManager.GetUserAsync(User);
             if (user is null) return RedirectToPage("/Account/Login");
 
-            await LoadOptionsAsync();
-
-            // 2025.12.02 Added: 기존 서명 경로 로드하여 오류 시에도 미리보기 유지
+            // 2026.05.07 Changed: 일반 사용자 프로필 저장 시 사업장은 기존 프로필 사업장으로 고정
             var existingProfile = await _db.UserProfiles
                 .AsNoTracking()
                 .SingleOrDefaultAsync(p => p.UserId == user.Id);
+
+            var fixedCompCd = (existingProfile?.CompCd ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (string.IsNullOrWhiteSpace(fixedCompCd))
+            {
+                Input.CompCd = fixedCompCd;
+                AddErrorOnce($"{nameof(Input)}.{nameof(Input.CompCd)}", _S["_Alert_Require_ValidSite"].Value);
+                await LoadOptionsAsync();
+                EmailChange = new EmailChangeInput();
+                return Page();
+            }
+
+            Input.CompCd = fixedCompCd;
+            ModelState.Remove($"{nameof(Input)}.{nameof(Input.CompCd)}");
+
+            await LoadOptionsAsync();
+
+            await ValidateMasterSelectionAsync(); // 2026.05.07 Added: 사업장 소속 부서 직급 검증
+
+            // 2025.12.02 Added: 기존 서명 경로 로드하여 오류 시에도 미리보기 유지
             if (!string.IsNullOrEmpty(existingProfile?.SignatureRelativePath))
             {
                 SignatureImageUrl = SignatureRequestBasePath + "/" + existingProfile.SignatureRelativePath;
@@ -292,13 +310,13 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 profile = new UserProfile
                 {
                     UserId = user.Id,
-                    CompCd = Input.CompCd!.Trim().ToUpperInvariant()
+                    CompCd = fixedCompCd
                 };
                 _db.UserProfiles.Add(profile);
             }
             else
             {
-                profile.CompCd = Input.CompCd!.Trim().ToUpperInvariant();
+                profile.CompCd = fixedCompCd;
             }
 
             profile.DisplayName = Input.DisplayName?.Trim();
@@ -308,7 +326,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             // 2025.12.10 Changed: 서명 이미지 파일을 ContentRoot\App_Data\Signatures 아래에 저장
             if (Input.SignatureFile != null && Input.SignatureFile.Length > 0)
             {
-                var compCd = (profile.CompCd ?? Input.CompCd ?? string.Empty).Trim().ToUpperInvariant();
+                var compCd = (profile.CompCd ?? fixedCompCd).Trim().ToUpperInvariant();
                 if (!string.IsNullOrEmpty(compCd))
                 {
                     // ★ 변경: WebRootPath → ContentRootPath + App_Data/Signatures
@@ -467,7 +485,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 ViewData["OpenEmailModal"] = true;
                 return Page();
             }
-            
+
             // 4) 새 이메일이 이미 사용 중인지 확인 (추가)
             var trimmedNew = (emailChange.NewEmail ?? string.Empty).Trim();
 
@@ -495,7 +513,7 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 .Where(p => p.UserId == user.Id)
                 .Select(p => p.DisplayName)
                 .FirstOrDefaultAsync()) ?? user.UserName ?? "User";
-            
+
             var providerName = _userManager.Options.Tokens.ChangeEmailTokenProvider;
             // 이름별 옵션을 조회하되, 실패 시 CurrentValue로 폴백
             var lifeSpan = _tokenOpts.CurrentValue.TokenLifespan;   // ← 이 한 줄만 사용
@@ -514,44 +532,56 @@ namespace WebApplication1.Areas.Identity.Pages.Account
             return RedirectToPage();
         }
 
-        private async Task LoadOptionsAsync()
+        public async Task<IActionResult> OnGetDepartmentsAsync(string compCd)
         {
             var lang = Ui2();
+            compCd = (compCd ?? string.Empty).Trim().ToUpperInvariant();
 
-            var comps = await _db.CompMasters
-                .Where(c => c.IsActive)
-                .OrderBy(c => c.CompCd)
-                .Select(c => new { Value = c.CompCd, Text = c.Name })
-                .AsNoTracking()
-                .ToListAsync();
-            CompOptions = new SelectList(comps, "Value", "Text", Input?.CompCd);
+            if (string.IsNullOrWhiteSpace(compCd))
+                return new JsonResult(Array.Empty<object>());
 
-            var deps = await _db.DepartmentMasters
-                .Where(d => d.IsActive)
+            var rows = await _db.DepartmentMasters
+                .Where(d => d.IsActive && d.CompCd == compCd)
                 .Select(d => new
                 {
                     d.Id,
                     d.SortOrder,
                     Fallback = d.Name,
                     LocName = _db.DepartmentMasterLoc
-                                .Where(l => l.DepartmentId == d.Id && l.LangCode == lang)
-                                .Select(l => l.Name)
-                                .FirstOrDefault()
+                        .Where(l => l.DepartmentId == d.Id && l.LangCode == lang)
+                        .Select(l => l.Name)
+                        .FirstOrDefault()
                 })
                 .AsNoTracking()
                 .ToListAsync();
 
-            var depItems = deps
-                .Select(d => new { Value = d.Id, Text = string.IsNullOrWhiteSpace(d.LocName) ? d.Fallback : d.LocName, d.SortOrder })
+            var items = rows
+                .Select(d => new
+                {
+                    value = d.Id.ToString(),
+                    text = string.IsNullOrWhiteSpace(d.LocName) ? d.Fallback : d.LocName,
+                    d.SortOrder
+                })
                 .OrderBy(x => x.SortOrder)
+                .ThenBy(x => x.text)
                 .ToList();
-            DepartmentOptions = new SelectList(depItems, "Value", "Text", Input?.DepartmentId);
 
-            var posRows = await (
+            return new JsonResult(items);
+        }
+
+        public async Task<IActionResult> OnGetPositionsAsync(string compCd)
+        {
+            var lang = Ui2();
+            compCd = (compCd ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (string.IsNullOrWhiteSpace(compCd))
+                return new JsonResult(Array.Empty<object>());
+
+            var rows = await (
                 from p in _db.PositionMasters
-                where p.IsActive
+                where p.IsActive && p.CompCd == compCd
                 join l in _db.PositionMasterLoc.Where(x => x.LangCode == lang)
-                     on p.Id equals l.PositionId into gj
+                    on p.Id equals l.PositionId into gj
                 from l in gj.DefaultIfEmpty()
                 orderby p.RankLevel, p.Id
                 select new
@@ -564,18 +594,160 @@ namespace WebApplication1.Areas.Identity.Pages.Account
                 }
             ).AsNoTracking().ToListAsync();
 
-            var posItems = posRows
+            var items = rows
                 .Select(p => new
                 {
-                    Value = p.Id,
-                    Text = !string.IsNullOrWhiteSpace(p.ShortName) ? p.ShortName
+                    value = p.Id.ToString(),
+                    text = !string.IsNullOrWhiteSpace(p.ShortName) ? p.ShortName
                          : !string.IsNullOrWhiteSpace(p.LocName) ? p.LocName
                          : p.Fallback,
                     p.RankLevel
                 })
                 .OrderBy(x => x.RankLevel)
+                .ThenBy(x => x.text)
                 .ToList();
-            PositionOptions = new SelectList(posItems, "Value", "Text", Input?.PositionId);
+
+            return new JsonResult(items);
+        }
+
+        private async Task LoadOptionsAsync()
+        {
+            var lang = Ui2();
+            var input = Input ?? new InputModel();
+
+            var compCd = (input.CompCd ?? string.Empty).Trim().ToUpperInvariant();
+            var selectedDepartmentId = input.DepartmentId;
+            var selectedPositionId = input.PositionId;
+
+            var comps = await _db.Set<CompMaster>()
+                .Where(c => c.IsActive)
+                .OrderBy(c => c.CompCd)
+                .Select(c => new { Value = c.CompCd, Text = c.Name })
+                .AsNoTracking()
+                .ToListAsync();
+
+            CompOptions = new SelectList(comps, "Value", "Text", compCd);
+
+            if (string.IsNullOrWhiteSpace(compCd))
+            {
+                DepartmentOptions = new SelectList(new List<SelectListItem>(), "Value", "Text", selectedDepartmentId?.ToString());
+                PositionOptions = new SelectList(new List<SelectListItem>(), "Value", "Text", selectedPositionId?.ToString());
+                return;
+            }
+
+            var deps = await _db.Set<DepartmentMaster>()
+                .Where(d => d.IsActive && d.CompCd == compCd)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.SortOrder,
+                    Fallback = d.Name,
+                    LocName = _db.Set<DepartmentMasterLoc>()
+                        .Where(l => l.DepartmentId == d.Id && l.LangCode == lang)
+                        .Select(l => l.Name)
+                        .FirstOrDefault()
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            var depItems = deps
+                .OrderBy(d => d.SortOrder)
+                .ThenBy(d => string.IsNullOrWhiteSpace(d.LocName) ? d.Fallback : d.LocName)
+                .Select(d => new SelectListItem
+                {
+                    Value = d.Id.ToString(),
+                    Text = string.IsNullOrWhiteSpace(d.LocName) ? d.Fallback : d.LocName,
+                    Selected = selectedDepartmentId is int deptId && d.Id == deptId
+                })
+                .ToList();
+
+            DepartmentOptions = new SelectList(depItems, "Value", "Text", selectedDepartmentId?.ToString());
+
+            var posRows = await (
+                from p in _db.Set<PositionMaster>()
+                where p.IsActive && p.CompCd == compCd
+                join l in _db.Set<PositionMasterLoc>().Where(x => x.LangCode == lang)
+                    on p.Id equals l.PositionId into gj
+                from l in gj.DefaultIfEmpty()
+                orderby p.RankLevel, p.Id
+                select new
+                {
+                    p.Id,
+                    p.RankLevel,
+                    Fallback = p.Name,
+                    LocName = l != null ? l.Name : null,
+                    ShortName = l != null ? l.ShortName : null
+                }
+            )
+            .AsNoTracking()
+            .ToListAsync();
+
+            var posItems = posRows
+                .OrderBy(p => p.RankLevel)
+                .ThenBy(p => !string.IsNullOrWhiteSpace(p.ShortName) ? p.ShortName
+                    : !string.IsNullOrWhiteSpace(p.LocName) ? p.LocName
+                    : p.Fallback)
+                .Select(p => new SelectListItem
+                {
+                    Value = p.Id.ToString(),
+                    Text = !string.IsNullOrWhiteSpace(p.ShortName) ? p.ShortName
+                         : !string.IsNullOrWhiteSpace(p.LocName) ? p.LocName
+                         : p.Fallback,
+                    Selected = selectedPositionId is int posId && p.Id == posId
+                })
+                .ToList();
+
+            PositionOptions = new SelectList(posItems, "Value", "Text", selectedPositionId?.ToString());
+        }
+
+        private async Task ValidateMasterSelectionAsync()
+        {
+            const string keyCompCd = "Input.CompCd";
+            const string keyDepartmentId = "Input.DepartmentId";
+            const string keyPositionId = "Input.PositionId";
+
+            var input = Input ?? new InputModel();
+
+            var compCd = (input.CompCd ?? string.Empty).Trim().ToUpperInvariant();
+            var departmentId = input.DepartmentId;
+            var positionId = input.PositionId;
+
+            var compExists = !string.IsNullOrWhiteSpace(compCd) &&
+                await _db.Set<CompMaster>()
+                    .AnyAsync(x => x.IsActive && x.CompCd == compCd);
+
+            if (!compExists)
+            {
+                AddErrorOnce(keyCompCd, _S["_Alert_Require_ValidSite"].Value);
+            }
+
+            if (departmentId is int deptId)
+            {
+                var departmentExists = await _db.Set<DepartmentMaster>()
+                    .AnyAsync(x =>
+                        x.IsActive &&
+                        x.Id == deptId &&
+                        x.CompCd == compCd);
+
+                if (!departmentExists)
+                {
+                    AddErrorOnce(keyDepartmentId, _S["_Alert_Require_ValidDepartment"].Value);
+                }
+            }
+
+            if (positionId is int posId)
+            {
+                var positionExists = await _db.Set<PositionMaster>()
+                    .AnyAsync(x =>
+                        x.IsActive &&
+                        x.Id == posId &&
+                        x.CompCd == compCd);
+
+                if (!positionExists)
+                {
+                    AddErrorOnce(keyPositionId, _S["_Alert_Require_ValidPosition"].Value);
+                }
+            }
         }
 
         private void AddErrorOnce(string key, string message)

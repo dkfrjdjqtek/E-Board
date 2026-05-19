@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+﻿
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +30,51 @@ namespace WebApplication1.Controllers
             _signInManager = signInManager;
             _emailSender = emailSender;
         }
+
+        [HttpGet]
+        public async Task<IActionResult> GetDepartments(string compCd)
+        {
+            compCd = (compCd ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(compCd))
+                return Json(Array.Empty<object>());
+
+            var items = await _db.DepartmentMasters
+                .AsNoTracking()
+                .Where(x => x.IsActive && x.CompCd == compCd)
+                .OrderBy(x => x.Name)
+                .Select(x => new
+                {
+                    value = x.Id.ToString(),
+                    text = x.Name
+                })
+                .ToListAsync();
+
+            return Json(items);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetPositions(string compCd)
+        {
+            compCd = (compCd ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(compCd))
+                return Json(Array.Empty<object>());
+
+            var items = await _db.PositionMasters
+                .AsNoTracking()
+                .Where(x => x.IsActive && x.CompCd == compCd)
+                .OrderBy(x => x.RankLevel)
+                .Select(x => new
+                {
+                    value = x.Id.ToString(),
+                    text = x.Name
+                })
+                .ToListAsync();
+
+            return Json(items);
+        }
+
         //
         [HttpGet]
         public async Task<IActionResult> Create()
@@ -54,6 +100,8 @@ namespace WebApplication1.Controllers
         public async Task<IActionResult> Create(AdminUserProfileVM vm)
         {
             vm.IsCreate = true;                        // 뷰로 되돌릴 때 모드 유지
+            vm.CompCd = (vm.CompCd ?? string.Empty).Trim();
+
             await BindMasters(vm);
 
             // --- 서버 검증 ---
@@ -77,12 +125,18 @@ namespace WebApplication1.Controllers
                 ModelState.AddModelError(nameof(vm.CompCd), "유효한 사업장을 선택하세요.");
 
             if (vm.DepartmentId.HasValue &&
-                !await _db.DepartmentMasters.AnyAsync(d => d.IsActive && d.Id == vm.DepartmentId.Value))
-                ModelState.AddModelError(nameof(vm.DepartmentId), "유효한 부서입니다.");
+                !await _db.DepartmentMasters.AnyAsync(d =>
+                    d.IsActive &&
+                    d.Id == vm.DepartmentId.Value &&
+                    d.CompCd == vm.CompCd))
+                ModelState.AddModelError(nameof(vm.DepartmentId), "유효하지 않은 부서입니다.");
 
             if (vm.PositionId.HasValue &&
-                !await _db.PositionMasters.AnyAsync(p => p.IsActive && p.Id == vm.PositionId.Value))
-                ModelState.AddModelError(nameof(vm.PositionId), "유효한 직급입니다.");
+                !await _db.PositionMasters.AnyAsync(p =>
+                    p.IsActive &&
+                    p.Id == vm.PositionId.Value &&
+                    p.CompCd == vm.CompCd))
+                ModelState.AddModelError(nameof(vm.PositionId), "유효하지 않은 직급입니다.");
 
             if (!ModelState.IsValid)
             {
@@ -149,6 +203,7 @@ namespace WebApplication1.Controllers
             TempData["StatusMessage"] = "사용자를 추가했습니다. 초기 비밀번호 설정 메일을 발송했습니다.";
             return RedirectToAction(nameof(Index), new { id = user.Id });   // 곧바로 편집화면으로 이동
         }
+
         //
         // GET: /AdminUserProfile?id={userId}&q={검색}
         public async Task<IActionResult> Index(string? id, string? q)
@@ -225,6 +280,8 @@ namespace WebApplication1.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
+            vm.CompCd = (vm.CompCd ?? string.Empty).Trim();
+
             var user = await _userManager.FindByIdAsync(vm.SelectedUserId);
             if (user == null)
             {
@@ -244,11 +301,17 @@ namespace WebApplication1.Controllers
                 ModelState.AddModelError(nameof(vm.CompCd), "유효하지 않은 지사 코드입니다.");
 
             if (vm.DepartmentId.HasValue &&
-                !await _db.DepartmentMasters.AnyAsync(x => x.IsActive && x.Id == vm.DepartmentId.Value))
+                !await _db.DepartmentMasters.AnyAsync(x =>
+                    x.IsActive &&
+                    x.Id == vm.DepartmentId.Value &&
+                    x.CompCd == vm.CompCd))
                 ModelState.AddModelError(nameof(vm.DepartmentId), "유효하지 않은 부서입니다.");
 
             if (vm.PositionId.HasValue &&
-                !await _db.PositionMasters.AnyAsync(x => x.IsActive && x.Id == vm.PositionId.Value))
+                !await _db.PositionMasters.AnyAsync(x =>
+                    x.IsActive &&
+                    x.Id == vm.PositionId.Value &&
+                    x.CompCd == vm.CompCd))
                 ModelState.AddModelError(nameof(vm.PositionId), "유효하지 않은 직급입니다.");
 
             if (!ModelState.IsValid)
@@ -430,25 +493,33 @@ namespace WebApplication1.Controllers
                 })
                 .ToListAsync();
 
-            vm.DeptList = await _db.DepartmentMasters
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.Name)
-                .Select(x => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
-                {
-                    Value = x.Id.ToString(),
-                    Text = x.Name
-                })
-                .ToListAsync();
+            var compCd = (vm.CompCd ?? string.Empty).Trim();
 
-            vm.PosList = await _db.PositionMasters
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.RankLevel)
-                .Select(x => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
-                {
-                    Value = x.Id.ToString(),
-                    Text = x.Name
-                })
-                .ToListAsync();
+            vm.DeptList = string.IsNullOrWhiteSpace(compCd)
+                ? new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>()
+                : await _db.DepartmentMasters
+                    .Where(x => x.IsActive && x.CompCd == compCd)
+                    .OrderBy(x => x.Name)
+                    .Select(x => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
+                    {
+                        Value = x.Id.ToString(),
+                        Text = x.Name,
+                        Selected = vm.DepartmentId.HasValue && x.Id == vm.DepartmentId.Value
+                    })
+                    .ToListAsync();
+
+            vm.PosList = string.IsNullOrWhiteSpace(compCd)
+                ? new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>()
+                : await _db.PositionMasters
+                    .Where(x => x.IsActive && x.CompCd == compCd)
+                    .OrderBy(x => x.RankLevel)
+                    .Select(x => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
+                    {
+                        Value = x.Id.ToString(),
+                        Text = x.Name,
+                        Selected = vm.PositionId.HasValue && x.Id == vm.PositionId.Value
+                    })
+                    .ToListAsync();
         }
     }
 }

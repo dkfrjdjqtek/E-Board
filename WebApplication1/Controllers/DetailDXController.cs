@@ -2136,14 +2136,46 @@ WHERE DocId = @DocId
                         if (!string.IsNullOrWhiteSpace(authorId)
                             && !string.Equals(authorId, approverId2, StringComparison.OrdinalIgnoreCase))
                         {
+                            static string CombinePublicUrl(string baseUrl, string relativeUrl)
+                            {
+                                baseUrl = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
+                                relativeUrl = (relativeUrl ?? string.Empty).Trim();
+
+                                if (string.IsNullOrWhiteSpace(baseUrl))
+                                    baseUrl = "https://eboard.hyind.co.kr";
+
+                                if (string.IsNullOrWhiteSpace(relativeUrl))
+                                    relativeUrl = "/";
+
+                                if (!relativeUrl.StartsWith("/", StringComparison.Ordinal))
+                                    relativeUrl = "/" + relativeUrl;
+
+                                return baseUrl + relativeUrl;
+                            }
+
+                            var publicBaseUrl =
+                                (_cfg["App:PublicBaseUrl"]
+                                 ?? _cfg["PublicBaseUrl"]
+                                 ?? _cfg["WebPush:PublicBaseUrl"]
+                                 ?? "https://eboard.hyind.co.kr").Trim();
+
+                            var detailUrl = CombinePublicUrl(
+                                publicBaseUrl,
+                                "/Doc/DetailDX?id=" + Uri.EscapeDataString(dto.docId!));
+
                             var titleText = (_S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
                             var bodyText = actionLower == "hold"
                                 ? (_S?["PUSH_ApprovalHold"] ?? "PUSH_ApprovalHold").ToString()
                                 : (_S?["PUSH_ApprovalReject"] ?? "PUSH_ApprovalReject").ToString();
+
                             var tag = actionLower == "hold" ? "approval-author-hold" : "approval-author-reject";
+
                             await _webPushNotifier.SendToUserIdAsync(
-                                userId: authorId.Trim(), title: titleText, body: bodyText,
-                                url: "/Doc/DetailDX?id=" + Uri.EscapeDataString(dto.docId!), tag: tag);
+                                userId: authorId.Trim(),
+                                title: titleText,
+                                body: bodyText,
+                                url: detailUrl,
+                                tag: tag);
                         }
                     }
                     catch (Exception exPush)

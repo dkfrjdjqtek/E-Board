@@ -208,3 +208,73 @@
         </div>
     </div>
 }
+
+<script>
+    (() => {
+        const compSelect = document.getElementById('CompCd');
+        const deptSelect = document.getElementById('DepartmentId');
+        const posSelect = document.getElementById('PositionId');
+
+        if (!compSelect || !deptSelect || !posSelect) {
+            return;
+        }
+
+        const selectText = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(_S["_CM_Select"].Value));
+        const deptUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetDepartments", "AdminUserProfile")));
+        const posUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetPositions", "AdminUserProfile")));
+
+        const resetSelect = (select) => {
+            select.innerHTML = '';
+
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = `-- ${selectText} --`;
+            select.appendChild(option);
+        };
+
+        const fillSelect = (select, items) => {
+            resetSelect(select);
+
+            for (const item of items) {
+                const option = document.createElement('option');
+                option.value = item.value;
+                option.textContent = item.text;
+                select.appendChild(option);
+            }
+        };
+
+        const loadItems = async (url, compCd) => {
+            const response = await fetch(`${url}?compCd=${encodeURIComponent(compCd)}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                return [];
+            }
+
+            return await response.json();
+        };
+
+        compSelect.addEventListener('change', async () => {
+            const compCd = compSelect.value || '';
+
+            resetSelect(deptSelect);
+            resetSelect(posSelect);
+
+            if (!compCd) {
+                return;
+            }
+
+            const [departments, positions] = await Promise.all([
+                loadItems(deptUrl, compCd),
+                loadItems(posUrl, compCd)
+            ]);
+
+            fillSelect(deptSelect, departments);
+            fillSelect(posSelect, positions);
+        });
+    })();
+</script>

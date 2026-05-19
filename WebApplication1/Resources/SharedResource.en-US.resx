@@ -1293,4 +1293,178 @@
   <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
     <value>Recalled</value>
   </data>
+  <data name="Sidebar_Menu3Sub6" xml:space="preserve">
+    <value>Template Management</value>
+  </data>
+  <data name="DTM_Title_Manage" xml:space="preserve">
+    <value>Template Management</value>
+  </data>
+  <data name="DTM_Desc_Manage" xml:space="preserve">
+    <value>Manage template source files and usage status.</value>
+  </data>
+  <data name="DTM_Btn_SaveChanges" xml:space="preserve">
+    <value>Save Changes</value>
+  </data>
+  <data name="DTM_Btn_CopyPath" xml:space="preserve">
+    <value>Copy Path</value>
+  </data>
+  <data name="DTM_Btn_Download" xml:space="preserve">
+    <value>Download</value>
+  </data>
+  <data name="DTM_Btn_OpenMap" xml:space="preserve">
+    <value>Open Mapping</value>
+  </data>
+  <data name="_CM_Reset" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="DTM_Label_CompCd" xml:space="preserve">
+    <value>Company Code</value>
+  </data>
+  <data name="DTM_Label_DepartmentId" xml:space="preserve">
+    <value>Department</value>
+  </data>
+  <data name="DTM_Label_KindCode" xml:space="preserve">
+    <value>Document Type</value>
+  </data>
+  <data name="DTM_Label_UseState" xml:space="preserve">
+    <value>Usage Status</value>
+  </data>
+  <data name="DTM_Label_PathState" xml:space="preserve">
+    <value>Path Status</value>
+  </data>
+  <data name="DTM_Label_Keyword" xml:space="preserve">
+    <value>Keyword</value>
+  </data>
+  <data name="DTM_Option_All" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="DTM_Option_Active" xml:space="preserve">
+    <value>Active</value>
+  </data>
+  <data name="DTM_Option_Inactive" xml:space="preserve">
+    <value>Inactive</value>
+  </data>
+  <data name="DTM_Option_FileExists" xml:space="preserve">
+    <value>File exists</value>
+  </data>
+  <data name="DTM_Option_FileMissing" xml:space="preserve">
+    <value>File missing</value>
+  </data>
+  <data name="DTM_Option_OutOfRoot" xml:space="preserve">
+    <value>Out of standard path</value>
+  </data>
+  <data name="DTM_Option_NoPath" xml:space="preserve">
+    <value>No path</value>
+  </data>
+  <data name="DTM_Grid_Title" xml:space="preserve">
+    <value>Template List</value>
+  </data>
+  <data name="DTM_Grid_Count" xml:space="preserve">
+    <value>Total {0} items</value>
+  </data>
+  <data name="DTM_Col_Use" xml:space="preserve">
+    <value>Use</value>
+  </data>
+  <data name="DTM_Col_PathStatus" xml:space="preserve">
+    <value>Path Status</value>
+  </data>
+  <data name="DTM_Col_CompCd" xml:space="preserve">
+    <value>Company</value>
+  </data>
+  <data name="DTM_Col_DepartmentId" xml:space="preserve">
+    <value>Department</value>
+  </data>
+  <data name="DTM_Col_KindCode" xml:space="preserve">
+    <value>Type</value>
+  </data>
+  <data name="DTM_Col_DocCode" xml:space="preserve">
+    <value>Template Code</value>
+  </data>
+  <data name="DTM_Col_DocName" xml:space="preserve">
+    <value>Template Name</value>
+  </data>
+  <data name="DTM_Col_VersionNo" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="DTM_Col_FileName" xml:space="preserve">
+    <value>File Name</value>
+  </data>
+  <data name="DTM_Col_FileExists" xml:space="preserve">
+    <value>File Exists</value>
+  </data>
+  <data name="DTM_Col_CurrentPath" xml:space="preserve">
+    <value>Storage Path</value>
+  </data>
+  <data name="DTM_Col_CreatedBy" xml:space="preserve">
+    <value>Created By</value>
+  </data>
+  <data name="DTM_Col_CreatedAt" xml:space="preserve">
+    <value>Created At</value>
+  </data>
+  <data name="DTM_Col_UpdatedBy" xml:space="preserve">
+    <value>Updated By</value>
+  </data>
+  <data name="DTM_Col_UpdatedAt" xml:space="preserve">
+    <value>Updated At</value>
+  </data>
+  <data name="DTM_Col_Manage" xml:space="preserve">
+    <value>Manage</value>
+  </data>
+  <data name="DTM_PathStatus_Exists" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
+    <value>File missing</value>
+  </data>
+  <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
+    <value>Out of standard path</value>
+  </data>
+  <data name="DTM_PathStatus_UnsafePath" xml:space="preserve">
+    <value>Disallowed path</value>
+  </data>
+  <data name="DTM_PathStatus_NoPath" xml:space="preserve">
+    <value>No path</value>
+  </data>
+  <data name="DTM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DTM_Text_Yes" xml:space="preserve">
+    <value>Yes</value>
+  </data>
+  <data name="DTM_Text_No" xml:space="preserve">
+    <value>No</value>
+  </data>
+  <data name="DTM_Text_PathDetail" xml:space="preserve">
+    <value>Path Details</value>
+  </data>
+  <data name="DTM_Label_CurrentPath" xml:space="preserve">
+    <value>Current Path</value>
+  </data>
+  <data name="DTM_Label_AbsolutePath" xml:space="preserve">
+    <value>Absolute Path</value>
+  </data>
+  <data name="DTM_Label_FileSize" xml:space="preserve">
+    <value>File Size</value>
+  </data>
+  <data name="DTM_Label_FileLastWriteAt" xml:space="preserve">
+    <value>File Modified At</value>
+  </data>
+  <data name="DTM_Message_NoData" xml:space="preserve">
+    <value>No templates found.</value>
+  </data>
+  <data name="DTM_Message_SaveCompleted" xml:space="preserve">
+    <value>Changes have been saved.</value>
+  </data>
+  <data name="DTM_Message_SaveFailed" xml:space="preserve">
+    <value>Failed to save changes.</value>
+  </data>
+  <data name="DTM_Message_PathCopied" xml:space="preserve">
+    <value>Path has been copied.</value>
+  </data>
+  <data name="DTM_Message_PathCopyFailed" xml:space="preserve">
+    <value>Failed to copy path.</value>
+  </data>
+  <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
+    <value>No path to copy.</value>
+  </data>
 </root>

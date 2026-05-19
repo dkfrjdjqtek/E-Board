@@ -1,4 +1,5 @@
-﻿@using System.IO
+﻿@* 2026.05.14 Changed: Razor 값을 일반 script 직접 주입에서 template JSON 데이터로 분리하여 VS TS1109 경고 제거 *@
+@using System.IO
 @using System.Text.Json
 @using System.Text.Encodings.Web
 @using WebApplication1.Models
@@ -51,6 +52,56 @@
     {
         openRel = excelPath;
     }
+
+    var descriptorJsonForClient = descJson.Replace("</", "<\\/");
+    var previewJsonForClient = previewJson.Replace("</", "<\\/");
+    var composeDxClientDataJson = JsonSerializer.Serialize(new
+    {
+        resx = new
+        {
+            DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
+            DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
+            DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
+            DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
+            DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
+            DOC_Submit_Button = S["DOC_Submit_Button"].Value,
+            DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
+            ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
+            ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
+            ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
+            ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
+            ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
+            DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
+            DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
+            DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
+            DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
+            _CM_Select = S["_CM_Select"].Value,
+            _CM_Delete = S["_CM_Delete"].Value,
+            _CM_Open = S["_CM_Open"].Value,
+            _CM_Save = S["_CM_Save"].Value,
+            _CM_Error = S["_CM_Error"].Value,
+            DTL_Type_Text = S["DTL_Type_Text"].Value,
+            DTL_Type_Date = S["DTL_Type_Date"].Value,
+            DTL_Type_Num = S["DTL_Type_Num"].Value
+        },
+        tplFromServer = templateCode ?? string.Empty,
+        dxOpenRel = openRel ?? string.Empty,
+        dxCallbackUrl = dxCallbackUrl ?? "/Doc/dx-callback",
+        dxExcelAbsPath = excelPath ?? string.Empty,
+        dxDocumentId = dxDocumentId ?? string.Empty,
+        dxTargetHeightPx,
+        dxTargetWidthPx,
+        dxTargetHeightSafePx,
+        dxTargetWidthSafePx,
+        dxLastRow,
+        dxLastCol,
+        dxLastA1,
+        dxTargetA1,
+        dxTargetRow1,
+        dxTargetCol1,
+        dxVisualMode,
+        serverUiCulture = System.Globalization.CultureInfo.CurrentUICulture.Name
+    }).Replace("</", "<\\/");
 }
 
 @if (isAjax)
@@ -248,13 +299,23 @@ else
     #dxComposeWrap #dxComposeSheet_SSB,
     #dxComposeWrap [id$="_ColumnHeader"],
     #dxComposeWrap [id$="_RowHeader"],
-    #dxComposeWrap [id$="_SSB"] {
+    #dxComposeWrap [id$="_SSB"],
+    #dxComposeWrap .dxss-columnHeader,
+    #dxComposeWrap .dxss-rowHeader {
+        display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        max-width: 0 !important;
+        max-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        overflow: hidden !important;
         pointer-events: none !important;
-        border-color: transparent !important;
-        background: transparent !important;
-        box-shadow: none !important;
     }
 
         /* 헤더 내부 텍스트/아이콘도 같이 숨김 */
@@ -263,9 +324,22 @@ else
         #dxComposeWrap #dxComposeSheet_SSB *,
         #dxComposeWrap [id$="_ColumnHeader"] *,
         #dxComposeWrap [id$="_RowHeader"] *,
-        #dxComposeWrap [id$="_SSB"] * {
+        #dxComposeWrap [id$="_SSB"] *,
+        #dxComposeWrap .dxss-columnHeader *,
+        #dxComposeWrap .dxss-rowHeader * {
+            display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            max-width: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
             pointer-events: none !important;
         }
 
@@ -280,33 +354,33 @@ else
         box-shadow: none !important;
     }
 
-    #dxComposeWrap #dxComposeSheet_ScrollContainer,
-    #dxComposeWrap #dxComposeSheet_Grid,
-    #dxComposeWrap [id$="_ScrollContainer"],
-    #dxComposeWrap [id$="_Grid"] {
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-    }
-
-        #dxComposeWrap #dxComposeSheet_ScrollContainer::-webkit-scrollbar,
-        #dxComposeWrap #dxComposeSheet_Grid::-webkit-scrollbar,
-        #dxComposeWrap [id$="_ScrollContainer"]::-webkit-scrollbar,
-        #dxComposeWrap [id$="_Grid"]::-webkit-scrollbar {
-            width: 0 !important;
-            height: 0 !important;
+        #dxComposeWrap #dxComposeSheet_ScrollContainer,
+        #dxComposeWrap #dxComposeSheet_Grid,
+        #dxComposeWrap [id$="_ScrollContainer"],
+        #dxComposeWrap [id$="_Grid"] {
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
         }
 
-    #dxComposeWrap #dxComposeSheet_ScrollContainer,
-    #dxComposeWrap [id$="_ScrollContainer"] {
-        overflow-x: hidden !important;
-        overflow-y: hidden !important;
-    }
+            #dxComposeWrap #dxComposeSheet_ScrollContainer::-webkit-scrollbar,
+            #dxComposeWrap #dxComposeSheet_Grid::-webkit-scrollbar,
+            #dxComposeWrap [id$="_ScrollContainer"]::-webkit-scrollbar,
+            #dxComposeWrap [id$="_Grid"]::-webkit-scrollbar {
+                width: 0 !important;
+                height: 0 !important;
+            }
 
-    #dxComposeWrap *,
-    #dxComposeWrap *:focus {
-        outline: none !important;
-        box-shadow: none !important;
-    }
+        #dxComposeWrap #dxComposeSheet_ScrollContainer,
+        #dxComposeWrap [id$="_ScrollContainer"] {
+            overflow-x: hidden !important;
+            overflow-y: hidden !important;
+        }
+
+        #dxComposeWrap *,
+        #dxComposeWrap *:focus {
+            outline: none !important;
+            box-shadow: none !important;
+        }
 
     .doc-upload-area,
     .doc-share-area {
@@ -365,53 +439,40 @@ else
         <input type="hidden" id="dx-excel-path" value="@excelPath" />
         <input type="hidden" id="dx-doc-id" value="@dxDocumentId" />
 
-        <script type="application/json" id="DescriptorJson">@Html.Raw(descJson.Replace("</", "<\\/"))</script>
-        <script type="application/json" id="PreviewJson">@Html.Raw(previewJson.Replace("</", "<\\/"))</script>
+        <template id="DescriptorJson">@Html.Raw(descriptorJsonForClient)</template>
+        <template id="PreviewJson">@Html.Raw(previewJsonForClient)</template>
+        <template id="compose-dx-client-data">@Html.Raw(composeDxClientDataJson)</template>
 
         <script>
-            window.__RESX = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
-                {
-                                DOC_Err_PreviewFailed = S["DOC_Err_PreviewFailed"].Value,
-                                DOC_Err_SaveFailed = S["DOC_Err_SaveFailed"].Value,
-                                DOC_Msg_Saved = S["DOC_Msg_Saved"].Value,
-                                DOC_Val_TemplateRequired = S["DOC_Val_TemplateRequired"].Value,
-                                DOC_Btn_Cancel = S["DOC_Btn_Cancel"].Value,
-                                DOC_Submit_Button = S["DOC_Submit_Button"].Value,
-                                DOC_Err_UploadFailed = S["DOC_Err_UploadFailed"].Value,
-                                ORG_MS_Placeholder_Search = S["ORG_MS_Placeholder_Search"].Value,
-                                ORG_MS_Placeholder_Empty = S["ORG_MS_Placeholder_Empty"].Value,
-                                ORG_MS_Label_SelectedCount = S["ORG_MS_Label_SelectedCount"].Value,
-                                ORG_MS_Label_All = S["ORG_MS_Label_All"].Value,
-                                ORG_MS_Label_Clear = S["ORG_MS_Label_Clear"].Value,
-                                DOC_Attach_Count_None = S["DOC_Attach_Count_None"].Value,
-                                DOC_Attach_Count_N = S["DOC_Attach_Count_N"].Value,
-                                DOC_Label_Attachments = S["DOC_Label_Attachments"].Value,
-                                DOC_Label_Recipients = S["DOC_Label_Recipients"].Value,
-                                _CM_Select = S["_CM_Select"].Value,
-                                _CM_Delete = S["_CM_Delete"].Value,
-                                _CM_Open = S["_CM_Open"].Value,
-                                _CM_Save = S["_CM_Save"].Value,
-                                _CM_Error = S["_CM_Error"].Value,
-                                DTL_Type_Text = S["DTL_Type_Text"].Value,
-                                DTL_Type_Date = S["DTL_Type_Date"].Value,
-                                DTL_Type_Num = S["DTL_Type_Num"].Value
-                }));
-            window.__tplFromServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(templateCode ?? string.Empty));
-            window.__dxOpenRel = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(openRel ?? string.Empty));
-            window.__dxCallbackUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
-            window.__dxExcelAbsPath = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(excelPath ?? string.Empty));
-            window.__dxDocumentId = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxDocumentId ?? string.Empty));
-            window.__dxTargetHeightPx = @dxTargetHeightPx;
-            window.__dxTargetWidthPx = @dxTargetWidthPx;
-            window.__dxTargetHeightSafePx = @dxTargetHeightSafePx;
-            window.__dxTargetWidthSafePx = @dxTargetWidthSafePx;
-            window.__dxLastRow = @dxLastRow;
-            window.__dxLastCol = @dxLastCol;
-            window.__dxLastA1 = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxLastA1));
-            window.__dxTargetA1 = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxTargetA1));
-            window.__dxTargetRow1 = @dxTargetRow1;
-            window.__dxTargetCol1 = @dxTargetCol1;
-            window.__dxVisualMode = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(dxVisualMode));
+            (function () {
+                function readTemplateJson(id) {
+                    const el = document.getElementById(id);
+                    if (!el) return {};
+                    const raw = el.content ? el.content.textContent : el.textContent;
+                    return JSON.parse(raw || '{}');
+                }
+
+                const data = readTemplateJson('compose-dx-client-data');
+
+                window.__RESX = data.resx || {};
+                window.__tplFromServer = data.tplFromServer || '';
+                window.__dxOpenRel = data.dxOpenRel || '';
+                window.__dxCallbackUrl = data.dxCallbackUrl || '/Doc/dx-callback';
+                window.__dxExcelAbsPath = data.dxExcelAbsPath || '';
+                window.__dxDocumentId = data.dxDocumentId || '';
+                window.__dxTargetHeightPx = data.dxTargetHeightPx || 0;
+                window.__dxTargetWidthPx = data.dxTargetWidthPx || 0;
+                window.__dxTargetHeightSafePx = data.dxTargetHeightSafePx || 0;
+                window.__dxTargetWidthSafePx = data.dxTargetWidthSafePx || 0;
+                window.__dxLastRow = data.dxLastRow || 0;
+                window.__dxLastCol = data.dxLastCol || 0;
+                window.__dxLastA1 = data.dxLastA1 || '';
+                window.__dxTargetA1 = data.dxTargetA1 || '';
+                window.__dxTargetRow1 = data.dxTargetRow1 || 0;
+                window.__dxTargetCol1 = data.dxTargetCol1 || 0;
+                window.__dxVisualMode = data.dxVisualMode || '';
+                window.__serverUiCulture = data.serverUiCulture || 'ko-KR';
+            })();
         </script>
 
         <div id="dxComposeWrap"
@@ -492,7 +553,7 @@ else
             const $ = (q, r = document) => r.querySelector(q);
             const $alert = () => document.getElementById('doc-alert');
 
-            const SERVER_UI_CULTURE = '@System.Globalization.CultureInfo.CurrentUICulture.Name';
+            const SERVER_UI_CULTURE = String(window.__serverUiCulture || 'ko-KR');
 
             const state = {
                 dxEditing: false,
@@ -585,8 +646,12 @@ else
                 try {
                     const el = document.getElementById(id);
                     if (!el) return {};
-                    const raw = el.textContent || '';
-                    const v = JSON.parse(raw);
+
+                    const raw = el.content
+                        ? el.content.textContent
+                        : el.textContent;
+
+                    const v = JSON.parse(raw || '{}');
                     return typeof v === 'string' ? JSON.parse(v) : v;
                 } catch {
                     return {};
@@ -1387,42 +1452,109 @@ else
             // ──────────────────────────────────────────
             // DatePicker 브리지
             // ──────────────────────────────────────────
-
             function resolveDateAnchorElement(rawTarget) {
                 const wrap = document.getElementById('dxComposeWrap');
                 let el = rawTarget instanceof Element ? rawTarget : null;
                 if (!wrap) return null;
 
+                const wrapRect = wrap.getBoundingClientRect();
+
+                function isBadContainer(node) {
+                    if (!node || node === wrap) return true;
+
+                    const id = String(node.id || '');
+                    const cls = String(node.className || '');
+
+                    if (id === 'dxComposeSheet') return true;
+                    if (id.endsWith('_WBC') || id.endsWith('_Grid') || id.endsWith('_ScrollContainer')) return true;
+                    if (id.includes('_ScrollContent')) return true;
+
+                    if (cls.includes('dxssControlSys')) return true;
+                    if (cls.includes('dxss-grid')) return true;
+                    if (cls.includes('dxss-sc')) return true;
+                    if (cls.includes('dxss-md')) return true;
+
+                    return false;
+                }
+
+                function isUsableCellAnchor(node) {
+                    if (!(node instanceof Element)) return false;
+                    if (isBadContainer(node)) return false;
+
+                    const rect = node.getBoundingClientRect();
+                    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+
+                    const insideWrap =
+                        rect.right > wrapRect.left &&
+                        rect.left < wrapRect.right &&
+                        rect.bottom > wrapRect.top &&
+                        rect.top < wrapRect.bottom;
+
+                    if (!insideWrap) return false;
+
+                    const tooWide = rect.width > Math.min(900, wrapRect.width * 0.75);
+                    const tooTall = rect.height > 120;
+
+                    if (tooWide || tooTall) return false;
+
+                    return rect.width >= 16 && rect.height >= 12;
+                }
+
                 while (el && el !== wrap) {
-                    const rect = el.getBoundingClientRect();
-                    if (rect && rect.width >= 24 && rect.height >= 18 && rect.width <= 220 && rect.height <= 80)
-                        return el;
+                    if (isUsableCellAnchor(el)) return el;
                     el = el.parentElement;
                 }
+
+                const selectionCandidates = [
+                    '.dxss-crse',
+                    '.dxss-trbe',
+                    '.dxss-brbe',
+                    '.dxss-lrbe',
+                    '.dxss-rrbe',
+                    '.dxss-active-cell',
+                    '[class*="dxss-selection"]'
+                ];
+
+                for (const sel of selectionCandidates) {
+                    const nodes = wrap.querySelectorAll(sel);
+                    for (const node of nodes) {
+                        if (isUsableCellAnchor(node)) return node;
+                    }
+                }
+
                 return wrap;
             }
 
             function placeDateBridgeNearAnchor(anchorEl) {
                 const bridge = document.getElementById('dxDatePickerBridge');
+                const wrap = document.getElementById('dxComposeWrap');
                 if (!bridge) return;
 
-                const anchor = (anchorEl instanceof Element)
-                    ? anchorEl
-                    : (state.lastDateAnchorEl instanceof Element
-                        ? state.lastDateAnchorEl
-                        : document.getElementById('dxComposeWrap'));
+                let anchor = anchorEl instanceof Element ? anchorEl : null;
+
+                if (!anchor || anchor === wrap) {
+                    anchor = resolveDateAnchorElement(state.lastDateAnchorEl || null);
+                }
+
+                if (!anchor || anchor === wrap) {
+                    anchor = wrap;
+                }
 
                 const rect = anchor.getBoundingClientRect();
+
                 let left = Math.round(rect.left + 1);
-                let top = Math.round(rect.bottom - 1);
+                let top = Math.round(rect.bottom + 2);
 
                 left = Math.min(Math.max(2, left), Math.max(2, window.innerWidth - 3));
                 top = Math.min(Math.max(2, top), Math.max(2, window.innerHeight - 3));
 
                 Object.assign(bridge.style, {
-                    left: left + 'px', top: top + 'px',
-                    width: '1px', height: '1px',
-                    opacity: '0.01', pointerEvents: 'auto'
+                    left: left + 'px',
+                    top: top + 'px',
+                    width: '1px',
+                    height: '1px',
+                    opacity: '0.01',
+                    pointerEvents: 'auto'
                 });
             }
 
@@ -2137,7 +2269,14 @@ else
                         const rc = rowColFromA1(a1);
                         if (!rc) return;
 
-                        const rawLines = plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+                        const rawLines = plain
+                            .replace(/\r\n/g, '\n')
+                            .replace(/\r/g, '\n')
+                            .split('\n');
+
+                        while (rawLines.length > 1 && rawLines[rawLines.length - 1] === '') {
+                            rawLines.pop();
+                        }
 
                         let groupLastRow = rc.row1;
                         {
@@ -2145,83 +2284,43 @@ else
                             while (true) {
                                 const nextA1 = a1FromRowCol(checkRow, rc.col1);
                                 const nextMeta = state.editableByA1.get(nextA1);
+
                                 if (!nextMeta) break;
                                 if (String(nextMeta.type || '').toLowerCase() === 'date') break;
+
                                 groupLastRow = checkRow;
                                 checkRow++;
                             }
                         }
+
                         const maxRows = groupLastRow - rc.row1 + 1;
+                        const pasteRows = rawLines.slice(0, maxRows);
 
-                        function getActiveCellMetrics() {
-                            const styles = (state.preview || {}).styles || {};
-                            const activeRc = rowColFromA1(state.activeA1 || '');
-                            const row1 = activeRc ? activeRc.row1 : 9;
-                            const col1 = activeRc ? activeRc.col1 : 3;
-                            const cellStyle = styles[row1 + ',' + col1] || {};
-                            const fontName = cellStyle.font?.name || '굴림체';
-                            const fontSize = cellStyle.font?.size || 11;
-                            const fontPx = fontSize * 96 / 72;
-                            const bold = cellStyle.font?.bold ? 'bold ' : '';
-                            const font = bold + fontPx + 'px ' + fontName;
+                        let changed = false;
 
-                            const wrapEl = document.getElementById('dxComposeWrap');
-                            let width = 0;
-                            if (wrapEl) {
-                                wrapEl.querySelectorAll('.dxss-ftc').forEach(function (ftc) {
-                                    const bg = window.getComputedStyle(ftc).backgroundColor;
-                                    if (bg !== 'rgb(234, 246, 255)') return;
-                                    const ctb = ftc.closest('[id*="dxComposeSheet_ctb."]');
-                                    if (!ctb) return;
-                                    const tbEl = document.getElementById(ctb.id.replace('_ctb.', '_tb.'));
-                                    if (!tbEl) return;
-                                    const w = parseInt(tbEl.style.width);
-                                    if (w > 100 && w < 700 && w > width) width = w;
-                                });
-                            }
-                            if (!width) width = 565;
-                            return { width, font };
-                        }
+                        dxBatchUpdate(inst, function () {
+                            for (let i = 0; i < pasteRows.length; i++) {
+                                const targetRow1 = rc.row1 + i;
+                                const targetA1 = a1FromRowCol(targetRow1, rc.col1);
+                                const targetMeta = state.editableByA1.get(targetA1);
 
-                        function measureTextWidth(text, font) {
-                            if (!measureTextWidth._canvas) {
-                                measureTextWidth._canvas = document.createElement('canvas');
-                            }
-                            const ctx = measureTextWidth._canvas.getContext('2d');
-                            ctx.font = font;
-                            return ctx.measureText(text).width;
-                        }
+                                if (!targetMeta) break;
+                                if (String(targetMeta.type || '').toLowerCase() === 'date') break;
 
-                        function wrapTextToWidth(text, maxWidth, font) {
-                            if (!text) return [''];
-                            const result = [];
-                            let current = '';
-                            for (let i = 0; i < text.length; i++) {
-                                const ch = text[i];
-                                const testLine = current + ch;
-                                if (measureTextWidth(testLine, font) > maxWidth && current.length > 0) {
-                                    result.push(current);
-                                    current = ch;
-                                } else {
-                                    current = testLine;
+                                const rawLine = String(pasteRows[i] ?? '');
+                                const cellValue = rawLine.split('\t')[0];
+
+                                if (trySetCellValueByIndex(inst, rc.col1 - 1, targetRow1 - 1, cellValue)) {
+                                    changed = true;
                                 }
                             }
-                            if (current) result.push(current);
-                            return result.length > 0 ? result : [''];
+                        });
+
+                        if (changed) {
+                            tryInvokeDxEditorCommit(inst);
+                            state.dxDirtySinceLastSync = true;
                         }
-
-                        const { width: cellWidth, font: cellFont } = getActiveCellMetrics();
-                        const maxWidth = Math.max(50, cellWidth - 4);
-
-                        const wrappedLines = rawLines;
-
-                        trySetCellValueByIndex(inst, rc.col1 - 1, rc.row1 - 1, plain);
-
-                        tryInvokeDxEditorCommit(inst);
-                        state.dxDirtySinceLastSync = true;
-
-                    }, true);
-
+                    });
                     return true;
                 }
 

@@ -1126,7 +1126,7 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                 }
             }
 
-            string BuildResultSummarySentence(string verbKey, string actorName, string actorPos)
+            string BuildResultSummarySentence(string? verbKey, string? actorName, string? actorPos)
             {
                 actorName = (actorName ?? string.Empty).Trim();
                 actorPos = (actorPos ?? string.Empty).Trim();
@@ -1135,20 +1135,31 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
                     return string.Empty;
 
                 var vk = (verbKey ?? string.Empty).Trim();
+
                 if (vk == "Pending" || vk == "OnHold")
                 {
                     if (!string.IsNullOrWhiteSpace(actorName) && !string.IsNullOrWhiteSpace(actorPos))
                         return actorName + " " + actorPos;
+
                     return !string.IsNullOrWhiteSpace(actorName) ? actorName : actorPos;
                 }
 
-                var key = TemplateKey(verbKey);
+                if (string.IsNullOrWhiteSpace(vk))
+                {
+                    if (!string.IsNullOrWhiteSpace(actorName) && !string.IsNullOrWhiteSpace(actorPos))
+                        return actorName + " " + actorPos;
+
+                    return !string.IsNullOrWhiteSpace(actorName) ? actorName : actorPos;
+                }
+
+                var key = TemplateKey(vk);
                 var fmt = _S[key].Value;
 
                 if (string.IsNullOrWhiteSpace(fmt) || string.Equals(fmt, key, StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.IsNullOrWhiteSpace(actorName) && !string.IsNullOrWhiteSpace(actorPos))
                         return actorName + " " + actorPos;
+
                     return !string.IsNullOrWhiteSpace(actorName) ? actorName : actorPos;
                 }
 

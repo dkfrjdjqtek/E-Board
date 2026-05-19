@@ -1,0 +1,311 @@
+{
+  "docCode": "DOC_4597E9986AF04E4BA7C9EC7D4C67ED85",
+  "outTemplateId": 53,
+  "outVersionId": 10138,
+  "outVersionNo": 2,
+  "excelPath": "D:\\Development\\Web\\Client\\E-Board\\WebApplication1\\App_Data\\DocTemplates\\0010\\21\\0010_T0005_DOC_4597E9986AF04E4BA7C9EC7D4C67ED85_v0002_20260519_145516.xlsx",
+  "model": {
+    "CompCd": "0010",
+    "DepartmentId": 21,
+    "Kind": "T0005",
+    "DocName": "Request Payment By Exim",
+    "Title": "Request Payment By Exim",
+    "ApprovalCount": 5,
+    "Fields": [
+      {
+        "Key": "Name_6_7",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F7"
+        }
+      },
+      {
+        "Key": "Depart_7_8",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F8"
+        }
+      },
+      {
+        "Key": "Desc_9",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F9"
+        }
+      },
+      {
+        "Key": "Desc_10",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F10"
+        }
+      },
+      {
+        "Key": "Desc_11",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F11"
+        }
+      },
+      {
+        "Key": "Desc_12",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F12"
+        }
+      },
+      {
+        "Key": "Desc_13",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F13"
+        }
+      },
+      {
+        "Key": "Desc_14",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F14"
+        }
+      },
+      {
+        "Key": "Desc_15",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F15"
+        }
+      },
+      {
+        "Key": "Desc_16",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F16"
+        }
+      },
+      {
+        "Key": "Desc_17",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F17"
+        }
+      },
+      {
+        "Key": "AmountNo_17_18",
+        "Type": "Num",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F18"
+        }
+      },
+      {
+        "Key": "AmountText_18_19",
+        "Type": "Text",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F19"
+        }
+      },
+      {
+        "Key": "Payment_20",
+        "Type": "Date",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F20"
+        }
+      },
+      {
+        "Key": "Payment_21",
+        "Type": "Date",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "F21"
+        }
+      },
+      {
+        "Key": "Date_5_6",
+        "Type": "Date",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "C6"
+        }
+      }
+    ],
+    "Approvals": [
+      {
+        "Slot": 1,
+        "Part": "\uC2B9\uC778",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "B24:B27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "45d0940a-156d-4b22-bf88-257e88946c2b"
+      },
+      {
+        "Slot": 2,
+        "Part": "\uC2B9\uC778",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "H24:H27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "3220d17b-dbc3-41a0-9bca-82e3a519a956"
+      },
+      {
+        "Slot": 3,
+        "Part": "\uC2B9\uC778",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "J24:J27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "48ba5e92-a2cd-4d99-9138-91e8106d12fb"
+      },
+      {
+        "Slot": 4,
+        "Part": "\uC2B9\uC778",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "L24:L27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "9a7ffeec-c2ca-48dd-aa88-d0a51ebdd0c9"
+      },
+      {
+        "Slot": 5,
+        "Part": "\uC2B9\uC778",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "N24:N27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "7e209b69-71b8-4ad3-8ef1-94534dc12ce6"
+      }
+    ],
+    "Cooperations": [
+      {
+        "Slot": 1,
+        "Part": "\uD611\uC870",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "D24:D27"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "292c9977-8be7-47ef-82c5-75d4b1c52988"
+      },
+      {
+        "Slot": 2,
+        "Part": "\uD611\uC870",
+        "Cell": {
+          "Sheet": "",
+          "Row": 0,
+          "Column": 0,
+          "RowSpan": 1,
+          "ColSpan": 1,
+          "A1": "A1"
+        },
+        "ApproverType": "Person",
+        "ApproverValue": "e56712c4-9cda-4b38-9eec-a5efbf4879f4"
+      }
+    ]
+  }
+}

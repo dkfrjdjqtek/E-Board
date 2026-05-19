@@ -50,7 +50,8 @@
     <div class="row g-3">
         <div class="col-md-6">
             <label asp-for="Input!.CompCd" class="form-label"></label>
-            <select asp-for="Input!.CompCd" asp-items="Model.CompOptions!" class="form-select">
+            <input type="hidden" name="Input.CompCd" value="@Model.Input?.CompCd" />
+            <select asp-for="Input!.CompCd" asp-items="Model.CompOptions!" class="form-select" disabled aria-disabled="true">
                 <option value="">-- @_S["_CM_Select"] --</option>
             </select>
             @* <span asp-validation-for="Input!.CompCd" class="text-danger"></span> *@

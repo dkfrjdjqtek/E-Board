@@ -1293,4 +1293,178 @@
   <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
     <value>已撤回</value>
   </data>
+  <data name="Sidebar_Menu3Sub6" xml:space="preserve">
+    <value>模板管理</value>
+  </data>
+  <data name="DTM_Title_Manage" xml:space="preserve">
+    <value>模板管理</value>
+  </data>
+  <data name="DTM_Desc_Manage" xml:space="preserve">
+    <value>管理模板源文件及使用状态。</value>
+  </data>
+  <data name="DTM_Btn_SaveChanges" xml:space="preserve">
+    <value>保存更改</value>
+  </data>
+  <data name="DTM_Btn_CopyPath" xml:space="preserve">
+    <value>复制路径</value>
+  </data>
+  <data name="DTM_Btn_Download" xml:space="preserve">
+    <value>下载</value>
+  </data>
+  <data name="DTM_Btn_OpenMap" xml:space="preserve">
+    <value>打开映射</value>
+  </data>
+  <data name="_CM_Reset" xml:space="preserve">
+    <value>重置</value>
+  </data>
+  <data name="DTM_Label_CompCd" xml:space="preserve">
+    <value>公司代码</value>
+  </data>
+  <data name="DTM_Label_DepartmentId" xml:space="preserve">
+    <value>部门</value>
+  </data>
+  <data name="DTM_Label_KindCode" xml:space="preserve">
+    <value>文档类型</value>
+  </data>
+  <data name="DTM_Label_UseState" xml:space="preserve">
+    <value>使用状态</value>
+  </data>
+  <data name="DTM_Label_PathState" xml:space="preserve">
+    <value>路径状态</value>
+  </data>
+  <data name="DTM_Label_Keyword" xml:space="preserve">
+    <value>关键词</value>
+  </data>
+  <data name="DTM_Option_All" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="DTM_Option_Active" xml:space="preserve">
+    <value>使用</value>
+  </data>
+  <data name="DTM_Option_Inactive" xml:space="preserve">
+    <value>未使用</value>
+  </data>
+  <data name="DTM_Option_FileExists" xml:space="preserve">
+    <value>文件存在</value>
+  </data>
+  <data name="DTM_Option_FileMissing" xml:space="preserve">
+    <value>文件不存在</value>
+  </data>
+  <data name="DTM_Option_OutOfRoot" xml:space="preserve">
+    <value>非标准路径</value>
+  </data>
+  <data name="DTM_Option_NoPath" xml:space="preserve">
+    <value>无路径</value>
+  </data>
+  <data name="DTM_Grid_Title" xml:space="preserve">
+    <value>模板列表</value>
+  </data>
+  <data name="DTM_Grid_Count" xml:space="preserve">
+    <value>共 {0} 条</value>
+  </data>
+  <data name="DTM_Col_Use" xml:space="preserve">
+    <value>使用</value>
+  </data>
+  <data name="DTM_Col_PathStatus" xml:space="preserve">
+    <value>路径状态</value>
+  </data>
+  <data name="DTM_Col_CompCd" xml:space="preserve">
+    <value>公司</value>
+  </data>
+  <data name="DTM_Col_DepartmentId" xml:space="preserve">
+    <value>部门</value>
+  </data>
+  <data name="DTM_Col_KindCode" xml:space="preserve">
+    <value>类型</value>
+  </data>
+  <data name="DTM_Col_DocCode" xml:space="preserve">
+    <value>模板代码</value>
+  </data>
+  <data name="DTM_Col_DocName" xml:space="preserve">
+    <value>模板名称</value>
+  </data>
+  <data name="DTM_Col_VersionNo" xml:space="preserve">
+    <value>版本</value>
+  </data>
+  <data name="DTM_Col_FileName" xml:space="preserve">
+    <value>文件名</value>
+  </data>
+  <data name="DTM_Col_FileExists" xml:space="preserve">
+    <value>文件存在</value>
+  </data>
+  <data name="DTM_Col_CurrentPath" xml:space="preserve">
+    <value>保存位置</value>
+  </data>
+  <data name="DTM_Col_CreatedBy" xml:space="preserve">
+    <value>创建者</value>
+  </data>
+  <data name="DTM_Col_CreatedAt" xml:space="preserve">
+    <value>创建日期</value>
+  </data>
+  <data name="DTM_Col_UpdatedBy" xml:space="preserve">
+    <value>更新者</value>
+  </data>
+  <data name="DTM_Col_UpdatedAt" xml:space="preserve">
+    <value>更新日期</value>
+  </data>
+  <data name="DTM_Col_Manage" xml:space="preserve">
+    <value>管理</value>
+  </data>
+  <data name="DTM_PathStatus_Exists" xml:space="preserve">
+    <value>正常</value>
+  </data>
+  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
+    <value>文件不存在</value>
+  </data>
+  <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
+    <value>非标准路径</value>
+  </data>
+  <data name="DTM_PathStatus_UnsafePath" xml:space="preserve">
+    <value>不允许的路径</value>
+  </data>
+  <data name="DTM_PathStatus_NoPath" xml:space="preserve">
+    <value>无路径</value>
+  </data>
+  <data name="DTM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DTM_Text_Yes" xml:space="preserve">
+    <value>有</value>
+  </data>
+  <data name="DTM_Text_No" xml:space="preserve">
+    <value>无</value>
+  </data>
+  <data name="DTM_Text_PathDetail" xml:space="preserve">
+    <value>路径详情</value>
+  </data>
+  <data name="DTM_Label_CurrentPath" xml:space="preserve">
+    <value>当前路径</value>
+  </data>
+  <data name="DTM_Label_AbsolutePath" xml:space="preserve">
+    <value>绝对路径</value>
+  </data>
+  <data name="DTM_Label_FileSize" xml:space="preserve">
+    <value>文件大小</value>
+  </data>
+  <data name="DTM_Label_FileLastWriteAt" xml:space="preserve">
+    <value>文件修改日期</value>
+  </data>
+  <data name="DTM_Message_NoData" xml:space="preserve">
+    <value>未找到模板。</value>
+  </data>
+  <data name="DTM_Message_SaveCompleted" xml:space="preserve">
+    <value>更改已保存。</value>
+  </data>
+  <data name="DTM_Message_SaveFailed" xml:space="preserve">
+    <value>保存更改失败。</value>
+  </data>
+  <data name="DTM_Message_PathCopied" xml:space="preserve">
+    <value>路径已复制。</value>
+  </data>
+  <data name="DTM_Message_PathCopyFailed" xml:space="preserve">
+    <value>复制路径失败。</value>
+  </data>
+  <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
+    <value>没有可复制的路径。</value>
+  </data>
 </root>

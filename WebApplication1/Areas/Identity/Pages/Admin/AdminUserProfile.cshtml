@@ -335,10 +335,10 @@
             var NEW_ID = "@WebApplication1.Areas.Identity.Pages.Admin.AdminUserProfileModel.NewUserId";
 
             // ▼ 서버가 넣어준 SelectedUserId의 실제 에러 우선, 없으면 '계정 선택' 기본문구
-            var MSG = @System.Text.Json.JsonSerializer.Serialize(
-           ViewData.ModelState[nameof(Model.VM.SelectedUserId)]?.Errors.FirstOrDefault()?.ErrorMessage
-           ?? _S["ACP_SelectUser_Req"].Value
-           );
+            var MSG = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ViewData.ModelState[nameof(Model.VM.SelectedUserId)]?.Errors.FirstOrDefault()?.ErrorMessage
+            ?? _S["ACP_SelectUser_Req"].Value
+            ));
 
             function needAccount() {
                 var hid = (document.querySelector('input[name="VM.SelectedUserId"]')?.value || '').trim();
@@ -454,6 +454,90 @@
                     }
                 });
             });
+        })();
+    </script>
+
+    <script>
+        (function () {
+            var compSel = document.getElementById('VM_CompCd');
+            var deptSel = document.getElementById('VM_DepartmentId');
+            var posSel = document.getElementById('VM_PositionId');
+            var selectText = @Html.Raw(System.Text.Json.JsonSerializer.Serialize("-- " + _S["_CM_Select"].Value + " --"));
+
+            if (!compSel || !deptSel || !posSel) return;
+
+            function makeUrl(handler, compCd) {
+                var url = new URL(window.location.href);
+                url.search = "";
+                url.searchParams.set("handler", handler);
+                url.searchParams.set("compCd", compCd || "");
+                return url.toString();
+            }
+
+            function clearOptions(sel) {
+                sel.innerHTML = "";
+                var opt = document.createElement("option");
+                opt.value = "";
+                opt.textContent = selectText;
+                sel.appendChild(opt);
+            }
+
+            function fillOptions(sel, items) {
+                clearOptions(sel);
+
+                (items || []).forEach(function (item) {
+                    var opt = document.createElement("option");
+                    opt.value = item.value || "";
+                    opt.textContent = item.text || "";
+                    sel.appendChild(opt);
+                });
+            }
+
+            async function loadCombo(handler, sel, compCd) {
+                clearOptions(sel);
+
+                if (!compCd) return;
+
+                sel.disabled = true;
+
+                try {
+                    var res = await fetch(makeUrl(handler, compCd), {
+                        method: "GET",
+                        credentials: "same-origin",
+                        headers: { "Accept": "application/json" }
+                    });
+
+                    if (!res.ok) {
+                        fillOptions(sel, []);
+                        return;
+                    }
+
+                    var items = await res.json();
+                    fillOptions(sel, items);
+                } catch {
+                    fillOptions(sel, []);
+                } finally {
+                    sel.disabled = false;
+                }
+            }
+
+            async function reloadByComp() {
+                var compCd = (compSel.value || "").trim();
+
+                await Promise.all([
+                    loadCombo("Departments", deptSel, compCd),
+                    loadCombo("Positions", posSel, compCd)
+                ]);
+
+                deptSel.value = "";
+                posSel.value = "";
+            }
+
+            compSel.addEventListener("change", reloadByComp);
+
+            if ((compSel.value || "").trim() && deptSel.options.length <= 1 && posSel.options.length <= 1) {
+                reloadByComp();
+            }
         })();
     </script>
 }

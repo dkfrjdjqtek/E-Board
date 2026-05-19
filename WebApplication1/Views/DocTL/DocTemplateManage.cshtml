@@ -1,0 +1,721 @@
+﻿@* 2026.05.13 Changed: JS 블록 내부 Razor 직접 주입을 JSON script 블록 방식으로 분리하여 TS1109 경고 수정 *@
+@model WebApplication1.Controllers.DocTemplateManageController.DocTemplateManageIndexVm
+@using System.Text.Json
+@using Microsoft.Extensions.Localization
+@inject IStringLocalizer<SharedResource> L
+
+@{
+    ViewData["Title"] = L["DTM_Title_Manage"];
+    ViewData["DisableDxAll"] = false;
+    ViewData["UseDxSpreadsheet"] = false;
+
+    var jsonOptions = new JsonSerializerOptions
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Default
+    };
+
+    var rowsJson = JsonSerializer.Serialize(Model.Items, jsonOptions);
+
+    var textJson = JsonSerializer.Serialize(new
+    {
+        empty = L["DTM_Text_Empty"].Value,
+        noData = L["DTM_Message_NoData"].Value,
+        saveOk = L["DTM_Message_SaveCompleted"].Value,
+        saveFail = L["DTM_Message_SaveFailed"].Value,
+        copyOk = L["DTM_Message_PathCopied"].Value,
+        copyFail = L["DTM_Message_PathCopyFailed"].Value,
+        noPath = L["DTM_Message_NoPathToCopy"].Value,
+        gridLoadFail = L["_CM_Error"].Value,
+
+        colUse = L["DTM_Col_Use"].Value,
+        colPathStatus = L["DTM_Col_PathStatus"].Value,
+        colCompCd = L["DTM_Col_CompCd"].Value,
+        colDepartmentId = L["DTM_Col_DepartmentId"].Value,
+        colKindCode = L["DTM_Col_KindCode"].Value,
+        colDocCode = L["DTM_Col_DocCode"].Value,
+        colDocName = L["DTM_Col_DocName"].Value,
+        colVersionNo = L["DTM_Col_VersionNo"].Value,
+        colFileName = L["DTM_Col_FileName"].Value,
+        colFileExists = L["DTM_Col_FileExists"].Value,
+        colCurrentPath = L["DTM_Col_CurrentPath"].Value,
+        colUpdatedBy = L["DTM_Col_UpdatedBy"].Value,
+        colUpdatedAt = L["DTM_Col_UpdatedAt"].Value,
+        colManage = L["DTM_Col_Manage"].Value,
+
+        yes = L["DTM_Text_Yes"].Value,
+        no = L["DTM_Text_No"].Value,
+        copyPath = L["DTM_Btn_CopyPath"].Value,
+        download = L["DTM_Btn_Download"].Value,
+        openMap = L["DTM_Btn_OpenMap"].Value,
+
+        pathExists = L["DTM_PathStatus_Exists"].Value,
+        pathFileMissing = L["DTM_PathStatus_FileMissing"].Value,
+        pathOutOfRoot = L["DTM_PathStatus_OutOfRoot"].Value,
+        pathUnsafePath = L["DTM_PathStatus_UnsafePath"].Value,
+        pathNoPath = L["DTM_PathStatus_NoPath"].Value
+    }, jsonOptions);
+}
+
+<div id="dtm-scroll">
+    <div class="container-fluid py-3" id="docTemplateManagePage">
+        @Html.AntiForgeryToken()
+
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+            <div>
+                <h4 class="mb-1">@L["DTM_Title_Manage"]</h4>
+                <div class="text-muted small">@L["DTM_Desc_Manage"]</div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" id="btnSaveUseState" disabled>
+                    @L["DTM_Btn_SaveChanges"]
+                </button>
+                <a class="btn btn-outline-secondary" href="/DocTL/DocTemplateManage">
+                    @L["_CM_Reset"]
+                </a>
+            </div>
+        </div>
+
+        <div class="card dtm-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>@L["DTM_Grid_Title"]</span>
+                <span class="text-muted small">@L["DTM_Grid_Count", Model.Items.Count]</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="dtmTemplateGrid" class="dtm-grid-host"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    html, body {
+        overflow: hidden !important;
+    }
+
+    #dtm-scroll {
+        position: fixed;
+        top: var(--header-h, 64px);
+        left: var(--sidebar-w, 200px);
+        right: 0;
+        bottom: var(--footer-h, 28px);
+        overflow: auto;
+        padding: 1rem 1rem 1.25rem 1rem;
+        background: #f5f5f5;
+        z-index: 1;
+    }
+
+    #docTemplateManagePage {
+        min-width: 0;
+    }
+
+        #docTemplateManagePage .dtm-card {
+            min-width: 0;
+        }
+
+        #docTemplateManagePage .card-body {
+            overflow: visible;
+        }
+
+        #docTemplateManagePage .dtm-grid-host {
+            width: 100%;
+            min-height: 0;
+            height: auto;
+        }
+
+        #docTemplateManagePage .dx-datagrid {
+            font-size: 0.875rem;
+        }
+
+        #docTemplateManagePage .dx-datagrid-headers .dx-datagrid-table .dx-row > td {
+            font-weight: 600;
+            color: #212529;
+        }
+
+        #docTemplateManagePage .dtm-ellipsis {
+            display: inline-block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: bottom;
+            white-space: nowrap;
+        }
+
+        #docTemplateManagePage .dtm-command-group {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+            #docTemplateManagePage .dtm-command-group .btn {
+                padding: 0.2rem 0.45rem;
+                font-size: 0.75rem;
+            }
+
+        #docTemplateManagePage .dtm-center {
+            text-align: center;
+        }
+
+        #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor {
+            min-height: 30px;
+        }
+
+        #docTemplateManagePage .dx-datagrid-rowsview {
+            max-height: none !important;
+        }
+
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable,
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-container,
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-content {
+                max-height: none !important;
+            }
+
+    @@media (max-width: 991.98px) {
+        #dtm-scroll {
+            left: 0;
+        }
+    }
+</style>
+
+<script type="application/json" id="dtm-rows-json">
+    @Html.Raw(rowsJson)
+</script>
+
+<script type="application/json" id="dtm-text-json">
+    @Html.Raw(textJson)
+</script>
+
+<script>
+    (() => {
+        const page = document.getElementById('docTemplateManagePage');
+        const gridEl = document.getElementById('dtmTemplateGrid');
+        const scrollHost = document.getElementById('dtm-scroll');
+        if (!page || !gridEl || !scrollHost) return;
+
+        function readJsonScript(id, fallbackValue) {
+            const el = document.getElementById(id);
+            if (!el) return fallbackValue;
+
+            try {
+                const raw = el.textContent || '';
+                if (!raw.trim()) return fallbackValue;
+                return JSON.parse(raw);
+            } catch (e) {
+                console.error('JSON parse failed:', id, e);
+                return fallbackValue;
+            }
+        }
+
+        const rows = readJsonScript('dtm-rows-json', []);
+        const text = readJsonScript('dtm-text-json', {});
+
+        const saveButton = document.getElementById('btnSaveUseState');
+        const tokenInput = page.querySelector('input[name="__RequestVerificationToken"]');
+        const changed = new Map();
+        const originalUseState = new Map();
+
+        rows.forEach(row => {
+            originalUseState.set(Number(row.TemplateId), !!row.IsActive);
+        });
+
+        function pickFirstVisible(selectors) {
+            for (const selector of selectors) {
+                const el = document.querySelector(selector);
+                if (!el) continue;
+
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) continue;
+
+                return el;
+            }
+
+            return null;
+        }
+
+        function readCssPx(varName, fallback) {
+            const raw = getComputedStyle(document.documentElement).getPropertyValue(varName || '').trim();
+            const value = parseFloat(raw);
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function syncScrollHostLayout() {
+            let top = readCssPx('--header-h', 64);
+            let left = readCssPx('--sidebar-w', 200);
+            let bottom = readCssPx('--footer-h', 28);
+
+            const header = pickFirstVisible([
+                'header',
+                '.navbar',
+                '.main-header',
+                '.app-header',
+                '.topbar',
+                '.layout-navbar'
+            ]);
+
+            const sidebar = pickFirstVisible([
+                '.main-sidebar',
+                '.sidebar',
+                'aside',
+                '.app-sidebar',
+                '.layout-menu'
+            ]);
+
+            const footer = pickFirstVisible([
+                'footer',
+                '.main-footer',
+                '.footer'
+            ]);
+
+            if (header) {
+                const rect = header.getBoundingClientRect();
+                if (rect.bottom > 0) {
+                    top = Math.max(top, Math.round(rect.bottom));
+                }
+            }
+
+            if (window.innerWidth < 992) {
+                left = 0;
+            } else if (sidebar) {
+                const rect = sidebar.getBoundingClientRect();
+                if (rect.right > 0) {
+                    left = Math.max(left, Math.round(rect.right));
+                }
+            }
+
+            if (footer) {
+                const rect = footer.getBoundingClientRect();
+                const footerHeight = Math.max(0, Math.round(window.innerHeight - rect.top));
+                bottom = Math.max(bottom, footerHeight);
+            }
+
+            scrollHost.style.top = top + 'px';
+            scrollHost.style.left = left + 'px';
+            scrollHost.style.right = '0px';
+            scrollHost.style.bottom = bottom + 'px';
+        }
+
+        function unwrap(container) {
+            return container && container.jquery ? container[0] : container;
+        }
+
+        function valueOrEmpty(value) {
+            return value === null || value === undefined || String(value).trim() === '' ? text.empty : String(value);
+        }
+
+        function refreshSaveButton() {
+            if (saveButton) {
+                saveButton.disabled = changed.size === 0;
+            }
+        }
+
+        function setChanged(templateId, isActive) {
+            const id = Number(templateId);
+            const original = originalUseState.get(id);
+
+            if (original === !!isActive) {
+                changed.delete(id);
+            } else {
+                changed.set(id, {
+                    templateId: id,
+                    isActive: !!isActive
+                });
+            }
+
+            refreshSaveButton();
+        }
+
+        function pathStatusText(key) {
+            switch (key) {
+                case 'DTM_PathStatus_Exists':
+                    return text.pathExists;
+                case 'DTM_PathStatus_FileMissing':
+                    return text.pathFileMissing;
+                case 'DTM_PathStatus_OutOfRoot':
+                    return text.pathOutOfRoot;
+                case 'DTM_PathStatus_UnsafePath':
+                    return text.pathUnsafePath;
+                case 'DTM_PathStatus_NoPath':
+                    return text.pathNoPath;
+                default:
+                    return valueOrEmpty(key);
+            }
+        }
+
+        function pathStatusClass(key) {
+            switch (key) {
+                case 'DTM_PathStatus_Exists':
+                    return 'badge bg-success';
+                case 'DTM_PathStatus_FileMissing':
+                    return 'badge bg-danger';
+                case 'DTM_PathStatus_OutOfRoot':
+                    return 'badge bg-warning text-dark';
+                case 'DTM_PathStatus_UnsafePath':
+                    return 'badge bg-danger';
+                case 'DTM_PathStatus_NoPath':
+                    return 'badge bg-secondary';
+                default:
+                    return 'badge bg-secondary';
+            }
+        }
+
+        function appendBadge(container, label, className) {
+            const el = unwrap(container);
+            const span = document.createElement('span');
+            span.className = className;
+            span.textContent = label;
+            el.appendChild(span);
+        }
+
+        function appendEllipsis(container, value) {
+            const el = unwrap(container);
+            const span = document.createElement('span');
+            span.className = 'dtm-ellipsis';
+            span.title = valueOrEmpty(value);
+            span.textContent = valueOrEmpty(value);
+            el.appendChild(span);
+        }
+
+        function appendButton(container, label, className, disabled, onClick) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = className;
+            btn.textContent = label;
+            btn.disabled = !!disabled;
+
+            if (!disabled) {
+                btn.addEventListener('click', onClick);
+            }
+
+            container.appendChild(btn);
+            return btn;
+        }
+
+        function appendLinkButton(container, label, className, href, disabled) {
+            if (disabled) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = className;
+                btn.textContent = label;
+                btn.disabled = true;
+                container.appendChild(btn);
+                return btn;
+            }
+
+            const a = document.createElement('a');
+            a.className = className;
+            a.textContent = label;
+            a.href = href;
+            container.appendChild(a);
+            return a;
+        }
+
+        async function copyText(value) {
+            const textValue = value || '';
+            if (!textValue) {
+                alert(text.noPath);
+                return;
+            }
+
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(textValue);
+                } else {
+                    const area = document.createElement('textarea');
+                    area.value = textValue;
+                    area.style.position = 'fixed';
+                    area.style.left = '-9999px';
+                    area.style.top = '-9999px';
+                    document.body.appendChild(area);
+                    area.focus();
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                }
+
+                alert(text.copyOk);
+            } catch {
+                alert(text.copyFail);
+            }
+        }
+
+        function makeMapUrl(row) {
+            if (!row || !row.VersionId) return '#';
+
+            return '/DocumentTemplatesDX/load-template?templateId='
+                + encodeURIComponent(row.TemplateId)
+                + '&versionId='
+                + encodeURIComponent(row.VersionId);
+        }
+
+        if (!window.DevExpress || !DevExpress.ui || !DevExpress.ui.dxDataGrid) {
+            console.error('DevExtreme DataGrid가 로드되지 않았습니다. _Layout.cshtml의 dxresources/js/dx.all.js 경로와 DisableDxAll 값을 확인하세요.');
+            gridEl.innerHTML = '<div class="alert alert-danger m-3">' + text.gridLoadFail + '</div>';
+            return;
+        }
+
+        const grid = new DevExpress.ui.dxDataGrid(gridEl, {
+            dataSource: rows,
+            keyExpr: 'TemplateId',
+            showBorders: true,
+            rowAlternationEnabled: true,
+            hoverStateEnabled: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            columnAutoWidth: false,
+            wordWrapEnabled: false,
+            noDataText: text.noData,
+            columnFixing: {
+                enabled: true
+            },
+            scrolling: {
+                mode: 'standard',
+                columnRenderingMode: 'standard',
+                showScrollbar: 'always',
+                useNative: true
+            },
+            paging: {
+                pageSize: 50
+            },
+            pager: {
+                visible: true,
+                showInfo: true,
+                showNavigationButtons: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [50, 100, 200]
+            },
+            sorting: {
+                mode: 'multiple'
+            },
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            headerFilter: {
+                visible: true
+            },
+            searchPanel: {
+                visible: false
+            },
+            columns: [
+                {
+                    caption: text.colUse,
+                    dataField: 'IsActive',
+                    dataType: 'boolean',
+                    width: 78,
+                    alignment: 'center',
+                    fixed: true,
+                    fixedPosition: 'left',
+                    cellTemplate: function (container, options) {
+                        const el = unwrap(container);
+                        const host = document.createElement('div');
+                        host.className = 'dtm-center';
+
+                        new DevExpress.ui.dxCheckBox(host, {
+                            value: !!options.data.IsActive,
+                            onValueChanged: function (e) {
+                                options.data.IsActive = !!e.value;
+                                setChanged(options.data.TemplateId, !!e.value);
+                            }
+                        });
+
+                        el.appendChild(host);
+                    }
+                },
+                {
+                    caption: text.colPathStatus,
+                    dataField: 'PathStatusKey',
+                    width: 110,
+                    alignment: 'center',
+                    calculateDisplayValue: function (row) {
+                        return pathStatusText(row.PathStatusKey);
+                    },
+                    cellTemplate: function (container, options) {
+                        appendBadge(container, pathStatusText(options.value), pathStatusClass(options.value));
+                    }
+                },
+                {
+                    caption: text.colCompCd,
+                    dataField: 'CompName',
+                    width: 130,
+                    calculateCellValue: function (row) {
+                        return row.CompName || row.CompCd || text.empty;
+                    }
+                },
+                {
+                    caption: text.colDepartmentId,
+                    dataField: 'DepartmentName',
+                    width: 140,
+                    calculateCellValue: function (row) {
+                        return row.DepartmentName || row.DepartmentId || text.empty;
+                    }
+                },
+                {
+                    caption: text.colKindCode,
+                    dataField: 'KindName',
+                    width: 140,
+                    calculateCellValue: function (row) {
+                        return row.KindName || row.KindCode || text.empty;
+                    }
+                },
+                {
+                    caption: text.colDocCode,
+                    dataField: 'DocCode',
+                    width: 250,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colDocName,
+                    dataField: 'DocName',
+                    width: 190,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colVersionNo,
+                    dataField: 'VersionNo',
+                    width: 85,
+                    alignment: 'right',
+                    dataType: 'number'
+                },
+                {
+                    caption: text.colFileName,
+                    dataField: 'FileName',
+                    width: 250,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colFileExists,
+                    dataField: 'FileExists',
+                    dataType: 'boolean',
+                    width: 95,
+                    alignment: 'center',
+                    cellTemplate: function (container, options) {
+                        if (options.value) {
+                            appendBadge(container, text.yes, 'badge bg-success');
+                        } else {
+                            appendBadge(container, text.no, 'badge bg-danger');
+                        }
+                    }
+                },
+                {
+                    caption: text.colCurrentPath,
+                    dataField: 'CurrentPath',
+                    width: 360,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colUpdatedBy,
+                    dataField: 'UpdatedByName',
+                    width: 130,
+                    calculateCellValue: function (row) {
+                        return row.UpdatedByName || row.UpdatedBy || text.empty;
+                    }
+                },
+                {
+                    caption: text.colUpdatedAt,
+                    dataField: 'UpdatedAt',
+                    dataType: 'datetime',
+                    format: 'yyyy-MM-dd HH:mm',
+                    width: 150
+                },
+                {
+                    caption: text.colManage,
+                    width: 260,
+                    alignment: 'center',
+                    fixed: true,
+                    fixedPosition: 'right',
+                    allowSorting: false,
+                    allowFiltering: false,
+                    allowHeaderFiltering: false,
+                    cellTemplate: function (container, options) {
+                        const el = unwrap(container);
+                        const row = options.data || {};
+                        const group = document.createElement('div');
+                        group.className = 'dtm-command-group';
+
+                        appendButton(
+                            group,
+                            text.copyPath,
+                            'btn btn-outline-secondary',
+                            !row.CurrentPath,
+                            function () {
+                                copyText(row.CurrentPath || '');
+                            }
+                        );
+
+                        appendLinkButton(
+                            group,
+                            text.download,
+                            'btn btn-outline-primary',
+                            '/DocTL/DocTemplateManage/download/' + encodeURIComponent(row.VersionId || ''),
+                            !(row.VersionId && row.FileExists)
+                        );
+
+                        appendLinkButton(
+                            group,
+                            text.openMap,
+                            'btn btn-outline-dark',
+                            makeMapUrl(row),
+                            !row.VersionId
+                        );
+
+                        el.appendChild(group);
+                    }
+                }
+            ],
+            onContentReady: function () {
+                syncScrollHostLayout();
+            }
+        });
+
+        if (saveButton) {
+            saveButton.addEventListener('click', async () => {
+                if (changed.size === 0) return;
+
+                saveButton.disabled = true;
+
+                try {
+                    const response = await fetch('/DocTL/DocTemplateManage/save-use-state', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': tokenInput ? tokenInput.value : ''
+                        },
+                        body: JSON.stringify({
+                            items: Array.from(changed.values())
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('save failed');
+                    }
+
+                    alert(text.saveOk);
+                    location.reload();
+                } catch {
+                    alert(text.saveFail);
+                    saveButton.disabled = false;
+                }
+            });
+        }
+
+        window.addEventListener('resize', syncScrollHostLayout);
+        window.addEventListener('load', syncScrollHostLayout);
+        setTimeout(syncScrollHostLayout, 0);
+        setTimeout(syncScrollHostLayout, 150);
+        setTimeout(syncScrollHostLayout, 400);
+
+        refreshSaveButton();
+    })();
+</script>

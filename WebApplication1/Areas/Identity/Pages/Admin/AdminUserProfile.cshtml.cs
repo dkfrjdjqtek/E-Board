@@ -1,4 +1,5 @@
-﻿// 2025.09.26 Added: 임시비밀번호 발행과 재초대 전용 핸들러 추가 저장 흐름 및 기존 코드 변경 없음
+﻿// 2026.05.07 Changed: 부서와 직급을 사업장 CompCd 기준으로 조회 및 검증하도록 수정
+// 2025.09.26 Added: 임시비밀번호 발행과 재초대 전용 핸들러 추가 저장 흐름 및 기존 코드 변경 없음
 using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web; // 2025.09.26 Added
@@ -70,23 +71,39 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
 
         private async Task BindMastersAsync()
         {
+            VM.CompCd = (VM.CompCd ?? string.Empty).Trim();
+
             VM.CompList = await _db.CompMasters
                 .Where(x => x.IsActive)
                 .OrderBy(x => x.CompCd)
                 .Select(x => new SelectListItem { Value = x.CompCd, Text = x.Name })
                 .ToListAsync();
 
-            VM.DeptList = await _db.DepartmentMasters
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.Name)
-                .Select(x => new SelectListItem { Value = x.Id.ToString(), Text = x.Name })
-                .ToListAsync();
+            VM.DeptList = string.IsNullOrWhiteSpace(VM.CompCd)
+                ? new List<SelectListItem>()
+                : await _db.DepartmentMasters
+                    .Where(x => x.IsActive && x.CompCd == VM.CompCd)
+                    .OrderBy(x => x.Name)
+                    .Select(x => new SelectListItem
+                    {
+                        Value = x.Id.ToString(),
+                        Text = x.Name,
+                        Selected = VM.DepartmentId.HasValue && x.Id == VM.DepartmentId.Value
+                    })
+                    .ToListAsync();
 
-            VM.PosList = await _db.PositionMasters
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.RankLevel)
-                .Select(x => new SelectListItem { Value = x.Id.ToString(), Text = x.Name })
-                .ToListAsync();
+            VM.PosList = string.IsNullOrWhiteSpace(VM.CompCd)
+                ? new List<SelectListItem>()
+                : await _db.PositionMasters
+                    .Where(x => x.IsActive && x.CompCd == VM.CompCd)
+                    .OrderBy(x => x.RankLevel)
+                    .Select(x => new SelectListItem
+                    {
+                        Value = x.Id.ToString(),
+                        Text = x.Name,
+                        Selected = VM.PositionId.HasValue && x.Id == VM.PositionId.Value
+                    })
+                    .ToListAsync();
 
             var usersQ = _db.Users.AsNoTracking();
             if (!string.IsNullOrWhiteSpace(VM.Q))
@@ -99,6 +116,80 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                 .OrderBy(u => u.UserName)
                 .Select(u => new SelectListItem { Value = u.Id, Text = $"{u.UserName} ({u.Email})", Selected = u.Id == VM.SelectedUserId })
                 .ToListAsync();
+        }
+
+        private async Task ValidateMasterSelectionAsync()
+        {
+            VM.CompCd = (VM.CompCd ?? string.Empty).Trim();
+
+            if (!string.IsNullOrWhiteSpace(VM.CompCd) &&
+                !await _db.CompMasters.AnyAsync(x => x.IsActive && x.CompCd == VM.CompCd))
+            {
+                ModelState.AddModelError(nameof(VM.CompCd), _S["ACP_Invalid_Comp"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Comp"].Value);
+            }
+
+            if (VM.DepartmentId.HasValue &&
+                !await _db.DepartmentMasters.AnyAsync(x =>
+                    x.IsActive &&
+                    x.Id == VM.DepartmentId.Value &&
+                    x.CompCd == VM.CompCd))
+            {
+                ModelState.AddModelError(nameof(VM.DepartmentId), _S["ACP_Invalid_Dept"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Dept"].Value);
+            }
+
+            if (VM.PositionId.HasValue &&
+                !await _db.PositionMasters.AnyAsync(x =>
+                    x.IsActive &&
+                    x.Id == VM.PositionId.Value &&
+                    x.CompCd == VM.CompCd))
+            {
+                ModelState.AddModelError(nameof(VM.PositionId), _S["ACP_Invalid_Pos"].Value);
+                ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Pos"].Value);
+            }
+        }
+
+        public async Task<IActionResult> OnGetDepartmentsAsync(string compCd)
+        {
+            compCd = (compCd ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(compCd))
+                return new JsonResult(Array.Empty<object>());
+
+            var items = await _db.DepartmentMasters
+                .AsNoTracking()
+                .Where(x => x.IsActive && x.CompCd == compCd)
+                .OrderBy(x => x.Name)
+                .Select(x => new
+                {
+                    value = x.Id.ToString(),
+                    text = x.Name
+                })
+                .ToListAsync();
+
+            return new JsonResult(items);
+        }
+
+        public async Task<IActionResult> OnGetPositionsAsync(string compCd)
+        {
+            compCd = (compCd ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(compCd))
+                return new JsonResult(Array.Empty<object>());
+
+            var items = await _db.PositionMasters
+                .AsNoTracking()
+                .Where(x => x.IsActive && x.CompCd == compCd)
+                .OrderBy(x => x.RankLevel)
+                .Select(x => new
+                {
+                    value = x.Id.ToString(),
+                    text = x.Name
+                })
+                .ToListAsync();
+
+            return new JsonResult(items);
         }
 
         private async Task LoadUserAsync(string id)
@@ -128,19 +219,22 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
             VM.SelectedUserId = id;
             VM.Q = q;
 
-            await BindMastersAsync();
-
             if (string.IsNullOrEmpty(id))
+            {
+                await BindMastersAsync();
                 return Page();
+            }
 
             if (string.Equals(id, NewUserId, StringComparison.Ordinal))
             {
                 VM.IsActive = true;
                 VM.IsApprover = false;
+                await BindMastersAsync();
                 return Page();
             }
 
             await LoadUserAsync(id);
+            await BindMastersAsync();
             return Page();
         }
 
@@ -148,6 +242,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
         public async Task<IActionResult> OnPostSaveAsync()
         {
             var isCreate = string.Equals(VM.SelectedUserId, NewUserId, StringComparison.Ordinal);
+            VM.CompCd = (VM.CompCd ?? string.Empty).Trim();
 
             if (!isCreate && string.IsNullOrWhiteSpace(VM.SelectedUserId))
             {
@@ -186,9 +281,12 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                 ModelState.AddModelError(string.Empty, _S["_Alert_Require_Name"].Value);
             }
 
+            await ValidateMasterSelectionAsync();
+
             if (isCreate)
             {
-                if (await _userManager.FindByNameAsync(VM.UserName!) != null)
+                if (!string.IsNullOrWhiteSpace(VM.UserName) &&
+                    await _userManager.FindByNameAsync(VM.UserName!) != null)
                 {
                     var msg = _S["_Alert_Duplicate_ID"].Value;
                     ModelState.AddModelError($"{nameof(VM)}.{nameof(VM.UserName)}", msg);
@@ -315,24 +413,6 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
                     return Page();
                 }
 
-                if (!await _db.CompMasters.AnyAsync(x => x.IsActive && x.CompCd == VM.CompCd))
-                {
-                    ModelState.AddModelError(nameof(VM.CompCd), _S["ACP_Invalid_Comp"].Value);
-                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Comp"].Value);
-                }
-                if (VM.DepartmentId.HasValue &&
-                    !await _db.DepartmentMasters.AnyAsync(x => x.IsActive && x.Id == VM.DepartmentId.Value))
-                {
-                    ModelState.AddModelError(nameof(VM.DepartmentId), _S["ACP_Invalid_Dept"].Value);
-                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Dept"].Value);
-                }
-                if (VM.PositionId.HasValue &&
-                    !await _db.PositionMasters.AnyAsync(x => x.IsActive && x.Id == VM.PositionId.Value))
-                {
-                    ModelState.AddModelError(nameof(VM.PositionId), _S["ACP_Invalid_Pos"].Value);
-                    ModelState.AddModelError(string.Empty, _S["ACP_Invalid_Pos"].Value);
-                }
-
                 if (!ModelState.IsValid)
                     return Page();
 
@@ -365,7 +445,7 @@ namespace WebApplication1.Areas.Identity.Pages.Admin
         }
 
         // 2025.09.26 Added: 임시비밀번호 전용 핸들러 저장과 분리 레이아웃 변경 없음
-         
+
 
         // 2025.09.26 Added: 재초대 전용 핸들러 저장과 분리 레이아웃 변경 없음
         public async Task<IActionResult> OnPostReinviteAsync()

@@ -1,5 +1,4 @@
-﻿@* 2026.03.06 Changed DX 템플릿 관리 화면을 기존 DocTL 구조 기준으로 분리하고 모든 조회 생성 로드 저장 경로를 DocumentTemplatesDX 기준으로 고정함 *@
-@model WebApplication1.Models.DocTLViewModel
+﻿@model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DTL_Title_DocManage"];
@@ -86,7 +85,10 @@
 
             <form id="frmNewTemplate" method="post" enctype="multipart/form-data" action="/DocumentTemplatesDX/new-template" novalidate>
                 @Html.AntiForgeryToken()
-                <input type="hidden" name="compCd" id="nt-compCd" />
+                <input type="hidden" id="nt-post-compCd" />
+                <input type="hidden" id="nt-post-departmentId" />
+                <input type="hidden" id="nt-post-kind" />
+
                 <div class="modal-body">
                     @{
                         var serverErrors = ViewData.ModelState.IsValid
@@ -106,12 +108,12 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label mb-1">@S["_CM_Label_Department"]</label>
-                            <select id="nt-deptSel" name="departmentId" class="form-select form-select-sm"></select>
+                            <select id="nt-deptSel" class="form-select form-select-sm"></select>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label mb-1">@S["_CM_Label_Kind"]</label>
                             <div class="input-group input-group-sm align-items-stretch">
-                                <select id="nt-kindSel" name="kind" class="form-select form-select-sm"></select>
+                                <select id="nt-kindSel" class="form-select form-select-sm"></select>
                                 <button type="button" id="btnKindAddToggle" class="btn btn-secondary">@S["_CM_Add"]</button>
                             </div>
                         </div>
@@ -160,7 +162,7 @@
 
                 <div class="modal-footer">
                     <div class="d-grid w-100" style="grid-template-columns: 1fr 1fr; gap:.5rem;">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">@S["DTL_Btn_CreateTemplate"]</button>
+                        <button type="button" id="btnCreateNewTemplate" class="btn btn-primary btn-sm w-100">@S["DTL_Btn_CreateTemplate"]</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm w-100" data-bs-dismiss="modal">@S["_CM_Close"]</button>
                     </div>
                 </div>
@@ -519,6 +521,14 @@
                 (items || []).forEach(it => sel.add(new Option(it.text ?? '', String(it.id ?? ''))));
             }
 
+            function normalizeDeptValueForPost(value) {
+                if (value === undefined || value === null) return "";
+                const v = String(value).trim();
+                if (v === "__SELECT__") return "";
+                if (v === "") return "0";
+                return v;
+            }
+
             async function refreshDeptFor(compCd, targetSel, preferValue) {
                 const data = await fetchJson(`${BASE}/get-departments?compCd=${encodeURIComponent(compCd)}`);
                 fillOptions(targetSel, data.items || []);
@@ -559,7 +569,48 @@
             const ntCompSel = document.getElementById('nt-compSel');
             const ntDeptSel = document.getElementById('nt-deptSel');
             const ntKindSel = document.getElementById('nt-kindSel');
-            const ntCompCd = document.getElementById('nt-compCd');
+            const frmNewTemplate = document.getElementById('frmNewTemplate');
+            const btnCreateNewTemplate = document.getElementById('btnCreateNewTemplate');
+
+            const ntPostCompCd = document.getElementById('nt-post-compCd');
+            const ntPostDepartmentId = document.getElementById('nt-post-departmentId');
+            const ntPostKind = document.getElementById('nt-post-kind');
+
+            function getNewTemplateScopeValues() {
+                return {
+                    compCd: (ntCompSel?.value || '').trim(),
+                    departmentId: normalizeDeptValueForPost(ntDeptSel?.value || ''),
+                    kind: (ntKindSel?.value || '').trim()
+                };
+            }
+
+            function applyNewTemplatePostScope() {
+                const scope = getNewTemplateScopeValues();
+
+                if (ntPostCompCd) ntPostCompCd.value = scope.compCd;
+                if (ntPostDepartmentId) ntPostDepartmentId.value = scope.departmentId;
+                if (ntPostKind) ntPostKind.value = scope.kind;
+
+                return scope;
+            }
+
+            function buildNewTemplateFormData(scope, docName, file) {
+                const fd = new FormData();
+                const token = frmNewTemplate?.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+
+                fd.set('__RequestVerificationToken', token);
+                fd.set('compCd', scope.compCd);
+                fd.set('departmentId', scope.departmentId || '0');
+                fd.set('kind', scope.kind);
+                fd.set('docName', docName);
+                fd.set('embed', 'false');
+
+                if (file) {
+                    fd.set('excelFile', file, file.name);
+                }
+
+                return fd;
+            }
 
             const btnKindAddToggle = document.getElementById('btnKindAddToggle');
             const kindAddBox = document.getElementById('kindAddBox');
@@ -617,13 +668,14 @@
 
                 copyOptions(compSel, ntCompSel);
                 ntCompSel.value = compCd;
-                ntCompCd.value = compCd;
 
                 await refreshDeptFor(ntCompSel.value, ntDeptSel, deptSel?.value);
                 if (ntDeptSel.value === "__SELECT__") ntDeptSel.value = "";
 
                 const parentKind = document.getElementById('kindSelect')?.value || '';
                 await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel, parentKind);
+
+                applyNewTemplatePostScope();
 
                 kindAddBox.classList.add('d-none');
                 clearKindAddForm();
@@ -632,11 +684,13 @@
                 if (dn) dn.value = '';
                 if (fakeFile) fakeFile.value = (L.NO_FILE || '');
                 if (realFile) realFile.value = '';
+                if (btnCreateNewTemplate) btnCreateNewTemplate.disabled = false;
             });
 
             mEl.addEventListener('hidden.bs.modal', () => {
                 clearAllHeaderErrors();
                 clearKindAddForm();
+                if (btnCreateNewTemplate) btnCreateNewTemplate.disabled = false;
             });
 
             btnKindAddToggle?.addEventListener('click', async () => {
@@ -676,21 +730,29 @@
                 ntkCompSel.value = ntCompSel.value;
                 await refreshDeptFor(ntkCompSel.value, ntkDeptSel, ntDeptSel.value);
                 if (ntkDeptSel.value === "__SELECT__") ntkDeptSel.value = "";
+
+                applyNewTemplatePostScope();
             });
 
             ntDeptSel?.addEventListener('change', async () => {
                 await loadKindsForModal(ntCompSel.value, ntDeptSel.value, ntKindSel);
+                applyNewTemplatePostScope();
             });
 
-            document.getElementById('frmNewTemplate')?.addEventListener('submit', function (e) {
+            ntKindSel?.addEventListener('change', () => {
+                applyNewTemplatePostScope();
+            });
+
+            async function submitNewTemplateDirect() {
                 clearAllHeaderErrors();
 
+                const scope = applyNewTemplatePostScope();
                 const errs = [];
                 const dn = document.getElementById('nt-docName');
                 const fxReal = document.getElementById('nt-excel');
                 const fxFake = document.getElementById('nt-excel-name');
 
-                if (!ntCompSel.value) {
+                if (!scope.compCd) {
                     errs.push(L.ALERT_SITE);
                     EBValidate.setInvalid(ntCompSel, L.ALERT_SITE);
                 }
@@ -701,7 +763,7 @@
                     EBValidate.setInvalid(ntDeptSel, msg);
                 }
 
-                if (ntKindSel.value === '__SELECT__') {
+                if (!scope.kind || scope.kind === '__SELECT__') {
                     const msg = L.ALERT_SELECT;
                     errs.push(msg);
                     EBValidate.setInvalid(ntKindSel, msg);
@@ -725,9 +787,46 @@
                 }
 
                 if (errs.length) {
-                    e.preventDefault();
                     EBValidate.showAlert('nt-alert', errs);
+                    return;
                 }
+
+                const fd = buildNewTemplateFormData(scope, dnVal, f);
+
+                console.log('[NewTemplate POST]', {
+                    compCd: fd.get('compCd'),
+                    departmentId: fd.get('departmentId'),
+                    kind: fd.get('kind'),
+                    docName: fd.get('docName'),
+                    excelFile: f?.name || ''
+                });
+
+                if (btnCreateNewTemplate) btnCreateNewTemplate.disabled = true;
+
+                try {
+                    const res = await fetch(frmNewTemplate.action, {
+                        method: 'POST',
+                        body: fd,
+                        credentials: 'same-origin'
+                    });
+
+                    const html = await res.text();
+
+                    document.open();
+                    document.write(html);
+                    document.close();
+                } catch (err) {
+                    console.error(err);
+                    EBValidate.showAlert('nt-alert', L.ERROR);
+                    if (btnCreateNewTemplate) btnCreateNewTemplate.disabled = false;
+                }
+            }
+
+            btnCreateNewTemplate?.addEventListener('click', submitNewTemplateDirect);
+
+            frmNewTemplate?.addEventListener('submit', function (e) {
+                e.preventDefault();
+                submitNewTemplateDirect();
             });
 
             function getAntiForgeryToken() {
@@ -796,7 +895,7 @@
                     return;
                 }
 
-                const departmentId = (deptRaw === '' ? '0' : deptRaw);
+                const departmentId = normalizeDeptValueForPost(deptRaw);
                 const p = new URLSearchParams({
                     compCd,
                     departmentId,
@@ -838,7 +937,18 @@
                     const opt = new Option(data.item.text, data.item.id, false, true);
                     document.getElementById('nt-kindSel').add(opt);
                     document.getElementById('nt-kindSel').value = data.item.id;
-                    document.getElementById('kindSelect')?.add(new Option(data.item.text, data.item.id));
+
+                    applyNewTemplatePostScope();
+
+                    const topKindSel = document.getElementById('kindSelect');
+                    const topComp = document.getElementById('compSelect')?.value || '';
+                    const topDeptRaw = document.getElementById('deptSelect')?.value || '';
+                    const topDept = normalizeDeptValueForPost(topDeptRaw);
+                    const modalDept = normalizeDeptValueForPost(departmentId);
+
+                    if (topKindSel && topComp === compCd && topDept === modalDept) {
+                        topKindSel.add(new Option(data.item.text, data.item.id));
+                    }
 
                     clearKindAddForm();
                     kindAddBox.classList.add('d-none');

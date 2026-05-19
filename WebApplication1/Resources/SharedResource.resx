@@ -1293,4 +1293,178 @@
   <data name="DOC_Filter_ApprovalView_Recalled" xml:space="preserve">
     <value>회수됨</value>
   </data>
+  <data name="Sidebar_Menu3Sub6" xml:space="preserve">
+    <value>템플릿 관리</value>
+  </data>
+  <data name="DTM_Title_Manage" xml:space="preserve">
+    <value>템플릿 관리</value>
+  </data>
+  <data name="DTM_Desc_Manage" xml:space="preserve">
+    <value>템플릿 원본 파일과 사용 여부를 관리합니다.</value>
+  </data>
+  <data name="DTM_Btn_SaveChanges" xml:space="preserve">
+    <value>변경 저장</value>
+  </data>
+  <data name="DTM_Btn_CopyPath" xml:space="preserve">
+    <value>경로 복사</value>
+  </data>
+  <data name="DTM_Btn_Download" xml:space="preserve">
+    <value>다운로드</value>
+  </data>
+  <data name="DTM_Btn_OpenMap" xml:space="preserve">
+    <value>매핑 열기</value>
+  </data>
+  <data name="_CM_Reset" xml:space="preserve">
+    <value>초기화</value>
+  </data>
+  <data name="DTM_Label_CompCd" xml:space="preserve">
+    <value>회사코드</value>
+  </data>
+  <data name="DTM_Label_DepartmentId" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="DTM_Label_KindCode" xml:space="preserve">
+    <value>문서종류</value>
+  </data>
+  <data name="DTM_Label_UseState" xml:space="preserve">
+    <value>사용 여부</value>
+  </data>
+  <data name="DTM_Label_PathState" xml:space="preserve">
+    <value>경로 상태</value>
+  </data>
+  <data name="DTM_Label_Keyword" xml:space="preserve">
+    <value>검색어</value>
+  </data>
+  <data name="DTM_Option_All" xml:space="preserve">
+    <value>전체</value>
+  </data>
+  <data name="DTM_Option_Active" xml:space="preserve">
+    <value>사용</value>
+  </data>
+  <data name="DTM_Option_Inactive" xml:space="preserve">
+    <value>미사용</value>
+  </data>
+  <data name="DTM_Option_FileExists" xml:space="preserve">
+    <value>파일 있음</value>
+  </data>
+  <data name="DTM_Option_FileMissing" xml:space="preserve">
+    <value>파일 없음</value>
+  </data>
+  <data name="DTM_Option_OutOfRoot" xml:space="preserve">
+    <value>표준경로 아님</value>
+  </data>
+  <data name="DTM_Option_NoPath" xml:space="preserve">
+    <value>경로 없음</value>
+  </data>
+  <data name="DTM_Grid_Title" xml:space="preserve">
+    <value>템플릿 목록</value>
+  </data>
+  <data name="DTM_Grid_Count" xml:space="preserve">
+    <value>총 {0}건</value>
+  </data>
+  <data name="DTM_Col_Use" xml:space="preserve">
+    <value>사용</value>
+  </data>
+  <data name="DTM_Col_PathStatus" xml:space="preserve">
+    <value>경로상태</value>
+  </data>
+  <data name="DTM_Col_CompCd" xml:space="preserve">
+    <value>회사</value>
+  </data>
+  <data name="DTM_Col_DepartmentId" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="DTM_Col_KindCode" xml:space="preserve">
+    <value>종류</value>
+  </data>
+  <data name="DTM_Col_DocCode" xml:space="preserve">
+    <value>템플릿코드</value>
+  </data>
+  <data name="DTM_Col_DocName" xml:space="preserve">
+    <value>템플릿명</value>
+  </data>
+  <data name="DTM_Col_VersionNo" xml:space="preserve">
+    <value>버전</value>
+  </data>
+  <data name="DTM_Col_FileName" xml:space="preserve">
+    <value>파일명</value>
+  </data>
+  <data name="DTM_Col_FileExists" xml:space="preserve">
+    <value>파일존재</value>
+  </data>
+  <data name="DTM_Col_CurrentPath" xml:space="preserve">
+    <value>저장위치</value>
+  </data>
+  <data name="DTM_Col_CreatedBy" xml:space="preserve">
+    <value>등록자</value>
+  </data>
+  <data name="DTM_Col_CreatedAt" xml:space="preserve">
+    <value>등록일</value>
+  </data>
+  <data name="DTM_Col_UpdatedBy" xml:space="preserve">
+    <value>수정자</value>
+  </data>
+  <data name="DTM_Col_UpdatedAt" xml:space="preserve">
+    <value>수정일</value>
+  </data>
+  <data name="DTM_Col_Manage" xml:space="preserve">
+    <value>관리</value>
+  </data>
+  <data name="DTM_PathStatus_Exists" xml:space="preserve">
+    <value>정상</value>
+  </data>
+  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
+    <value>파일 없음</value>
+  </data>
+  <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
+    <value>표준경로 아님</value>
+  </data>
+  <data name="DTM_PathStatus_UnsafePath" xml:space="preserve">
+    <value>허용되지 않은 경로</value>
+  </data>
+  <data name="DTM_PathStatus_NoPath" xml:space="preserve">
+    <value>경로 없음</value>
+  </data>
+  <data name="DTM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DTM_Text_Yes" xml:space="preserve">
+    <value>있음</value>
+  </data>
+  <data name="DTM_Text_No" xml:space="preserve">
+    <value>없음</value>
+  </data>
+  <data name="DTM_Text_PathDetail" xml:space="preserve">
+    <value>경로 상세</value>
+  </data>
+  <data name="DTM_Label_CurrentPath" xml:space="preserve">
+    <value>현재 경로</value>
+  </data>
+  <data name="DTM_Label_AbsolutePath" xml:space="preserve">
+    <value>절대 경로</value>
+  </data>
+  <data name="DTM_Label_FileSize" xml:space="preserve">
+    <value>파일 크기</value>
+  </data>
+  <data name="DTM_Label_FileLastWriteAt" xml:space="preserve">
+    <value>파일 수정일</value>
+  </data>
+  <data name="DTM_Message_NoData" xml:space="preserve">
+    <value>조회된 템플릿이 없습니다.</value>
+  </data>
+  <data name="DTM_Message_SaveCompleted" xml:space="preserve">
+    <value>변경사항이 저장되었습니다.</value>
+  </data>
+  <data name="DTM_Message_SaveFailed" xml:space="preserve">
+    <value>변경사항 저장에 실패했습니다.</value>
+  </data>
+  <data name="DTM_Message_PathCopied" xml:space="preserve">
+    <value>경로가 복사되었습니다.</value>
+  </data>
+  <data name="DTM_Message_PathCopyFailed" xml:space="preserve">
+    <value>경로 복사에 실패했습니다.</value>
+  </data>
+  <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
+    <value>복사할 경로가 없습니다.</value>
+  </data>
 </root>

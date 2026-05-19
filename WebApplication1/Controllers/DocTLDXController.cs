@@ -68,10 +68,182 @@ namespace WebApplication1.Controllers
         private static bool IsExcelOpenXml(IFormFile f)
         {
             if (f is null || f.Length == 0) return false;
-            var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
-            return ext == ".xlsx" || ext == ".xlsm";
+            return GetAllowedTemplateExcelExtension(f.FileName) != null;
         }
 
+        private static string? GetAllowedTemplateExcelExtension(string? fileNameOrExtension)
+        {
+            var value = (fileNameOrExtension ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(value)) return null;
+
+            string ext;
+
+            try
+            {
+                if (value.StartsWith(".", StringComparison.Ordinal) &&
+                    !value.Contains(Path.DirectorySeparatorChar) &&
+                    !value.Contains(Path.AltDirectorySeparatorChar))
+                {
+                    ext = value.ToLowerInvariant();
+                }
+                else
+                {
+                    ext = (Path.GetExtension(value) ?? string.Empty).ToLowerInvariant();
+                }
+            }
+            catch
+            {
+                return null;
+            }
+
+            return ext == ".xlsx" || ext == ".xlsm"
+                ? ext
+                : null;
+        }
+        private string GetTemplateUploadsDirectory()
+        {
+            var dir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates", "Uploads");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private string GetTemplateFinalDirectory(string? compCd, int? departmentId)
+        {
+            var safeCompCd = SafeFilePart(string.IsNullOrWhiteSpace(compCd) ? "0000" : compCd.Trim());
+
+            var deptPart = departmentId.HasValue && departmentId.Value > 0
+                ? departmentId.Value.ToString(CultureInfo.InvariantCulture)
+                : "0";
+
+            var safeDeptPart = SafeFilePart(deptPart);
+
+            var dir = Path.Combine(
+                _env.ContentRootPath,
+                "App_Data",
+                "DocTemplates",
+                safeCompCd,
+                safeDeptPart
+            );
+
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static string NormalizeExcelExtension(string? sourceExcelPathOrExtension)
+        {
+            return GetAllowedTemplateExcelExtension(sourceExcelPathOrExtension) ?? ".xlsx";
+        }
+
+        private void TryRollbackFinalExcelToTemp(string? finalExcelPath, string? tempExcelPath)
+        {
+            if (string.IsNullOrWhiteSpace(finalExcelPath) || string.IsNullOrWhiteSpace(tempExcelPath))
+                return;
+
+            try
+            {
+                var finalAbs = Path.GetFullPath(finalExcelPath);
+                var tempAbs = Path.GetFullPath(tempExcelPath);
+
+                if (string.Equals(finalAbs, tempAbs, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                if (!System.IO.File.Exists(finalAbs))
+                    return;
+
+                if (System.IO.File.Exists(tempAbs))
+                    return;
+
+                var tempDir = Path.GetDirectoryName(tempAbs);
+                if (!string.IsNullOrWhiteSpace(tempDir))
+                    Directory.CreateDirectory(tempDir);
+
+                System.IO.File.Move(finalAbs, tempAbs);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DocTLDX][MapSave] Excel rollback final-to-temp failed: " + ex);
+            }
+        }
+
+        private static string BuildTemplateExcelFileName(
+            string? compCd,
+            string? kindCode,
+            string? docCode,
+            int versionNo,
+            string? stamp,
+            string? ext,
+            int? seq = null)
+        {
+            var safeCompCd = SafeFilePart(string.IsNullOrWhiteSpace(compCd) ? "0000" : compCd.Trim());
+            var safeKindCode = SafeFilePart(string.IsNullOrWhiteSpace(kindCode) ? "T0000" : kindCode.Trim());
+            var safeDocCode = SafeFilePart(string.IsNullOrWhiteSpace(docCode) ? $"DOC_{Guid.NewGuid():N}".ToUpperInvariant() : docCode.Trim());
+
+            var vtag = versionNo > 0
+                ? $"v{versionNo:D4}"
+                : "v0000";
+
+            var safeStamp = string.IsNullOrWhiteSpace(stamp)
+                ? DateTime.Now.ToString("yyyyMMdd_HHmmss")
+                : SafeFilePart(stamp.Trim());
+
+            var safeExt = string.IsNullOrWhiteSpace(ext)
+                ? ".xlsx"
+                : ext.Trim().ToLowerInvariant();
+
+            if (!safeExt.StartsWith(".", StringComparison.Ordinal))
+                safeExt = "." + safeExt;
+
+            var baseName = $"{safeCompCd}_{safeKindCode}_{safeDocCode}_{vtag}_{safeStamp}";
+
+            if (seq.HasValue && seq.Value > 0)
+                baseName += $"_{seq.Value}";
+
+            return baseName + safeExt;
+        }
+
+        private static bool IsPathUnderDirectory(string path, string directory)
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(directory))
+                return false;
+
+            var fullPath = Path.GetFullPath(path);
+            var fullDirectory = Path.GetFullPath(directory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
+            return fullPath.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void TryDeleteUploadTempExcel(string? sourceExcelPath, string? finalExcelPath)
+        {
+            if (string.IsNullOrWhiteSpace(sourceExcelPath))
+                return;
+
+            try
+            {
+                var normalizedSource = NormalizeTemplateExcelPathLocal(sourceExcelPath);
+                var sourceAbs = Path.GetFullPath(ToContentRootAbsoluteLocal(normalizedSource));
+                var uploadsRoot = GetTemplateUploadsDirectory();
+
+                if (!IsPathUnderDirectory(sourceAbs, uploadsRoot))
+                    return;
+
+                if (!string.IsNullOrWhiteSpace(finalExcelPath))
+                {
+                    var finalAbs = Path.GetFullPath(finalExcelPath);
+                    if (string.Equals(sourceAbs, finalAbs, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+
+                if (System.IO.File.Exists(sourceAbs))
+                    System.IO.File.Delete(sourceAbs);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DocTLDX][MapSave] Upload temp file delete failed: " + ex);
+            }
+        }
+        
         private async Task<(bool found, string compCd, string compName, int? deptId, string? deptName, int adminLevel, string userName)> GetUserContextAsync()
         {
             var uid = CurrentUserId();
@@ -863,20 +1035,79 @@ namespace WebApplication1.Controllers
             };
         }
 
+        private IActionResult? ValidateTemplateScopeForSave(string? compCd, int? departmentId, string? kindCode)
+        {
+            var saveCompCd = (compCd ?? string.Empty).Trim();
+            var saveDeptId = departmentId ?? 0;
+            var saveKindCode = (kindCode ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(saveCompCd))
+                return BadRequest("Invalid template scope: CompCd is required.");
+
+            if (string.IsNullOrWhiteSpace(saveKindCode))
+                return BadRequest("Invalid template scope: KindCode is required.");
+
+            var compOk = _db.CompMasters
+                .AsNoTracking()
+                .Any(c => c.CompCd == saveCompCd);
+
+            if (!compOk)
+                return BadRequest($"Invalid template scope: CompCd '{saveCompCd}' does not exist.");
+
+            if (saveDeptId != 0)
+            {
+                var deptOk = _db.DepartmentMasters
+                    .AsNoTracking()
+                    .Any(d => d.Id == saveDeptId && d.CompCd == saveCompCd);
+
+                if (!deptOk)
+                    return BadRequest($"Invalid template scope: DepartmentId '{saveDeptId}' does not belong to CompCd '{saveCompCd}'.");
+            }
+
+            var kindOk = _db.TemplateKindMasters
+                .AsNoTracking()
+                .Any(k =>
+                    k.CompCd == saveCompCd &&
+                    k.DepartmentId == saveDeptId &&
+                    k.Code == saveKindCode &&
+                    k.IsActive);
+
+            if (!kindOk)
+            {
+                return BadRequest(
+                    $"Invalid template scope: KindCode '{saveKindCode}' does not belong to CompCd '{saveCompCd}', DepartmentId '{saveDeptId}'."
+                );
+            }
+
+            return null;
+        }
+
+
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd, [FromForm] int? departmentId, [FromForm] string? kind, [FromForm] string docName, [FromForm] IFormFile? excelFile, [FromForm] bool embed = false)
         {
             var ctx = await GetUserContextAsync();
-            if (ctx.adminLevel == 0) compCd = ctx.compCd;
 
-            if (string.IsNullOrWhiteSpace(compCd))
+            var saveCompCd = (compCd ?? string.Empty).Trim();
+            var saveDeptId = departmentId ?? 0;
+            var saveKindCode = (kind ?? string.Empty).Trim();
+            var saveDocName = (docName ?? string.Empty).Trim();
+
+            // 일반 사용자가 회사 선택값 없이 접근한 경우에만 본인 회사로 보정합니다.
+            // 화면에서 선택된 compCd가 넘어온 경우에는 그 값을 절대 덮어쓰지 않습니다.
+            if (string.IsNullOrWhiteSpace(saveCompCd) && !string.IsNullOrWhiteSpace(ctx.compCd))
+            {
+                saveCompCd = ctx.compCd.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(saveCompCd))
             {
                 TempData["Alert"] = _S["_Alert_Require_ValidSite"].Value;
                 return RedirectToRoute("DocumentTemplatesDX.Index");
             }
 
-            if (string.IsNullOrWhiteSpace(docName))
+            if (string.IsNullOrWhiteSpace(saveDocName))
             {
                 TempData["Alert"] = _S["DTL_Alert_EnterDocName"].Value;
                 return RedirectToRoute("DocumentTemplatesDX.Index");
@@ -894,14 +1125,24 @@ namespace WebApplication1.Controllers
                 return RedirectToRoute("DocumentTemplatesDX.Index");
             }
 
-            var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates", "files");
-            Directory.CreateDirectory(baseDir);
+            var scopeGuard = ValidateTemplateScopeForSave(saveCompCd, saveDeptId, saveKindCode);
+            if (scopeGuard is not null)
+                return scopeGuard;
 
-            static string SafeFile(string s) => string.Concat((s ?? string.Empty).Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_'));
+            var baseDir = GetTemplateUploadsDirectory();
 
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var ext = Path.GetExtension(excelFile.FileName).ToLowerInvariant();
-            var fileName = $"{SafeFile(compCd!)}_{SafeFile(docName)}_{stamp}_{Guid.NewGuid():N}{ext}";
+            var ext = NormalizeExcelExtension(excelFile.FileName);
+
+            var fileName = string.Join("_", new[]
+            {
+        SafeFilePart(saveCompCd),
+        SafeFilePart(saveKindCode),
+        SafeFilePart(saveDocName),
+        stamp,
+        Guid.NewGuid().ToString("N")
+    }) + ext;
+
             var excelPath = Path.Combine(baseDir, fileName);
 
             await using (var fs = System.IO.File.Create(excelPath))
@@ -911,39 +1152,42 @@ namespace WebApplication1.Controllers
 
             using var wb = new XLWorkbook(excelPath);
 
-            // ── 모든 시트의 활성 셀을 A1으로 초기화하여 저장
             foreach (var ws in wb.Worksheets)
             {
                 try
                 {
                     ws.SetTabActive(false);
                     ws.ActiveCell = ws.Cell("A1");
-                    // 스크롤 위치도 A1으로
                     ws.SheetView.TopLeftCellAddress = ws.Cell("A1").Address;
                 }
-                catch { }
+                catch
+                {
+                }
             }
-            // 첫 번째 시트 활성화
+
             if (wb.Worksheets.Any())
             {
                 wb.Worksheets.First().SetTabActive(true);
             }
+
             wb.Save();
 
             var meta = ReadMetaCX(wb);
             var parsed = ParseByCommentsCX(wb);
 
             if (meta.ApprovalCount == null)
-                meta.ApprovalCount = parsed.MaxApprovalSlot;
+                meta.ApprovalCount = parsed.Approvals.Count;
 
-            var title = parsed.Title ?? ResolveTitleByNameOrMetaCX(wb, meta);
+            var title = ResolveTitleByNameOrMetaCX(wb, meta);
+            if (string.IsNullOrWhiteSpace(title))
+                title = saveDocName;
 
             var descriptor = new TemplateDescriptor
             {
-                CompCd = compCd!,
-                DepartmentId = departmentId ?? 0,
-                Kind = kind,
-                DocName = docName,
+                CompCd = saveCompCd,
+                DepartmentId = saveDeptId,
+                Kind = saveKindCode,
+                DocName = saveDocName,
                 Title = title,
                 ApprovalCount = meta.ApprovalCount ?? 0,
                 Fields = parsed.Fields,
@@ -951,17 +1195,25 @@ namespace WebApplication1.Controllers
                 Cooperations = parsed.Cooperations
             };
 
-            var descriptorJsonPretty = JsonSerializer.Serialize(descriptor, new JsonSerializerOptions { WriteIndented = true });
+            var descriptorJsonPretty = JsonSerializer.Serialize(
+                descriptor,
+                new JsonSerializerOptions { WriteIndented = true }
+            );
 
             ViewBag.ExcelPath = excelPath;
             ViewBag.DescriptorJson = descriptorJsonPretty;
-            ViewBag.TemplateTitle = docName;
+            ViewBag.TemplateTitle = saveDocName;
             ViewBag.DocCode = string.Empty;
             ViewBag.DxDocumentId = SafeDocId($"{(CurrentUserId() ?? "anon")}_{Path.GetFileName(excelPath)}");
             ViewBag.DxCallbackUrl = "/DocumentTemplatesDX/dx-callback";
 
             const string viewPath = "~/Views/DocTL/DocTLMapDX.cshtml";
-            var isAjax = string.Equals(Request.Headers["X-Requested-With"].ToString(), "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
+
+            var isAjax = string.Equals(
+                Request.Headers["X-Requested-With"].ToString(),
+                "XMLHttpRequest",
+                StringComparison.OrdinalIgnoreCase
+            );
 
             if (embed || isAjax)
                 return PartialView(viewPath);
@@ -977,8 +1229,8 @@ namespace WebApplication1.Controllers
             if (file == null || file.Length <= 0)
                 return BadRequest("No file.");
 
-            var ext = (Path.GetExtension(file.FileName) ?? string.Empty).ToLowerInvariant();
-            if (ext != ".xlsx" && ext != ".xlsm" && ext != ".xls")
+            var ext = GetAllowedTemplateExcelExtension(file.FileName);
+            if (ext == null)
                 return BadRequest("Invalid extension.");
 
             var uid = CurrentUserId() ?? "anon";
@@ -986,7 +1238,7 @@ namespace WebApplication1.Controllers
             var safeName = SafeDocId(Path.GetFileNameWithoutExtension(file.FileName));
             if (string.IsNullOrWhiteSpace(safeName)) safeName = "upload";
 
-            var baseDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates", "Uploads");
+            var baseDir = GetTemplateUploadsDirectory();
             Directory.CreateDirectory(baseDir);
 
             var saveAbs = Path.Combine(baseDir, $"{safeBase}_{safeName}{ext}");
@@ -1070,9 +1322,14 @@ namespace WebApplication1.Controllers
                     return meta.Contents;
 
                 if (string.Equals(meta.Storage, "Disk", StringComparison.OrdinalIgnoreCase) &&
-                    !string.IsNullOrWhiteSpace(meta.FilePath) &&
-                    System.IO.File.Exists(meta.FilePath))
-                    return System.IO.File.ReadAllText(meta.FilePath);
+                    !string.IsNullOrWhiteSpace(meta.FilePath))
+                {
+                    var normalized = NormalizeTemplateExcelPathLocal(meta.FilePath);
+                    var abs = ToContentRootAbsoluteLocal(normalized);
+
+                    if (System.IO.File.Exists(abs))
+                        return System.IO.File.ReadAllText(abs);
+                }
 
                 return null;
             }
@@ -1088,8 +1345,9 @@ namespace WebApplication1.Controllers
                 try
                 {
                     var abs = Path.GetFullPath(Path.Combine(_env.ContentRootPath, openRel));
-                    var allowBase = Path.GetFullPath(Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates", "Uploads"));
-                    if (abs.StartsWith(allowBase, StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(abs))
+                    var allowBase = GetTemplateUploadsDirectory();
+
+                    if (IsPathUnderDirectory(abs, allowBase) && System.IO.File.Exists(abs))
                         excelPath = abs;
                 }
                 catch { }
@@ -1260,63 +1518,45 @@ namespace WebApplication1.Controllers
             return (true, null, null);
         }
 
-        private string CreateRevisionExcelPath(
-            string? sourceExcelPath,
-            string compCd,
-            string docName,
-            string docCode,
-            int? departmentId
-        )
+        private string CreateRevisionExcelPath(string? sourceExcelPath, string compCd, string? kindCode, string docCode, int? departmentId)
         {
             var now = DateTime.Now;
+            var stamp = now.ToString("yyyyMMdd_HHmmss");
+            var ext = NormalizeExcelExtension(sourceExcelPath);
 
-            var safeCompCd = SafeFilePart(string.IsNullOrWhiteSpace(compCd) ? "0000" : compCd.Trim());
-            var safeDocName = SafeFilePart(string.IsNullOrWhiteSpace(docName) ? "Template" : docName.Trim());
-            var safeDocCode = SafeFilePart(string.IsNullOrWhiteSpace(docCode) ? $"DOC_{Guid.NewGuid():N}".ToUpperInvariant() : docCode.Trim());
+            var rootDir = GetTemplateFinalDirectory(compCd, departmentId);
 
-            var deptCd = (departmentId.HasValue && departmentId.Value > 0)
-                ? departmentId.Value.ToString()
-                : "0";
-
-            var ext = ".xlsx";
-            try
-            {
-                var srcExt = Path.GetExtension(sourceExcelPath ?? string.Empty);
-                if (!string.IsNullOrWhiteSpace(srcExt))
-                    ext = srcExt;
-            }
-            catch
-            {
-                ext = ".xlsx";
-            }
-
-            var rootDir = Path.Combine(
-                _env.ContentRootPath,
-                "App_Data",
-                "DocTemplates",
-                safeCompCd,
-                now.ToString("yyyy"),
-                now.ToString("MM"),
-                SafeFilePart(deptCd)
+            var fileName = BuildTemplateExcelFileName(
+                compCd,
+                kindCode,
+                docCode,
+                0,
+                stamp,
+                ext
             );
 
-            Directory.CreateDirectory(rootDir);
-
-            var fileName = $"{safeCompCd}_{safeDocName}_{safeDocCode}_{now:yyyyMMdd_HHmmss}{ext}";
             var fullPath = Path.Combine(rootDir, fileName);
 
             var seq = 1;
             while (System.IO.File.Exists(fullPath))
             {
-                fileName = $"{safeCompCd}_{safeDocName}_{safeDocCode}_{now:yyyyMMdd_HHmmss}_{seq}{ext}";
+                fileName = BuildTemplateExcelFileName(
+                    compCd,
+                    kindCode,
+                    docCode,
+                    0,
+                    stamp,
+                    ext,
+                    seq
+                );
+
                 fullPath = Path.Combine(rootDir, fileName);
                 seq++;
             }
 
             return fullPath;
         }
-
-        private string? CreateRevisionExcelSnapshot(string? sourceExcelPath, string compCd, string docName, string docCode, int? departmentId)
+        private string? CreateRevisionExcelSnapshot(string? sourceExcelPath, string compCd, string? kindCode, string docCode, int? departmentId)
         {
             if (string.IsNullOrWhiteSpace(sourceExcelPath)) return null;
             if (!System.IO.File.Exists(sourceExcelPath)) return null;
@@ -1324,7 +1564,7 @@ namespace WebApplication1.Controllers
             var revisionPath = CreateRevisionExcelPath(
                 sourceExcelPath,
                 compCd,
-                docName,
+                kindCode,
                 docCode,
                 departmentId
             );
@@ -1335,13 +1575,7 @@ namespace WebApplication1.Controllers
 
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
-        public IActionResult MapSave(
-            [FromForm] string descriptor,
-            [FromForm] string? excelPath,
-            [FromForm] string? previewJson,
-            [FromForm] string? docCode,
-            [FromForm] SpreadsheetClientState? spreadsheetState
-        )
+        public IActionResult MapSave([FromForm] string descriptor, [FromForm] string? excelPath, [FromForm] string? previewJson, [FromForm] string? docCode, [FromForm] SpreadsheetClientState? spreadsheetState)
         {
             var swAll = Stopwatch.StartNew();
 
@@ -1399,6 +1633,10 @@ namespace WebApplication1.Controllers
                 return BadRequest("Invalid descriptor (CompCd/DocName)");
 
             var deptIdToSave = model.DepartmentId ?? 0;
+
+            var mapScopeGuard = ValidateTemplateScopeForSave(model.CompCd, deptIdToSave, model.Kind);
+            if (mapScopeGuard is not null)
+                return mapScopeGuard;
 
             model.Fields = ExpandFieldsRange(model.Fields ?? new List<FieldDef>());
             var ck = ValidateFieldKeys(model.Fields);
@@ -1469,13 +1707,7 @@ namespace WebApplication1.Controllers
 
             var fileSetStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            var tempExcelPath = CreateRevisionExcelPath(
-                excelPath,
-                model.CompCd,
-                model.DocName,
-                docCodeToSave,
-                deptIdToSave
-            );
+            var tempExcelPath = CreateRevisionExcelPath(excelPath, model.CompCd, model.Kind, docCodeToSave, deptIdToSave);
 
             try
             {
@@ -1539,25 +1771,25 @@ namespace WebApplication1.Controllers
 
                 var p = new[]
                 {
-                    new SqlParameter("@CompCd", SqlDbType.NVarChar, 10){ Value = model.CompCd },
-                    new SqlParameter("@DepartmentId", SqlDbType.Int){ Value = deptIdToSave },
-                    new SqlParameter("@KindCode", SqlDbType.NVarChar, 20){ Value = (object?)model.Kind ?? DBNull.Value },
-                    new SqlParameter("@DocCode", SqlDbType.NVarChar, 40){ Value = docCodeToSave },
-                    new SqlParameter("@DocName", SqlDbType.NVarChar, 200){ Value = model.DocName },
-                    new SqlParameter("@Title", SqlDbType.NVarChar, 200){ Value = (object?)model.Title ?? DBNull.Value },
-                    new SqlParameter("@ApprovalCount", SqlDbType.Int){ Value = model.ApprovalCount },
-                    new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1){ Value = descriptorJson },
-                    new SqlParameter("@PreviewJson", SqlDbType.NVarChar, -1){ Value = (object?)previewJson ?? DBNull.Value },
-                    new SqlParameter("@ExcelFileName", SqlDbType.NVarChar, 255){ Value = tempExcelFileName },
-                    new SqlParameter("@ExcelStorage", SqlDbType.NVarChar, 20){ Value = "Disk" },
-                    new SqlParameter("@ExcelFilePath", SqlDbType.NVarChar, 500){ Value = tempExcelPath },
-                    new SqlParameter("@ExcelFileSize", SqlDbType.BigInt){ Value = tempExcelSize },
-                    new SqlParameter("@ExcelContentType", SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-                    new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
-                    pOutTemplateId,
-                    pOutVersionId,
-                    pOutVersionNo
-                };
+            new SqlParameter("@CompCd", SqlDbType.NVarChar, 10){ Value = model.CompCd },
+            new SqlParameter("@DepartmentId", SqlDbType.Int){ Value = deptIdToSave },
+            new SqlParameter("@KindCode", SqlDbType.NVarChar, 20){ Value = (object?)model.Kind ?? DBNull.Value },
+            new SqlParameter("@DocCode", SqlDbType.NVarChar, 40){ Value = docCodeToSave },
+            new SqlParameter("@DocName", SqlDbType.NVarChar, 200){ Value = model.DocName },
+            new SqlParameter("@Title", SqlDbType.NVarChar, 200){ Value = (object?)model.Title ?? DBNull.Value },
+            new SqlParameter("@ApprovalCount", SqlDbType.Int){ Value = model.ApprovalCount },
+            new SqlParameter("@DescriptorJson", SqlDbType.NVarChar, -1){ Value = descriptorJson },
+            new SqlParameter("@PreviewJson", SqlDbType.NVarChar, -1){ Value = (object?)previewJson ?? DBNull.Value },
+            new SqlParameter("@ExcelFileName", SqlDbType.NVarChar, 255){ Value = tempExcelFileName },
+            new SqlParameter("@ExcelStorage", SqlDbType.NVarChar, 20){ Value = "Disk" },
+            new SqlParameter("@ExcelFilePath", SqlDbType.NVarChar, 500){ Value = tempExcelPath },
+            new SqlParameter("@ExcelFileSize", SqlDbType.BigInt){ Value = tempExcelSize },
+            new SqlParameter("@ExcelContentType", SqlDbType.NVarChar, 100){ Value = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+            new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100){ Value = (User?.Identity?.Name ?? "system") },
+            pOutTemplateId,
+            pOutVersionId,
+            pOutVersionNo
+        };
 
                 const string sql =
                     "EXEC dbo.sp_DocTemplate_SaveFromDescriptor " +
@@ -1586,14 +1818,7 @@ namespace WebApplication1.Controllers
             var finalExcelPath = tempExcelPath;
             try
             {
-                finalExcelPath = BuildVersionedExcelPath(
-                    tempExcelPath,
-                    model.CompCd,
-                    model.DocName,
-                    docCodeToSave,
-                    outVersionNo,
-                    fileSetStamp
-                );
+                finalExcelPath = BuildVersionedExcelPath(tempExcelPath, model.CompCd, model.Kind, docCodeToSave, outVersionNo, fileSetStamp, deptIdToSave);
 
                 if (!string.Equals(tempExcelPath, finalExcelPath, StringComparison.OrdinalIgnoreCase)
                     && System.IO.File.Exists(tempExcelPath))
@@ -1630,8 +1855,12 @@ namespace WebApplication1.Controllers
                 : 0L;
             var finalExcelRelPath = ToAppDataRelativePath(finalExcelPath);
 
+            var excelDbSyncOk = false;
+
             try
             {
+                using var tx = _db.Database.BeginTransaction();
+
                 const string sqlUpdateVersion = @"
 UPDATE dbo.DocTemplateVersion
    SET ExcelFileName = @ExcelFileName,
@@ -1663,10 +1892,30 @@ UPDATE dbo.DocTemplateFile
                     new SqlParameter("@ExcelFileSize", SqlDbType.BigInt) { Value = finalExcelSize },
                     new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = outVersionId }
                 );
+
+                tx.Commit();
+                excelDbSyncOk = true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("[DocTLDX][MapSave] Excel DB sync update failed: " + ex);
+
+                TryRollbackFinalExcelToTemp(finalExcelPath, tempExcelPath);
+
+                TempData["Alert"] = "Excel DB path sync failed: " + ex.Message;
+
+                return RedirectToAction(nameof(MapSaved), new
+                {
+                    path = "",
+                    excelPath = System.IO.File.Exists(tempExcelPath) ? tempExcelPath : finalExcelPath,
+                    fields = model.Fields?.Count ?? 0,
+                    approvals = model.Approvals?.Count ?? 0
+                });
+            }
+
+            if (excelDbSyncOk)
+            {
+                TryDeleteUploadTempExcel(excelPath, finalExcelPath);
             }
 
             var jsonDir = Path.GetDirectoryName(finalExcelPath)
@@ -1674,7 +1923,7 @@ UPDATE dbo.DocTemplateFile
             Directory.CreateDirectory(jsonDir);
 
             var vtag = (outVersionNo > 0) ? $"v{outVersionNo:D4}" : "v0000";
-            var jsonFileName = $"{SafeFilePart(model.CompCd)}_{SafeFilePart(model.DocName)}_{SafeFilePart(docCodeToSave)}_{vtag}_{fileSetStamp}.json";
+            var jsonFileName = $"{SafeFilePart(model.CompCd)}_{SafeFilePart(model.Kind)}_{SafeFilePart(docCodeToSave)}_{vtag}_{fileSetStamp}.json";
             var path = Path.Combine(jsonDir, jsonFileName);
 
             var snap = new
@@ -1697,6 +1946,7 @@ UPDATE dbo.DocTemplateFile
             Debug.WriteLine($"[DocTLDX][MapSave] fileSetStamp={fileSetStamp}");
             Debug.WriteLine($"[DocTLDX][MapSave] tempExcelPath={tempExcelPath}");
             Debug.WriteLine($"[DocTLDX][MapSave] finalExcelPath={finalExcelPath}");
+            Debug.WriteLine($"[DocTLDX][MapSave] excelDbSyncOk={excelDbSyncOk}");
             Debug.WriteLine($"[DocTLDX][MapSave] saved snapshot path={path}");
 
             return RedirectToAction(nameof(MapSaved), new
@@ -1735,36 +1985,29 @@ UPDATE dbo.DocTemplateFile
                 : Path.Combine(_env.ContentRootPath, normalized);
         }
 
-        private string BuildVersionedExcelPath(
-            string currentExcelPath,
-            string compCd,
-            string docName,
-            string docCode,
-            int versionNo,
-            string stamp
-        )
+        private string BuildVersionedExcelPath(string currentExcelPath, string compCd, string? kindCode, string docCode, int versionNo, string stamp, int? departmentId)
         {
-            var dir = Path.GetDirectoryName(currentExcelPath)
-                      ?? Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
-
-            Directory.CreateDirectory(dir);
+            var dir = GetTemplateFinalDirectory(compCd, departmentId);
 
             var ext = Path.GetExtension(currentExcelPath);
-            if (string.IsNullOrWhiteSpace(ext)) ext = ".xlsx";
+            if (string.IsNullOrWhiteSpace(ext))
+                ext = ".xlsx";
+
+            ext = NormalizeExcelExtension(ext);
 
             var safeStamp = string.IsNullOrWhiteSpace(stamp)
                 ? DateTime.Now.ToString("yyyyMMdd_HHmmss")
                 : stamp.Trim();
 
-            var vtag = (versionNo > 0) ? $"v{versionNo:D4}" : "v0000";
+            var fileName = BuildTemplateExcelFileName(compCd, kindCode, docCode, versionNo, safeStamp, ext);
 
-            var fileName = $"{SafeFilePart(compCd)}_{SafeFilePart(docName)}_{SafeFilePart(docCode)}_{vtag}_{safeStamp}{ext}";
             var fullPath = Path.Combine(dir, fileName);
 
             var seq = 1;
             while (System.IO.File.Exists(fullPath))
             {
-                fileName = $"{SafeFilePart(compCd)}_{SafeFilePart(docName)}_{SafeFilePart(docCode)}_{vtag}_{safeStamp}_{seq}{ext}";
+                fileName = BuildTemplateExcelFileName(compCd, kindCode, docCode, versionNo, safeStamp, ext, seq);
+
                 fullPath = Path.Combine(dir, fileName);
                 seq++;
             }

@@ -8,61 +8,87 @@
 
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+		<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
 
 		<EB_BuildDate>$([System.DateTime]::Now.ToString('yyyyMMdd'))</EB_BuildDate>
+		<EB_BuildCounterDir>$(MSBuildProjectDirectory)\.build</EB_BuildCounterDir>
+		<EB_BuildCounterFile>$(EB_BuildCounterDir)\build-number.txt</EB_BuildCounterFile>
+		<EB_BuildVersionFile>$(EB_BuildCounterDir)\build-version.txt</EB_BuildVersionFile>
+		<EB_IncrementBuildNumber>false</EB_IncrementBuildNumber>
 		<InformationalVersion>$(EB_BuildDate).0000</InformationalVersion>
-
-		<GitExe Condition="'$(GitExe)'==''">C:\Program Files\Git\cmd\git.exe</GitExe>
 	</PropertyGroup>
 
-	<Target Name="EB_SetInformationalVersionFromGit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+	<Target Name="EB_EnableBuildNumberIncrementOnRebuild"
+	        BeforeTargets="BeforeRebuild"
+	        Condition="'$(DesignTimeBuild)' != 'true'">
 		<PropertyGroup>
-			<_GitInfoFile>$(IntermediateOutputPath)eb_gitinfo.txt</_GitInfoFile>
-			<_GitInfoScript>$(IntermediateOutputPath)eb_gitinfo.ps1</_GitInfoScript>
-		</PropertyGroup>
-
-		<MakeDir Directories="$(IntermediateOutputPath)" />
-		<Delete Files="$(_GitInfoFile)" Condition="Exists('$(_GitInfoFile)')" />
-		<Delete Files="$(_GitInfoScript)" Condition="Exists('$(_GitInfoScript)')" />
-
-		<ItemGroup>
-			<_EBGitInfoScriptLine Remove="@(_EBGitInfoScriptLine)" />
-			<_EBGitInfoScriptLine Include="$ErrorActionPreference = 'Stop'" />
-			<_EBGitInfoScriptLine Include="$today = Get-Date -Format 'yyyyMMdd'" />
-			<_EBGitInfoScriptLine Include="$git = '$(GitExe)'" />
-			<_EBGitInfoScriptLine Include="$projectDir = '$(MSBuildProjectDirectory)'" />
-			<_EBGitInfoScriptLine Include="$cnt = &amp; $git -C $projectDir rev-list --count HEAD" />
-			<_EBGitInfoScriptLine Include="if ([string]::IsNullOrWhiteSpace($cnt)) { throw 'git count empty' }" />
-			<_EBGitInfoScriptLine Include="$n = [int]([string]$cnt).Trim()" />
-			<_EBGitInfoScriptLine Include="$cnt4 = ('{0:0000}' -f ($n % 10000))" />
-			<_EBGitInfoScriptLine Include="$line = $today + '.' + $cnt4" />
-			<_EBGitInfoScriptLine Include="Set-Content -LiteralPath '$(_GitInfoFile)' -Encoding ASCII -NoNewline -Value $line" />
-		</ItemGroup>
-
-		<WriteLinesToFile
-			File="$(_GitInfoScript)"
-			Lines="@(_EBGitInfoScriptLine)"
-			Overwrite="true" />
-
-		<Exec
-			Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_GitInfoScript)&quot;"
-			IgnoreExitCode="false" />
-
-		<ReadLinesFromFile Condition="Exists('$(_GitInfoFile)')" File="$(_GitInfoFile)">
-			<Output TaskParameter="Lines" PropertyName="_EB_GitInfoLine" />
-		</ReadLinesFromFile>
-
-		<Error
-			Condition="'$(_EB_GitInfoLine)'==''"
-			Text="EB InformationalVersion 생성 실패: Git commit count를 읽지 못했습니다. GitExe=$(GitExe), ProjectDir=$(MSBuildProjectDirectory)" />
-
-		<PropertyGroup>
-			<InformationalVersion>$(_EB_GitInfoLine)</InformationalVersion>
+			<EB_IncrementBuildNumber>true</EB_IncrementBuildNumber>
 		</PropertyGroup>
 
 		<Message
 			Importance="high"
-			Text="EB InformationalVersion=$(InformationalVersion) / GitExe=$(GitExe)" />
+			Text="EB Rebuild requested. Build number increment enabled. CounterFile=$(EB_BuildCounterFile)" />
+	</Target>
+
+	<Target Name="EB_GenerateBuildInfo"
+	        BeforeTargets="CoreCompile"
+	        Condition="'$(DesignTimeBuild)' != 'true'">
+		<PropertyGroup>
+			<_EBBuildInfoScript>$(IntermediateOutputPath)EB.GenerateBuildInfo.ps1</_EBBuildInfoScript>
+			<_EBBuildInfoGeneratedCs>$(IntermediateOutputPath)EB.BuildInfo.g.cs</_EBBuildInfoGeneratedCs>
+			<_EBBuildInfoVersionFile>$(IntermediateOutputPath)EB.BuildInfo.version.txt</_EBBuildInfoVersionFile>
+		</PropertyGroup>
+
+		<MakeDir Directories="$(IntermediateOutputPath)" />
+		<MakeDir Directories="$(EB_BuildCounterDir)" />
+
+		<Delete Files="$(_EBBuildInfoScript)" Condition="Exists('$(_EBBuildInfoScript)')" />
+		<Delete Files="$(_EBBuildInfoGeneratedCs)" Condition="Exists('$(_EBBuildInfoGeneratedCs)')" />
+		<Delete Files="$(_EBBuildInfoVersionFile)" Condition="Exists('$(_EBBuildInfoVersionFile)')" />
+
+		<ItemGroup>
+			<_EBBuildInfoScriptLine Remove="@(_EBBuildInfoScriptLine)" />
+			<_EBBuildInfoScriptLine Include="$ErrorActionPreference = 'Stop'" />
+			<_EBBuildInfoScriptLine Include="$today = Get-Date -Format 'yyyyMMdd'" />
+			<_EBBuildInfoScriptLine Include="$counterFile = '$(EB_BuildCounterFile)'" />
+			<_EBBuildInfoScriptLine Include="$versionStoreFile = '$(EB_BuildVersionFile)'" />
+			<_EBBuildInfoScriptLine Include="$generatedCs = '$(_EBBuildInfoGeneratedCs)'" />
+			<_EBBuildInfoScriptLine Include="$versionFile = '$(_EBBuildInfoVersionFile)'" />
+			<_EBBuildInfoScriptLine Include="$shouldIncrement = '$(EB_IncrementBuildNumber)' -eq 'true'" />
+			<_EBBuildInfoScriptLine Include="if (Test-Path -LiteralPath $counterFile) { $raw = (Get-Content -LiteralPath $counterFile -Raw).Trim() } else { $raw = '0' }" />
+			<_EBBuildInfoScriptLine Include="if ([string]::IsNullOrWhiteSpace($raw)) { $raw = '0' }" />
+			<_EBBuildInfoScriptLine Include="$n = [int]$raw" />
+			<_EBBuildInfoScriptLine Include="if ($shouldIncrement) { $n = $n + 1; Set-Content -LiteralPath $counterFile -Encoding ASCII -NoNewline -Value ([string]$n); $n4 = ('{0:0000}' -f ($n % 10000)); $ver = $today + '.' + $n4; Set-Content -LiteralPath $versionStoreFile -Encoding ASCII -NoNewline -Value $ver } else { if (Test-Path -LiteralPath $versionStoreFile) { $ver = (Get-Content -LiteralPath $versionStoreFile -Raw).Trim() } else { $n4 = ('{0:0000}' -f ($n % 10000)); $ver = $today + '.' + $n4; Set-Content -LiteralPath $versionStoreFile -Encoding ASCII -NoNewline -Value $ver } }" />
+			<_EBBuildInfoScriptLine Include="if ([string]::IsNullOrWhiteSpace($ver)) { throw 'EB build version empty' }" />
+			<_EBBuildInfoScriptLine Include="Set-Content -LiteralPath $versionFile -Encoding ASCII -NoNewline -Value $ver" />
+			<_EBBuildInfoScriptLine Include="$attr = '[assembly: System.Reflection.AssemblyInformationalVersionAttribute(&quot;' + $ver + '&quot;)]'" />
+			<_EBBuildInfoScriptLine Include="Set-Content -LiteralPath $generatedCs -Encoding UTF8 -Value $attr" />
+		</ItemGroup>
+
+		<WriteLinesToFile
+			File="$(_EBBuildInfoScript)"
+			Lines="@(_EBBuildInfoScriptLine)"
+			Overwrite="true" />
+
+		<Exec
+			Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_EBBuildInfoScript)&quot;"
+			IgnoreExitCode="false" />
+
+		<ReadLinesFromFile Condition="Exists('$(_EBBuildInfoVersionFile)')" File="$(_EBBuildInfoVersionFile)">
+			<Output TaskParameter="Lines" PropertyName="InformationalVersion" />
+		</ReadLinesFromFile>
+
+		<ItemGroup>
+			<Compile Include="$(_EBBuildInfoGeneratedCs)" />
+		</ItemGroup>
+
+		<Error
+			Condition="'$(InformationalVersion)' == ''"
+			Text="EB 빌드번호 생성 실패: $(EB_BuildCounterFile) 확인 필요" />
+
+		<Message
+			Importance="high"
+			Text="EB InformationalVersion=$(InformationalVersion) / Increment=$(EB_IncrementBuildNumber) / CounterFile=$(EB_BuildCounterFile)" />
 	</Target>
   
 	<!-- =========================================================
@@ -114,12 +140,15 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!--<PackageReference Include="ClosedXML" Version="0.105.0" /> -->
+		<Content Remove=".build\**" />
+		<None Remove=".build\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="ClosedXML" Version="0.105.0" />
 		<PackageReference Include="DocumentFormat.OpenXml" Version="3.1.1" />
 		
 		<!-- DevExpress v25.2.3 -->
-		<!-- 핵심: MapDevExpressControls/Html.DevExpress() 확장 메서드는 DevExpress.AspNetCore(통합)에 포함되는 케이스가 있어 추가 필요 -->
 		<PackageReference Include="DevExpress.AspNetCore.Common" Version="25.2.3" />
 		<PackageReference Include="DevExpress.AspNetCore.Core" Version="25.2.3" />
 		<PackageReference Include="DevExpress.AspNetCore.Spreadsheet" Version="25.2.3" />
