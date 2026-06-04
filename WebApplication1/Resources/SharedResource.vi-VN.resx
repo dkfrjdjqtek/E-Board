@@ -1467,4 +1467,70 @@
   <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
     <value>Không có đường dẫn để sao chép.</value>
   </data>
+  <data name="Sidebar_Menu3Sub7" xml:space="preserve">
+    <value>Quản lý tài liệu</value>
+  </data>
+  <data name="DM_Title_Manage" xml:space="preserve">
+    <value>Quản lý tài liệu</value>
+  </data>
+  <data name="DM_Desc_Manage" xml:space="preserve">
+    <value>Tra cứu tài liệu đã tạo theo 기간 và trạng thái tiến trình phê duyệt.</value>
+  </data>
+  <data name="DM_Label_FromDate" xml:space="preserve">
+    <value>Từ ngày</value>
+  </data>
+  <data name="DM_Label_ToDate" xml:space="preserve">
+    <value>Đến ngày</value>
+  </data>
+  <data name="DM_Grid_Title" xml:space="preserve">
+    <value>Danh sách tài liệu</value>
+  </data>
+  <data name="DM_Grid_Count" xml:space="preserve">
+    <value>Tổng {0} mục</value>
+  </data>
+  <data name="DM_Message_NoData" xml:space="preserve">
+    <value>Không có tài liệu nào được tìm thấy.</value>
+  </data>
+  <data name="DM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DM_Col_DocId" xml:space="preserve">
+    <value>Mã tài liệu</value>
+  </data>
+  <data name="DM_Col_Title" xml:space="preserve">
+    <value>Tiêu đề</value>
+  </data>
+  <data name="DM_Col_DocName" xml:space="preserve">
+    <value>Tên tài liệu</value>
+  </data>
+  <data name="DM_Col_Status" xml:space="preserve">
+    <value>Trạng thái</value>
+  </data>
+  <data name="DM_Col_CreatedBy" xml:space="preserve">
+    <value>Người tạo</value>
+  </data>
+  <data name="DM_Col_CreatedAt" xml:space="preserve">
+    <value>Ngày tạo</value>
+  </data>
+  <data name="DM_Col_CompCd" xml:space="preserve">
+    <value>Công ty</value>
+  </data>
+  <data name="DM_Col_DepartmentId" xml:space="preserve">
+    <value>Phòng ban</value>
+  </data>
+  <data name="DM_Col_TemplateCode" xml:space="preserve">
+    <value>Mã mẫu</value>
+  </data>
+  <data name="DM_Col_TemplateId" xml:space="preserve">
+    <value>ID mẫu</value>
+  </data>
+  <data name="DM_Col_ApprovalLine" xml:space="preserve">
+    <value>Dòng phê duyệt</value>
+  </data>
+  <data name="DM_Col_ApprovalSummary" xml:space="preserve">
+    <value>Phê duyệt</value>
+  </data>
+  <data name="DM_Col_UpdatedAt" xml:space="preserve">
+    <value>Ngày sửa</value>
+  </data>
 </root>

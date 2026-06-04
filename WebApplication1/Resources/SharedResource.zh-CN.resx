@@ -1467,4 +1467,70 @@
   <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
     <value>没有可复制的路径。</value>
   </data>
+  <data name="Sidebar_Menu3Sub7" xml:space="preserve">
+    <value>文档管理</value>
+  </data>
+  <data name="DM_Title_Manage" xml:space="preserve">
+    <value>文档管理</value>
+  </data>
+  <data name="DM_Desc_Manage" xml:space="preserve">
+    <value>按期间查询已创建文档及审批进度状态。</value>
+  </data>
+  <data name="DM_Label_FromDate" xml:space="preserve">
+    <value>开始日期</value>
+  </data>
+  <data name="DM_Label_ToDate" xml:space="preserve">
+    <value>结束日期</value>
+  </data>
+  <data name="DM_Grid_Title" xml:space="preserve">
+    <value>文档列表</value>
+  </data>
+  <data name="DM_Grid_Count" xml:space="preserve">
+    <value>共 {0} 条</value>
+  </data>
+  <data name="DM_Message_NoData" xml:space="preserve">
+    <value>未找到文档。</value>
+  </data>
+  <data name="DM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DM_Col_DocId" xml:space="preserve">
+    <value>文档代码</value>
+  </data>
+  <data name="DM_Col_Title" xml:space="preserve">
+    <value>标题</value>
+  </data>
+  <data name="DM_Col_DocName" xml:space="preserve">
+    <value>文档名称</value>
+  </data>
+  <data name="DM_Col_Status" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="DM_Col_CreatedBy" xml:space="preserve">
+    <value>创建者</value>
+  </data>
+  <data name="DM_Col_CreatedAt" xml:space="preserve">
+    <value>创建日期</value>
+  </data>
+  <data name="DM_Col_CompCd" xml:space="preserve">
+    <value>公司</value>
+  </data>
+  <data name="DM_Col_DepartmentId" xml:space="preserve">
+    <value>部门</value>
+  </data>
+  <data name="DM_Col_TemplateCode" xml:space="preserve">
+    <value>模板代码</value>
+  </data>
+  <data name="DM_Col_TemplateId" xml:space="preserve">
+    <value>模板ID</value>
+  </data>
+  <data name="DM_Col_ApprovalLine" xml:space="preserve">
+    <value>审批线</value>
+  </data>
+  <data name="DM_Col_ApprovalSummary" xml:space="preserve">
+    <value>审批</value>
+  </data>
+  <data name="DM_Col_UpdatedAt" xml:space="preserve">
+    <value>更新日期</value>
+  </data>
 </root>

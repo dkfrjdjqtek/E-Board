@@ -24,8 +24,8 @@
     var dxCallbackUrl = (string?)ViewBag.DxCallbackUrl ?? "/Doc/dx-callback";
     var dxDocumentId = (string?)ViewBag.DxDocumentId ?? ("compose_" + Guid.NewGuid().ToString("N"));
 
-    var dxTargetHeightPx = (ViewBag.TargetHeightPx is int) ? (int)ViewBag.TargetHeightPx : 900;
-    var dxTargetWidthPx = (ViewBag.TargetWidthPx is int) ? (int)ViewBag.TargetWidthPx : 900;
+    var dxTargetHeightPx = (ViewBag.TargetHeightPx is int h && h > 0) ? h : 0;
+    var dxTargetWidthPx = (ViewBag.TargetWidthPx is int w && w > 0) ? w : 0;
     var dxLastRow = (ViewBag.LastRow is int) ? (int)ViewBag.LastRow : 0;
     var dxLastCol = (ViewBag.LastCol is int) ? (int)ViewBag.LastCol : 0;
     var dxLastA1 = (string?)ViewBag.LastA1 ?? "A1";
@@ -34,11 +34,23 @@
     var dxTargetCol1 = (ViewBag.TargetCol1 is int) ? (int)ViewBag.TargetCol1 : 1;
     var dxVisualMode = (string?)ViewBag.DxVisualMode ?? string.Empty;
 
-    var __padH = Math.Max(24, Math.Min(72, (int)Math.Ceiling(dxTargetHeightPx * 0.02)));
-    var __padW = Math.Max(24, Math.Min(72, (int)Math.Ceiling(dxTargetWidthPx * 0.02)));
 
-    var dxTargetHeightSafePx = dxTargetHeightPx + __padH;
-    var dxTargetWidthSafePx = dxTargetWidthPx + __padW;
+    // 2026.06.04 Changed: 서버 계산값은 최종값이 아니라 초기 힌트값.
+    // 서버값이 없거나 실패한 경우 0으로 두어 클라이언트 fallback 계산을 막지 않음.
+    var __padH = dxTargetHeightPx > 0
+        ? Math.Max(24, Math.Min(120, (int)Math.Ceiling(dxTargetHeightPx * 0.03)))
+        : 0;
+
+    var __padW = dxTargetWidthPx > 0
+        ? Math.Max(24, Math.Min(160, (int)Math.Ceiling(dxTargetWidthPx * 0.03)))
+        : 0;
+
+    var dxTargetHeightSafePx = dxTargetHeightPx > 0 ? dxTargetHeightPx + __padH : 0;
+    var dxTargetWidthSafePx = dxTargetWidthPx > 0 ? dxTargetWidthPx + __padW : 0;
+
+    // DX 최초 렌더링용 임시 크기. 최종 크기는 JS에서 다시 max 계산.
+    var dxInitialHeightPx = dxTargetHeightSafePx > 0 ? dxTargetHeightSafePx : 900;
+    var dxInitialWidthPx = dxTargetWidthSafePx > 0 ? dxTargetWidthSafePx : 900;
 
     var openRel = excelPath;
     try
@@ -210,7 +222,7 @@ else
     #dxComposeWrap {
         position: relative !important;
         display: block !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         background: transparent !important;
         border: 0 !important;
         outline: 0 !important;
@@ -318,7 +330,6 @@ else
         pointer-events: none !important;
     }
 
-        /* 헤더 내부 텍스트/아이콘도 같이 숨김 */
         #dxComposeWrap #dxComposeSheet_ColumnHeader *,
         #dxComposeWrap #dxComposeSheet_RowHeader *,
         #dxComposeWrap #dxComposeSheet_SSB *,
@@ -343,44 +354,33 @@ else
             pointer-events: none !important;
         }
 
-    /* 선택 오프셋 확인용으로 wrap 기준점은 유지 */
-    #dxComposeWrap {
-        position: relative !important;
-        display: block !important;
-        overflow: hidden !important;
-        background: transparent !important;
-        border: 0 !important;
-        outline: 0 !important;
-        box-shadow: none !important;
+    #dxComposeWrap #dxComposeSheet_ScrollContainer,
+    #dxComposeWrap #dxComposeSheet_Grid,
+    #dxComposeWrap [id$="_ScrollContainer"],
+    #dxComposeWrap [id$="_Grid"] {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
     }
 
-        #dxComposeWrap #dxComposeSheet_ScrollContainer,
-        #dxComposeWrap #dxComposeSheet_Grid,
-        #dxComposeWrap [id$="_ScrollContainer"],
-        #dxComposeWrap [id$="_Grid"] {
-            scrollbar-width: none !important;
-            -ms-overflow-style: none !important;
+        #dxComposeWrap #dxComposeSheet_ScrollContainer::-webkit-scrollbar,
+        #dxComposeWrap #dxComposeSheet_Grid::-webkit-scrollbar,
+        #dxComposeWrap [id$="_ScrollContainer"]::-webkit-scrollbar,
+        #dxComposeWrap [id$="_Grid"]::-webkit-scrollbar {
+            width: 0 !important;
+            height: 0 !important;
         }
 
-            #dxComposeWrap #dxComposeSheet_ScrollContainer::-webkit-scrollbar,
-            #dxComposeWrap #dxComposeSheet_Grid::-webkit-scrollbar,
-            #dxComposeWrap [id$="_ScrollContainer"]::-webkit-scrollbar,
-            #dxComposeWrap [id$="_Grid"]::-webkit-scrollbar {
-                width: 0 !important;
-                height: 0 !important;
-            }
+    #dxComposeWrap #dxComposeSheet_ScrollContainer,
+    #dxComposeWrap [id$="_ScrollContainer"] {
+        overflow-x: hidden !important;
+        overflow-y: hidden !important;
+    }
 
-        #dxComposeWrap #dxComposeSheet_ScrollContainer,
-        #dxComposeWrap [id$="_ScrollContainer"] {
-            overflow-x: hidden !important;
-            overflow-y: hidden !important;
-        }
-
-        #dxComposeWrap *,
-        #dxComposeWrap *:focus {
-            outline: none !important;
-            box-shadow: none !important;
-        }
+    #dxComposeWrap *,
+    #dxComposeWrap *:focus {
+        outline: none !important;
+        box-shadow: none !important;
+    }
 
     .doc-upload-area,
     .doc-share-area {
@@ -476,7 +476,7 @@ else
         </script>
 
         <div id="dxComposeWrap"
-             style="height:@(dxTargetHeightSafePx)px; min-height:@(dxTargetHeightSafePx)px; width:@(dxTargetWidthSafePx)px; min-width:@(dxTargetWidthSafePx)px; max-width:@(dxTargetWidthSafePx)px;">
+             style="height:@(dxInitialHeightPx)px; min-height:@(dxInitialHeightPx)px; width:@(dxInitialWidthPx)px; min-width:@(dxInitialWidthPx)px;">
             @{
                 Html.DevExpress().Spreadsheet("dxComposeSheet")
                 .Height("100%")
@@ -800,25 +800,15 @@ else
                     (b.t && b.t !== 'None') || (b.b && b.b !== 'None')
                 );
             }
-
+                 
             function computePreviewExtent(preview) {
                 const serverWidth = Number(state.serverExtent?.width || 0);
                 const serverHeight = Number(state.serverExtent?.height || 0);
                 const serverSafeWidth = Number(state.serverExtent?.safeWidth || 0);
                 const serverSafeHeight = Number(state.serverExtent?.safeHeight || 0);
-                const serverLastCol = Number(state.serverExtent?.lastCol || 0);
-
-                if (serverWidth > 0 && serverHeight > 0) {
-                    state._effectiveMaxC = Math.max(1, serverLastCol + 1);
-                    state._colSum = Math.max(0, serverWidth - 12);
-
-                    console.log('[DX] serverExtent mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1, 'width=', serverSafeWidth || serverWidth, 'height=', serverSafeHeight || serverHeight);
-
-                    return {
-                        width: serverSafeWidth > 0 ? serverSafeWidth : serverWidth,
-                        height: serverSafeHeight > 0 ? serverSafeHeight : serverHeight
-                    };
-                }
+                const serverLastCol0 = Number(state.serverExtent?.lastCol || 0);
+                const serverTargetRow1 = Number(state.serverExtent?.targetRow1 || 0);
+                const serverTargetCol1 = Number(state.serverExtent?.targetCol1 || 0);
 
                 const p = preview || {};
                 const styles = p.styles || {};
@@ -829,12 +819,20 @@ else
                 const colPx = Array.isArray(p.colPx) ? p.colPx : [];
                 const rowPx = Array.isArray(p.rowPx) ? p.rowPx : [];
 
-                let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+                let minR = Infinity;
+                let maxR = -Infinity;
+                let minC = Infinity;
+                let maxC = -Infinity;
                 let contentMergeMaxC = 0;
+
                 function mark(r, c) {
-                    minR = Math.min(minR, r); maxR = Math.max(maxR, r);
-                    minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+                    if (!Number.isFinite(r) || !Number.isFinite(c) || r < 1 || c < 1) return;
+                    minR = Math.min(minR, r);
+                    maxR = Math.max(maxR, r);
+                    minC = Math.min(minC, c);
+                    maxC = Math.max(maxC, c);
                 }
+
                 for (let r = 1; r <= cells.length; r++) {
                     const row = Array.isArray(cells[r - 1]) ? cells[r - 1] : [];
                     for (let c = 1; c <= row.length; c++) {
@@ -845,65 +843,155 @@ else
                         }
                     }
                 }
+
                 for (const m of merges) {
                     if (!Array.isArray(m) || m.length < 4) continue;
-                    const r1 = parseInt(m[0], 10) || 0, c1 = parseInt(m[1], 10) || 0;
-                    const r2 = parseInt(m[2], 10) || 0, c2 = parseInt(m[3], 10) || 0;
-                    if (r1 > 0 && c1 > 0) mark(r1, c1);
-                    if (r2 > 0 && c2 > 0) mark(r2, c2);
+
+                    const r1 = parseInt(m[0], 10) || 0;
+                    const c1 = parseInt(m[1], 10) || 0;
+                    const r2 = parseInt(m[2], 10) || 0;
+                    const c2 = parseInt(m[3], 10) || 0;
+
+                    mark(r1, c1);
+                    mark(r2, c2);
+
                     if (c2 > contentMergeMaxC) contentMergeMaxC = c2;
                 }
+
                 if (contentMergeMaxC > 0) {
                     for (let r = 1; r <= cells.length; r++) {
                         for (let c = 1; c <= contentMergeMaxC; c++) {
                             const st = styles[`${r},${c}`];
                             if (!st) continue;
+
                             const b = st.border || {};
-                            if ((b.l && b.l !== 'None') || (b.r && b.r !== 'None') ||
-                                (b.t && b.t !== 'None') || (b.b && b.b !== 'None')) {
+                            if ((b.l && b.l !== 'None') ||
+                                (b.r && b.r !== 'None') ||
+                                (b.t && b.t !== 'None') ||
+                                (b.b && b.b !== 'None')) {
                                 mark(r, c);
                             }
                         }
                     }
                 }
 
-                const contentMaxR = isFinite(maxR) ? maxR : (p.rows || 1);
                 if (!isFinite(minR) || !isFinite(minC)) {
-                    minR = 1; maxR = Math.max(1, p.rows || 1);
-                    minC = 1; maxC = Math.max(1, p.cols || 1);
-                } else {
-                    maxR = Math.max(maxR, p.rows || maxR);
+                    minR = 1;
+                    maxR = 1;
+                    minC = 1;
+                    maxC = 1;
                 }
 
-                const maxColsFromCells = Math.max(...cells.map(r => Array.isArray(r) ? r.length : 0), 1);
-                maxC = Math.min(Math.max(maxC, 1), maxColsFromCells);
-                const effectiveMaxC = contentMergeMaxC || maxC || 1;
-                minC = Math.max(minC, 1);
+                const effectiveMaxC = Math.max(
+                    1,
+                    contentMergeMaxC || maxC || 1,
+                    serverLastCol0 > 0 ? serverLastCol0 + 1 : 1,
+                    serverTargetCol1 > 0 ? serverTargetCol1 : 1
+                );
+
+                const effectiveMaxR = Math.max(
+                    1,
+                    maxR || 1,
+                    serverTargetRow1 > 0 ? serverTargetRow1 : 1
+                );
+
                 state._effectiveMaxC = effectiveMaxC;
+                state._effectiveMaxR = effectiveMaxR;
 
                 let colSum = 0;
                 for (let c = 1; c <= effectiveMaxC; c++) {
-                    if (colPx[c - 1] > 0) {
-                        colSum += colPx[c - 1];
+                    if (Number(colPx[c - 1] || 0) > 0) {
+                        colSum += Number(colPx[c - 1]);
                     } else {
                         colSum += Math.round(Number(colW[c - 1] ?? 8.43) * 7 + 5);
                     }
                 }
+
                 state._colSum = colSum;
 
-                let height = 0;
-                for (let r = minR; r <= maxR; r++) {
-                    const px = rowPx[r - 1] > 0 ? rowPx[r - 1] : ((Number(rowH[r - 1]) || 0) * 96 / 72);
-                    height += (r <= contentMaxR) ? px : px * 0.5;
+                let rowSum = 0;
+                for (let r = 1; r <= effectiveMaxR; r++) {
+                    if (Number(rowPx[r - 1] || 0) > 0) {
+                        rowSum += Number(rowPx[r - 1]);
+                    } else {
+                        const pt = Number(rowH[r - 1] || 15);
+                        rowSum += pt * 96 / 72;
+                    }
                 }
 
-                console.log(`[DX] fallback contentMergeMaxC=${contentMergeMaxC}, effectiveMaxC=${effectiveMaxC}, colSum=${colSum}`);
+                const previewWidth = Math.ceil(colSum + 48);
+                const previewHeight = Math.ceil(rowSum + 40);
+
+                const widthCandidates = [
+                    serverSafeWidth,
+                    serverWidth,
+                    previewWidth
+                ].filter(v => Number.isFinite(v) && v > 0);
+
+                /*
+                  높이는 previewJson의 전체 rows/p.rows를 사용하지 않는다.
+                  일부 템플릿에서 previewJson 행 범위가 실제 문서보다 커져 3000px 이상으로 튀는 문제 방지.
+                  서버 visual extent가 있으면 서버 높이를 우선하고, previewHeight는 실제 감지 행 기준 보조값으로만 사용.
+                */                        
+                const serverMode = String(state.serverExtent?.mode || '');
+                const hasReliableServerHeight =
+                    serverSafeHeight > 0 &&
+                    serverHeight > 0 &&
+                    serverMode !== 'ErrorFallbackToClient' &&
+                    !serverMode.startsWith('Error');
+
+                const width = Math.max(900, ...widthCandidates);
+
+                /*
+                    높이는 폭처럼 max()로 잡지 않는다.
+                    previewJson은 일부 템플릿에서 실제 문서 끝보다 크게 계산될 수 있으므로,
+                    서버 VisualTrim 높이가 있으면 서버값을 우선한다.
+                */
+                let height;
+
+                if (hasReliableServerHeight) {
+                    height = Math.max(600, serverSafeHeight);
+                } else {
+                    const heightCandidates = [
+                        serverSafeHeight,
+                        serverHeight,
+                        previewHeight
+                    ].filter(v => Number.isFinite(v) && v > 0);
+
+                    height = Math.max(600, ...heightCandidates);
+                }
+
+                console.log('[DX] computePreviewExtent:', {
+                    mode: state.serverExtent?.mode,
+                    lastA1: state.serverExtent?.lastA1,
+                    effectiveMaxR,
+                    effectiveMaxC,
+                    serverWidth,
+                    serverSafeWidth,
+                    previewWidth,
+                    finalHintWidth: width,
+                    serverHeight,
+                    serverSafeHeight,
+                    previewHeight,
+                    hasReliableServerHeight,
+                    finalHintHeight: height
+                });
 
                 return {
-                    width: Math.max(600, Math.ceil(colSum + 30 + 16)),
-                    height: Math.max(520, Math.ceil(height + Math.max(80, Math.min(200, Math.ceil(height * 0.05)))))
-                };
+                    width,
+                    height,
+                    serverWidth,
+                    serverHeight,
+                    serverSafeWidth,
+                    serverSafeHeight,
+                    previewWidth,
+                    previewHeight,
+                    effectiveMaxR,
+                    effectiveMaxC,
+                    hasReliableServerHeight
+                };                
             }
+
 
             // ──────────────────────────────────────────
             // 편집 가능 셀 맵 구축
@@ -1679,42 +1767,169 @@ else
 
             // ──────────────────────────────────────────
             // DX 레이아웃
-            // ──────────────────────────────────────────
-
-            function applyDxWrapSize() {
+            // ──────────────────────────────────────────                   
+            function measureDxRenderedExtent() {
                 const wrap = document.getElementById('dxComposeWrap');
-                const ext = computePreviewExtent(state.preview);
-                state.previewExtent = ext;
-                wrap.style.setProperty('height', ext.height + 'px', 'important');
-                wrap.style.setProperty('min-height', ext.height + 'px', 'important');
+                if (!wrap) return { width: 0, height: 0 };
+
+                let width = 0;
+                let height = 0;
+
+                function take(node) {
+                    if (!node) return;
+
+                    try {
+                        const rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+
+                        width = Math.max(
+                            width,
+                            Number(node.scrollWidth || 0),
+                            Number(node.offsetWidth || 0),
+                            rect ? Math.ceil(rect.width || 0) : 0
+                        );
+
+                        height = Math.max(
+                            height,
+                            Number(node.scrollHeight || 0),
+                            Number(node.offsetHeight || 0),
+                            rect ? Math.ceil(rect.height || 0) : 0
+                        );
+                    } catch { }
+                }
+
+                const selectors = [
+                    '#dxComposeSheet_WBC',
+                    '#dxComposeSheet_Grid',
+                    '#dxComposeSheet_ScrollContainer',
+                    '[id$="_WBC"]',
+                    '[id$="_Grid"]',
+                    '[id$="_ScrollContainer"]',
+                    '[id*="_ScrollContent"]',
+                    '.dxssControlSys',
+                    '.dxss-md',
+                    '.dxss-page',
+                    '.dxss-print-area'
+                ];
+
+                take(wrap);
+
+                for (const sel of selectors) {
+                    try {
+                        wrap.querySelectorAll(sel).forEach(take);
+                    } catch { }
+                }
+
+                try {
+                    const itFrame = document.getElementById('dxComposeSheet_IT');
+                    const iDoc = itFrame?.contentDocument || itFrame?.contentWindow?.document;
+                    if (iDoc) {
+                        take(iDoc.documentElement);
+                        take(iDoc.body);
+                    }
+                } catch { }
+
+                return {
+                    width: Math.ceil(width),
+                    height: Math.ceil(height)
+                };
+            }
+                    
+            function resolveDxExtent(baseExtent) {
+                const base = baseExtent || { width: 0, height: 0 };
+                const rendered = measureDxRenderedExtent();
+
+                const currentW = Number(state._lastAppliedWidth || 0);
+
+                /*
+                  폭은 DevExpress 실제 렌더 폭을 참고한다.
+                  높이는 DevExpress DOM 값을 참고하지 않는다.
+                  Grid/ScrollContainer가 가상 스크롤 때문에 100000px 같은 값을 만들 수 있기 때문.
+                */
+                const renderedW = rendered.width > currentW + 2 ? rendered.width : 0;
+
+                const DX_RENDER_SAFE_W = 160;
+                const DX_RENDER_SAFE_H = 32;
+
+                const width = Math.ceil(Math.max(
+                    900,
+                    Number(base.width || 0),
+                    renderedW
+                ) + DX_RENDER_SAFE_W);
+
+                const height = Math.ceil(Math.max(
+                    600,
+                    Number(base.height || 0)
+                ) + DX_RENDER_SAFE_H);
+
+                console.log('[DX] resolveDxExtent:', {
+                    baseWidth: base.width,
+                    renderedWidth: rendered.width,
+                    usedRenderedWidth: renderedW,
+                    finalWidth: width,
+                    baseHeight: base.height,
+                    renderedHeightIgnored: rendered.height,
+                    finalHeight: height,
+                    mode: state.serverExtent?.mode,
+                    lastA1: state.serverExtent?.lastA1
+                });
+
+                return { width, height };
+            }
+
+            function applyExtentToDxWrap(ext) {
+                const wrap = document.getElementById('dxComposeWrap');
+                if (!wrap || !ext || ext.width <= 0 || ext.height <= 0) return;
+
                 wrap.style.setProperty('width', ext.width + 'px', 'important');
                 wrap.style.setProperty('min-width', ext.width + 'px', 'important');
-                wrap.style.setProperty('max-width', ext.width + 'px', 'important');
-                wrap.style.setProperty('overflow', 'hidden', 'important');
-                console.log('[DX] applyDxWrapSize:', { width: ext.width, height: ext.height, mode: state.serverExtent?.mode, lastA1: state.serverExtent?.lastA1 });
+                wrap.style.removeProperty('max-width');
+
+                wrap.style.setProperty('height', ext.height + 'px', 'important');
+                wrap.style.setProperty('min-height', ext.height + 'px', 'important');
+                wrap.style.setProperty('overflow', 'visible', 'important');
+
+                state._lastAppliedWidth = ext.width;
+                state._lastAppliedHeight = ext.height;
+            }
+                    
+            function applyDxWrapSize() {
+                const base = computePreviewExtent(state.preview);
+
+                state.basePreviewExtent = base;
+                state.previewExtent = resolveDxExtent(base);
+
+                applyExtentToDxWrap(state.previewExtent);
+
+                console.log('[DX] applyDxWrapSize:', {
+                    width: state.previewExtent.width,
+                    height: state.previewExtent.height,
+                    mode: state.serverExtent?.mode,
+                    lastA1: state.serverExtent?.lastA1
+                });
             }
 
             function clampDxHorizontalExtent() {
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap) return;
 
-                const previewWidth = Number(state.previewExtent?.width || 0);
-                const serverSafeWidth = Number(state.serverExtent?.safeWidth || 0);
-                const serverWidth = Number(state.serverExtent?.width || 0);
-                const finalWidth = previewWidth > 0
-                    ? previewWidth
-                    : (serverSafeWidth > 0 ? serverSafeWidth : (serverWidth > 0 ? serverWidth : 900));
+                const base = state.basePreviewExtent || computePreviewExtent(state.preview);
+                const ext = resolveDxExtent(base);
 
-                wrap.style.setProperty('width', finalWidth + 'px', 'important');
-                wrap.style.setProperty('min-width', finalWidth + 'px', 'important');
-                wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
+                state.basePreviewExtent = base;
+                state.previewExtent = ext;
+
+                applyExtentToDxWrap(ext);
 
                 const inner =
                     document.getElementById('dxComposeSheet_ScrollContainer')
                     || document.getElementById('dxComposeSheet_Grid')
                     || $('[id$="_ScrollContainer"]', wrap)
                     || $('[id$="_Grid"]', wrap);
-                if (inner) { inner.scrollLeft = 0; inner.scrollTop = 0; }
+
+                if (inner) {
+                    inner.scrollLeft = 0;
+                    inner.scrollTop = 0;
+                }
             }
 
             function installOuterScrollOnly() {
@@ -2340,30 +2555,21 @@ else
                 document.getElementById('btn-cancel')?.addEventListener('click', async () => {
                     markIntentionalLeave();
                     await deleteDxTemp();
-                    history.length > 1 ? history.back() : (location.href = '/Doc/Newㅅ');
+                    history.length > 1 ? history.back() : (location.href = '/Doc/New');
                 });
             }
 
             function hookDxReady() {
                 installOuterScrollOnly();
-
+                        
                 function applySize() {
-                    const ext = state.previewExtent;
-                    if (!ext || ext.height <= 0 || ext.width <= 0) return;
+                    const base = state.basePreviewExtent || computePreviewExtent(state.preview);
+                    state.basePreviewExtent = base;
+                    state.previewExtent = resolveDxExtent(base);
 
-                    const wrap = document.getElementById('dxComposeWrap');
-                    if (!wrap) return;
+                    applyExtentToDxWrap(state.previewExtent);
 
-                    wrap.style.setProperty('width', ext.width + 'px', 'important');
-                    wrap.style.setProperty('min-width', ext.width + 'px', 'important');
-                    wrap.style.setProperty('max-width', ext.width + 'px', 'important');
-                    wrap.style.setProperty('height', ext.height + 'px', 'important');
-                    wrap.style.setProperty('min-height', ext.height + 'px', 'important');
-                    wrap.style.setProperty('overflow', 'hidden', 'important');
-
-                    clampDxHorizontalExtent();
-
-                    console.log('[DX] applySize width=', ext.width, 'height=', ext.height, 'mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1);
+                    console.log('[DX] applySize width=', state.previewExtent.width, 'height=', state.previewExtent.height, 'mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1);
 
                     const scroll = document.getElementById('doc-scroll');
                     if (scroll) scroll.classList.add('dx-page-ready');

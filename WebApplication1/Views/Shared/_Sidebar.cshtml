@@ -11,7 +11,8 @@
     || path.StartsWith("/role")
     || path.StartsWith("/mfa")
     || path.StartsWith("/adminuserprofile")
-    || path.StartsWith("/doctl/doctemplatemanage");
+    | path.StartsWith("/doctemplatemanage")
+    || path.StartsWith("/docmanage");
 }
 
 <!-- <nav id="sidebar-accordion" class="nav flex-column vh-100 bg-dark text-light px-0">-->
@@ -118,6 +119,14 @@
                      alt="@(S["Sidebar_Menu3Sub6"])"
                      width="36" height="36" class="me-2" />
                 <span>@S["Sidebar_Menu3Sub6"]</span>
+            </a>
+
+            <a class="nav-link @(string.Equals(ViewContext.RouteData.Values["controller"]?.ToString(), "DocManage", StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+               asp-area="" asp-controller="DocManage" asp-action="Index">
+                <img src="~/images/sidebar2-approval.png"
+                     alt="@(S["Sidebar_Menu3Sub7"])"
+                     width="36" height="36" class="me-2" />
+                <span>@S["Sidebar_Menu3Sub7"]</span>
             </a>
         }
 

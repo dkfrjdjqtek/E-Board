@@ -3,6 +3,7 @@
 @using System.Reflection
 @using System.Text.RegularExpressions
 @using System.Text.Json
+@using System.Globalization
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 <!DOCTYPE html>
 <html lang="en">
@@ -32,6 +33,171 @@
     {
         <!-- 중요: DevExtreme(dx.all.js)는 한 페이지에서 1회만 로드되어야 합니다(E0024 방지). -->
         <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
+
+        <script>
+            (function () {
+                if (!window.DevExpress || !DevExpress.localization) return;
+
+                const currentCulture = '@CultureInfo.CurrentUICulture.Name';
+                const lang = (currentCulture || 'ko-KR').toLowerCase();
+
+                let dxLocale = 'ko';
+                if (lang.startsWith('vi')) dxLocale = 'vi';
+                else if (lang.startsWith('en')) dxLocale = 'en';
+                else if (lang.startsWith('id')) dxLocale = 'id';
+                else if (lang.startsWith('zh')) dxLocale = 'zh';
+
+                DevExpress.localization.loadMessages({
+                    ko: {
+                        Yes: '예',
+                        No: '아니오',
+                        OK: '확인',
+                        Cancel: '취소',
+                        Clear: '지우기',
+                        Search: '검색',
+
+                        'dxList-selectAll': '전체 선택',
+
+                        'dxDataGrid-headerFilterOK': '확인',
+                        'dxDataGrid-headerFilterCancel': '취소',
+                        'dxDataGrid-headerFilterEmptyValue': '(빈 값)',
+
+                        'dxDataGrid-filterRowOperationEquals': '같음',
+                        'dxDataGrid-filterRowOperationNotEquals': '같지 않음',
+                        'dxDataGrid-filterRowOperationLess': '보다 작음',
+                        'dxDataGrid-filterRowOperationLessOrEquals': '작거나 같음',
+                        'dxDataGrid-filterRowOperationGreater': '보다 큼',
+                        'dxDataGrid-filterRowOperationGreaterOrEquals': '크거나 같음',
+                        'dxDataGrid-filterRowOperationStartsWith': '다음으로 시작',
+                        'dxDataGrid-filterRowOperationContains': '포함',
+                        'dxDataGrid-filterRowOperationNotContains': '포함하지 않음',
+                        'dxDataGrid-filterRowOperationEndsWith': '다음으로 끝남',
+                        'dxDataGrid-filterRowOperationBetween': '사이',
+                        'dxDataGrid-filterRowOperationBetweenStartText': '시작',
+                        'dxDataGrid-filterRowOperationBetweenEndText': '끝',
+                        'dxDataGrid-filterRowResetOperationText': '초기화'
+                    },
+                    vi: {
+                        Yes: 'Có',
+                        No: 'Không',
+                        OK: 'OK',
+                        Cancel: 'Hủy',
+                        Clear: 'Xóa',
+                        Search: 'Tìm kiếm',
+
+                        'dxList-selectAll': 'Chọn tất cả',
+
+                        'dxDataGrid-headerFilterOK': 'OK',
+                        'dxDataGrid-headerFilterCancel': 'Hủy',
+                        'dxDataGrid-headerFilterEmptyValue': '(Trống)',
+
+                        'dxDataGrid-filterRowOperationEquals': 'Bằng',
+                        'dxDataGrid-filterRowOperationNotEquals': 'Không bằng',
+                        'dxDataGrid-filterRowOperationLess': 'Nhỏ hơn',
+                        'dxDataGrid-filterRowOperationLessOrEquals': 'Nhỏ hơn hoặc bằng',
+                        'dxDataGrid-filterRowOperationGreater': 'Lớn hơn',
+                        'dxDataGrid-filterRowOperationGreaterOrEquals': 'Lớn hơn hoặc bằng',
+                        'dxDataGrid-filterRowOperationStartsWith': 'Bắt đầu bằng',
+                        'dxDataGrid-filterRowOperationContains': 'Chứa',
+                        'dxDataGrid-filterRowOperationNotContains': 'Không chứa',
+                        'dxDataGrid-filterRowOperationEndsWith': 'Kết thúc bằng',
+                        'dxDataGrid-filterRowOperationBetween': 'Trong khoảng',
+                        'dxDataGrid-filterRowOperationBetweenStartText': 'Từ',
+                        'dxDataGrid-filterRowOperationBetweenEndText': 'Đến',
+                        'dxDataGrid-filterRowResetOperationText': 'Đặt lại'
+                    },
+                    en: {
+                        Yes: 'Yes',
+                        No: 'No',
+                        OK: 'OK',
+                        Cancel: 'Cancel',
+                        Clear: 'Clear',
+                        Search: 'Search',
+
+                        'dxList-selectAll': 'Select All',
+
+                        'dxDataGrid-headerFilterOK': 'OK',
+                        'dxDataGrid-headerFilterCancel': 'Cancel',
+                        'dxDataGrid-headerFilterEmptyValue': '(Blanks)',
+
+                        'dxDataGrid-filterRowOperationEquals': 'Equals',
+                        'dxDataGrid-filterRowOperationNotEquals': 'Does not equal',
+                        'dxDataGrid-filterRowOperationLess': 'Less than',
+                        'dxDataGrid-filterRowOperationLessOrEquals': 'Less than or equal to',
+                        'dxDataGrid-filterRowOperationGreater': 'Greater than',
+                        'dxDataGrid-filterRowOperationGreaterOrEquals': 'Greater than or equal to',
+                        'dxDataGrid-filterRowOperationStartsWith': 'Starts with',
+                        'dxDataGrid-filterRowOperationContains': 'Contains',
+                        'dxDataGrid-filterRowOperationNotContains': 'Does not contain',
+                        'dxDataGrid-filterRowOperationEndsWith': 'Ends with',
+                        'dxDataGrid-filterRowOperationBetween': 'Between',
+                        'dxDataGrid-filterRowOperationBetweenStartText': 'Start',
+                        'dxDataGrid-filterRowOperationBetweenEndText': 'End',
+                        'dxDataGrid-filterRowResetOperationText': 'Reset'
+                    },
+                    id: {
+                        Yes: 'Ya',
+                        No: 'Tidak',
+                        OK: 'OK',
+                        Cancel: 'Batal',
+                        Clear: 'Hapus',
+                        Search: 'Cari',
+
+                        'dxList-selectAll': 'Pilih Semua',
+
+                        'dxDataGrid-headerFilterOK': 'OK',
+                        'dxDataGrid-headerFilterCancel': 'Batal',
+                        'dxDataGrid-headerFilterEmptyValue': '(Kosong)',
+
+                        'dxDataGrid-filterRowOperationEquals': 'Sama dengan',
+                        'dxDataGrid-filterRowOperationNotEquals': 'Tidak sama dengan',
+                        'dxDataGrid-filterRowOperationLess': 'Kurang dari',
+                        'dxDataGrid-filterRowOperationLessOrEquals': 'Kurang dari atau sama dengan',
+                        'dxDataGrid-filterRowOperationGreater': 'Lebih besar dari',
+                        'dxDataGrid-filterRowOperationGreaterOrEquals': 'Lebih besar dari atau sama dengan',
+                        'dxDataGrid-filterRowOperationStartsWith': 'Dimulai dengan',
+                        'dxDataGrid-filterRowOperationContains': 'Berisi',
+                        'dxDataGrid-filterRowOperationNotContains': 'Tidak berisi',
+                        'dxDataGrid-filterRowOperationEndsWith': 'Diakhiri dengan',
+                        'dxDataGrid-filterRowOperationBetween': 'Di antara',
+                        'dxDataGrid-filterRowOperationBetweenStartText': 'Mulai',
+                        'dxDataGrid-filterRowOperationBetweenEndText': 'Akhir',
+                        'dxDataGrid-filterRowResetOperationText': 'Atur ulang'
+                    },
+                    zh: {
+                        Yes: '是',
+                        No: '否',
+                        OK: '确定',
+                        Cancel: '取消',
+                        Clear: '清除',
+                        Search: '搜索',
+
+                        'dxList-selectAll': '全选',
+
+                        'dxDataGrid-headerFilterOK': '确定',
+                        'dxDataGrid-headerFilterCancel': '取消',
+                        'dxDataGrid-headerFilterEmptyValue': '(空白)',
+
+                        'dxDataGrid-filterRowOperationEquals': '等于',
+                        'dxDataGrid-filterRowOperationNotEquals': '不等于',
+                        'dxDataGrid-filterRowOperationLess': '小于',
+                        'dxDataGrid-filterRowOperationLessOrEquals': '小于或等于',
+                        'dxDataGrid-filterRowOperationGreater': '大于',
+                        'dxDataGrid-filterRowOperationGreaterOrEquals': '大于或等于',
+                        'dxDataGrid-filterRowOperationStartsWith': '开头为',
+                        'dxDataGrid-filterRowOperationContains': '包含',
+                        'dxDataGrid-filterRowOperationNotContains': '不包含',
+                        'dxDataGrid-filterRowOperationEndsWith': '结尾为',
+                        'dxDataGrid-filterRowOperationBetween': '介于',
+                        'dxDataGrid-filterRowOperationBetweenStartText': '开始',
+                        'dxDataGrid-filterRowOperationBetweenEndText': '结束',
+                        'dxDataGrid-filterRowResetOperationText': '重置'
+                    }
+                });
+
+                DevExpress.localization.locale(dxLocale);
+            })();
+        </script>
     }
 
     @*  Spreadsheet 초기화 스크립트가 찍히는 화면인데 DxHead가 빠져도 동작하도록, (DisableDxAll이 아닌 경우에 한해) 레이아웃에서 Spreadsheet 리소스를 보장 로드 *@

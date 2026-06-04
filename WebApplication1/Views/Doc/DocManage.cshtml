@@ -1,0 +1,709 @@
+﻿@* 2026.06.02 Changed: DocManage filter row dx-menu 폭 과확장 문제 수정 및 content area 단일 스크롤 구조 유지 *@
+@model WebApplication1.Controllers.DocManageController.DocManageIndexVm
+@using System
+@using System.Globalization
+@using System.Text.Json
+@using Microsoft.Extensions.Localization
+@inject IStringLocalizer<SharedResource> L
+
+@{
+    ViewData["Title"] = L["DM_Title_Manage"];
+    ViewData["DisableDxAll"] = false;
+    ViewData["UseDxSpreadsheet"] = false;
+
+    var jsonOptions = new JsonSerializerOptions
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Default
+    };
+
+    var rowsJson = JsonSerializer.Serialize(Model.Items, jsonOptions);
+
+    var fromDateText = Model.Search.FromDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
+    var toDateText = Model.Search.ToDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
+
+    var textJson = JsonSerializer.Serialize(new
+    {
+        noData = L["DM_Message_NoData"].Value,
+        gridLoadFail = L["_CM_Error"].Value,
+
+        title = L["DM_Title_Manage"].Value,
+        desc = L["DM_Desc_Manage"].Value,
+        fromDate = L["DM_Label_FromDate"].Value,
+        toDate = L["DM_Label_ToDate"].Value,
+        search = L["_CM_Search"].Value,
+        reset = L["_CM_Reset"].Value,
+
+        colCreatedAt = L["DM_Col_CreatedAt"].Value,
+        colTitle = L["DM_Col_Title"].Value,
+        colCompCd = L["DM_Col_CompCd"].Value,
+        colDepartmentId = L["DM_Col_DepartmentId"].Value,
+        colCreatedBy = L["DM_Col_CreatedBy"].Value,
+        colStatus = L["DM_Col_Status"].Value,
+        colHasFiles = L["DTM_Col_FileExists"].Value,
+        colDocId = L["DM_Col_DocId"].Value,
+        colTemplateCode = L["DM_Col_TemplateCode"].Value,
+        colTemplateVersion = L["DTM_Col_VersionNo"].Value,
+        hasFileYes = L["DTM_Text_Yes"].Value,
+        hasFileNo = L["DTM_Text_No"].Value,
+
+        empty = L["DM_Text_Empty"].Value,
+        pending = L["DOC_Status_Pending"].Value,
+        approved = L["DOC_Status_Approved"].Value,
+        rejected = L["DOC_Status_Rejected"].Value,
+        onHold = L["DOC_Status_OnHold"].Value,
+        recalled = L["DOC_Status_Recalled"].Value
+    }, jsonOptions);
+}
+
+<div id="dm-scroll">
+    <div class="container-fluid py-3" id="docManagePage">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+            <div>
+                <h4 class="mb-1">@L["DM_Title_Manage"]</h4>
+                <div class="text-muted small">@L["DM_Desc_Manage"]</div>
+            </div>
+        </div>
+
+        <form method="get" action="/DocManage" class="card dm-search-card mb-3">
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-md-3 col-xl-2">
+                        <label class="form-label mb-1" for="FromDate">@L["DM_Label_FromDate"]</label>
+                        <input type="date"
+                               class="form-control"
+                               id="FromDate"
+                               name="FromDate"
+                               value="@fromDateText" />
+                    </div>
+
+                    <div class="col-12 col-md-3 col-xl-2">
+                        <label class="form-label mb-1" for="ToDate">@L["DM_Label_ToDate"]</label>
+                        <input type="date"
+                               class="form-control"
+                               id="ToDate"
+                               name="ToDate"
+                               value="@toDateText" />
+                    </div>
+
+                    <div class="col-12 col-md-auto d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            @L["_CM_Search"]
+                        </button>
+                        <a class="btn btn-outline-secondary" href="/DocManage">
+                            @L["_CM_Reset"]
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="card dm-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>@L["DM_Grid_Title"]</span>
+                <span class="text-muted small">@L["DM_Grid_Count", Model.Items.Count]</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="dmDocumentGrid" class="dm-grid-host"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    html, body {
+        overflow: hidden !important;
+    }
+
+    :root {
+        --dm-grid-min-w: 1855px;
+    }
+
+    #dm-scroll {
+        position: fixed;
+        top: var(--header-h, 64px);
+        left: var(--sidebar-w, 200px);
+        right: 0;
+        bottom: var(--footer-h, 28px);
+        overflow-y: auto;
+        overflow-x: auto;
+        overscroll-behavior: contain;
+        padding: 1rem;
+        background: #f5f5f5;
+        z-index: 1;
+        box-sizing: border-box;
+    }
+
+    #docManagePage {
+        min-width: var(--dm-grid-min-w);
+        box-sizing: border-box;
+    }
+
+        #docManagePage .dm-card,
+        #docManagePage .dm-search-card {
+            width: 100%;
+            min-width: var(--dm-grid-min-w);
+            box-sizing: border-box;
+        }
+
+        #docManagePage .card-body {
+            overflow: visible;
+        }
+
+        #docManagePage .dm-grid-host {
+            width: 100%;
+            min-width: var(--dm-grid-min-w);
+            min-height: 0;
+            height: auto;
+            box-sizing: border-box;
+        }
+
+        #docManagePage .dx-datagrid {
+            width: 100% !important;
+            min-width: var(--dm-grid-min-w);
+            font-size: 0.875rem;
+            box-sizing: border-box;
+        }
+
+        #docManagePage .dx-datagrid-pager,
+        #docManagePage .dx-pager {
+            width: 100% !important;
+            min-width: var(--dm-grid-min-w) !important;
+            max-width: none !important;
+            box-sizing: border-box;
+        }
+
+        #docManagePage .dx-datagrid-headers .dx-header-row > td {
+            font-weight: 600;
+            color: #212529;
+            text-align: center !important;
+        }
+
+        #docManagePage .dx-datagrid-filter-row .dx-editor-cell {
+            text-align: left !important;
+        }
+
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu {
+                display: flex !important;
+                align-items: center !important;
+                width: 100% !important;
+                min-width: 0 !important;
+            }
+
+                #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu,
+                #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu-base {
+                    flex: 0 0 24px !important;
+                    width: 24px !important;
+                    min-width: 24px !important;
+                    max-width: 24px !important;
+                    overflow: visible !important;
+                }
+
+                    #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-items-container,
+                    #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item-wrapper,
+                    #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item {
+                        width: 24px !important;
+                        min-width: 24px !important;
+                        max-width: 24px !important;
+                    }
+
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-container {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                width: auto !important;
+            }
+
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor {
+                width: 100% !important;
+                min-width: 0 !important;
+                min-height: 30px;
+            }
+
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-container,
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input-container,
+            #docManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input {
+                width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+        #docManagePage .dm-cell-center {
+            text-align: center !important;
+        }
+
+            #docManagePage .dm-cell-center .dm-ellipsis {
+                display: block;
+                margin: 0 auto;
+                text-align: center;
+            }
+
+        #docManagePage .dm-ellipsis {
+            display: inline-block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: bottom;
+            white-space: nowrap;
+        }
+
+        #docManagePage .dx-datagrid-rowsview {
+            max-height: none !important;
+        }
+
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable,
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable-container,
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable-content {
+                max-height: none !important;
+            }
+
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable-scrollbar,
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable-scrollbar-horizontal,
+            #docManagePage .dx-datagrid-rowsview .dx-scrollbar-horizontal {
+                display: none !important;
+                height: 0 !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+
+            #docManagePage .dx-datagrid-rowsview .dx-scrollable-container {
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+
+                #docManagePage .dx-datagrid-rowsview .dx-scrollable-container::-webkit-scrollbar:horizontal {
+                    height: 0 !important;
+                }
+
+        #docManagePage .dm-filler-col {
+            background: transparent;
+        }
+
+    @@media (max-width: 991.98px) {
+        #dm-scroll {
+            left: 0;
+        }
+    }
+</style>
+
+<script type="application/json" id="dm-rows-json">
+    @Html.Raw(rowsJson)
+</script>
+
+<script type="application/json" id="dm-text-json">
+    @Html.Raw(textJson)
+</script>
+
+<script src="~/js/eb.doc.board.js" asp-append-version="true"></script>
+
+<script>
+    (() => {
+        const page = document.getElementById('docManagePage');
+        const gridEl = document.getElementById('dmDocumentGrid');
+        const scrollHost = document.getElementById('dm-scroll');
+
+        if (!page || !gridEl || !scrollHost) return;
+
+        function readJsonScript(id, fallbackValue) {
+            const el = document.getElementById(id);
+            if (!el) return fallbackValue;
+
+            try {
+                const raw = el.textContent || '';
+                if (!raw.trim()) return fallbackValue;
+                return JSON.parse(raw);
+            } catch (e) {
+                console.error('JSON parse failed:', id, e);
+                return fallbackValue;
+            }
+        }
+
+        const rows = readJsonScript('dm-rows-json', []);
+        const text = readJsonScript('dm-text-json', {});
+
+        function unwrap(container) {
+            return container && container.jquery ? container[0] : container;
+        }
+
+        function valueOrEmpty(value) {
+            return value === null || value === undefined || String(value).trim() === ''
+                ? text.empty
+                : String(value);
+        }
+
+        function appendEllipsis(container, value) {
+            const el = unwrap(container);
+            const span = document.createElement('span');
+            span.className = 'dm-ellipsis';
+            span.title = valueOrEmpty(value);
+            span.textContent = valueOrEmpty(value);
+            el.appendChild(span);
+        }
+
+        function appendBadge(container, label, className) {
+            const el = unwrap(container);
+            const span = document.createElement('span');
+            span.className = className;
+            span.textContent = label;
+            el.appendChild(span);
+        }
+
+        function dmNorm(value) {
+            return String(value || '').trim().toUpperCase();
+        }
+
+        function dmAsInt(value) {
+            const n = parseInt(String(value ?? '0'), 10);
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        function dmHasAnyKeyList(value) {
+            return String(value || '')
+                .split(',')
+                .map(x => dmAsInt(x))
+                .some(x => x > 0);
+        }
+
+        function dmStepType(step) {
+            const status = dmNorm(step && (step.status || step.Status));
+            const action = dmNorm(step && (step.action || step.Action));
+
+            if (action === 'APPROVE' || status.indexOf('APPROVED') === 0) return 'approve';
+            if (action === 'REJECT' || status.indexOf('REJECTED') === 0) return 'reject';
+            if (action === 'RECALL' || status.indexOf('RECALLED') === 0) return 'recall';
+            if (action === 'HOLD' || status === 'HOLD' || status.indexOf('ONHOLD') === 0 || status.indexOf('PENDINGHOLD') === 0) return 'hold';
+
+            return 'todo';
+        }
+
+        function dmIsCompletedBoardRow(row) {
+            const status = dmNorm(row.statusCode || row.StatusCode || row.status || row.Status);
+
+            if (status === 'APPROVED' || status === 'APPROVE') return true;
+            if (status === 'REJECTED' || status === 'REJECT') return true;
+            if (status === 'RECALLED' || status === 'RECALL') return true;
+
+            const approvalSteps = Array.isArray(row.approvalSteps)
+                ? row.approvalSteps
+                : (Array.isArray(row.ApprovalSteps) ? row.ApprovalSteps : []);
+
+            if (approvalSteps.some(x => {
+                const t = dmStepType(x);
+                return t === 'reject' || t === 'recall';
+            })) {
+                return true;
+            }
+
+            if (approvalSteps.length > 0 && approvalSteps.every(x => dmStepType(x) === 'approve')) {
+                return true;
+            }
+
+            const totalApprovers = dmAsInt(row.totalApprovers ?? row.TotalApprovers);
+            const completedApprovers = dmAsInt(row.completedApprovers ?? row.CompletedApprovers);
+
+            if (totalApprovers > 0 && completedApprovers >= totalApprovers) {
+                return true;
+            }
+
+            if (dmHasAnyKeyList(row.coopRejectedKeys ?? row.CoopRejectedKeys)) return true;
+            if (dmHasAnyKeyList(row.coopRecalledKeys ?? row.CoopRecalledKeys)) return true;
+
+            return false;
+        }
+
+        function dmBoardStateForRow(row) {
+            if (dmIsCompletedBoardRow(row)) {
+                return {
+                    tab: 'created',
+                    createdSub: 'completed'
+                };
+            }
+
+            return {
+                tab: 'created',
+                createdSub: 'ongoing'
+            };
+        }
+
+        function pickFirstVisible(selectors) {
+            for (const selector of selectors) {
+                const el = document.querySelector(selector);
+                if (!el) continue;
+
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) continue;
+
+                return el;
+            }
+
+            return null;
+        }
+
+        function readCssPx(varName, fallback) {
+            const raw = getComputedStyle(document.documentElement).getPropertyValue(varName || '').trim();
+            const value = parseFloat(raw);
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function syncScrollHostLayout() {
+            let top = readCssPx('--header-h', 64);
+            let left = readCssPx('--sidebar-w', 200);
+            let bottom = readCssPx('--footer-h', 28);
+
+            const header = pickFirstVisible([
+                'header',
+                '.navbar',
+                '.main-header',
+                '.app-header',
+                '.topbar',
+                '.layout-navbar'
+            ]);
+
+            const sidebar = pickFirstVisible([
+                '.main-sidebar',
+                '.sidebar',
+                'aside',
+                '.app-sidebar',
+                '.layout-menu'
+            ]);
+
+            const footer = pickFirstVisible([
+                'footer',
+                '.main-footer',
+                '.footer'
+            ]);
+
+            if (header) {
+                const rect = header.getBoundingClientRect();
+                if (rect.bottom > 0) {
+                    top = Math.max(top, Math.round(rect.bottom));
+                }
+            }
+
+            if (window.innerWidth < 992) {
+                left = 0;
+            } else if (sidebar) {
+                const rect = sidebar.getBoundingClientRect();
+                if (rect.right > 0) {
+                    left = Math.max(left, Math.round(rect.right));
+                }
+            }
+
+            if (footer) {
+                const rect = footer.getBoundingClientRect();
+                const footerHeight = Math.max(0, Math.round(window.innerHeight - rect.top));
+                bottom = Math.max(bottom, footerHeight);
+            }
+
+            scrollHost.style.top = top + 'px';
+            scrollHost.style.left = left + 'px';
+            scrollHost.style.right = '0px';
+            scrollHost.style.bottom = bottom + 'px';
+        }
+
+        if (!window.DevExpress || !DevExpress.ui || !DevExpress.ui.dxDataGrid) {
+            console.error('DevExtreme DataGrid가 로드되지 않았습니다.');
+            gridEl.innerHTML = '<div class="alert alert-danger m-3">' + text.gridLoadFail + '</div>';
+            return;
+        }
+
+        new DevExpress.ui.dxDataGrid(gridEl, {
+            dataSource: rows,
+            keyExpr: 'DocId',
+            showBorders: true,
+            rowAlternationEnabled: true,
+            hoverStateEnabled: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            columnAutoWidth: false,
+            wordWrapEnabled: false,
+            width: '100%',
+            noDataText: text.noData,
+            columnFixing: {
+                enabled: false
+            },
+            scrolling: {
+                mode: 'standard',
+                columnRenderingMode: 'standard',
+                showScrollbar: 'never',
+                useNative: true
+            },
+            paging: {
+                pageSize: 50
+            },
+            pager: {
+                visible: true,
+                showInfo: true,
+                showNavigationButtons: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [50, 100, 200]
+            },
+            sorting: {
+                mode: 'multiple'
+            },
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            headerFilter: {
+                visible: true
+            },
+            searchPanel: {
+                visible: false
+            },
+            columns: [
+                {
+                    caption: text.colCreatedAt,
+                    dataField: 'CreatedAt',
+                    dataType: 'datetime',
+                    format: 'yyyy-MM-dd HH:mm',
+                    width: 150,
+                    sortOrder: 'desc',
+                    alignment: 'center',
+                    cssClass: 'dm-cell-center'
+                },
+                {
+                    caption: text.colCompCd,
+                    dataField: 'CompName',
+                    dataType: 'string',
+                    width: 120,
+                    alignment: 'center',
+                    cssClass: 'dm-cell-center',
+                    calculateCellValue: function (row) {
+                        return row.CompName || row.CompCd || text.empty;
+                    },
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colDepartmentId,
+                    dataField: 'DepartmentName',
+                    dataType: 'string',
+                    width: 130,
+                    alignment: 'center',
+                    cssClass: 'dm-cell-center',
+                    calculateCellValue: function (row) {
+                        return row.DepartmentName || row.DepartmentId || text.empty;
+                    },
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colTitle,
+                    dataField: 'Title',
+                    dataType: 'string',
+                    width: 220,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colCreatedBy,
+                    dataField: 'AuthorDisplayName',
+                    dataType: 'string',
+                    width: 140,
+                    calculateCellValue: function (row) {
+                        return row.AuthorDisplayName || row.CreatedByName || row.CreatedBy || text.empty;
+                    },
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colStatus,
+                    dataField: 'Status',
+                    dataType: 'string',
+                    width: 430,
+                    alignment: 'left',
+                    calculateDisplayValue: function (row) {
+                        return row.resultSummary || row.ResultSummary || row.statusCode || row.Status || '';
+                    },
+                    cellTemplate: function (container, options) {
+                        const el = unwrap(container);
+                        const row = options.data || {};
+
+                        el.innerHTML = '';
+
+                        if (window.EBDocStatusDots && typeof window.EBDocStatusDots.renderStatusCell === 'function') {
+                            el.appendChild(
+                                window.EBDocStatusDots.renderStatusCell(
+                                    row,
+                                    {},
+                                    dmBoardStateForRow(row)
+                                )
+                            );
+                            return;
+                        }
+
+                        appendEllipsis(container, row.resultSummary || row.ResultSummary || row.statusCode || row.Status || '');
+                    }
+                },
+                {
+                    caption: text.colHasFiles,
+                    dataField: 'HasFiles',
+                    dataType: 'boolean',
+                    width: 95,
+                    alignment: 'center',
+                    allowHeaderFiltering: true,
+                    cellTemplate: function (container, options) {
+                        if (options.value === true) {
+                            appendBadge(container, text.hasFileYes || '있음', 'badge bg-success');
+                        } else {
+                            appendBadge(container, text.hasFileNo || '없음', 'badge bg-danger');
+                        }
+                    }
+                },
+                {
+                    caption: text.colDocId,
+                    dataField: 'DocId',
+                    dataType: 'string',
+                    width: 240,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colTemplateCode,
+                    dataField: 'TemplateCode',
+                    dataType: 'string',
+                    width: 220,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
+                    caption: text.colTemplateVersion,
+                    dataField: 'TemplateVersionNo',
+                    dataType: 'number',
+                    width: 110,
+                    alignment: 'center'
+                },
+                {
+                    caption: '',
+                    dataField: '__filler',
+                    cssClass: 'dm-filler-col',
+                    allowSorting: false,
+                    allowFiltering: false,
+                    allowHeaderFiltering: false,
+                    allowSearch: false,
+                    cellTemplate: function (container) {
+                        const el = unwrap(container);
+                        el.innerHTML = '';
+                    }
+                }
+            ],
+            onContentReady: function () {
+                syncScrollHostLayout();
+            }
+        });
+
+        window.addEventListener('resize', syncScrollHostLayout);
+        window.addEventListener('load', syncScrollHostLayout);
+        setTimeout(syncScrollHostLayout, 0);
+        setTimeout(syncScrollHostLayout, 150);
+        setTimeout(syncScrollHostLayout, 400);
+    })();
+</script>

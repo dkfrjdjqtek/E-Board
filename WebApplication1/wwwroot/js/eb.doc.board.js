@@ -132,7 +132,7 @@
 
     function makeDivider() {
         var span = document.createElement('span');
-        span.setAttribute('style', 'width:.5px;height:10px;background:#d1d1d1;margin:0 5px;flex-shrink:0;');
+        span.setAttribute('style', 'width:1px;height:12px;background:#d1d1d1;margin:0 2px;flex-shrink:0;');
         return span;
     }
 
@@ -151,7 +151,8 @@
 
     function makeLabelSpan(text, color) {
         var span = document.createElement('span');
-        span.setAttribute('style', 'font-size:15px;font-weight:500;color:' + color + ';white-space:nowrap;');
+        //span.setAttribute('style', 'font-size:15px;font-weight:500;color:' + color + ';white-space:nowrap;');
+        span.setAttribute('style', 'font-size:15px;color:inherit;white-space:nowrap;');
         span.textContent = text || '';
         return span;
     }
@@ -163,6 +164,7 @@
             RejectedDone: '반려됨',
             VetoedDone: '부결됨',
             RecalledDone: '회수됨',
+            OnHoldDone: '보류',
             Pending: '대기'
         };
         return labels[key] || defaults[key] || key;
@@ -229,7 +231,10 @@
 
     function buildStatusCell(item, i18n, boardState) {
         var wrap = document.createElement('div');
-        wrap.setAttribute('style', 'display:inline-flex;align-items:center;gap:5px;white-space:nowrap;');
+        wrap.setAttribute(
+            'style',
+            'display:flex;align-items:center;gap:6px;white-space:nowrap;justify-content:flex-start;width:100%;overflow:hidden;'
+        );
 
         var rawStatus = String(
             item.statusCode || item.StatusCode ||
@@ -249,6 +254,9 @@
         var coopRecalledKeys = String(item.coopRecalledKeys ?? item.CoopRecalledKeys ?? '');
         var coopName = String(item.coopPendingName ?? item.CoopPendingName ?? '').trim();
         var coopPos = String(item.coopPendingPosition ?? item.CoopPendingPosition ?? '').trim();
+
+        var DOT_SLOT_WIDTH = 62;
+        var TEXT_SLOT_WIDTH = 118;
 
         function isCompletedBoardView() {
             try {
@@ -280,17 +288,54 @@
             return '#4a8fdd';
         }
 
+        function makeDotWrap() {
+            var stepWrap = document.createElement('span');
+            stepWrap.setAttribute(
+                'style',
+                'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;'
+            );
+            return stepWrap;
+        }
+
+        function makeLane(dotsEl, textEl) {
+            var lane = document.createElement('span');
+            lane.setAttribute(
+                'style',
+                'display:inline-grid;grid-template-columns:' + DOT_SLOT_WIDTH + 'px ' + TEXT_SLOT_WIDTH + 'px;' +
+                'column-gap:6px;align-items:center;justify-content:start;flex-shrink:0;'
+            );
+
+            var dotSlot = document.createElement('span');
+            dotSlot.setAttribute(
+                'style',
+                'width:' + DOT_SLOT_WIDTH + 'px;display:inline-flex;align-items:center;justify-content:flex-start;overflow:hidden;'
+            );
+            if (dotsEl) dotSlot.appendChild(dotsEl);
+
+            var textSlot = document.createElement('span');
+            textSlot.setAttribute(
+                'style',
+                'width:' + TEXT_SLOT_WIDTH + 'px;display:inline-flex;align-items:center;justify-content:flex-start;' +
+                'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+            );
+            if (textEl) textSlot.appendChild(textEl);
+
+            lane.appendChild(dotSlot);
+            lane.appendChild(textSlot);
+            return lane;
+        }
+
         function buildProgressDots(total, done, currentType) {
             var safeTotal = asInt(total);
             var safeDone = asInt(done);
-            var stepWrap = document.createElement('span');
-            stepWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
+            var stepWrap = makeDotWrap();
 
             for (var i = 1; i <= safeTotal; i++) {
                 if (i <= safeDone) stepWrap.appendChild(makeDot('approve'));
                 else if (i === safeDone + 1) stepWrap.appendChild(makeDot(currentType || 'todo'));
                 else stepWrap.appendChild(makeDot('todo'));
             }
+
             return stepWrap;
         }
 
@@ -312,6 +357,7 @@
                 });
 
                 var allApproved = steps.length > 0;
+
                 for (var i = 0; i < steps.length; i++) {
                     var t = normalizeApprovalStepType(steps[i]);
 
@@ -325,9 +371,11 @@
                 }
 
                 stateObj.approved = allApproved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold;
+
                 if (!stateObj.approved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold) {
                     stateObj.pending = true;
                 }
+
                 return stateObj;
             }
 
@@ -337,15 +385,18 @@
                 stateObj.recalled = true;
                 return stateObj;
             }
+
             if (base === 'OnHold') {
                 stateObj.onHold = true;
                 return stateObj;
             }
+
             if (base === 'Approved') {
-                stateObj.approved = (totalA <= 0) ? true : (completedA >= totalA);
+                stateObj.approved = totalA <= 0 ? true : completedA >= totalA;
                 stateObj.pending = !stateObj.approved;
                 return stateObj;
             }
+
             if (base === 'Rejected') {
                 if (totalA > 0 && completedA >= totalA) stateObj.approved = true;
                 else stateObj.rejected = true;
@@ -379,6 +430,7 @@
 
             stateObj.approved = !stateObj.rejected && !stateObj.recalled && !stateObj.onHold && doneSet.size >= coopTotal;
             stateObj.pending = !stateObj.approved && !stateObj.rejected && !stateObj.recalled && !stateObj.onHold;
+
             return stateObj;
         }
 
@@ -398,9 +450,52 @@
             return '';
         }
 
+        function buildApprovalDots(approvalState) {
+            if (totalA <= 0) return null;
+
+            var steps = approvalState.steps || [];
+
+            if (steps.length > 0) {
+                var stepWrap = makeDotWrap();
+
+                for (var i = 0; i < steps.length; i++) {
+                    stepWrap.appendChild(makeDot(normalizeApprovalStepType(steps[i])));
+                }
+
+                for (var j = steps.length + 1; j <= totalA; j++) {
+                    stepWrap.appendChild(makeDot('todo'));
+                }
+
+                return stepWrap;
+            }
+
+            if (approvalState.recalled) return buildProgressDots(totalA, 0, 'recall');
+            if (approvalState.rejected) return buildProgressDots(totalA, completedA, 'reject');
+            if (approvalState.onHold) return buildProgressDots(totalA, completedA, 'hold');
+            if (approvalState.approved) return buildProgressDots(totalA, totalA, 'approve');
+
+            return buildProgressDots(totalA, completedA, 'todo');
+        }
+
+        function buildCoopDots(coopState) {
+            if (coopTotal <= 0) return null;
+
+            var coopWrap = makeDotWrap();
+
+            for (var c = 1; c <= coopTotal; c++) {
+                if (coopState.recalledSet.has(c)) coopWrap.appendChild(makeDot('recall'));
+                else if (coopState.holdSet.has(c)) coopWrap.appendChild(makeDot('hold'));
+                else if (coopState.rejectedSet.has(c)) coopWrap.appendChild(makeDot('reject'));
+                else if (coopState.doneSet.has(c)) coopWrap.appendChild(makeDot('approve'));
+                else coopWrap.appendChild(makeDot('todo'));
+            }
+
+            return coopWrap;
+        }
+
         var approvalState = readApprovalLaneState();
         var coopState = readCoopLaneState();
-        var docRecalled = (base === 'Recalled');
+        var docRecalled = base === 'Recalled';
         var completedView = isCompletedBoardView();
 
         var approvalLabelKey = completedView
@@ -411,60 +506,31 @@
             ? resolveCompletedLaneLabelKey(coopState, approvalState, docRecalled)
             : resolveOngoingLaneLabelKey(coopState);
 
-        if (totalA > 0) {
-            var steps = approvalState.steps || [];
-            if (steps.length > 0) {
-                var stepWrap = document.createElement('span');
-                stepWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-
-                for (var i = 0; i < steps.length; i++) {
-                    stepWrap.appendChild(makeDot(normalizeApprovalStepType(steps[i])));
-                }
-
-                for (var j = steps.length + 1; j <= totalA; j++) {
-                    stepWrap.appendChild(makeDot('todo'));
-                }
-
-                wrap.appendChild(stepWrap);
-            } else {
-                if (approvalState.recalled) wrap.appendChild(buildProgressDots(totalA, 0, 'recall'));
-                else if (approvalState.rejected) wrap.appendChild(buildProgressDots(totalA, completedA, 'reject'));
-                else if (approvalState.onHold) wrap.appendChild(buildProgressDots(totalA, completedA, 'hold'));
-                else if (approvalState.approved) wrap.appendChild(buildProgressDots(totalA, totalA, 'approve'));
-                else wrap.appendChild(buildProgressDots(totalA, completedA, 'todo'));
-            }
-        }
+        var approvalTextEl = null;
 
         if (approvalLabelKey) {
-            wrap.appendChild(makeLabelSpan(getDotLabel(approvalLabelKey, i18n), getLabelColor(approvalLabelKey)));
+            approvalTextEl = makeLabelSpan(getDotLabel(approvalLabelKey, i18n), getLabelColor(approvalLabelKey));
         } else if (!completedView && actorName) {
-            var nameSpan = document.createElement('span');
-            nameSpan.setAttribute('style', 'font-size:15px;color:inherit;white-space:nowrap;');
-            nameSpan.textContent = actorName;
-            wrap.appendChild(nameSpan);
+            approvalTextEl = makeNameSpan(actorName, '');
+        }
+
+        var approvalDotsEl = buildApprovalDots(approvalState);
+        if (approvalDotsEl || approvalTextEl) {
+            wrap.appendChild(makeLane(approvalDotsEl, approvalTextEl));
         }
 
         if (coopTotal > 0) {
             wrap.appendChild(makeDivider());
 
-            var coopWrap = document.createElement('span');
-            coopWrap.setAttribute('style', 'display:inline-flex;gap:3px;align-items:center;flex-shrink:0;');
-
-            for (var c = 1; c <= coopTotal; c++) {
-                if (coopState.recalledSet.has(c)) coopWrap.appendChild(makeDot('recall'));
-                else if (coopState.holdSet.has(c)) coopWrap.appendChild(makeDot('hold'));
-                else if (coopState.rejectedSet.has(c)) coopWrap.appendChild(makeDot('reject'));
-                else if (coopState.doneSet.has(c)) coopWrap.appendChild(makeDot('approve'));
-                else coopWrap.appendChild(makeDot('todo'));
-            }
-
-            wrap.appendChild(coopWrap);
+            var coopTextEl = null;
 
             if (coopLabelKey) {
-                wrap.appendChild(makeLabelSpan(getDotLabel(coopLabelKey, i18n), getLabelColor(coopLabelKey)));
+                coopTextEl = makeLabelSpan(getDotLabel(coopLabelKey, i18n), getLabelColor(coopLabelKey));
             } else if (!completedView && coopName) {
-                wrap.appendChild(makeNameSpan(coopName, coopPos));
+                coopTextEl = makeNameSpan(coopName, coopPos);
             }
+
+            wrap.appendChild(makeLane(buildCoopDots(coopState), coopTextEl));
         }
 
         return wrap;
@@ -1027,7 +1093,7 @@
             tdDate.textContent = item.createdAt || item.CreatedAt || '';
 
             var tdStatus = document.createElement('td');
-            tdStatus.style.textAlign = 'center';
+            tdStatus.style.textAlign = 'left';
             tdStatus.appendChild(buildStatusCell(item, i18n, state));
 
             var tdResult = document.createElement('td');
@@ -1335,6 +1401,11 @@
         refreshBadges();
     }
 
+    window.EBDocStatusDots = window.EBDocStatusDots || {};
+    window.EBDocStatusDots.renderStatusCell = function (item, i18n, boardState) {
+        return buildStatusCell(item || {}, i18n || {}, boardState || {});
+    };
+
     window.EBDocBoard = window.EBDocBoard || {};
     window.EBDocBoard.init = function (rootEl) {
         if (!rootEl) return;
@@ -1352,10 +1423,17 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         var root = document.getElementById('docBoard') || document.querySelector('[data-api-list]');
-        if (!root) {
-            console.warn('[DocBoard] root not found for auto init');
+
+        if (root) {
+            window.EBDocBoard.init(root);
             return;
         }
-        window.EBDocBoard.init(root);
+
+        var path = String(window.location && window.location.pathname ? window.location.pathname : '').toLowerCase();
+
+        if (path.indexOf('/doc/board') === 0) {
+            console.warn('[DocBoard] root not found for auto init');
+        }
     });
+
 })();

@@ -1467,4 +1467,70 @@
   <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
     <value>복사할 경로가 없습니다.</value>
   </data>
+  <data name="Sidebar_Menu3Sub7" xml:space="preserve">
+    <value>문서 관리</value>
+  </data>
+  <data name="DM_Title_Manage" xml:space="preserve">
+    <value>문서 관리</value>
+  </data>
+  <data name="DM_Desc_Manage" xml:space="preserve">
+    <value>기간별 작성 문서와 결재 진행 상태를 조회합니다.</value>
+  </data>
+  <data name="DM_Label_FromDate" xml:space="preserve">
+    <value>시작일</value>
+  </data>
+  <data name="DM_Label_ToDate" xml:space="preserve">
+    <value>종료일</value>
+  </data>
+  <data name="DM_Grid_Title" xml:space="preserve">
+    <value>문서 목록</value>
+  </data>
+  <data name="DM_Grid_Count" xml:space="preserve">
+    <value>총 {0}건</value>
+  </data>
+  <data name="DM_Message_NoData" xml:space="preserve">
+    <value>조회된 문서가 없습니다.</value>
+  </data>
+  <data name="DM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DM_Col_DocId" xml:space="preserve">
+    <value>문서 코드</value>
+  </data>
+  <data name="DM_Col_Title" xml:space="preserve">
+    <value>제목</value>
+  </data>
+  <data name="DM_Col_DocName" xml:space="preserve">
+    <value>문서명</value>
+  </data>
+  <data name="DM_Col_Status" xml:space="preserve">
+    <value>상태</value>
+  </data>
+  <data name="DM_Col_CreatedBy" xml:space="preserve">
+    <value>작성자</value>
+  </data>
+  <data name="DM_Col_CreatedAt" xml:space="preserve">
+    <value>작성일</value>
+  </data>
+  <data name="DM_Col_CompCd" xml:space="preserve">
+    <value>회사</value>
+  </data>
+  <data name="DM_Col_DepartmentId" xml:space="preserve">
+    <value>부서</value>
+  </data>
+  <data name="DM_Col_TemplateCode" xml:space="preserve">
+    <value>템플릿 코드</value>
+  </data>
+  <data name="DM_Col_TemplateId" xml:space="preserve">
+    <value>템플릿 ID</value>
+  </data>
+  <data name="DM_Col_ApprovalLine" xml:space="preserve">
+    <value>결재 라인</value>
+  </data>
+  <data name="DM_Col_ApprovalSummary" xml:space="preserve">
+    <value>결재</value>
+  </data>
+  <data name="DM_Col_UpdatedAt" xml:space="preserve">
+    <value>수정일</value>
+  </data>
 </root>

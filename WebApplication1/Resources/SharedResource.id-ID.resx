@@ -1467,4 +1467,70 @@
   <data name="DTM_Message_NoPathToCopy" xml:space="preserve">
     <value>Tidak ada jalur untuk disalin.</value>
   </data>
+  <data name="Sidebar_Menu3Sub7" xml:space="preserve">
+    <value>Manajemen Dokumen</value>
+  </data>
+  <data name="DM_Title_Manage" xml:space="preserve">
+    <value>Manajemen Dokumen</value>
+  </data>
+  <data name="DM_Desc_Manage" xml:space="preserve">
+    <value>Lihat dokumen yang dibuat per periode dan status proses persetujuan.</value>
+  </data>
+  <data name="DM_Label_FromDate" xml:space="preserve">
+    <value>Tanggal mulai</value>
+  </data>
+  <data name="DM_Label_ToDate" xml:space="preserve">
+    <value>Tanggal akhir</value>
+  </data>
+  <data name="DM_Grid_Title" xml:space="preserve">
+    <value>Daftar Dokumen</value>
+  </data>
+  <data name="DM_Grid_Count" xml:space="preserve">
+    <value>Total {0} item</value>
+  </data>
+  <data name="DM_Message_NoData" xml:space="preserve">
+    <value>Tidak ada dokumen ditemukan.</value>
+  </data>
+  <data name="DM_Text_Empty" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="DM_Col_DocId" xml:space="preserve">
+    <value>Kode Dokumen</value>
+  </data>
+  <data name="DM_Col_Title" xml:space="preserve">
+    <value>Judul</value>
+  </data>
+  <data name="DM_Col_DocName" xml:space="preserve">
+    <value>Nama Dokumen</value>
+  </data>
+  <data name="DM_Col_Status" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="DM_Col_CreatedBy" xml:space="preserve">
+    <value>Pembuat</value>
+  </data>
+  <data name="DM_Col_CreatedAt" xml:space="preserve">
+    <value>Tanggal dibuat</value>
+  </data>
+  <data name="DM_Col_CompCd" xml:space="preserve">
+    <value>Perusahaan</value>
+  </data>
+  <data name="DM_Col_DepartmentId" xml:space="preserve">
+    <value>Departemen</value>
+  </data>
+  <data name="DM_Col_TemplateCode" xml:space="preserve">
+    <value>Kode Templat</value>
+  </data>
+  <data name="DM_Col_TemplateId" xml:space="preserve">
+    <value>ID Templat</value>
+  </data>
+  <data name="DM_Col_ApprovalLine" xml:space="preserve">
+    <value>Jalur Persetujuan</value>
+  </data>
+  <data name="DM_Col_ApprovalSummary" xml:space="preserve">
+    <value>Persetujuan</value>
+  </data>
+  <data name="DM_Col_UpdatedAt" xml:space="preserve">
+    <value>Tanggal diperbarui</value>
+  </data>
 </root>

@@ -1,4 +1,4 @@
-﻿@* 2026.05.13 Changed: JS 블록 내부 Razor 직접 주입을 JSON script 블록 방식으로 분리하여 TS1109 경고 수정 *@
+﻿@* 2026.06.02 Changed: DocTemplateManage 모델 타입 복구, content area 단일 가로 스크롤 적용, filter row dx-menu 폭 과확장 문제 수정 *@
 @model WebApplication1.Controllers.DocTemplateManageController.DocTemplateManageIndexVm
 @using System.Text.Json
 @using Microsoft.Extensions.Localization
@@ -92,24 +92,34 @@
         overflow: hidden !important;
     }
 
+    :root {
+        --dtm-grid-min-w: 2368px;
+    }
+
     #dtm-scroll {
         position: fixed;
         top: var(--header-h, 64px);
         left: var(--sidebar-w, 200px);
         right: 0;
         bottom: var(--footer-h, 28px);
-        overflow: auto;
-        padding: 1rem 1rem 1.25rem 1rem;
+        overflow-y: auto;
+        overflow-x: auto;
+        overscroll-behavior: contain;
+        padding: 1rem;
         background: #f5f5f5;
         z-index: 1;
+        box-sizing: border-box;
     }
 
     #docTemplateManagePage {
-        min-width: 0;
+        min-width: var(--dtm-grid-min-w);
+        box-sizing: border-box;
     }
 
         #docTemplateManagePage .dtm-card {
-            min-width: 0;
+            width: 100%;
+            min-width: var(--dtm-grid-min-w);
+            box-sizing: border-box;
         }
 
         #docTemplateManagePage .card-body {
@@ -118,18 +128,80 @@
 
         #docTemplateManagePage .dtm-grid-host {
             width: 100%;
+            min-width: var(--dtm-grid-min-w);
             min-height: 0;
             height: auto;
+            box-sizing: border-box;
         }
 
         #docTemplateManagePage .dx-datagrid {
+            width: 100% !important;
+            min-width: var(--dtm-grid-min-w);
             font-size: 0.875rem;
+            box-sizing: border-box;
         }
 
-        #docTemplateManagePage .dx-datagrid-headers .dx-datagrid-table .dx-row > td {
+        #docTemplateManagePage .dx-datagrid-pager,
+        #docTemplateManagePage .dx-pager {
+            width: 100% !important;
+            min-width: var(--dtm-grid-min-w) !important;
+            max-width: none !important;
+            box-sizing: border-box;
+        }
+
+        #docTemplateManagePage .dx-datagrid-headers .dx-header-row > td {
             font-weight: 600;
             color: #212529;
+            text-align: center !important;
         }
+
+        #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell {
+            text-align: left !important;
+        }
+
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu {
+                display: flex !important;
+                align-items: center !important;
+                width: 100% !important;
+                min-width: 0 !important;
+            }
+
+                #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu,
+                #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu-base {
+                    flex: 0 0 24px !important;
+                    width: 24px !important;
+                    min-width: 24px !important;
+                    max-width: 24px !important;
+                    overflow: visible !important;
+                }
+
+                    #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-items-container,
+                    #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item-wrapper,
+                    #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item {
+                        width: 24px !important;
+                        min-width: 24px !important;
+                        max-width: 24px !important;
+                    }
+
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-editor-container {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                width: auto !important;
+            }
+
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor {
+                width: 100% !important;
+                min-width: 0 !important;
+                min-height: 30px;
+            }
+
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-container,
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input-container,
+            #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input {
+                width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
 
         #docTemplateManagePage .dtm-ellipsis {
             display: inline-block;
@@ -157,10 +229,6 @@
             text-align: center;
         }
 
-        #docTemplateManagePage .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor {
-            min-height: 30px;
-        }
-
         #docTemplateManagePage .dx-datagrid-rowsview {
             max-height: none !important;
         }
@@ -170,6 +238,24 @@
             #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-content {
                 max-height: none !important;
             }
+
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-scrollbar,
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-scrollbar-horizontal,
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollbar-horizontal {
+                display: none !important;
+                height: 0 !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+
+            #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-container {
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+
+                #docTemplateManagePage .dx-datagrid-rowsview .dx-scrollable-container::-webkit-scrollbar:horizontal {
+                    height: 0 !important;
+                }
 
     @@media (max-width: 991.98px) {
         #dtm-scroll {
@@ -303,7 +389,9 @@
         }
 
         function valueOrEmpty(value) {
-            return value === null || value === undefined || String(value).trim() === '' ? text.empty : String(value);
+            return value === null || value === undefined || String(value).trim() === ''
+                ? text.empty
+                : String(value);
         }
 
         function refreshSaveButton() {
@@ -457,7 +545,7 @@
             return;
         }
 
-        const grid = new DevExpress.ui.dxDataGrid(gridEl, {
+        new DevExpress.ui.dxDataGrid(gridEl, {
             dataSource: rows,
             keyExpr: 'TemplateId',
             showBorders: true,
@@ -467,14 +555,15 @@
             columnResizingMode: 'widget',
             columnAutoWidth: false,
             wordWrapEnabled: false,
+            width: '100%',
             noDataText: text.noData,
             columnFixing: {
-                enabled: true
+                enabled: false
             },
             scrolling: {
                 mode: 'standard',
                 columnRenderingMode: 'standard',
-                showScrollbar: 'always',
+                showScrollbar: 'never',
                 useNative: true
             },
             paging: {
@@ -507,8 +596,6 @@
                     dataType: 'boolean',
                     width: 78,
                     alignment: 'center',
-                    fixed: true,
-                    fixedPosition: 'left',
                     cellTemplate: function (container, options) {
                         const el = unwrap(container);
                         const host = document.createElement('div');
@@ -633,8 +720,6 @@
                     caption: text.colManage,
                     width: 260,
                     alignment: 'center',
-                    fixed: true,
-                    fixedPosition: 'right',
                     allowSorting: false,
                     allowFiltering: false,
                     allowHeaderFiltering: false,

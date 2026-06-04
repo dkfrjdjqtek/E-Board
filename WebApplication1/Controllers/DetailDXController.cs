@@ -1421,6 +1421,7 @@ ORDER BY v.ViewedAt DESC;";
         [HttpPost("ApproveOrHoldDX")]
         [ValidateAntiForgeryToken]
         [Produces("application/json")]
+        // 2026.05.21 Changed 승인 후 문서 상태를 실제 남은 대기 결재 차수 기준으로 갱신하고 중복 상태 업데이트와 중복 알림 블록 제거
         public async Task<IActionResult> ApproveOrHold([FromBody] ApproveDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto?.docId) || string.IsNullOrWhiteSpace(dto?.action))
@@ -2022,40 +2023,56 @@ WHERE DocId = @id AND StepOrder = @step;";
                     await u.ExecuteNonQueryAsync();
                 }
 
-                newStatus = actionLower switch
-                {
-                    "approve" => $"ApprovedA{step}",
-                    "hold" => $"PendingHoldA{step}",
-                    "reject" => $"RejectedA{step}",
-                    _ => "Updated"
-                };
-
-                await using (var u2 = conn.CreateCommand())
-                {
-                    u2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
-                    u2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = newStatus });
-                    u2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                    await u2.ExecuteNonQueryAsync();
-                }
-
                 if (actionLower == "approve")
                 {
-                    var next = step + 1;
-                    nextStepForNotify = next;
-                    var toList = await GetNextApproverEmailsFromDbAsync(conn, dto.docId!, next);
+                    int? nextPendingStep = null;
 
-                    if (toList.Count == 0)
+                    await using (var nextPendingCmd = conn.CreateCommand())
                     {
-                        // 다음 결재자 없음 → 최종 승인
-                        await using var up2a = conn.CreateCommand();
-                        up2a.CommandText = @"UPDATE dbo.Documents SET Status = N'Approved' WHERE DocId = @id;";
-                        up2a.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                        await up2a.ExecuteNonQueryAsync();
+                        nextPendingCmd.CommandText = @"
+SELECT MIN(StepOrder)
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder > @Step
+  AND ISNULL(Status, N'Pending') = N'Pending';";
+                        nextPendingCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                        nextPendingCmd.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = step });
+
+                        var nextPendingObj = await nextPendingCmd.ExecuteScalarAsync();
+                        if (nextPendingObj != null && nextPendingObj != DBNull.Value)
+                            nextPendingStep = Convert.ToInt32(nextPendingObj);
+                    }
+
+                    if (nextPendingStep == null)
+                    {
                         newStatus = "Approved";
+
+                        await using (var upDocApproved = conn.CreateCommand())
+                        {
+                            upDocApproved.CommandText = @"
+UPDATE dbo.Documents
+SET Status = N'Approved'
+WHERE DocId = @DocId;";
+                            upDocApproved.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            await upDocApproved.ExecuteNonQueryAsync();
+                        }
                     }
                     else
                     {
-                        // ── next가 마지막 결재자인지 확인 ──
+                        newStatus = $"PendingA{nextPendingStep.Value}";
+                        nextStepForNotify = nextPendingStep.Value;
+
+                        await using (var upDocPending = conn.CreateCommand())
+                        {
+                            upDocPending.CommandText = @"
+UPDATE dbo.Documents
+SET Status = @Status
+WHERE DocId = @DocId;";
+                            upDocPending.Parameters.Add(new SqlParameter("@Status", SqlDbType.NVarChar, 20) { Value = newStatus });
+                            upDocPending.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                            await upDocPending.ExecuteNonQueryAsync();
+                        }
+
                         int? stepAfterNext = null;
                         await using (var chkLast = conn.CreateCommand())
                         {
@@ -2066,56 +2083,40 @@ WHERE DocId = @DocId
   AND StepOrder > @Next
 ORDER BY StepOrder;";
                             chkLast.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                            chkLast.Parameters.Add(new SqlParameter("@Next", SqlDbType.Int) { Value = next });
-                            var o = await chkLast.ExecuteScalarAsync();
-                            if (o != null && o != DBNull.Value) stepAfterNext = Convert.ToInt32(o);
+                            chkLast.Parameters.Add(new SqlParameter("@Next", SqlDbType.Int) { Value = nextPendingStep.Value });
+
+                            var stepAfterNextObj = await chkLast.ExecuteScalarAsync();
+                            if (stepAfterNextObj != null && stepAfterNextObj != DBNull.Value)
+                                stepAfterNext = Convert.ToInt32(stepAfterNextObj);
                         }
 
-                        bool isNextFinalStep = (stepAfterNext == null); // next가 마지막 결재자
+                        var shouldNotifyNextApprover = true;
+                        var isNextFinalStep = stepAfterNext == null;
 
-                        bool coopAllDone = true;
                         if (isNextFinalStep)
                         {
-                            // 협조자 중 Cooperated 아닌 사람 있는지 확인
-                            await using var chkCoop = conn.CreateCommand();
-                            chkCoop.CommandText = @"
+                            int coopPending = 0;
+
+                            await using (var chkCoop = conn.CreateCommand())
+                            {
+                                chkCoop.CommandText = @"
 SELECT COUNT(1)
 FROM dbo.DocumentCooperations
 WHERE DocId = @DocId
   AND ISNULL(Status, N'Pending') NOT IN (N'Cooperated', N'Recalled');";
-                            chkCoop.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                            var coopPending = Convert.ToInt32(await chkCoop.ExecuteScalarAsync());
-                            coopAllDone = (coopPending == 0);
+                                chkCoop.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+
+                                coopPending = Convert.ToInt32(await chkCoop.ExecuteScalarAsync());
+                            }
+
+                            shouldNotifyNextApprover = coopPending == 0;
                         }
 
-                        if (isNextFinalStep && !coopAllDone)
+                        if (shouldNotifyNextApprover)
                         {
-                            // 협조 미완료 → 마지막 결재자에게 아직 알림 보내지 않고 대기 상태만 기록
-                            await using (var up2 = conn.CreateCommand())
-                            {
-                                up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
-                                up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
-                                up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                                await up2.ExecuteNonQueryAsync();
-                            }
-                            newStatus = $"PendingA{next}";
-                            // 알림 발송 안 함 — 협조 완료 시 cooperate 쪽에서 발송
-                        }
-                        else
-                        {
-                            // 협조자 없거나 협조 완료 → 바로 알림 발송
-                            await using (var up2 = conn.CreateCommand())
-                            {
-                                up2.CommandText = @"UPDATE dbo.Documents SET Status = @st WHERE DocId = @id;";
-                                up2.Parameters.Add(new SqlParameter("@st", SqlDbType.NVarChar, 20) { Value = $"PendingA{next}" });
-                                up2.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = dto.docId });
-                                await up2.ExecuteNonQueryAsync();
-                            }
-                            newStatus = $"PendingA{next}";
-
                             try
                             {
-                                var nextIds = await GetNextApproverUserIdsFromDbAsync(conn, dto.docId!, next);
+                                var nextIds = await GetNextApproverUserIdsFromDbAsync(conn, dto.docId!, nextPendingStep.Value);
                                 await DocControllerHelper.SendApprovalPendingBadgeAsync(
                                     notifier: _webPushNotifier, S: _S, conn: conn,
                                     targetUserIds: nextIds ?? new List<string>(),
@@ -2128,7 +2129,28 @@ WHERE DocId = @DocId
                         }
                     }
                 }
-                else if (actionLower == "hold" || actionLower == "reject")
+                else
+                {
+                    newStatus = actionLower switch
+                    {
+                        "hold" => $"PendingHoldA{step}",
+                        "reject" => $"RejectedA{step}",
+                        _ => "Updated"
+                    };
+
+                    await using (var upDocStatus = conn.CreateCommand())
+                    {
+                        upDocStatus.CommandText = @"
+UPDATE dbo.Documents
+SET Status = @Status
+WHERE DocId = @DocId;";
+                        upDocStatus.Parameters.Add(new SqlParameter("@Status", SqlDbType.NVarChar, 20) { Value = newStatus });
+                        upDocStatus.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = dto.docId });
+                        await upDocStatus.ExecuteNonQueryAsync();
+                    }
+                }
+
+                if (actionLower == "hold" || actionLower == "reject")
                 {
                     try
                     {
@@ -2193,148 +2215,148 @@ WHERE DocId = @DocId
             return Json(new { ok = true, docId = dto.docId, status = newStatus, previewJson = previewJson2 });
         }
 
-//        // ========== UpdateShares ==========
-//        [HttpPost("UpdateShares")]
-//        [ValidateAntiForgeryToken]
-//        [Consumes("application/json")]
-//        [Produces("application/json")]
-//        public async Task<IActionResult> UpdateShares([FromBody] UpdateSharesDto dto)
-//        {
-//            if (dto is null || string.IsNullOrWhiteSpace(dto.DocId))
-//                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "arg" });
+        //        // ========== UpdateShares ==========
+        //        [HttpPost("UpdateShares")]
+        //        [ValidateAntiForgeryToken]
+        //        [Consumes("application/json")]
+        //        [Produces("application/json")]
+        //        public async Task<IActionResult> UpdateShares([FromBody] UpdateSharesDto dto)
+        //        {
+        //            if (dto is null || string.IsNullOrWhiteSpace(dto.DocId))
+        //                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "arg" });
 
-//            var docId = dto.DocId!.Trim();
-//            var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        //            var docId = dto.DocId!.Trim();
+        //            var actorId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
-//            var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
-//                .Where(x => !string.IsNullOrWhiteSpace(x))
-//                .Select(x => x.Trim())
-//                .Distinct(StringComparer.OrdinalIgnoreCase)
-//                .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
-//                .ToList();
+        //            var selected = (dto.SelectedRecipientUserIds ?? new List<string>())
+        //                .Where(x => !string.IsNullOrWhiteSpace(x))
+        //                .Select(x => x.Trim())
+        //                .Distinct(StringComparer.OrdinalIgnoreCase)
+        //                .Where(x => !string.Equals(x, actorId, StringComparison.OrdinalIgnoreCase))
+        //                .ToList();
 
-//            var newlyAdded = new List<string>();
+        //            var newlyAdded = new List<string>();
 
-//            try
-//            {
-//                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-//                await using var conn = new SqlConnection(cs);
-//                await conn.OpenAsync();
-//                await using var tx = await conn.BeginTransactionAsync();
+        //            try
+        //            {
+        //                var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+        //                await using var conn = new SqlConnection(cs);
+        //                await conn.OpenAsync();
+        //                await using var tx = await conn.BeginTransactionAsync();
 
-//                try
-//                {
-//                    var currentActive = new List<string>();
-//                    await using (var sel = conn.CreateCommand())
-//                    {
-//                        sel.Transaction = (SqlTransaction)tx;
-//                        sel.CommandText = @"SELECT UserId FROM dbo.DocumentShares WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
-//                        sel.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-//                        await using var r = await sel.ExecuteReaderAsync();
-//                        while (await r.ReadAsync())
-//                        {
-//                            var uid = (r["UserId"]?.ToString() ?? string.Empty).Trim();
-//                            if (!string.IsNullOrWhiteSpace(uid)) currentActive.Add(uid);
-//                        }
-//                    }
+        //                try
+        //                {
+        //                    var currentActive = new List<string>();
+        //                    await using (var sel = conn.CreateCommand())
+        //                    {
+        //                        sel.Transaction = (SqlTransaction)tx;
+        //                        sel.CommandText = @"SELECT UserId FROM dbo.DocumentShares WHERE DocId = @DocId AND ISNULL(IsRevoked,0) = 0;";
+        //                        sel.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+        //                        await using var r = await sel.ExecuteReaderAsync();
+        //                        while (await r.ReadAsync())
+        //                        {
+        //                            var uid = (r["UserId"]?.ToString() ?? string.Empty).Trim();
+        //                            if (!string.IsNullOrWhiteSpace(uid)) currentActive.Add(uid);
+        //                        }
+        //                    }
 
-//                    newlyAdded = selected
-//                        .Where(uid => !currentActive.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
-//                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        //                    newlyAdded = selected
+        //                        .Where(uid => !currentActive.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+        //                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-//                    var toRevoke = currentActive
-//                        .Where(uid => !selected.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
-//                        .ToList();
+        //                    var toRevoke = currentActive
+        //                        .Where(uid => !selected.Any(x => string.Equals(x, uid, StringComparison.OrdinalIgnoreCase)))
+        //                        .ToList();
 
-//                    foreach (var targetUserId in toRevoke)
-//                    {
-//                        await using (var cmd = conn.CreateCommand())
-//                        {
-//                            cmd.Transaction = (SqlTransaction)tx;
-//                            cmd.CommandText = @"UPDATE dbo.DocumentShares SET IsRevoked = 1, ExpireAt = SYSUTCDATETIME() WHERE DocId = @DocId AND UserId = @UserId;";
-//                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-//                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-//                            await cmd.ExecuteNonQueryAsync();
-//                        }
-//                        await using (var logCmd = conn.CreateCommand())
-//                        {
-//                            logCmd.Transaction = (SqlTransaction)tx;
-//                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
-//                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-//                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
-//                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareRevoked" });
-//                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-//                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"revoked\":true}" });
-//                            await logCmd.ExecuteNonQueryAsync();
-//                        }
-//                    }
+        //                    foreach (var targetUserId in toRevoke)
+        //                    {
+        //                        await using (var cmd = conn.CreateCommand())
+        //                        {
+        //                            cmd.Transaction = (SqlTransaction)tx;
+        //                            cmd.CommandText = @"UPDATE dbo.DocumentShares SET IsRevoked = 1, ExpireAt = SYSUTCDATETIME() WHERE DocId = @DocId AND UserId = @UserId;";
+        //                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+        //                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+        //                            await cmd.ExecuteNonQueryAsync();
+        //                        }
+        //                        await using (var logCmd = conn.CreateCommand())
+        //                        {
+        //                            logCmd.Transaction = (SqlTransaction)tx;
+        //                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
+        //                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareRevoked" });
+        //                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"revoked\":true}" });
+        //                            await logCmd.ExecuteNonQueryAsync();
+        //                        }
+        //                    }
 
-//                    foreach (var targetUserId in selected)
-//                    {
-//                        await using (var cmd = conn.CreateCommand())
-//                        {
-//                            cmd.Transaction = (SqlTransaction)tx;
-//                            cmd.CommandText = @"
-//IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
-//BEGIN
-//    UPDATE dbo.DocumentShares SET IsRevoked = 0, ExpireAt = NULL WHERE DocId=@DocId AND UserId=@UserId;
-//END
-//ELSE
-//BEGIN
-//    INSERT INTO dbo.DocumentShares (DocId,UserId,AccessRole,ExpireAt,IsRevoked,CreatedBy,CreatedAt)
-//    VALUES (@DocId,@UserId,'Commenter',NULL,0,@CreatedBy,SYSUTCDATETIME());
-//END";
-//                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-//                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-//                            cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
-//                            await cmd.ExecuteNonQueryAsync();
-//                        }
-//                        await using (var logCmd = conn.CreateCommand())
-//                        {
-//                            logCmd.Transaction = (SqlTransaction)tx;
-//                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
-//                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
-//                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
-//                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
-//                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
-//                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
-//                            await logCmd.ExecuteNonQueryAsync();
-//                        }
-//                    }
+        //                    foreach (var targetUserId in selected)
+        //                    {
+        //                        await using (var cmd = conn.CreateCommand())
+        //                        {
+        //                            cmd.Transaction = (SqlTransaction)tx;
+        //                            cmd.CommandText = @"
+        //IF EXISTS (SELECT 1 FROM dbo.DocumentShares WHERE DocId=@DocId AND UserId=@UserId)
+        //BEGIN
+        //    UPDATE dbo.DocumentShares SET IsRevoked = 0, ExpireAt = NULL WHERE DocId=@DocId AND UserId=@UserId;
+        //END
+        //ELSE
+        //BEGIN
+        //    INSERT INTO dbo.DocumentShares (DocId,UserId,AccessRole,ExpireAt,IsRevoked,CreatedBy,CreatedAt)
+        //    VALUES (@DocId,@UserId,'Commenter',NULL,0,@CreatedBy,SYSUTCDATETIME());
+        //END";
+        //                            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+        //                            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+        //                            cmd.Parameters.Add(new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 64) { Value = actorId });
+        //                            await cmd.ExecuteNonQueryAsync();
+        //                        }
+        //                        await using (var logCmd = conn.CreateCommand())
+        //                        {
+        //                            logCmd.Transaction = (SqlTransaction)tx;
+        //                            logCmd.CommandText = @"INSERT INTO dbo.DocumentShareLogs (DocId,ActorId,ChangeCode,TargetUserId,BeforeJson,AfterJson,ChangedAt) VALUES (@DocId,@ActorId,@ChangeCode,@TargetUserId,NULL,@AfterJson,SYSUTCDATETIME());";
+        //                            logCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.VarChar, 40) { Value = docId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@ActorId", SqlDbType.NVarChar, 64) { Value = actorId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@ChangeCode", SqlDbType.NVarChar, 50) { Value = "ShareAdded" });
+        //                            logCmd.Parameters.Add(new SqlParameter("@TargetUserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+        //                            logCmd.Parameters.Add(new SqlParameter("@AfterJson", SqlDbType.NVarChar, -1) { Value = "{\"accessRole\":\"Commenter\"}" });
+        //                            await logCmd.ExecuteNonQueryAsync();
+        //                        }
+        //                    }
 
-//                    await ((SqlTransaction)tx).CommitAsync();
-//                }
-//                catch
-//                {
-//                    await ((SqlTransaction)tx).RollbackAsync();
-//                    throw;
-//                }
+        //                    await ((SqlTransaction)tx).CommitAsync();
+        //                }
+        //                catch
+        //                {
+        //                    await ((SqlTransaction)tx).RollbackAsync();
+        //                    throw;
+        //                }
 
-//                try
-//                {
-//                    var ids = newlyAdded.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-//                    if (ids.Count > 0)
-//                    {
-//                        await using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? string.Empty);
-//                        await connPush.OpenAsync();
-//                        await DocControllerHelper.SendSharedUnreadBadgeAsync(
-//                            notifier: _webPushNotifier, S: _S, conn: connPush,
-//                            targetUserIds: ids, url: "/", tag: "badge-shared");
-//                    }
-//                }
-//                catch (Exception exPush)
-//                {
-//                    _log.LogWarning(exPush, "UpdateShares: push notify failed docId={docId}", docId);
-//                }
+        //                try
+        //                {
+        //                    var ids = newlyAdded.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        //                    if (ids.Count > 0)
+        //                    {
+        //                        await using var connPush = new SqlConnection(_cfg.GetConnectionString("DefaultConnection") ?? string.Empty);
+        //                        await connPush.OpenAsync();
+        //                        await DocControllerHelper.SendSharedUnreadBadgeAsync(
+        //                            notifier: _webPushNotifier, S: _S, conn: connPush,
+        //                            targetUserIds: ids, url: "/", tag: "badge-shared");
+        //                    }
+        //                }
+        //                catch (Exception exPush)
+        //                {
+        //                    _log.LogWarning(exPush, "UpdateShares: push notify failed docId={docId}", docId);
+        //                }
 
-//                return Json(new { ok = true, docId, selectedCount = selected.Count, addedNotifyCount = newlyAdded.Count });
-//            }
-//            catch (Exception ex)
-//            {
-//                _log.LogWarning(ex, "UpdateShares failed docId={docId}", docId);
-//                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
-//            }
-//        }
+        //                return Json(new { ok = true, docId, selectedCount = selected.Count, addedNotifyCount = newlyAdded.Count });
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                _log.LogWarning(ex, "UpdateShares failed docId={docId}", docId);
+        //                return BadRequest(new { ok = false, messages = new[] { "DOC_Err_SaveFailed" }, stage = "db", detail = ex.Message });
+        //            }
+        //        }
 
         // ========== DetailsData ==========
         [HttpGet("DetailsData")]

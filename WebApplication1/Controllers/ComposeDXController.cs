@@ -149,15 +149,18 @@ namespace WebApplication1.Controllers
             catch (Exception ex)
             {
                 _log.LogWarning(ex, "CreateDX visual extent compute failed. templateCode={tc}", templateCode);
-                ViewBag.TargetHeightPx = 900;
-                ViewBag.TargetWidthPx = 900;
+
+                // 2026.06.04 Changed: 서버 계산 실패 시 900px를 정상값처럼 내려주지 않음.
+                // 클라이언트 ComposeDX.cshtml의 previewJson / DX DOM 기반 fallback 계산이 작동하도록 0으로 전달.
+                ViewBag.TargetHeightPx = 0;
+                ViewBag.TargetWidthPx = 0;
                 ViewBag.LastRow = 0;
                 ViewBag.LastCol = 0;
                 ViewBag.LastA1 = "A1";
                 ViewBag.TargetA1 = "A1";
                 ViewBag.TargetRow1 = 1;
                 ViewBag.TargetCol1 = 1;
-                ViewBag.DxVisualMode = "Error";
+                ViewBag.DxVisualMode = "ErrorFallbackToClient";
             }
 
             ViewBag.DescriptorJson = descriptorJson;
