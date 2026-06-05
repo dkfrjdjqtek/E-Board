@@ -1,4 +1,4 @@
-﻿@* 2026.06.02 Changed: DocTemplateManage 모델 타입 복구, content area 단일 가로 스크롤 적용, filter row dx-menu 폭 과확장 문제 수정 *@
+﻿@* 2026.06.05 Changed: 템플릿 관리 그리드의 관리 컬럼을 content area 가로 스크롤 구조에서 우측 고정처럼 표시되도록 transform 보정 방식으로 변경 *@
 @model WebApplication1.Controllers.DocTemplateManageController.DocTemplateManageIndexVm
 @using System.Text.Json
 @using Microsoft.Extensions.Localization
@@ -42,6 +42,9 @@
         colUpdatedAt = L["DTM_Col_UpdatedAt"].Value,
         colManage = L["DTM_Col_Manage"].Value,
 
+        all = L["_CM_All"].Value,
+        cmYes = L["_CM_Yes"].Value,
+        cmNo = L["_CM_No"].Value,
         yes = L["DTM_Text_Yes"].Value,
         no = L["DTM_Text_No"].Value,
         copyPath = L["DTM_Btn_CopyPath"].Value,
@@ -76,7 +79,7 @@
         </div>
 
         <div class="card dtm-card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex flex-column align-items-start gap-1">
                 <span>@L["DTM_Grid_Title"]</span>
                 <span class="text-muted small">@L["DTM_Grid_Count", Model.Items.Count]</span>
             </div>
@@ -257,6 +260,39 @@
                     height: 0 !important;
                 }
 
+        #docTemplateManagePage .dtm-manage-fixed-right {
+            position: relative !important;
+            z-index: 4;
+            background-color: #fff !important;
+            background-image: none !important;
+            border-left: 0 !important;
+            border-bottom: 0 !important;
+            box-shadow: inset 1px 0 0 #d6dbe1, -1px 0 0 rgba(0, 0, 0, 0.04);
+            transform: translateX(var(--dtm-manage-shift, 0px));
+            will-change: transform;
+        }
+
+        #docTemplateManagePage .dx-datagrid-rowsview .dx-row-alt > td.dtm-manage-fixed-right {
+            background-color: #f7f7f7 !important;
+            box-shadow: inset 1px 0 0 #d6dbe1, -1px 0 0 rgba(0, 0, 0, 0.04);
+        }
+
+        #docTemplateManagePage .dx-datagrid-headers td.dtm-manage-fixed-right {
+            z-index: 6;
+            background-color: #fff !important;
+            border-left: 0 !important;
+            border-bottom: 0 !important;
+            box-shadow: inset 1px 0 0 #d6dbe1, inset 0 -1px 0 #d6dbe1, -1px 0 0 rgba(0, 0, 0, 0.04);
+        }
+
+        #docTemplateManagePage .dx-datagrid-filter-row td.dtm-manage-fixed-right {
+            z-index: 6;
+            background-color: #fff !important;
+            border-left: 0 !important;
+            border-bottom: 0 !important;
+            box-shadow: inset 1px 0 0 #d6dbe1, inset 0 -1px 0 #d6dbe1, -1px 0 0 rgba(0, 0, 0, 0.04);
+        }
+
     @@media (max-width: 991.98px) {
         #dtm-scroll {
             left: 0;
@@ -300,6 +336,7 @@
         const tokenInput = page.querySelector('input[name="__RequestVerificationToken"]');
         const changed = new Map();
         const originalUseState = new Map();
+        let manageColumnFrame = 0;
 
         rows.forEach(row => {
             originalUseState.set(Number(row.TemplateId), !!row.IsActive);
@@ -384,6 +421,29 @@
             scrollHost.style.bottom = bottom + 'px';
         }
 
+        function updateManageColumnPosition() {
+            manageColumnFrame = 0;
+
+            const hostRect = scrollHost.getBoundingClientRect();
+            const gridRect = gridEl.getBoundingClientRect();
+
+            let shift = Math.min(0, Math.round(hostRect.right - gridRect.right));
+
+            if (!Number.isFinite(shift)) {
+                shift = 0;
+            }
+
+            page.style.setProperty('--dtm-manage-shift', shift + 'px');
+        }
+
+        function scheduleManageColumnPosition() {
+            if (manageColumnFrame) {
+                return;
+            }
+
+            manageColumnFrame = window.requestAnimationFrame(updateManageColumnPosition);
+        }
+
         function unwrap(container) {
             return container && container.jquery ? container[0] : container;
         }
@@ -448,6 +508,31 @@
                 default:
                     return 'badge bg-secondary';
             }
+        }
+
+        function pathStatusHeaderFilterDataSource() {
+            return [
+                {
+                    text: text.pathExists || '정상',
+                    value: 'DTM_PathStatus_Exists'
+                },
+                {
+                    text: text.pathFileMissing || '파일 없음',
+                    value: 'DTM_PathStatus_FileMissing'
+                },
+                {
+                    text: text.pathOutOfRoot || '표준경로 아님',
+                    value: 'DTM_PathStatus_OutOfRoot'
+                },
+                {
+                    text: text.pathUnsafePath || '허용되지 않은 경로',
+                    value: 'DTM_PathStatus_UnsafePath'
+                },
+                {
+                    text: text.pathNoPath || '경로 없음',
+                    value: 'DTM_PathStatus_NoPath'
+                }
+            ];
         }
 
         function appendBadge(container, label, className) {
@@ -539,6 +624,10 @@
                 + encodeURIComponent(row.VersionId);
         }
 
+        rows.forEach(row => {
+            row.PathStatusDisplayText = pathStatusText(row.PathStatusKey);
+        });
+
         if (!window.DevExpress || !DevExpress.ui || !DevExpress.ui.dxDataGrid) {
             console.error('DevExtreme DataGrid가 로드되지 않았습니다. _Layout.cshtml의 dxresources/js/dx.all.js 경로와 DisableDxAll 값을 확인하세요.');
             gridEl.innerHTML = '<div class="alert alert-danger m-3">' + text.gridLoadFail + '</div>';
@@ -581,7 +670,8 @@
             },
             filterRow: {
                 visible: true,
-                applyFilter: 'auto'
+                applyFilter: 'auto',
+                showAllText: text.all || '(All)'
             },
             headerFilter: {
                 visible: true
@@ -596,6 +686,34 @@
                     dataType: 'boolean',
                     width: 78,
                     alignment: 'center',
+                    trueText: text.cmYes || '네',
+                    falseText: text.cmNo || '아니오',
+                    lookup: {
+                        dataSource: [
+                            {
+                                value: true,
+                                text: text.cmYes || '네'
+                            },
+                            {
+                                value: false,
+                                text: text.cmNo || '아니오'
+                            }
+                        ],
+                        valueExpr: 'value',
+                        displayExpr: 'text'
+                    },
+                    headerFilter: {
+                        dataSource: [
+                            {
+                                text: text.cmYes || '네',
+                                value: true
+                            },
+                            {
+                                text: text.cmNo || '아니오',
+                                value: false
+                            }
+                        ]
+                    },
                     cellTemplate: function (container, options) {
                         const el = unwrap(container);
                         const host = document.createElement('div');
@@ -613,21 +731,10 @@
                     }
                 },
                 {
-                    caption: text.colPathStatus,
-                    dataField: 'PathStatusKey',
-                    width: 110,
-                    alignment: 'center',
-                    calculateDisplayValue: function (row) {
-                        return pathStatusText(row.PathStatusKey);
-                    },
-                    cellTemplate: function (container, options) {
-                        appendBadge(container, pathStatusText(options.value), pathStatusClass(options.value));
-                    }
-                },
-                {
                     caption: text.colCompCd,
                     dataField: 'CompName',
                     width: 130,
+                    alignment: 'center',
                     calculateCellValue: function (row) {
                         return row.CompName || row.CompCd || text.empty;
                     }
@@ -636,6 +743,7 @@
                     caption: text.colDepartmentId,
                     dataField: 'DepartmentName',
                     width: 140,
+                    alignment: 'center',
                     calculateCellValue: function (row) {
                         return row.DepartmentName || row.DepartmentId || text.empty;
                     }
@@ -644,16 +752,9 @@
                     caption: text.colKindCode,
                     dataField: 'KindName',
                     width: 140,
+                    alignment: 'center',
                     calculateCellValue: function (row) {
                         return row.KindName || row.KindCode || text.empty;
-                    }
-                },
-                {
-                    caption: text.colDocCode,
-                    dataField: 'DocCode',
-                    width: 250,
-                    cellTemplate: function (container, options) {
-                        appendEllipsis(container, options.value);
                     }
                 },
                 {
@@ -665,10 +766,18 @@
                     }
                 },
                 {
+                    caption: text.colDocCode,
+                    dataField: 'DocCode',
+                    width: 250,
+                    cellTemplate: function (container, options) {
+                        appendEllipsis(container, options.value);
+                    }
+                },
+                {
                     caption: text.colVersionNo,
                     dataField: 'VersionNo',
                     width: 85,
-                    alignment: 'right',
+                    alignment: 'center',
                     dataType: 'number'
                 },
                 {
@@ -680,13 +789,77 @@
                     }
                 },
                 {
+                    caption: text.colPathStatus,
+                    dataField: 'PathStatusKey',
+                    width: 110,
+                    alignment: 'center',
+                    calculateDisplayValue: function (row) {
+                        return pathStatusText(row.PathStatusKey);
+                    },
+                    calculateFilterExpression: function (filterValue, selectedFilterOperation, target) {
+                        if (!filterValue) return null;
+
+                        if (target === 'filterRow' || target === 'search') {
+                            return [
+                                'PathStatusDisplayText',
+                                selectedFilterOperation || 'contains',
+                                filterValue
+                            ];
+                        }
+
+                        if (this.defaultCalculateFilterExpression) {
+                            return this.defaultCalculateFilterExpression.apply(this, arguments);
+                        }
+
+                        return [
+                            'PathStatusKey',
+                            selectedFilterOperation || '=',
+                            filterValue
+                        ];
+                    },
+                    headerFilter: {
+                        dataSource: pathStatusHeaderFilterDataSource()
+                    },
+                    cellTemplate: function (container, options) {
+                        appendBadge(container, pathStatusText(options.value), pathStatusClass(options.value));
+                    }
+                },
+                {
                     caption: text.colFileExists,
                     dataField: 'FileExists',
                     dataType: 'boolean',
                     width: 95,
                     alignment: 'center',
+                    trueText: text.yes || '있음',
+                    falseText: text.no || '없음',
+                    lookup: {
+                        dataSource: [
+                            {
+                                value: true,
+                                text: text.yes || '있음'
+                            },
+                            {
+                                value: false,
+                                text: text.no || '없음'
+                            }
+                        ],
+                        valueExpr: 'value',
+                        displayExpr: 'text'
+                    },
+                    headerFilter: {
+                        dataSource: [
+                            {
+                                text: text.yes || '있음',
+                                value: true
+                            },
+                            {
+                                text: text.no || '없음',
+                                value: false
+                            }
+                        ]
+                    },
                     cellTemplate: function (container, options) {
-                        if (options.value) {
+                        if (options.value === true) {
                             appendBadge(container, text.yes, 'badge bg-success');
                         } else {
                             appendBadge(container, text.no, 'badge bg-danger');
@@ -714,12 +887,15 @@
                     dataField: 'UpdatedAt',
                     dataType: 'datetime',
                     format: 'yyyy-MM-dd HH:mm',
-                    width: 150
+                    width: 150,
+                    alignment: 'center'
                 },
                 {
+                    name: 'Manage',
                     caption: text.colManage,
                     width: 260,
                     alignment: 'center',
+                    cssClass: 'dtm-manage-fixed-right',
                     allowSorting: false,
                     allowFiltering: false,
                     allowHeaderFiltering: false,
@@ -759,8 +935,19 @@
                     }
                 }
             ],
+            onCellPrepared: function (e) {
+                if (!e || !e.column || e.column.name !== 'Manage') {
+                    return;
+                }
+
+                const cell = unwrap(e.cellElement);
+                if (cell) {
+                    cell.classList.add('dtm-manage-fixed-right');
+                }
+            },
             onContentReady: function () {
                 syncScrollHostLayout();
+                scheduleManageColumnPosition();
             }
         });
 
@@ -795,11 +982,32 @@
             });
         }
 
-        window.addEventListener('resize', syncScrollHostLayout);
-        window.addEventListener('load', syncScrollHostLayout);
-        setTimeout(syncScrollHostLayout, 0);
-        setTimeout(syncScrollHostLayout, 150);
-        setTimeout(syncScrollHostLayout, 400);
+        scrollHost.addEventListener('scroll', scheduleManageColumnPosition, { passive: true });
+
+        window.addEventListener('resize', function () {
+            syncScrollHostLayout();
+            scheduleManageColumnPosition();
+        });
+
+        window.addEventListener('load', function () {
+            syncScrollHostLayout();
+            scheduleManageColumnPosition();
+        });
+
+        setTimeout(function () {
+            syncScrollHostLayout();
+            scheduleManageColumnPosition();
+        }, 0);
+
+        setTimeout(function () {
+            syncScrollHostLayout();
+            scheduleManageColumnPosition();
+        }, 150);
+
+        setTimeout(function () {
+            syncScrollHostLayout();
+            scheduleManageColumnPosition();
+        }, 400);
 
         refreshSaveButton();
     })();

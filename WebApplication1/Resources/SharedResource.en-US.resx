@@ -1533,4 +1533,10 @@
   <data name="DM_Col_UpdatedAt" xml:space="preserve">
     <value>Updated At</value>
   </data>
+  <data name="DM_Filter_ApprovalPending" xml:space="preserve">
+    <value>Approval pending</value>
+  </data>
+  <data name="DM_Filter_CoopPending" xml:space="preserve">
+    <value>Cooperation pending</value>
+  </data>
 </root>

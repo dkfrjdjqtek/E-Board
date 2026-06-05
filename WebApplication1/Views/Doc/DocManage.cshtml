@@ -1,5 +1,4 @@
-﻿@* 2026.06.02 Changed: DocManage filter row dx-menu 폭 과확장 문제 수정 및 content area 단일 스크롤 구조 유지 *@
-@model WebApplication1.Controllers.DocManageController.DocManageIndexVm
+﻿@model WebApplication1.Controllers.DocManageController.DocManageIndexVm
 @using System
 @using System.Globalization
 @using System.Text.Json
@@ -46,12 +45,17 @@
         hasFileYes = L["DTM_Text_Yes"].Value,
         hasFileNo = L["DTM_Text_No"].Value,
 
+        all = L["_CM_All"].Value,
+
         empty = L["DM_Text_Empty"].Value,
         pending = L["DOC_Status_Pending"].Value,
-        approved = L["DOC_Status_Approved"].Value,
-        rejected = L["DOC_Status_Rejected"].Value,
+        approved = L["DOC_Filter_ApprovalView_Approved"].Value,
+        rejected = L["DOC_Filter_ApprovalView_Rejected"].Value,
+        vetoed = L["DOC_Filter_ApprovalView_Vetoed"].Value,
         onHold = L["DOC_Status_OnHold"].Value,
-        recalled = L["DOC_Status_Recalled"].Value
+        recalled = L["DOC_Filter_ApprovalView_Recalled"].Value,
+        statusFilterApprovalPending = L["DM_Filter_ApprovalPending"].Value,
+        statusFilterCoopPending = L["DM_Filter_CoopPending"].Value
     }, jsonOptions);
 }
 
@@ -318,6 +322,15 @@
 
         const rows = readJsonScript('dm-rows-json', []);
         const text = readJsonScript('dm-text-json', {});
+        const statusDotI18n = {
+            DOT_LABELS: {
+                ApprovedDone: text.approved || '승인됨',
+                RejectedDone: text.rejected || '반려됨',
+                VetoedDone: text.vetoed || '부결됨',
+                RecalledDone: text.recalled || '회수됨',
+                Pending: text.pending || '대기'
+            }
+        };
 
         function unwrap(container) {
             return container && container.jquery ? container[0] : container;
@@ -370,8 +383,110 @@
             if (action === 'REJECT' || status.indexOf('REJECTED') === 0) return 'reject';
             if (action === 'RECALL' || status.indexOf('RECALLED') === 0) return 'recall';
             if (action === 'HOLD' || status === 'HOLD' || status.indexOf('ONHOLD') === 0 || status.indexOf('PENDINGHOLD') === 0) return 'hold';
+            if (action === 'VETO' || status === 'VETO' || status.indexOf('VETOED') === 0) return 'veto';
+
 
             return 'todo';
+        }
+
+        function dmTextOrFallback(value, key, fallbackValue) {
+            const s = String(value || '').trim();
+            return !s || s === key ? fallbackValue : s;
+        }
+
+        function dmStatusFilterText(item) {
+            const kind = String(item && item.kind || '');
+            const code = String(item && item.code || '');
+            const name = String(item && item.name || '').trim();
+
+            if (kind === 'status') {
+                if (code === 'Approved') return text.approved || '승인됨';
+                if (code === 'Rejected') return text.rejected || '반려됨';
+                if (code === 'OnHold') return text.onHold || '보류됨';
+                if (code === 'Recalled') return text.recalled || '회수됨';
+                if (code === 'Vetoed') return text.vetoed || '부결됨';
+            }
+
+            if (kind === 'approvalPending') {
+                const prefix = dmTextOrFallback(
+                    text.statusFilterApprovalPending,
+                    'DM_Filter_ApprovalPending',
+                    '결재대기'
+                );
+                return prefix + ' - ' + name;
+            }
+
+            if (kind === 'coopPending') {
+                const prefix = dmTextOrFallback(
+                    text.statusFilterCoopPending,
+                    'DM_Filter_CoopPending',
+                    '협조대기'
+                );
+                return prefix + ' - ' + name;
+            }
+
+            return name || valueOrEmpty(item && item.key);
+        }
+
+        function dmBuildStatusHeaderFilterDataSource(dataRows) {
+            const map = new Map();
+
+            (dataRows || []).forEach(row => {
+                const items = Array.isArray(row.statusFilterItems)
+                    ? row.statusFilterItems
+                    : [];
+
+                items.forEach(item => {
+                    const key = String(item && item.key || '').trim();
+                    if (!key || map.has(key)) return;
+
+                    map.set(key, {
+                        text: dmStatusFilterText(item),
+                        value: key,
+                        sortGroup: dmAsInt(item.sortGroup),
+                        sortText: String(item.sortText || item.name || item.key || '')
+                    });
+                });
+            });
+
+            return Array.from(map.values()).sort((a, b) => {
+                if (a.sortGroup !== b.sortGroup) return a.sortGroup - b.sortGroup;
+                return a.sortText.localeCompare(b.sortText, undefined, { sensitivity: 'base' });
+            });
+        }
+
+        function dmBuildStatusFilterKeyText(row) {
+            const items = Array.isArray(row.statusFilterItems)
+                ? row.statusFilterItems
+                : (Array.isArray(row.StatusFilterItems) ? row.StatusFilterItems : []);
+
+            const keys = [];
+
+            items.forEach(item => {
+                const key = String(item && (item.key || item.Key) || '').trim();
+                if (!key) return;
+                if (!keys.includes(key)) keys.push(key);
+            });
+
+            return keys.length > 0 ? '|' + keys.join('|') + '|' : '';
+        }
+
+        function dmBuildStatusHeaderFilterExpression(filterValue) {
+            const values = Array.isArray(filterValue) ? filterValue : [filterValue];
+
+            const filters = values
+                .map(x => String(x || '').trim())
+                .filter(x => x.length > 0)
+                .map(key => [
+                    'statusFilterKeyText',
+                    'contains',
+                    '|' + key + '|'
+                ]);
+
+            if (filters.length === 0) return null;
+            if (filters.length === 1) return filters[0];
+
+            return filters.reduce((acc, item) => acc ? [acc, 'or', item] : item, null);
         }
 
         function dmIsCompletedBoardRow(row) {
@@ -380,6 +495,7 @@
             if (status === 'APPROVED' || status === 'APPROVE') return true;
             if (status === 'REJECTED' || status === 'REJECT') return true;
             if (status === 'RECALLED' || status === 'RECALL') return true;
+            if (status === 'VETOED' || status === 'VETO') return true;
 
             const approvalSteps = Array.isArray(row.approvalSteps)
                 ? row.approvalSteps
@@ -387,7 +503,7 @@
 
             if (approvalSteps.some(x => {
                 const t = dmStepType(x);
-                return t === 'reject' || t === 'recall';
+                return t === 'reject' || t === 'veto' || t === 'recall';
             })) {
                 return true;
             }
@@ -445,6 +561,141 @@
             const value = parseFloat(raw);
             return Number.isFinite(value) ? value : fallback;
         }
+
+        function dmAddUnique(parts, value) {
+            const s = String(value || '').trim();
+            if (!s) return;
+            if (!parts.includes(s)) parts.push(s);
+        }
+
+        function dmStatusLabelForSearch(type) {
+            if (type === 'approve') return text.approved || '승인됨';
+            if (type === 'reject') return text.rejected || '반려됨';
+            if (type === 'veto') return text.vetoed || '부결됨';
+            if (type === 'recall') return text.recalled || '회수됨';
+            if (type === 'hold') return text.onHold || '보류됨';
+            return text.pending || '대기';
+        }
+
+        function dmCountKeyList(value) {
+            return String(value || '')
+                .split(',')
+                .map(x => dmAsInt(x))
+                .filter(x => x > 0)
+                .length;
+        }
+
+        function dmGetTerminalStatusLabel(row) {
+            const status = dmNorm(row.statusCode || row.StatusCode || row.status || row.Status);
+
+            if (status === 'APPROVED' || status === 'APPROVE') {
+                return text.approved || '승인됨';
+            }
+
+            if (status === 'REJECTED' || status === 'REJECT') {
+                return text.rejected || '반려됨';
+            }
+
+            if (status === 'VETOED' || status === 'VETO') {
+                return text.vetoed || '부결됨';
+            }
+
+            if (status === 'RECALLED' || status === 'RECALL') {
+                return text.recalled || '회수됨';
+            }
+
+            if (status === 'HOLD' || status === 'ONHOLD' || status === 'PENDINGHOLD') {
+                return text.onHold || '보류됨';
+            }
+
+            const approvalSteps = Array.isArray(row.approvalSteps)
+                ? row.approvalSteps
+                : (Array.isArray(row.ApprovalSteps) ? row.ApprovalSteps : []);
+
+            if (approvalSteps.some(x => dmStepType(x) === 'reject')) {
+                return text.rejected || '반려됨';
+            }
+
+            if (approvalSteps.some(x => dmStepType(x) === 'veto')) {
+                return text.vetoed || '부결됨';
+            }
+
+            if (approvalSteps.some(x => dmStepType(x) === 'recall')) {
+                return text.recalled || '회수됨';
+            }
+
+            if (approvalSteps.some(x => dmStepType(x) === 'hold')) {
+                return text.onHold || '보류됨';
+            }
+
+            if (approvalSteps.length > 0 && approvalSteps.every(x => dmStepType(x) === 'approve')) {
+                return text.approved || '승인됨';
+            }
+
+            return '';
+        }
+
+        function dmGetApprovalVisibleText(row) {
+            const terminalLabel = dmGetTerminalStatusLabel(row);
+            if (terminalLabel) {
+                return terminalLabel;
+            }
+
+            const approvalSteps = Array.isArray(row.approvalSteps)
+                ? row.approvalSteps
+                : (Array.isArray(row.ApprovalSteps) ? row.ApprovalSteps : []);
+
+            const pending = approvalSteps.find(x => dmStepType(x) === 'todo');
+            if (pending) {
+                return String(pending.approverName || pending.ApproverName || row.resultSummary || row.ResultSummary || '').trim();
+            }
+
+            return String(row.resultSummary || row.ResultSummary || '').trim();
+        }
+
+        function dmGetCoopVisibleText(row) {
+            const total = dmAsInt(row.coopTotalSteps ?? row.CoopTotalSteps);
+            if (total <= 0) {
+                return '';
+            }
+
+            const terminalLabel = dmGetTerminalStatusLabel(row);
+            if (terminalLabel) {
+                return terminalLabel;
+            }
+
+            if (dmHasAnyKeyList(row.coopRejectedKeys ?? row.CoopRejectedKeys)) {
+                return text.rejected || '반려됨';
+            }
+
+            if (dmHasAnyKeyList(row.coopRecalledKeys ?? row.CoopRecalledKeys)) {
+                return text.recalled || '회수됨';
+            }
+
+            if (dmHasAnyKeyList(row.coopHoldKeys ?? row.CoopHoldKeys)) {
+                return text.onHold || '보류됨';
+            }
+
+            if (dmCountKeyList(row.coopDoneKeys ?? row.CoopDoneKeys) >= total) {
+                return text.approved || '승인됨';
+            }
+
+            return String(row.coopPendingName || row.CoopPendingName || '').trim();
+        }        
+
+        function dmBuildStatusSearchText(row) {
+            const parts = [];
+
+            dmAddUnique(parts, dmGetApprovalVisibleText(row));
+            dmAddUnique(parts, dmGetCoopVisibleText(row));
+
+            return parts.join(' ');
+        }
+
+        rows.forEach(row => {
+            row.statusSearchText = dmBuildStatusSearchText(row);
+            row.statusFilterKeyText = dmBuildStatusFilterKeyText(row);
+        });
 
         function syncScrollHostLayout() {
             let top = readCssPx('--header-h', 64);
@@ -544,7 +795,8 @@
             },
             filterRow: {
                 visible: true,
-                applyFilter: 'auto'
+                applyFilter: 'auto',
+                showAllText: text.all || '(All)'
             },
             headerFilter: {
                 visible: true
@@ -621,6 +873,38 @@
                     calculateDisplayValue: function (row) {
                         return row.resultSummary || row.ResultSummary || row.statusCode || row.Status || '';
                     },
+                    calculateFilterExpression: function (filterValue, selectedFilterOperation, target) {
+                        if (!filterValue) return null;
+
+                        if (target === 'headerFilter') {
+                            return dmBuildStatusHeaderFilterExpression(filterValue);
+                        }
+
+                        if (target === 'filterRow' || target === 'search') {
+                            return [
+                                'statusSearchText',
+                                selectedFilterOperation || 'contains',
+                                filterValue
+                            ];
+                        }
+
+                        if (Array.isArray(filterValue)) {
+                            return filterValue;
+                        }
+
+                        if (this.defaultCalculateFilterExpression) {
+                            return this.defaultCalculateFilterExpression.apply(this, arguments);
+                        }
+
+                        return [
+                            'Status',
+                            selectedFilterOperation || 'contains',
+                            filterValue
+                        ];
+                    },
+                    headerFilter: {
+                        dataSource: dmBuildStatusHeaderFilterDataSource(rows)
+                    },
                     cellTemplate: function (container, options) {
                         const el = unwrap(container);
                         const row = options.data || {};
@@ -631,7 +915,7 @@
                             el.appendChild(
                                 window.EBDocStatusDots.renderStatusCell(
                                     row,
-                                    {},
+                                    statusDotI18n,
                                     dmBoardStateForRow(row)
                                 )
                             );
@@ -641,13 +925,41 @@
                         appendEllipsis(container, row.resultSummary || row.ResultSummary || row.statusCode || row.Status || '');
                     }
                 },
-                {
+               {
                     caption: text.colHasFiles,
                     dataField: 'HasFiles',
                     dataType: 'boolean',
                     width: 95,
                     alignment: 'center',
                     allowHeaderFiltering: true,
+                    trueText: text.hasFileYes || '있음',
+                    falseText: text.hasFileNo || '없음',
+                    lookup: {
+                        dataSource: [
+                            {
+                                value: true,
+                                text: text.hasFileYes || '있음'
+                            },
+                            {
+                                value: false,
+                                text: text.hasFileNo || '없음'
+                            }
+                        ],
+                        valueExpr: 'value',
+                        displayExpr: 'text'
+                    },
+                    headerFilter: {
+                        dataSource: [
+                            {
+                                text: text.hasFileYes || '있음',
+                                value: true
+                            },
+                            {
+                                text: text.hasFileNo || '없음',
+                                value: false
+                            }
+                        ]
+                    },
                     cellTemplate: function (container, options) {
                         if (options.value === true) {
                             appendBadge(container, text.hasFileYes || '있음', 'badge bg-success');
@@ -655,7 +967,7 @@
                             appendBadge(container, text.hasFileNo || '없음', 'badge bg-danger');
                         }
                     }
-                },
+                },                   
                 {
                     caption: text.colDocId,
                     dataField: 'DocId',

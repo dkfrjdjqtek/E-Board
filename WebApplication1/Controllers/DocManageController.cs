@@ -1,6 +1,4 @@
-﻿// 2026.06.01 Changed: DocManage 목록에 협조 라인 Board 공통 상태 dot 필드를 추가하고 사업장명 부서명 작성자 스냅샷 템플릿 버전 표시를 유지
-
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -12,6 +10,8 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using System.IO;
 
 namespace WebApplication1.Controllers
 {
@@ -20,10 +20,12 @@ namespace WebApplication1.Controllers
     public class DocManageController : Controller
     {
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _env;
 
-        public DocManageController(IConfiguration configuration)
+        public DocManageController(IConfiguration configuration, IWebHostEnvironment env)
         {
             _configuration = configuration;
+            _env = env;
         }
 
         [HttpGet("")]
@@ -87,6 +89,43 @@ namespace WebApplication1.Controllers
             var departmentIdCol = PickColumn(documentColumns, "DepartmentId", "DeptId");
             var templateCodeCol = PickColumn(documentColumns, "TemplateCode", "DocCode", "TemplateDocCode");
             var templateVersionIdCol = PickColumn(documentColumns, "TemplateVersionId", "VersionId", "DocTemplateVersionId");
+            var documentFilePathCol = PickColumn(
+                documentColumns,
+                "OutputFilePath",
+                "ExcelFilePath",
+                "GeneratedExcelPath",
+                "GeneratedFilePath",
+                "SavedFilePath",
+                "DocumentFilePath",
+                "DocFilePath",
+                "ResultFilePath",
+                "FilePath",
+                "StoragePath",
+                "PhysicalPath",
+                "OutputPath",
+                "ExcelPath",
+                "DocumentPath",
+                "DocPath",
+                "SavedPath"
+            );
+
+            var documentStorageCol = PickColumn(
+                documentColumns,
+                "ExcelStorage",
+                "FileStorage",
+                "Storage",
+                "StorageType"
+            );
+
+            var documentBlobCol = PickColumn(
+                documentColumns,
+                "ExcelBlob",
+                "FileBlob",
+                "Blob",
+                "Content",
+                "FileContent",
+                "OutputBlob"
+            );
             var updatedAtCol = PickColumn(documentColumns, "UpdatedAt", "ModifiedAt", "LastUpdatedAt");
 
             if (string.IsNullOrWhiteSpace(docIdCol) || string.IsNullOrWhiteSpace(createdAtCol))
@@ -103,6 +142,15 @@ namespace WebApplication1.Controllers
             var departmentIdExpr = SqlOptionalText("d", departmentIdCol);
             var templateCodeExpr = SqlOptionalText("d", templateCodeCol);
             var templateVersionIdExpr = SqlOptionalText("d", templateVersionIdCol);
+            var documentFilePathExpr = SqlOptionalText("d", documentFilePathCol);
+            var documentStorageExpr = SqlOptionalText("d", documentStorageCol);
+            var documentBlobSizeExpr = string.IsNullOrWhiteSpace(documentBlobCol)
+                ? "CONVERT(bigint, 0)"
+                : $@"
+CASE
+    WHEN {SqlColumn("d", documentBlobCol)} IS NULL THEN CONVERT(bigint, 0)
+    ELSE CONVERT(bigint, DATALENGTH({SqlColumn("d", documentBlobCol)}))
+END";
 
             var compJoin = string.IsNullOrWhiteSpace(compCdCol)
                 ? ""
@@ -172,16 +220,9 @@ SELECT TOP (1000)
     {templateVersionIdExpr} AS TemplateVersionId,
     {templateVersionNoExpr} AS TemplateVersionNo,
     {(string.IsNullOrWhiteSpace(updatedAtCol) ? "CAST(NULL AS datetime2(0))" : $"TRY_CONVERT(datetime2(0), {SqlColumn("d", updatedAtCol)})")} AS UpdatedAt,
-CASE
-    WHEN EXISTS
-    (
-        SELECT 1
-        FROM dbo.DocumentFiles df
-        WHERE df.DocId = {SqlText("d", docIdCol)}
-    )
-    THEN CAST(1 AS bit)
-    ELSE CAST(0 AS bit)
-END AS HasFiles
+    {documentFilePathExpr} AS DocumentFilePath,
+    {documentStorageExpr} AS DocumentStorage,
+    {documentBlobSizeExpr} AS DocumentBlobSize
 FROM dbo.Documents d
 {compJoin}
 {deptJoin}
@@ -203,6 +244,10 @@ ORDER BY
             await using var rd = await cmd.ExecuteReaderAsync();
             while (await rd.ReadAsync())
             {
+                var documentFilePath = ReadString(rd, "DocumentFilePath");
+                var documentStorage = ReadString(rd, "DocumentStorage");
+                var documentBlobSize = ReadLong(rd, "DocumentBlobSize") ?? 0;
+
                 list.Add(new DocManageRowVm
                 {
                     DocId = ReadString(rd, "DocId"),
@@ -221,12 +266,17 @@ ORDER BY
                     TemplateVersionId = ReadString(rd, "TemplateVersionId"),
                     TemplateVersionNo = ReadInt(rd, "TemplateVersionNo"),
                     UpdatedAt = ReadDateTime(rd, "UpdatedAt"),
-                    HasFiles = ReadBool(rd, "HasFiles")
+                    HasFiles = DocumentFileExists(documentStorage, documentFilePath, documentBlobSize)
                 });
             }
 
             await ApplyApprovalLinesAsync(cn, list);
             await ApplyCooperationLinesAsync(cn, list);
+
+            foreach (var row in list)
+            {
+                ApplyStatusFilterFields(row);
+            }
 
             return list;
         }
@@ -302,6 +352,7 @@ SELECT
     {SqlOptionalText("a", roleKeyCol)} AS RoleKey,
     {SqlOptionalText("a", statusCol)} AS Status,
     {SqlOptionalText("a", actionCol)} AS Action,
+    {SqlOptionalText("a", userIdCol)} AS UserId,
     {approverNameExpr} AS ApproverName,
     {(string.IsNullOrWhiteSpace(actedAtCol) ? "CAST(NULL AS datetime2(0))" : $"TRY_CONVERT(datetime2(0), {SqlColumn("a", actedAtCol)})")} AS ActedAt
 FROM dbo.DocumentApprovals a
@@ -343,6 +394,7 @@ ORDER BY
                         : roleKey,
                     Status = ReadString(rd, "Status"),
                     Action = ReadString(rd, "Action"),
+                    UserId = ReadString(rd, "UserId"),
                     ApproverName = ReadString(rd, "ApproverName"),
                     ActedAt = ReadDateTime(rd, "ActedAt")
                 });
@@ -428,6 +480,7 @@ SELECT
     {SqlOptionalText("c", roleKeyCol)} AS RoleKey,
     {SqlOptionalText("c", statusCol)} AS Status,
     {SqlOptionalText("c", actionCol)} AS Action,
+    {SqlOptionalText("c", userIdCol)} AS UserId,
     {coopNameExpr} AS CoopName,
     {(string.IsNullOrWhiteSpace(actedAtCol) ? "CAST(NULL AS datetime2(0))" : $"TRY_CONVERT(datetime2(0), {SqlColumn("c", actedAtCol)})")} AS ActedAt
 FROM dbo.DocumentCooperations c
@@ -466,6 +519,7 @@ ORDER BY
                     StepNo = ParseRoleNo(roleKey),
                     Status = ReadString(rd, "Status"),
                     Action = ReadString(rd, "Action"),
+                    UserId = ReadString(rd, "UserId"),
                     CoopName = ReadString(rd, "CoopName"),
                     ActedAt = ReadDateTime(rd, "ActedAt")
                 });
@@ -687,6 +741,206 @@ ORDER BY
             return values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
         }
 
+        private static void ApplyStatusFilterFields(DocManageRowVm row)
+        {
+            row.StatusFilterKeys.Clear();
+            row.StatusFilterItems.Clear();
+            row.StatusFilterText = "";
+
+            var isRecalled = IsRecalledStatus(row.Status)
+                || row.Approvals.Any(x => IsRecalledStatus(x.Status) || IsRecalledStatus(x.Action))
+                || row.Cooperations.Any(x => IsRecalledStatus(x.Status) || IsRecalledStatus(x.Action));
+
+            var isRejected = IsRejectedStatus(row.Status)
+                || row.Approvals.Any(x => IsRejectedStatus(x.Status) || IsRejectedStatus(x.Action))
+                || row.Cooperations.Any(x => IsRejectedStatus(x.Status) || IsRejectedStatus(x.Action));
+
+            var isHeld = IsHoldStatus(row.Status)
+                || row.Approvals.Any(x => IsHoldStatus(x.Status) || IsHoldStatus(x.Action))
+                || row.Cooperations.Any(x => IsHoldStatus(x.Status) || IsHoldStatus(x.Action));
+
+            var isApproved = IsRowApproved(row);
+
+            if (isRecalled)
+            {
+                AddStatusFilterItem(row, "STATUS:RECALLED", "status", "Recalled", null, 0, "040");
+            }
+            else if (isRejected)
+            {
+                AddStatusFilterItem(row, "STATUS:REJECTED", "status", "Rejected", null, 0, "020");
+            }
+            else if (isHeld)
+            {
+                AddStatusFilterItem(row, "STATUS:ONHOLD", "status", "OnHold", null, 0, "030");
+            }
+            else if (isApproved)
+            {
+                AddStatusFilterItem(row, "STATUS:APPROVED", "status", "Approved", null, 0, "010");
+            }
+            else
+            {
+                var pendingApproval = row.Approvals
+                    .OrderBy(x => x.StepOrder <= 0 ? int.MaxValue : x.StepOrder)
+                    .ThenBy(x => x.RoleKey)
+                    .FirstOrDefault(IsPendingApproval);
+
+                if (pendingApproval != null)
+                {
+                    var pendingName = FirstNotEmpty(pendingApproval.ApproverName, pendingApproval.RoleKey);
+                    var key = BuildPersonFilterKey("APPROVAL_PENDING", pendingApproval.UserId, pendingName);
+
+                    if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(pendingName))
+                    {
+                        AddStatusFilterItem(row, key, "approvalPending", null, pendingName, 1, pendingName);
+                    }
+                }
+
+                foreach (var pendingCoop in row.Cooperations
+                    .Where(IsPendingCooperation)
+                    .OrderBy(x => x.CoopName)
+                    .ThenBy(x => x.RoleKey))
+                {
+                    var pendingName = FirstNotEmpty(pendingCoop.CoopName, pendingCoop.RoleKey);
+                    var key = BuildPersonFilterKey("COOP_PENDING", pendingCoop.UserId, pendingName);
+
+                    if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(pendingName))
+                    {
+                        AddStatusFilterItem(row, key, "coopPending", null, pendingName, 2, pendingName);
+                    }
+                }
+            }
+
+            row.StatusFilterText = row.StatusFilterKeys.Count == 0
+                ? ""
+                : "|" + string.Join("|", row.StatusFilterKeys) + "|";
+        }
+
+        private static bool IsRowApproved(DocManageRowVm row)
+        {
+            if (IsApprovedStatus(row.Status))
+                return true;
+
+            if (row.Approvals.Count == 0)
+                return false;
+
+            var allApprovalsApproved = row.Approvals.All(x => IsApprovedStatus(x.Status) || IsApprovedStatus(x.Action));
+            var allCooperationsDone = row.Cooperations.Count == 0
+                || row.Cooperations.All(x => IsCooperatedStatus(x.Status) || IsCooperatedStatus(x.Action));
+
+            return allApprovalsApproved && allCooperationsDone;
+        }
+
+        private static bool IsPendingApproval(DocManageApprovalVm row)
+        {
+            return !IsApprovedStatus(row.Status)
+                && !IsApprovedStatus(row.Action)
+                && !IsRejectedStatus(row.Status)
+                && !IsRejectedStatus(row.Action)
+                && !IsRecalledStatus(row.Status)
+                && !IsRecalledStatus(row.Action)
+                && !IsHoldStatus(row.Status)
+                && !IsHoldStatus(row.Action);
+        }
+
+        private static bool IsPendingCooperation(DocManageCooperationVm row)
+        {
+            return !IsCooperatedStatus(row.Status)
+                && !IsCooperatedStatus(row.Action)
+                && !IsRejectedStatus(row.Status)
+                && !IsRejectedStatus(row.Action)
+                && !IsRecalledStatus(row.Status)
+                && !IsRecalledStatus(row.Action)
+                && !IsHoldStatus(row.Status)
+                && !IsHoldStatus(row.Action);
+        }
+
+        private static void AddStatusFilterItem(
+            DocManageRowVm row,
+            string key,
+            string kind,
+            string? code,
+            string? name,
+            int sortGroup,
+            string? sortText)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            if (row.StatusFilterKeys.Any(x => string.Equals(x, key, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            row.StatusFilterKeys.Add(key);
+            row.StatusFilterItems.Add(new DocManageStatusFilterItemVm
+            {
+                Key = key,
+                Kind = kind,
+                Code = code,
+                Name = name,
+                SortGroup = sortGroup,
+                SortText = sortText
+            });
+        }
+
+        private static string? BuildPersonFilterKey(string prefix, string? userId, string? name)
+        {
+            var value = FirstNotEmpty(userId, name);
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return prefix + ":" + NormalizeFilterKeyPart(value);
+        }
+
+        private static string NormalizeFilterKeyPart(string value)
+        {
+            return Uri.EscapeDataString(value.Trim().ToUpperInvariant());
+        }
+
+        private bool DocumentFileExists(string? storage, string? dbPath, long blobSize)
+        {
+            if (string.Equals(storage, "Db", StringComparison.OrdinalIgnoreCase))
+                return blobSize > 0;
+
+            if (string.IsNullOrWhiteSpace(dbPath) && blobSize > 0)
+                return true;
+
+            var absolutePath = ToSafeAbsolutePath(dbPath);
+            return !string.IsNullOrWhiteSpace(absolutePath) && System.IO.File.Exists(absolutePath);
+        }
+
+        private string? ToSafeAbsolutePath(string? dbPath)
+        {
+            if (string.IsNullOrWhiteSpace(dbPath))
+                return null;
+
+            var normalized = NormalizeDbPath(dbPath);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return null;
+
+            var absolute = Path.IsPathRooted(normalized)
+                ? normalized
+                : Path.Combine(_env.ContentRootPath, normalized);
+
+            var full = Path.GetFullPath(absolute);
+            var contentRoot = Path.GetFullPath(_env.ContentRootPath);
+
+            if (!full.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return full;
+        }
+
+        private static string? NormalizeDbPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            return path
+                .Trim()
+                .Replace('₩', '\\')
+                .Replace('￦', '\\')
+                .Replace('/', '\\');
+        }
+
         private async Task<bool> IsCurrentUserAdminAsync(SqlConnection cn)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -824,6 +1078,15 @@ WHERE TABLE_SCHEMA = @Schema
             return Convert.ToInt32(rd.GetValue(ordinal), CultureInfo.InvariantCulture);
         }
 
+        private static long? ReadLong(SqlDataReader rd, string name)
+        {
+            var ordinal = rd.GetOrdinal(name);
+            if (rd.IsDBNull(ordinal))
+                return null;
+
+            return Convert.ToInt64(rd.GetValue(ordinal), CultureInfo.InvariantCulture);
+        }
+
         private static DateTime? ReadDateTime(SqlDataReader rd, string name)
         {
             var ordinal = rd.GetOrdinal(name);
@@ -915,7 +1178,38 @@ WHERE TABLE_SCHEMA = @Schema
 
             [JsonPropertyName("coopPendingPosition")]
             public string? CoopPendingPosition { get; set; }
+
+            [JsonPropertyName("statusFilterKeys")]
+            public List<string> StatusFilterKeys { get; set; } = new();
+
+            [JsonPropertyName("statusFilterText")]
+            public string? StatusFilterText { get; set; }
+
+            [JsonPropertyName("statusFilterItems")]
+            public List<DocManageStatusFilterItemVm> StatusFilterItems { get; set; } = new();
+
             public bool HasFiles { get; set; }
+        }
+
+        public sealed class DocManageStatusFilterItemVm
+        {
+            [JsonPropertyName("key")]
+            public string? Key { get; set; }
+
+            [JsonPropertyName("kind")]
+            public string? Kind { get; set; }
+
+            [JsonPropertyName("code")]
+            public string? Code { get; set; }
+
+            [JsonPropertyName("name")]
+            public string? Name { get; set; }
+
+            [JsonPropertyName("sortGroup")]
+            public int SortGroup { get; set; }
+
+            [JsonPropertyName("sortText")]
+            public string? SortText { get; set; }
         }
 
         public sealed class DocManageApprovalVm
@@ -924,6 +1218,7 @@ WHERE TABLE_SCHEMA = @Schema
             public string? RoleKey { get; set; }
             public string? Status { get; set; }
             public string? Action { get; set; }
+            public string? UserId { get; set; }
             public string? ApproverName { get; set; }
             public DateTime? ActedAt { get; set; }
         }
@@ -952,6 +1247,7 @@ WHERE TABLE_SCHEMA = @Schema
             public int StepNo { get; set; }
             public string? Status { get; set; }
             public string? Action { get; set; }
+            public string? UserId { get; set; }
             public string? CoopName { get; set; }
             public DateTime? ActedAt { get; set; }
         }

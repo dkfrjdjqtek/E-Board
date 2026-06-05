@@ -1533,4 +1533,10 @@
   <data name="DM_Col_UpdatedAt" xml:space="preserve">
     <value>Tanggal diperbarui</value>
   </data>
+  <data name="DM_Filter_ApprovalPending" xml:space="preserve">
+    <value>Menunggu persetujuan</value>
+  </data>
+  <data name="DM_Filter_CoopPending" xml:space="preserve">
+    <value>Menunggu koordinasi</value>
+  </data>
 </root>

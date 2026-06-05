@@ -1533,4 +1533,10 @@
   <data name="DM_Col_UpdatedAt" xml:space="preserve">
     <value>更新日期</value>
   </data>
+  <data name="DM_Filter_ApprovalPending" xml:space="preserve">
+    <value>待审批</value>
+  </data>
+  <data name="DM_Filter_CoopPending" xml:space="preserve">
+    <value>待协作</value>
+  </data>
 </root>

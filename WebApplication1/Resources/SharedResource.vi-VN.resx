@@ -1533,4 +1533,10 @@
   <data name="DM_Col_UpdatedAt" xml:space="preserve">
     <value>Ngày sửa</value>
   </data>
+  <data name="DM_Filter_ApprovalPending" xml:space="preserve">
+    <value>Chờ phê duyệt</value>
+  </data>
+  <data name="DM_Filter_CoopPending" xml:space="preserve">
+    <value>Chờ phối hợp</value>
+  </data>
 </root>

@@ -1533,4 +1533,10 @@
   <data name="DM_Col_UpdatedAt" xml:space="preserve">
     <value>수정일</value>
   </data>
+  <data name="DM_Filter_ApprovalPending" xml:space="preserve">
+    <value>결재대기</value>
+  </data>
+  <data name="DM_Filter_CoopPending" xml:space="preserve">
+    <value>협조대기</value>
+  </data>
 </root>
