@@ -1,6 +1,8 @@
-﻿@* 2026.06.05 Changed: 템플릿 관리 그리드의 관리 컬럼을 content area 가로 스크롤 구조에서 우측 고정처럼 표시되도록 transform 보정 방식으로 변경 *@
+﻿@* 2026.06.09 Changed: 수정일자 표시/필터를 DocControllerHelper.cs와 DocControllerHelper.js 공용 날짜 헬퍼 기준으로 정리 *@
+@* 2026.06.05 Changed: 템플릿 관리 그리드의 관리 컬럼을 content area 가로 스크롤 구조에서 우측 고정처럼 표시되도록 transform 보정 방식으로 변경 *@
 @model WebApplication1.Controllers.DocTemplateManageController.DocTemplateManageIndexVm
 @using System.Text.Json
+@using System.Globalization
 @using Microsoft.Extensions.Localization
 @inject IStringLocalizer<SharedResource> L
 
@@ -16,8 +18,19 @@
 
     var rowsJson = JsonSerializer.Serialize(Model.Items, jsonOptions);
 
+    var currentCulture = CultureInfo.CurrentUICulture.Name;
+    if (string.IsNullOrWhiteSpace(currentCulture))
+    {
+        currentCulture = "ko-KR";
+    }
+
+    var datePattern = WebApplication1.Controllers.DocControllerHelper.GetLocalDatePattern(currentCulture);
+
     var textJson = JsonSerializer.Serialize(new
     {
+        currentCulture,
+        datePattern,
+
         empty = L["DTM_Text_Empty"].Value,
         noData = L["DTM_Message_NoData"].Value,
         saveOk = L["DTM_Message_SaveCompleted"].Value,
@@ -43,6 +56,9 @@
         colManage = L["DTM_Col_Manage"].Value,
 
         all = L["_CM_All"].Value,
+        ok = L["_CM_OK"].Value,
+        cancel = L["_CM_Cancel"].Value,
+        today = L["_CM_Today"].Value,
         cmYes = L["_CM_Yes"].Value,
         cmNo = L["_CM_No"].Value,
         yes = L["DTM_Text_Yes"].Value,
@@ -308,6 +324,8 @@
     @Html.Raw(textJson)
 </script>
 
+<script src="~/js/DocControllerHelper.js" asp-append-version="true"></script>
+
 <script>
     (() => {
         const page = document.getElementById('docTemplateManagePage');
@@ -315,22 +333,15 @@
         const scrollHost = document.getElementById('dtm-scroll');
         if (!page || !gridEl || !scrollHost) return;
 
-        function readJsonScript(id, fallbackValue) {
-            const el = document.getElementById(id);
-            if (!el) return fallbackValue;
-
-            try {
-                const raw = el.textContent || '';
-                if (!raw.trim()) return fallbackValue;
-                return JSON.parse(raw);
-            } catch (e) {
-                console.error('JSON parse failed:', id, e);
-                return fallbackValue;
-            }
+        const H = window.DocControllerHelper;
+        if (!H) {
+            console.error('DocControllerHelper.js가 로드되지 않았습니다.');
+            gridEl.innerHTML = '<div class="alert alert-danger m-3">@L["_CM_Error"]</div>';
+            return;
         }
 
-        const rows = readJsonScript('dtm-rows-json', []);
-        const text = readJsonScript('dtm-text-json', {});
+        const rows = H.readJsonScript('dtm-rows-json', []);
+        const text = H.readJsonScript('dtm-text-json', {});
 
         const saveButton = document.getElementById('btnSaveUseState');
         const tokenInput = page.querySelector('input[name="__RequestVerificationToken"]');
@@ -340,6 +351,11 @@
 
         rows.forEach(row => {
             originalUseState.set(Number(row.TemplateId), !!row.IsActive);
+
+            H.normalizeLocalDateRow(row, {
+                localTextField: 'UpdatedAtLocalText',
+                localDateKeyField: 'UpdatedAtLocalDateKey'
+            });
         });
 
         function pickFirstVisible(selectors) {
@@ -445,7 +461,7 @@
         }
 
         function unwrap(container) {
-            return container && container.jquery ? container[0] : container;
+            return H.unwrap(container);
         }
 
         function valueOrEmpty(value) {
@@ -882,14 +898,17 @@
                         return row.UpdatedByName || row.UpdatedBy || text.empty;
                     }
                 },
-                {
+                H.createLocalDateColumn({
                     caption: text.colUpdatedAt,
-                    dataField: 'UpdatedAt',
-                    dataType: 'datetime',
-                    format: 'yyyy-MM-dd HH:mm',
+                    text: text,
+                    localTextField: 'UpdatedAtLocalText',
+                    localDateKeyField: 'UpdatedAtLocalDateKey',
+                    sortFields: ['UpdatedAtUtc', 'updatedAtUtc', 'UpdatedAt', 'updatedAt', 'UpdatedAtLocalText', 'updatedAtLocalText'],
                     width: 150,
-                    alignment: 'center'
-                },
+                    alignment: 'center',
+                    cssClass: 'dtm-center',
+                    allowHeaderFiltering: false
+                }),
                 {
                     name: 'Manage',
                     caption: text.colManage,

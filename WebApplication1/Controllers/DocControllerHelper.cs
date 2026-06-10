@@ -1,4 +1,5 @@
-﻿using ClosedXML.Excel;
+﻿// 2026.06.09 Changed: 날짜 culture 정규화와 LocalText/LocalDateKey 공용 함수를 추가
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -245,8 +246,8 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                 int actualMaxC = 1;
                 int actualMaxR = 1;
                 //foreach (var row in ws.RowsUsed(XLCellsUsedOptions.AllContents))
-                    foreach (var row in ws.RowsUsed(XLCellsUsedOptions.All))
-                    {
+                foreach (var row in ws.RowsUsed(XLCellsUsedOptions.All))
+                {
                     var rowNum = row.RowNumber();
                     if (rowNum > actualMaxR) actualMaxR = rowNum;
                     //var last = row.LastCellUsed(XLCellsUsedOptions.AllContents);
@@ -263,7 +264,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
                     // ★ lastC로 actualMaxC 확장 제거
                 }
                 actualMaxR = Math.Min(actualMaxR, maxRows);
-                actualMaxC = Math.Min(actualMaxC , maxCols);
+                actualMaxC = Math.Min(actualMaxC, maxCols);
 
                 for (int r = 1; r <= actualMaxR; r++)
                 {
@@ -461,6 +462,116 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
             }
         }
 
+
+        public static string NormalizeCultureName(string? cultureName)
+        {
+            var value = string.IsNullOrWhiteSpace(cultureName)
+                ? "ko-KR"
+                : cultureName.Trim().Replace('_', '-');
+
+            if (value.Equals("ko", StringComparison.OrdinalIgnoreCase))
+                return "ko-KR";
+
+            if (value.Equals("en", StringComparison.OrdinalIgnoreCase))
+                return "en-US";
+
+            if (value.Equals("vi", StringComparison.OrdinalIgnoreCase))
+                return "vi-VN";
+
+            if (value.Equals("id", StringComparison.OrdinalIgnoreCase))
+                return "id-ID";
+
+            if (value.Equals("zh", StringComparison.OrdinalIgnoreCase))
+                return "zh-CN";
+
+            return value;
+        }
+
+        public static string GetLocalDatePattern(string? cultureName)
+        {
+            var culture = NormalizeCultureName(cultureName).ToLowerInvariant();
+
+            return culture switch
+            {
+                "en-us" => "MM/dd/yyyy",
+                "vi-vn" => "dd/MM/yyyy",
+                "id-id" => "dd/MM/yyyy",
+                "zh-cn" => "yyyy/MM/dd",
+                "ko-kr" => "yyyy-MM-dd",
+                _ => "yyyy-MM-dd"
+            };
+        }
+
+        public static string GetLocalDateTimePattern(string? cultureName)
+        {
+            return GetLocalDatePattern(cultureName) + " HH:mm";
+        }
+
+        public static DateTime? TreatAsUtc(DateTime? value)
+        {
+            if (!value.HasValue)
+                return null;
+
+            var dt = value.Value;
+
+            if (dt.Kind == DateTimeKind.Utc)
+                return dt;
+
+            if (dt.Kind == DateTimeKind.Local)
+                return dt.ToUniversalTime();
+
+            return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        }
+
+        public static DateTime? ConvertUtcToLocal(DateTime? utcValue, string? timeZoneId)
+        {
+            var utc = TreatAsUtc(utcValue);
+            if (!utc.HasValue)
+                return null;
+
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(timeZoneId))
+                candidates.Add(timeZoneId.Trim());
+
+            candidates.Add("Asia/Seoul");
+            candidates.Add("Korea Standard Time");
+
+            foreach (var id in candidates.Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                if (TryResolveTimeZone(id, out var tz))
+                {
+                    var local = TimeZoneInfo.ConvertTimeFromUtc(utc.Value, tz);
+                    return DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+                }
+            }
+
+            return DateTime.SpecifyKind(utc.Value, DateTimeKind.Unspecified);
+        }
+
+        public static string FormatLocalMinute(DateTime? value)
+        {
+            return FormatLocalMinute(value, CultureInfo.CurrentUICulture.Name);
+        }
+
+        public static string FormatLocalMinute(DateTime? value, string? cultureName)
+        {
+            if (!value.HasValue)
+                return string.Empty;
+
+            return value.Value.ToString(
+                GetLocalDateTimePattern(cultureName),
+                CultureInfo.InvariantCulture
+            );
+        }
+
+        public static string FormatLocalDateKey(DateTime? value)
+        {
+            if (!value.HasValue)
+                return string.Empty;
+
+            return value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
         public string ToLocalStringFromUtc(DateTime utc)
         {
             if (utc.Kind != DateTimeKind.Utc)
@@ -468,7 +579,7 @@ ORDER BY a.CompCd, e.SortOrder, c.RankLevel, a.DisplayName;";
 
             var tz = ResolveCompanyTimeZone();
             var local = TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
-            return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            return FormatLocalMinute(local, CultureInfo.CurrentUICulture.Name);
         }
 
         // ============================================================
@@ -613,7 +724,7 @@ WHERE LTRIM(RTRIM(u.Email)) = @e OR u.NormalizedEmail = UPPER(@e);", conn);
         }
 
         // Push 알림 결재용
-        public static async Task SendApprovalPendingBadgeAsync(IWebPushNotifier notifier,IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string url = "/", string tag = "badge-approval-pending")
+        public static async Task SendApprovalPendingBadgeAsync(IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string url = "/", string tag = "badge-approval-pending")
         {
             if (notifier == null) throw new ArgumentNullException(nameof(notifier));
             if (conn == null) throw new ArgumentNullException(nameof(conn));
@@ -643,42 +754,27 @@ WHERE LTRIM(RTRIM(u.Email)) = @e OR u.NormalizedEmail = UPPER(@e);", conn);
             }
         }
 
-		
+        //  BoardBadges(sqlApprovalPending)와 동일 기준으로 집계 (PendingHold 포함, Pending% 포함)
         private static async Task<int> GetApprovalPendingCountAsync(SqlConnection conn, string targetUserId)
-		{
-			if (conn == null) throw new ArgumentNullException(nameof(conn));
-			if (string.IsNullOrWhiteSpace(targetUserId)) return 0;
-
-			if (conn.State != ConnectionState.Open)
-				await conn.OpenAsync();
-
-			await using var cmd = conn.CreateCommand();
-			cmd.CommandText = @"
-SELECT COUNT(DISTINCT a.DocId)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT COUNT(1)
 FROM dbo.DocumentApprovals a
-JOIN dbo.Documents d
-  ON d.DocId = a.DocId
+JOIN dbo.Documents d ON a.DocId = d.DocId
 WHERE a.UserId = @UserId
-  AND ISNULL(a.Status, N'Pending') LIKE N'Pending%'
-  AND ISNULL(a.Action, N'') NOT IN (N'approve', N'Approve', N'Approved', N'reject', N'Reject', N'Rejected', N'Recalled', N'recall', N'Recall')
-  AND ISNULL(d.Status, N'') LIKE N'Pending%'
-  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%'
-  AND ISNULL(d.Status, N'') NOT LIKE N'Recall%'
-  AND ISNULL(d.Status, N'') NOT LIKE N'Rejected%';";
+  AND ISNULL(a.Status, N'') LIKE N'Pending%'
+  AND (
+        ISNULL(d.Status, N'') = N'PendingA'     + CAST(a.StepOrder AS nvarchar(10))
+     OR ISNULL(d.Status, N'') = N'PendingHoldA' + CAST(a.StepOrder AS nvarchar(10))
+  )
+  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
 
-			cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450)
-			{
-				Value = targetUserId.Trim()
-			});
-
-			var result = await cmd.ExecuteScalarAsync();
-			return result == null || result == DBNull.Value
-				? 0
-				: Convert.ToInt32(result, CultureInfo.InvariantCulture);
-		}
-
-		//  conn을 외부에서 재사용하는 구조이므로, 여기서 무조건 OpenAsync 하지 않도록 수정
-		public static async Task<string> GetA1ApproverUserIdByDocAsync(SqlConnection conn, string xDocId)
+        //  conn을 외부에서 재사용하는 구조이므로, 여기서 무조건 OpenAsync 하지 않도록 수정
+        public static async Task<string> GetA1ApproverUserIdByDocAsync(SqlConnection conn, string xDocId)
         {
             if (conn == null) throw new ArgumentNullException(nameof(conn));
             if (conn.State != ConnectionState.Open)
@@ -750,276 +846,47 @@ WHERE s.UserId = @UserId
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
 
-		// 2026.04.28 Changed: 협조 대기 푸시 수량을 BoardBadges 협조 대기 조건으로 직접 계산하여 기존 count 경로 오사용을 차단
-		public static async Task SendCooperationPendingBadgeAsync(IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string docId, string url = "/", string tag = "badge-cooperation-pending")
-		{
-			if (notifier == null) throw new ArgumentNullException(nameof(notifier));
-			if (conn == null) throw new ArgumentNullException(nameof(conn));
-			if (targetUserIds == null) return;
+        public static async Task SendCooperationPendingBadgeAsync(IWebPushNotifier notifier, IStringLocalizer? S, SqlConnection conn, IEnumerable<string> targetUserIds, string docId, string url = "/", string tag = "badge-cooperation-pending")
+        {
+            if (notifier == null) throw new ArgumentNullException(nameof(notifier));
+            if (conn == null) throw new ArgumentNullException(nameof(conn));
+            if (targetUserIds == null) return;
 
-			if (conn.State != ConnectionState.Open)
-				await conn.OpenAsync();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync();
 
-			var titleText = (S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
-			var bodyTpl = (S?["PUSH_CooperationPending"] ?? "PUSH_CooperationPending").ToString();
+            var titleText = (S?["PUSH_SummaryTitle"] ?? "PUSH_SummaryTitle").ToString();
+            var bodyTpl = (S?["PUSH_CooperationPending"] ?? "PUSH_CooperationPending").ToString();
 
-			foreach (var uid in targetUserIds
-						 .Where(x => !string.IsNullOrWhiteSpace(x))
-						 .Select(x => x.Trim())
-						 .Distinct(StringComparer.OrdinalIgnoreCase))
-			{
-				var n = 0;
+            foreach (var uid in targetUserIds
+                         .Where(x => !string.IsNullOrWhiteSpace(x))
+                         .Select(x => x.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var n = await GetCooperationPendingCountAsync(conn, uid);
 
-				await using (var cmd = conn.CreateCommand())
-				{
-					cmd.CommandText = @"
+                await notifier.SendToUserIdAsync(
+                    userId: uid,
+                    title: titleText,
+                    body: string.Format(CultureInfo.CurrentCulture, bodyTpl, n),
+                    url: url.Contains("{docId}") ? url.Replace("{docId}", Uri.EscapeDataString(docId)) : url,
+                    tag: tag
+                );
+            }
+        }
+
+        private static async Task<int> GetCooperationPendingCountAsync(SqlConnection conn, string targetUserId)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
 SELECT COUNT(1)
-FROM (
-    SELECT DISTINCT c.DocId
-    FROM dbo.DocumentCooperations c
-    JOIN dbo.Documents d
-      ON d.DocId = c.DocId
-    OUTER APPLY
-    (
-        SELECT
-            CASE
-                WHEN ISNULL(d.Status, N'') LIKE N'Recalled%'
-                  OR ISNULL(d.Status, N'') LIKE N'Recall%'
-                THEN 0
-
-                WHEN EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DocumentApprovals aReject
-                    WHERE aReject.DocId = d.DocId
-                      AND
-                      (
-                          ISNULL(aReject.Status, N'') LIKE N'Rejected%'
-                          OR ISNULL(aReject.Action, N'') LIKE N'reject%'
-                      )
-                )
-                  OR ISNULL(d.Status, N'') LIKE N'Rejected%'
-                THEN 0
-
-                WHEN EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DocumentCooperations cReject
-                    WHERE cReject.DocId = d.DocId
-                      AND
-                      (
-                          ISNULL(cReject.Status, N'') LIKE N'Rejected%'
-                          OR ISNULL(cReject.Action, N'') IN (N'Reject', N'Rejected')
-                      )
-                )
-                THEN 0
-
-                WHEN
-                (
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aAll
-                        WHERE aAll.DocId = d.DocId
-                    ) = 0
-                    OR
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aDone
-                        WHERE aDone.DocId = d.DocId
-                          AND
-                          (
-                              ISNULL(aDone.Action, N'') = N'approve'
-                              OR ISNULL(aDone.Status, N'') = N'Approved'
-                          )
-                    ) >=
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aAll2
-                        WHERE aAll2.DocId = d.DocId
-                    )
-                )
-                AND
-                (
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cAll
-                        WHERE cAll.DocId = d.DocId
-                          AND ISNULL(cAll.Status, N'') <> N'Recalled'
-                          AND ISNULL(cAll.Action, N'') <> N'Recalled'
-                    ) = 0
-                    OR
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cDone
-                        WHERE cDone.DocId = d.DocId
-                          AND ISNULL(cDone.Status, N'') <> N'Recalled'
-                          AND ISNULL(cDone.Action, N'') <> N'Recalled'
-                          AND
-                          (
-                              ISNULL(cDone.Status, N'') = N'Cooperated'
-                              OR ISNULL(cDone.Action, N'') = N'Cooperate'
-                          )
-                    ) >=
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cAll2
-                        WHERE cAll2.DocId = d.DocId
-                          AND ISNULL(cAll2.Status, N'') <> N'Recalled'
-                          AND ISNULL(cAll2.Action, N'') <> N'Recalled'
-                    )
-                )
-                THEN 0
-
-                ELSE 1
-            END AS IsOngoing
-    ) ds
-    WHERE c.UserId = @UserId
-      AND ISNULL(c.Status, N'Pending') = N'Pending'
-      AND ISNULL(c.Action, N'') NOT IN (N'Cooperate', N'Reject', N'Rejected', N'Recalled')
-      AND ds.IsOngoing = 1
-) x;";
-
-					cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = uid });
-
-					var result = await cmd.ExecuteScalarAsync();
-					n = result == null || result == DBNull.Value
-						? 0
-						: Convert.ToInt32(result, CultureInfo.InvariantCulture);
-				}
-
-				await notifier.SendToUserIdAsync(
-					userId: uid,
-					title: titleText,
-					body: string.Format(CultureInfo.CurrentCulture, bodyTpl, n),
-					url: url.Contains("{docId}") ? url.Replace("{docId}", Uri.EscapeDataString(docId)) : url,
-					tag: tag
-				);
-			}
-		}
-
-		// 2026.04.28 Changed: 협조 대기 푸시 수량을 BoardBadges 협조 대기 배지 조건과 동일하게 계산
-		private static async Task<int> GetCooperationPendingCountAsync(SqlConnection conn, string targetUserId)
-		{
-			if (conn == null) throw new ArgumentNullException(nameof(conn));
-			if (string.IsNullOrWhiteSpace(targetUserId)) return 0;
-
-			if (conn.State != ConnectionState.Open)
-				await conn.OpenAsync();
-
-			await using var cmd = conn.CreateCommand();
-			cmd.CommandText = @"
-SELECT COUNT(1)
-FROM (
-    SELECT DISTINCT c.DocId
-    FROM dbo.DocumentCooperations c
-    JOIN dbo.Documents d
-      ON d.DocId = c.DocId
-    OUTER APPLY
-    (
-        SELECT
-            CASE
-                WHEN ISNULL(d.Status, N'') LIKE N'Recalled%'
-                  OR ISNULL(d.Status, N'') LIKE N'Recall%'
-                THEN 0
-
-                WHEN EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DocumentApprovals aReject
-                    WHERE aReject.DocId = d.DocId
-                      AND
-                      (
-                          ISNULL(aReject.Status, N'') LIKE N'Rejected%'
-                          OR ISNULL(aReject.Action, N'') LIKE N'reject%'
-                      )
-                )
-                  OR ISNULL(d.Status, N'') LIKE N'Rejected%'
-                THEN 0
-
-                WHEN EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DocumentCooperations cReject
-                    WHERE cReject.DocId = d.DocId
-                      AND
-                      (
-                          ISNULL(cReject.Status, N'') LIKE N'Rejected%'
-                          OR ISNULL(cReject.Action, N'') IN (N'Reject', N'Rejected')
-                      )
-                )
-                THEN 0
-
-                WHEN
-                (
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aAll
-                        WHERE aAll.DocId = d.DocId
-                    ) = 0
-                    OR
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aDone
-                        WHERE aDone.DocId = d.DocId
-                          AND
-                          (
-                              ISNULL(aDone.Action, N'') = N'approve'
-                              OR ISNULL(aDone.Status, N'') = N'Approved'
-                          )
-                    ) >=
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentApprovals aAll2
-                        WHERE aAll2.DocId = d.DocId
-                    )
-                )
-                AND
-                (
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cAll
-                        WHERE cAll.DocId = d.DocId
-                          AND ISNULL(cAll.Status, N'') <> N'Recalled'
-                          AND ISNULL(cAll.Action, N'') <> N'Recalled'
-                    ) = 0
-                    OR
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cDone
-                        WHERE cDone.DocId = d.DocId
-                          AND ISNULL(cDone.Status, N'') <> N'Recalled'
-                          AND ISNULL(cDone.Action, N'') <> N'Recalled'
-                          AND
-                          (
-                              ISNULL(cDone.Status, N'') = N'Cooperated'
-                              OR ISNULL(cDone.Action, N'') = N'Cooperate'
-                          )
-                    ) >=
-                    (
-                        SELECT COUNT(1)
-                        FROM dbo.DocumentCooperations cAll2
-                        WHERE cAll2.DocId = d.DocId
-                          AND ISNULL(cAll2.Status, N'') <> N'Recalled'
-                          AND ISNULL(cAll2.Action, N'') <> N'Recalled'
-                    )
-                )
-                THEN 0
-
-                ELSE 1
-            END AS IsOngoing
-    ) ds
-    WHERE c.UserId = @UserId
-      AND ISNULL(c.Status, N'Pending') = N'Pending'
-      AND ISNULL(c.Action, N'') NOT IN (N'Cooperate', N'Reject', N'Rejected', N'Recalled')
-      AND ds.IsOngoing = 1
-) x;";
-
-			cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 450) { Value = targetUserId.Trim() });
-
-			var result = await cmd.ExecuteScalarAsync();
-			return result == null || result == DBNull.Value
-				? 0
-				: Convert.ToInt32(result, CultureInfo.InvariantCulture);
-		}
-	}
+FROM dbo.DocumentCooperations c
+JOIN dbo.Documents d ON d.DocId = c.DocId
+WHERE c.UserId = @UserId
+  AND ISNULL(c.Status, N'Pending') = N'Pending'
+  AND ISNULL(d.Status, N'') NOT LIKE N'Recalled%';";
+            cmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = targetUserId });
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+    }
 }

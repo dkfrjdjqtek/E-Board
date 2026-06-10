@@ -181,6 +181,23 @@ COALESCE
     NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), cm.Name))), N''),
     NULLIF(LTRIM(RTRIM({compCdExpr})), N'')
 )";
+            var compTimeZoneExpr = string.IsNullOrWhiteSpace(compCdCol)
+    ? "N'Asia/Seoul'"
+    : @"
+COALESCE
+(
+    NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), cm.TimeZoneId))), N''),
+    N'Asia/Seoul'
+)";
+
+            var compLocaleExpr = string.IsNullOrWhiteSpace(compCdCol)
+                ? $"N'{langCode.Replace("'", "''")}'"
+                : $@"
+COALESCE
+(
+    NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(20), cm.Locale))), N''),
+    N'{langCode.Replace("'", "''")}'
+)";
 
             var departmentNameExpr = string.IsNullOrWhiteSpace(departmentIdCol)
                 ? "CAST(NULL AS nvarchar(4000))"
@@ -222,7 +239,9 @@ SELECT TOP (1000)
     {(string.IsNullOrWhiteSpace(updatedAtCol) ? "CAST(NULL AS datetime2(0))" : $"TRY_CONVERT(datetime2(0), {SqlColumn("d", updatedAtCol)})")} AS UpdatedAt,
     {documentFilePathExpr} AS DocumentFilePath,
     {documentStorageExpr} AS DocumentStorage,
-    {documentBlobSizeExpr} AS DocumentBlobSize
+    {documentBlobSizeExpr} AS DocumentBlobSize,
+    {compTimeZoneExpr} AS CompTimeZoneId,
+    {compLocaleExpr} AS CompLocale
 FROM dbo.Documents d
 {compJoin}
 {deptJoin}
@@ -237,8 +256,8 @@ ORDER BY
 
             await using var cmd = cn.CreateCommand();
             cmd.CommandText = sql;
-            cmd.Parameters.Add("@FromDate", SqlDbType.DateTime2).Value = search.FromDate!.Value.Date;
-            cmd.Parameters.Add("@ToDate", SqlDbType.DateTime2).Value = search.ToDate!.Value.Date;
+            cmd.Parameters.Add("@FromDate", SqlDbType.DateTime2).Value = search.FromDate!.Value.Date.AddDays(-1);
+            cmd.Parameters.Add("@ToDate", SqlDbType.DateTime2).Value = search.ToDate!.Value.Date.AddDays(1);
             cmd.Parameters.Add("@LangCode", SqlDbType.NVarChar, 20).Value = langCode;
 
             await using var rd = await cmd.ExecuteReaderAsync();
@@ -247,6 +266,22 @@ ORDER BY
                 var documentFilePath = ReadString(rd, "DocumentFilePath");
                 var documentStorage = ReadString(rd, "DocumentStorage");
                 var documentBlobSize = ReadLong(rd, "DocumentBlobSize") ?? 0;
+
+                var compTimeZoneId = ReadString(rd, "CompTimeZoneId");
+                var compLocale = ReadString(rd, "CompLocale");
+
+                var createdAtUtc = ReadDateTime(rd, "CreatedAt");
+                var updatedAtUtc = ReadDateTime(rd, "UpdatedAt");
+
+                var createdAtLocal = DocControllerHelper.ConvertUtcToLocal(createdAtUtc, compTimeZoneId);
+                var updatedAtLocal = DocControllerHelper.ConvertUtcToLocal(updatedAtUtc, compTimeZoneId);
+
+                if (createdAtLocal == null)
+                    continue;
+
+                if (createdAtLocal.Value.Date < search.FromDate!.Value.Date ||
+                    createdAtLocal.Value.Date > search.ToDate!.Value.Date)
+                    continue;
 
                 list.Add(new DocManageRowVm
                 {
@@ -257,15 +292,27 @@ ORDER BY
                     CreatedBy = ReadString(rd, "CreatedBy"),
                     CreatedByName = ReadString(rd, "CreatedByName"),
                     AuthorDisplayName = ReadString(rd, "AuthorDisplayName"),
-                    CreatedAt = ReadDateTime(rd, "CreatedAt"),
+
+                    CreatedAtUtc = DocControllerHelper.TreatAsUtc(createdAtUtc),
+                    CreatedAt = createdAtLocal,
+                    CreatedAtLocalText = DocControllerHelper.FormatLocalMinute(createdAtLocal),
+                    CreatedAtLocalDateKey = DocControllerHelper.FormatLocalDateKey(createdAtLocal),
+
                     CompCd = ReadString(rd, "CompCd"),
                     CompName = ReadString(rd, "CompName"),
+                    CompTimeZoneId = compTimeZoneId,
+                    CompLocale = compLocale,
+
                     DepartmentId = ReadString(rd, "DepartmentId"),
                     DepartmentName = ReadString(rd, "DepartmentName"),
                     TemplateCode = ReadString(rd, "TemplateCode"),
                     TemplateVersionId = ReadString(rd, "TemplateVersionId"),
                     TemplateVersionNo = ReadInt(rd, "TemplateVersionNo"),
-                    UpdatedAt = ReadDateTime(rd, "UpdatedAt"),
+
+                    UpdatedAtUtc = DocControllerHelper.TreatAsUtc(updatedAtUtc),
+                    UpdatedAt = updatedAtLocal,
+                    UpdatedAtLocalText = DocControllerHelper.FormatLocalMinute(updatedAtLocal),
+
                     HasFiles = DocumentFileExists(documentStorage, documentFilePath, documentBlobSize)
                 });
             }
@@ -1189,6 +1236,15 @@ WHERE TABLE_SCHEMA = @Schema
             public List<DocManageStatusFilterItemVm> StatusFilterItems { get; set; } = new();
 
             public bool HasFiles { get; set; }
+            public DateTime? CreatedAtUtc { get; set; }
+            public string? CreatedAtLocalText { get; set; }
+            public string? CreatedAtLocalDateKey { get; set; }
+
+            public string? CompTimeZoneId { get; set; }
+            public string? CompLocale { get; set; }
+
+            public DateTime? UpdatedAtUtc { get; set; }
+            public string? UpdatedAtLocalText { get; set; }
         }
 
         public sealed class DocManageStatusFilterItemVm

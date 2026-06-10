@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
@@ -71,12 +72,15 @@ namespace WebApplication1.Controllers
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
 
+            var currentCulture = DocControllerHelper.NormalizeCultureName(CultureInfo.CurrentUICulture.Name);
+
             string? templateCode = null;
             string? templateTitle = null;
             string? status = null;
             string? descriptorJson = null;
             string? outputPath = null;
             string? compCd = null;
+            string? compTimeZoneId = null;
             string? creatorNameRaw = null;
             DateTime? createdAtUtc = null;
 
@@ -92,8 +96,10 @@ SELECT TOP 1
        d.OutputPath,
        d.CompCd,
        d.CreatedByName,
-       d.CreatedAt
+       d.CreatedAt,
+       COALESCE(NULLIF(LTRIM(RTRIM(cm.TimeZoneId)), N''), N'Asia/Seoul') AS CompTimeZoneId
 FROM dbo.Documents d
+LEFT JOIN dbo.CompMasters cm ON cm.CompCd = d.CompCd
 WHERE d.DocId = @DocId;";
                 cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = id! });
 
@@ -112,13 +118,12 @@ WHERE d.DocId = @DocId;";
                 descriptorJson = rd["DescriptorJson"] as string ?? "{}";
                 outputPath = rd["OutputPath"] as string ?? string.Empty;
                 compCd = rd["CompCd"] as string ?? string.Empty;
+                compTimeZoneId = rd["CompTimeZoneId"]?.ToString();
                 creatorNameRaw = rd["CreatedByName"] as string ?? string.Empty;
                 createdAtUtc = rd["CreatedAt"] is DateTime cdt ? cdt : (DateTime?)null;
             }
 
-            string createdAtText = string.Empty;
-            if (createdAtUtc.HasValue)
-                createdAtText = _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(createdAtUtc.Value, DateTimeKind.Utc));
+            string createdAtText = FormatDetailLocalMinute(createdAtUtc, compTimeZoneId, currentCulture);
 
             string recalledAtText = string.Empty;
             try
@@ -139,7 +144,7 @@ ORDER BY a.ActedAt DESC;";
                 if (obj != null && obj != DBNull.Value)
                 {
                     var dt = (obj is DateTime dtx) ? dtx : Convert.ToDateTime(obj);
-                    recalledAtText = _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(dt, DateTimeKind.Utc));
+                    recalledAtText = FormatDetailLocalMinute(dt, compTimeZoneId, currentCulture);
                 }
             }
             catch (Exception ex)
@@ -233,9 +238,7 @@ ORDER BY a.StepOrder;";
                         userId = r["UserId"]?.ToString(),
                         status = r["Status"]?.ToString(),
                         action = r["Action"]?.ToString(),
-                        actedAtText = acted.HasValue
-                            ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
-                            : string.Empty,
+                        actedAtText = FormatDetailLocalMinute(acted, compTimeZoneId, currentCulture),
                         actorName = r["ActorName"]?.ToString(),
                         approverDisplayText = r["ApproverDisplayText"]?.ToString() ?? string.Empty,
                         signaturePath = r["SignaturePath"]?.ToString()
@@ -283,7 +286,7 @@ ORDER BY UploadedAt, FileId ASC;";
                     if (fr["UploadedAt"] != DBNull.Value)
                     {
                         var upUtc = Convert.ToDateTime(fr["UploadedAt"]);
-                        uploadedAtText = _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(upUtc, DateTimeKind.Utc));
+                        uploadedAtText = FormatDetailLocalMinute(upUtc, compTimeZoneId, currentCulture);
                     }
 
                     docFiles.Add(new
@@ -502,9 +505,7 @@ ORDER BY dc.RoleKey;";
                         approverValue = av,
                         status = cr["Status"]?.ToString(),
                         action = cr["Action"]?.ToString(),
-                        actedAtText = acted.HasValue
-                            ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
-                            : string.Empty,
+                        actedAtText = FormatDetailLocalMinute(acted, compTimeZoneId, currentCulture),
                         actorName = cr["ActorName"]?.ToString(),
                         approverDisplayText,
                         cellA1,
@@ -520,9 +521,7 @@ ORDER BY dc.RoleKey;";
                         RoleText = BuildRoleText(roleKey, "cooperation"),
                         DisplayName = approverDisplayText ?? string.Empty,
                         Status = cr["Status"]?.ToString() ?? string.Empty,
-                        ActedAtText = acted.HasValue
-                            ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc))
-                            : string.Empty
+                        ActedAtText = FormatDetailLocalMinute(acted, compTimeZoneId, currentCulture)
                     });
                 }
             }
@@ -602,9 +601,7 @@ ORDER BY v.ViewedAt DESC;";
                 while (await vr.ReadAsync())
                 {
                     DateTime? viewedUtc = vr.IsDBNull(0) ? (DateTime?)null : vr.GetDateTime(0);
-                    var viewedAtText = viewedUtc.HasValue
-                        ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(viewedUtc.Value, DateTimeKind.Utc))
-                        : string.Empty;
+                    var viewedAtText = FormatDetailLocalMinute(viewedUtc, compTimeZoneId, currentCulture);
                     viewLogs.Add(new
                     {
                         viewedAt = viewedUtc,
@@ -2370,13 +2367,24 @@ WHERE DocId = @DocId;";
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
 
+            var currentCulture = DocControllerHelper.NormalizeCultureName(CultureInfo.CurrentUICulture.Name);
+
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-SELECT d.DocId, d.TemplateCode, d.TemplateTitle, d.Status, d.DescriptorJson, d.OutputPath, d.CreatedAt
-FROM dbo.Documents d WHERE d.DocId = @id;";
+SELECT d.DocId,
+       d.TemplateCode,
+       d.TemplateTitle,
+       d.Status,
+       d.DescriptorJson,
+       d.OutputPath,
+       d.CreatedAt,
+       COALESCE(NULLIF(LTRIM(RTRIM(cm.TimeZoneId)), N''), N'Asia/Seoul') AS CompTimeZoneId
+FROM dbo.Documents d
+LEFT JOIN dbo.CompMasters cm ON cm.CompCd = d.CompCd
+WHERE d.DocId = @id;";
             cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = id });
 
-            string? descriptor = null, output = null, title = null, code = null, status = null;
+            string? descriptor = null, output = null, title = null, code = null, status = null, compTimeZoneId = null;
             DateTime? createdAt = null;
 
             await using (var rd = await cmd.ExecuteReaderAsync())
@@ -2388,6 +2396,7 @@ FROM dbo.Documents d WHERE d.DocId = @id;";
                     status = rd["Status"] as string ?? string.Empty;
                     descriptor = rd["DescriptorJson"] as string ?? "{}";
                     output = rd["OutputPath"] as string ?? string.Empty;
+                    compTimeZoneId = rd["CompTimeZoneId"]?.ToString();
                     if (!rd.IsDBNull(rd.GetOrdinal("CreatedAt")))
                         createdAt = (DateTime)rd["CreatedAt"];
                 }
@@ -2423,7 +2432,7 @@ WHERE a.DocId = @DocId ORDER BY a.StepOrder;";
                         userId = r["UserId"]?.ToString(),
                         status = r["Status"]?.ToString(),
                         action = r["Action"]?.ToString(),
-                        actedAtText = acted.HasValue ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc)) : null,
+                        actedAtText = acted.HasValue ? FormatDetailLocalMinute(acted, compTimeZoneId, currentCulture) : null,
                         actorName = r["ActorName"]?.ToString(),
                         ApproverDisplayText = r["ApproverDisplayText"]?.ToString() ?? string.Empty
                     });
@@ -2452,7 +2461,7 @@ ORDER BY dc.RoleKey;";
                         approverValue = cr["ApproverValue"]?.ToString(),
                         status = cr["Status"]?.ToString(),
                         action = cr["Action"]?.ToString(),
-                        actedAtText = acted.HasValue ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(acted.Value, DateTimeKind.Utc)) : null,
+                        actedAtText = acted.HasValue ? FormatDetailLocalMinute(acted, compTimeZoneId, currentCulture) : null,
                         actorName = cr["ActorName"]?.ToString(),
                         approverDisplayText = cr["ApproverDisplayText"]?.ToString() ?? string.Empty
                     });
@@ -2466,12 +2475,25 @@ ORDER BY dc.RoleKey;";
                 templateCode = code,
                 templateTitle = title,
                 status,
-                createdAt = createdAt.HasValue ? _helper.ToLocalStringFromUtc(DateTime.SpecifyKind(createdAt.Value, DateTimeKind.Utc)) : null,
+                createdAt = createdAt.HasValue ? FormatDetailLocalMinute(createdAt, compTimeZoneId, currentCulture) : null,
                 descriptorJson = descriptor,
                 previewJson = preview,
                 approvals,
                 cooperations
             });
+        }
+
+        private static string FormatDetailLocalMinute(DateTime? utcValue, string? compTimeZoneId, string? cultureName)
+        {
+            var local = DocControllerHelper.ConvertUtcToLocal(
+                DocControllerHelper.TreatAsUtc(utcValue),
+                compTimeZoneId
+            );
+
+            return DocControllerHelper.FormatLocalMinute(
+                local,
+                DocControllerHelper.NormalizeCultureName(cultureName)
+            );
         }
 
         // ========== Private helpers ==========

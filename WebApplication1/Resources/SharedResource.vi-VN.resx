@@ -1539,4 +1539,10 @@
   <data name="DM_Filter_CoopPending" xml:space="preserve">
     <value>Chờ phối hợp</value>
   </data>
+  <data name="_CM_Today" xml:space="preserve">
+    <value>Hôm nay</value>
+  </data>
+  <data name="_CM_OK" xml:space="preserve">
+    <value>Xác nhận</value>
+  </data>
 </root>

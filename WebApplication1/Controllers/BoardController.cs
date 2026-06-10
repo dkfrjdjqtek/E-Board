@@ -1,4 +1,4 @@
-﻿// 2026.04.17 Changed: approvalPending 배지 및 다음 결재자 알림 카운트를 현재 사용자 Pending 승인행 기준으로 반려 없는 문서만 계산하도록 수정함
+﻿// 2026.06.09 Changed: Board 문서 작성일 표시/필터를 DocControllerHelper 공용 날짜 헬퍼 기준으로 정리
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -434,24 +434,42 @@ WHERE a.DocId = @DocId
         }
 
         [HttpGet("BoardData")]
-        public async Task<IActionResult> BoardData(string tab = "created", int page = 1, int pageSize = 20, string titleFilter = "all", string sort = "created_desc", string? q = null, string approvalView = "all", string approvalSub = "ongoing", string createdSub = "ongoing", string cooperationSub = "ongoing", string sharedSub = "ongoing")
+        // File: Controllers/DocController.cs
+        // 2026.06.05 Changed: BoardData가 DevExtreme Grid의 dxFilter를 받아 현재 탭 전체 기준으로 필터링 후 페이징하도록 수정
+        public async Task<IActionResult> BoardData(string tab = "created", int page = 1, int pageSize = 20, string titleFilter = "all", string sort = "created_desc", string? q = null, string approvalView = "all", string approvalSub = "ongoing", string createdSub = "ongoing", string cooperationSub = "ongoing", string sharedSub = "ongoing", string? dxFilter = null, string? dxSort = null, string? culture = null, [FromQuery(Name = "ui-culture")] string? uiCulture = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
             var userId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
-            var langCode = (CultureInfo.CurrentUICulture?.TwoLetterISOLanguageName ?? "ko").ToLowerInvariant();
+            var requestedCulture = !string.IsNullOrWhiteSpace(culture)
+                ? culture
+                : (!string.IsNullOrWhiteSpace(uiCulture)
+                    ? uiCulture
+                    : (!string.IsNullOrWhiteSpace(Request.Query["culture"].FirstOrDefault())
+                        ? Request.Query["culture"].FirstOrDefault()
+                        : (!string.IsNullOrWhiteSpace(Request.Query["ui-culture"].FirstOrDefault())
+                            ? Request.Query["ui-culture"].FirstOrDefault()
+                            : CultureInfo.CurrentUICulture?.Name)));
+
+            var currentCulture = DocControllerHelper.NormalizeCultureName(requestedCulture);
+            if (string.IsNullOrWhiteSpace(currentCulture))
+            {
+                currentCulture = "ko-KR";
+            }
+
+            var langCode = currentCulture.Split('-', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant() ?? "ko";
             if (string.IsNullOrWhiteSpace(langCode)) langCode = "ko";
 
             var tabKey = (tab ?? "created").Trim().ToLowerInvariant();
 
             string orderBy = sort switch
             {
-                "created_asc" => "ORDER BY d.CreatedAt ASC",
+                "created_asc" => "ORDER BY TRY_CONVERT(datetime2(0), d.CreatedAt) ASC",
                 "title_asc" => "ORDER BY d.TemplateTitle ASC",
                 "title_desc" => "ORDER BY d.TemplateTitle DESC",
-                _ => "ORDER BY d.CreatedAt DESC"
+                _ => "ORDER BY TRY_CONVERT(datetime2(0), d.CreatedAt) DESC"
             };
 
             string whereSearch = string.IsNullOrWhiteSpace(q) ? "" : " AND d.TemplateTitle LIKE @Q ";
@@ -468,6 +486,502 @@ WHERE a.DocId = @DocId
                     "recalled" => " AND docStage.IsRecalled = 1 ",
                     _ => ""
                 };
+            }
+
+            string DxText(System.Text.Json.JsonElement el)
+            {
+                try
+                {
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.String)
+                        return el.GetString() ?? string.Empty;
+
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.Number)
+                        return el.ToString();
+
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.True)
+                        return "true";
+
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.False)
+                        return "false";
+
+                    return el.ToString() ?? string.Empty;
+                }
+                catch
+                {
+                    return string.Empty;
+                }
+            }
+
+            bool DxBool(System.Text.Json.JsonElement el, out bool value)
+            {
+                value = false;
+
+                try
+                {
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.True)
+                    {
+                        value = true;
+                        return true;
+                    }
+
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.False)
+                    {
+                        value = false;
+                        return true;
+                    }
+
+                    var s = DxText(el).Trim().ToLowerInvariant();
+
+                    if (s == "true" || s == "1" || s == "y" || s == "yes")
+                    {
+                        value = true;
+                        return true;
+                    }
+
+                    if (s == "false" || s == "0" || s == "n" || s == "no")
+                    {
+                        value = false;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+
+                return false;
+            }
+
+            object? BoardProp(object? row, string name)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(name))
+                    return null;
+
+                var prop = row.GetType().GetProperty(
+                    name,
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.IgnoreCase
+                );
+
+                return prop?.GetValue(row);
+            }
+
+            string BoardString(object? row, string name)
+            {
+                return BoardProp(row, name)?.ToString()?.Trim() ?? string.Empty;
+            }
+
+            bool BoardBool(object? row, string name)
+            {
+                var v = BoardProp(row, name);
+
+                if (v is bool b)
+                    return b;
+
+                if (v == null)
+                    return false;
+
+                var s = v.ToString()?.Trim().ToLowerInvariant() ?? string.Empty;
+
+                return s == "true" || s == "1" || s == "y" || s == "yes";
+            }
+
+            int BoardInt(object? row, string name)
+            {
+                var raw = BoardProp(row, name)?.ToString() ?? "0";
+                return int.TryParse(raw, out var n) ? n : 0;
+            }
+
+            DateTime? BoardReadDateTime(SqlDataReader rd, string name)
+            {
+                var ordinal = rd.GetOrdinal(name);
+                if (rd.IsDBNull(ordinal))
+                    return null;
+
+                return Convert.ToDateTime(rd.GetValue(ordinal), CultureInfo.InvariantCulture);
+            }
+
+            IEnumerable<object> BoardList(object? row, string name)
+            {
+                var v = BoardProp(row, name);
+
+                if (v == null || v is string)
+                    return Enumerable.Empty<object>();
+
+                if (v is System.Collections.IEnumerable en)
+                {
+                    var list = new List<object>();
+
+                    foreach (var x in en)
+                    {
+                        if (x != null)
+                            list.Add(x);
+                    }
+
+                    return list;
+                }
+
+                return Enumerable.Empty<object>();
+            }
+
+            string StepType(object? step)
+            {
+                var status = BoardString(step, "status").ToUpperInvariant();
+                var action = BoardString(step, "action").ToUpperInvariant();
+
+                if (action == "APPROVE" || status.StartsWith("APPROVED")) return "approve";
+                if (action == "REJECT" || status.StartsWith("REJECTED")) return "reject";
+                if (action == "VETO" || status.StartsWith("VETOED")) return "veto";
+                if (action == "RECALL" || status.StartsWith("RECALLED")) return "recall";
+                if (action == "HOLD" || status == "HOLD" || status.StartsWith("ONHOLD") || status.StartsWith("PENDINGHOLD")) return "hold";
+
+                return "todo";
+            }
+
+            int CountKeyList(string? value)
+            {
+                return (value ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(x => int.TryParse(x, out var n) ? n : 0)
+                    .Count(x => x > 0);
+            }
+
+            bool HasAnyKeyList(string? value)
+            {
+                return CountKeyList(value) > 0;
+            }
+
+            var boardLabelApproved = _S["DOC_Filter_ApprovalView_Approved"].Value;
+            var boardLabelRejected = _S["DOC_Filter_ApprovalView_Rejected"].Value;
+            var boardLabelVetoed = _S["DOC_Filter_ApprovalView_Vetoed"].Value;
+            var boardLabelRecalled = _S["DOC_Filter_ApprovalView_Recalled"].Value;
+            var boardLabelPending = _S["DOC_Filter_ApprovalView_Pending"].Value;
+            var boardLabelOnHold = _S["DOC_Status_OnHold"].Value;
+            var boardLabelViewed = _S["DOC_Result_Viewed"].Value;
+            var boardLabelUnviewed = _S["DOC_Result_Unviewed"].Value;
+
+            string SafeLabel(string value, string fallback)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return fallback;
+
+                return value;
+            }
+
+            boardLabelApproved = SafeLabel(boardLabelApproved, "승인됨");
+            boardLabelRejected = SafeLabel(boardLabelRejected, "반려됨");
+            boardLabelVetoed = SafeLabel(boardLabelVetoed, "부결됨");
+            boardLabelRecalled = SafeLabel(boardLabelRecalled, "회수됨");
+            boardLabelPending = SafeLabel(boardLabelPending, "대기");
+            boardLabelOnHold = SafeLabel(boardLabelOnHold, "보류");
+            boardLabelViewed = SafeLabel(boardLabelViewed, "열람");
+            boardLabelUnviewed = SafeLabel(boardLabelUnviewed, "미열람");
+
+            string TerminalStatusLabel(object row)
+            {
+                var status = BoardString(row, "statusCode");
+                if (string.IsNullOrWhiteSpace(status))
+                    status = BoardString(row, "status");
+
+                var s = status.ToUpperInvariant();
+
+                if (s == "APPROVED" || s == "APPROVE") return boardLabelApproved;
+                if (s == "REJECTED" || s == "REJECT") return boardLabelRejected;
+                if (s == "VETOED" || s == "VETO") return boardLabelVetoed;
+                if (s == "RECALLED" || s == "RECALL") return boardLabelRecalled;
+                if (s == "HOLD" || s == "ONHOLD" || s == "PENDINGHOLD") return boardLabelOnHold;
+
+                var steps = BoardList(row, "approvalSteps").ToList();
+
+                if (steps.Any(x => StepType(x) == "reject")) return boardLabelRejected;
+                if (steps.Any(x => StepType(x) == "veto")) return boardLabelVetoed;
+                if (steps.Any(x => StepType(x) == "recall")) return boardLabelRecalled;
+                if (steps.Any(x => StepType(x) == "hold")) return boardLabelOnHold;
+
+                if (steps.Count > 0 && steps.All(x => StepType(x) == "approve"))
+                    return boardLabelApproved;
+
+                return string.Empty;
+            }
+
+            string ApprovalVisibleText(object row)
+            {
+                var terminal = TerminalStatusLabel(row);
+                if (!string.IsNullOrWhiteSpace(terminal))
+                    return terminal;
+
+                return BoardString(row, "resultSummary");
+            }
+
+            string CoopVisibleText(object row)
+            {
+                var total = BoardInt(row, "coopTotalSteps");
+                if (total <= 0)
+                    return string.Empty;
+
+                var terminal = TerminalStatusLabel(row);
+                if (!string.IsNullOrWhiteSpace(terminal))
+                    return terminal;
+
+                if (HasAnyKeyList(BoardString(row, "coopRejectedKeys"))) return boardLabelRejected;
+                if (HasAnyKeyList(BoardString(row, "coopRecalledKeys"))) return boardLabelRecalled;
+                if (HasAnyKeyList(BoardString(row, "coopHoldKeys"))) return boardLabelOnHold;
+
+                if (CountKeyList(BoardString(row, "coopDoneKeys")) >= total)
+                    return boardLabelApproved;
+
+                var name = BoardString(row, "coopPendingName");
+                var pos = BoardString(row, "coopPendingPosition");
+
+                return string.Join(" ", new[] { name, pos }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            }
+
+            string BoardStatusSearchText(object row)
+            {
+                var parts = new List<string>();
+
+                void Add(string? value)
+                {
+                    var s = (value ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(s)) return;
+                    if (!parts.Contains(s)) parts.Add(s);
+                }
+
+                Add(ApprovalVisibleText(row));
+                Add(CoopVisibleText(row));
+                Add(BoardString(row, "statusCode"));
+                Add(BoardString(row, "status"));
+
+                return string.Join(" ", parts);
+            }
+
+            string BoardStatusFilterKeyText(object row)
+            {
+                var keys = new List<string>();
+
+                void Add(string key)
+                {
+                    key = (key ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(key)) return;
+                    if (!keys.Contains(key)) keys.Add(key);
+                }
+
+                var terminal = TerminalStatusLabel(row);
+                var status = BoardString(row, "statusCode");
+                if (string.IsNullOrWhiteSpace(status))
+                    status = BoardString(row, "status");
+
+                var s = status.ToUpperInvariant();
+
+                if (!string.IsNullOrWhiteSpace(terminal))
+                {
+                    if (s == "APPROVED" || s == "APPROVE" || terminal == boardLabelApproved) Add("STATUS_APPROVED");
+                    else if (s == "REJECTED" || s == "REJECT" || terminal == boardLabelRejected) Add("STATUS_REJECTED");
+                    else if (s == "VETOED" || s == "VETO" || terminal == boardLabelVetoed) Add("STATUS_VETOED");
+                    else if (s == "RECALLED" || s == "RECALL" || terminal == boardLabelRecalled) Add("STATUS_RECALLED");
+                    else if (s == "HOLD" || s == "ONHOLD" || s == "PENDINGHOLD" || terminal == boardLabelOnHold) Add("STATUS_ONHOLD");
+
+                    return "|" + string.Join("|", keys) + "|";
+                }
+
+                var approvalText = ApprovalVisibleText(row);
+                if (!string.IsNullOrWhiteSpace(approvalText))
+                    Add("APPROVAL_PENDING_TEXT:" + approvalText);
+
+                var coopText = CoopVisibleText(row);
+                if (!string.IsNullOrWhiteSpace(coopText))
+                    Add("COOP_PENDING_TEXT:" + coopText);
+
+                return keys.Count > 0 ? "|" + string.Join("|", keys) + "|" : string.Empty;
+            }
+
+            bool TextCompare(string fieldValue, string op, string filterValue)
+            {
+                fieldValue ??= string.Empty;
+                filterValue ??= string.Empty;
+                op = (op ?? "contains").Trim().ToLowerInvariant();
+
+                var cmp = StringComparison.CurrentCultureIgnoreCase;
+
+                if (op == "contains") return fieldValue.IndexOf(filterValue, cmp) >= 0;
+                if (op == "notcontains") return fieldValue.IndexOf(filterValue, cmp) < 0;
+                if (op == "startswith") return fieldValue.StartsWith(filterValue, cmp);
+                if (op == "endswith") return fieldValue.EndsWith(filterValue, cmp);
+                if (op == "=") return string.Equals(fieldValue, filterValue, cmp);
+                if (op == "<>") return !string.Equals(fieldValue, filterValue, cmp);
+
+                if (op == ">" || op == ">=" || op == "<" || op == "<=")
+                {
+                    var c = string.Compare(fieldValue, filterValue, StringComparison.OrdinalIgnoreCase);
+
+                    if (op == ">") return c > 0;
+                    if (op == ">=") return c >= 0;
+                    if (op == "<") return c < 0;
+                    if (op == "<=") return c <= 0;
+                }
+
+                return fieldValue.IndexOf(filterValue, cmp) >= 0;
+            }
+
+            bool BoolCompare(bool fieldValue, string op, bool filterValue)
+            {
+                op = (op ?? "=").Trim();
+
+                if (op == "<>")
+                    return fieldValue != filterValue;
+
+                return fieldValue == filterValue;
+            }
+
+            bool LabelMatches(string label, string input)
+            {
+                label = (label ?? string.Empty).Trim();
+                input = (input ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(label) || string.IsNullOrWhiteSpace(input))
+                    return false;
+
+                return label.IndexOf(input, StringComparison.CurrentCultureIgnoreCase) >= 0
+                    || input.IndexOf(label, StringComparison.CurrentCultureIgnoreCase) >= 0;
+            }
+
+            bool FieldCondition(object row, string field, string op, System.Text.Json.JsonElement valueEl)
+            {
+                field = (field ?? string.Empty).Trim();
+                op = (op ?? "contains").Trim().ToLowerInvariant();
+
+                if (string.Equals(field, "isRead", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (DxBool(valueEl, out var b))
+                        return BoolCompare(BoardBool(row, "isRead"), op, b);
+
+                    return true;
+                }
+
+                var value = DxText(valueEl).Trim();
+
+                if (string.Equals(field, "templateTitle", StringComparison.OrdinalIgnoreCase))
+                    return TextCompare(BoardString(row, "templateTitle"), op, value);
+
+                if (string.Equals(field, "authorName", StringComparison.OrdinalIgnoreCase))
+                    return TextCompare(BoardString(row, "authorName"), op, value);
+
+                if (string.Equals(field, "createdAt", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(field, "createdAtLocalText", StringComparison.OrdinalIgnoreCase))
+                    return TextCompare(BoardString(row, "createdAtLocalText"), op, value);
+
+                if (string.Equals(field, "createdAtLocalDateKey", StringComparison.OrdinalIgnoreCase))
+                    return TextCompare(BoardString(row, "createdAtLocalDateKey"), op, value);
+
+                if (string.Equals(field, "readText", StringComparison.OrdinalIgnoreCase))
+                {
+                    var readText = BoardBool(row, "isRead") ? boardLabelViewed : boardLabelUnviewed;
+                    return TextCompare(readText, op, value);
+                }
+
+                if (string.Equals(field, "statusSearchText", StringComparison.OrdinalIgnoreCase))
+                {
+                    var statusText = BoardStatusSearchText(row);
+
+                    if (TextCompare(statusText, op, value))
+                        return true;
+
+                    if (LabelMatches(boardLabelApproved, value)) return TextCompare(BoardStatusFilterKeyText(row), "contains", "STATUS_APPROVED");
+                    if (LabelMatches(boardLabelRejected, value)) return TextCompare(BoardStatusFilterKeyText(row), "contains", "STATUS_REJECTED");
+                    if (LabelMatches(boardLabelVetoed, value)) return TextCompare(BoardStatusFilterKeyText(row), "contains", "STATUS_VETOED");
+                    if (LabelMatches(boardLabelRecalled, value)) return TextCompare(BoardStatusFilterKeyText(row), "contains", "STATUS_RECALLED");
+                    if (LabelMatches(boardLabelOnHold, value)) return TextCompare(BoardStatusFilterKeyText(row), "contains", "STATUS_ONHOLD");
+                    if (LabelMatches(boardLabelPending, value)) return TextCompare(statusText, "contains", value);
+
+                    return false;
+                }
+
+                if (string.Equals(field, "statusFilterKeyText", StringComparison.OrdinalIgnoreCase))
+                    return TextCompare(BoardStatusFilterKeyText(row), op, value);
+
+                return TextCompare(BoardString(row, field), op, value);
+            }
+
+            bool EvalDxFilterElement(object row, System.Text.Json.JsonElement el)
+            {
+                if (el.ValueKind != System.Text.Json.JsonValueKind.Array)
+                    return true;
+
+                var arr = new List<System.Text.Json.JsonElement>();
+                foreach (var item in el.EnumerateArray())
+                    arr.Add(item);
+
+                if (arr.Count == 0)
+                    return true;
+
+                if (arr.Count == 2
+                    && arr[0].ValueKind == System.Text.Json.JsonValueKind.String
+                    && string.Equals(arr[0].GetString(), "!", StringComparison.Ordinal))
+                {
+                    return !EvalDxFilterElement(row, arr[1]);
+                }
+
+                if (arr.Count >= 3
+                    && arr[0].ValueKind == System.Text.Json.JsonValueKind.String
+                    && arr[1].ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    return FieldCondition(row, arr[0].GetString() ?? string.Empty, arr[1].GetString() ?? "contains", arr[2]);
+                }
+
+                bool? current = null;
+                string pendingOp = "and";
+
+                foreach (var item in arr)
+                {
+                    if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = (item.GetString() ?? string.Empty).Trim().ToLowerInvariant();
+                        if (s == "and" || s == "or")
+                            pendingOp = s;
+
+                        continue;
+                    }
+
+                    var next = EvalDxFilterElement(row, item);
+
+                    if (current == null)
+                    {
+                        current = next;
+                    }
+                    else if (pendingOp == "or")
+                    {
+                        current = current.Value || next;
+                    }
+                    else
+                    {
+                        current = current.Value && next;
+                    }
+                }
+
+                return current ?? true;
+            }
+
+            bool EvalDxFilter(object row, string? rawFilter)
+            {
+                if (string.IsNullOrWhiteSpace(rawFilter))
+                    return true;
+
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(rawFilter);
+                    return EvalDxFilterElement(row, doc.RootElement);
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+
+            string RemoveSqlPaging(string sql)
+            {
+                return (sql ?? string.Empty)
+                    .Replace("OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;", string.Empty)
+                    .TrimEnd();
             }
 
             const string outerApplyStepAgg = @"
@@ -857,6 +1371,12 @@ OUTER APPLY(
                 else if (sub == "ongoing") whereSharedSub = " AND docStage.IsOngoing = 1 ";
             }
 
+            const string compTimeZoneSelectCols = @"
+    COALESCE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), cm.TimeZoneId))), N''), N'Asia/Seoul') AS CompTimeZoneId,";
+
+            const string compMasterJoin = @"
+LEFT JOIN dbo.CompMasters cm ON cm.CompCd = d.CompCd";
+
             const string coopSelectCols = @"
     ISNULL(coopAgg.CoopTotal, 0)              AS CoopTotalSteps,
     ISNULL(coopAgg.CoopDoneKeys, N'')         AS CoopDoneKeys,
@@ -867,6 +1387,7 @@ OUTER APPLY(
             string sqlCount;
             string sqlList;
             var offset = (page - 1) * pageSize;
+            var hasDxFilter = !string.IsNullOrWhiteSpace(dxFilter);
 
             if (tabKey == "created")
             {
@@ -884,7 +1405,8 @@ WHERE d.CreatedBy = @UserId" + whereCreatedSub + whereSearch + whereTitleFilter 
 SELECT
     d.DocId,
     d.TemplateTitle,
-    d.CreatedAt,
+    TRY_CONVERT(datetime2(0), d.CreatedAt) AS CreatedAt,
+" + compTimeZoneSelectCols + @"
     ISNULL(d.Status, N'') AS Status,
     CASE
         WHEN docStage.IsRecalled = 1 THEN N'Recalled'
@@ -905,6 +1427,7 @@ SELECT
 " + coopSelectCols + @"
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM dbo.Documents d
+" + compMasterJoin + @"
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
@@ -935,7 +1458,8 @@ WHERE a.UserId = @UserId
 SELECT DISTINCT
     d.DocId,
     d.TemplateTitle,
-    d.CreatedAt,
+    TRY_CONVERT(datetime2(0), d.CreatedAt) AS CreatedAt,
+" + compTimeZoneSelectCols + @"
     ISNULL(d.Status, N'') AS Status,
     CASE
         WHEN docStage.IsRecalled = 1 THEN N'Recalled'
@@ -981,6 +1505,7 @@ SELECT DISTINCT
     ) AS IsMyPendingTurn
 FROM dbo.DocumentApprovals a
 JOIN dbo.Documents d ON a.DocId = d.DocId
+" + compMasterJoin + @"
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
@@ -1022,7 +1547,8 @@ WHERE 1 = 1" + whereCooperationSub + whereSearch + whereTitleFilter + ";";
 SELECT
     d.DocId,
     d.TemplateTitle,
-    d.CreatedAt,
+    TRY_CONVERT(datetime2(0), d.CreatedAt) AS CreatedAt,
+" + compTimeZoneSelectCols + @"
     ISNULL(d.Status, N'') AS Status,
     up.DisplayName AS AuthorName,
     (SELECT COUNT(1) FROM dbo.DocumentComments cmt WHERE cmt.DocId = d.DocId AND cmt.IsDeleted = 0) AS CommentCount,
@@ -1036,6 +1562,7 @@ SELECT
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead,
     CAST(ISNULL(myCoop.IsMyPendingCooperation, 0) AS bit) AS IsMyPendingCooperation
 " + cooperationBase + @"
+" + compMasterJoin + @"
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
@@ -1086,7 +1613,8 @@ WHERE s.UserId = @UserId" + whereShareActive + whereSharedSub + whereSharedReadC
 SELECT
     d.DocId,
     d.TemplateTitle,
-    d.CreatedAt,
+    TRY_CONVERT(datetime2(0), d.CreatedAt) AS CreatedAt,
+" + compTimeZoneSelectCols + @"
     ISNULL(d.Status, N'') AS Status,
     up.DisplayName AS AuthorName,
     (SELECT COUNT(1) FROM dbo.DocumentComments c WHERE c.DocId = d.DocId AND c.IsDeleted = 0) AS CommentCount,
@@ -1100,6 +1628,7 @@ SELECT
     CAST(CASE WHEN vAny.HasLog IS NULL THEN 0 ELSE 1 END AS bit) AS IsRead
 FROM dbo.DocumentShares s
 JOIN dbo.Documents d ON s.DocId = d.DocId
+" + compMasterJoin + @"
 LEFT JOIN dbo.UserProfiles up ON d.CreatedBy = up.UserId
 " + outerApplyStepAgg + @"
 " + outerApplyCoopAgg + @"
@@ -1170,6 +1699,11 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
+            if (hasDxFilter)
+            {
+                sqlList = RemoveSqlPaging(sqlList);
+            }
+
             using var cmdCount = new SqlCommand(sqlCount, conn);
             cmdCount.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = userId });
             cmdCount.Parameters.Add(new SqlParameter("@LangCode", SqlDbType.NVarChar, 10) { Value = langCode });
@@ -1206,9 +1740,11 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
 
                 while (await rdr.ReadAsync())
                 {
-                    var createdAtLocal = (rdr["CreatedAt"] is DateTime utc)
-                        ? ToLocalStringFromUtc(utc)
-                        : string.Empty;
+                    var createdAtUtc = BoardReadDateTime(rdr, "CreatedAt");
+                    var compTimeZoneId = rdr["CompTimeZoneId"]?.ToString();
+                    var createdAtLocal = DocControllerHelper.ConvertUtcToLocal(createdAtUtc, compTimeZoneId);
+                    var createdAtLocalText = DocControllerHelper.FormatLocalMinute(createdAtLocal, currentCulture);
+                    var createdAtLocalDateKey = DocControllerHelper.FormatLocalDateKey(createdAtLocal);
 
                     var rawStatus = rdr["Status"]?.ToString() ?? string.Empty;
 
@@ -1301,7 +1837,10 @@ ORDER BY a.StepOrder ASC;";
                         docId = rdr["DocId"]?.ToString() ?? string.Empty,
                         templateTitle = rdr["TemplateTitle"]?.ToString() ?? string.Empty,
                         authorName = rdr["AuthorName"]?.ToString() ?? string.Empty,
-                        createdAt = createdAtLocal,
+                        createdAt = createdAtLocalText,
+                        createdAtUtc = DocControllerHelper.TreatAsUtc(createdAtUtc),
+                        createdAtLocalText = createdAtLocalText,
+                        createdAtLocalDateKey = createdAtLocalDateKey,
                         status = rawStatus,
                         statusCode = rawStatusCode,
                         totalApprovers = totalSteps,
@@ -1321,6 +1860,20 @@ ORDER BY a.StepOrder ASC;";
                         coopPendingPosition = coopPendPos
                     });
                 }
+            }
+
+            if (hasDxFilter)
+            {
+                items = items
+                    .Where(x => EvalDxFilter(x, dxFilter))
+                    .ToList();
+
+                total = items.Count;
+
+                items = items
+                    .Skip(offset)
+                    .Take(pageSize)
+                    .ToList();
             }
 
             return Json(new { total, page, pageSize, items });
@@ -1599,27 +2152,5 @@ FROM (
             });
         }
 
-        private static string ToLocalStringFromUtc(DateTime utc)
-        {
-            try
-            {
-                if (utc.Kind == DateTimeKind.Unspecified)
-                    utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
-
-                if (utc.Kind == DateTimeKind.Local)
-                    return utc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-
-                TimeZoneInfo tz;
-                try { tz = TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time"); }
-                catch { tz = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul"); }
-
-                var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
-                return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-            }
-            catch
-            {
-                return utc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-            }
-        }
     }
 }

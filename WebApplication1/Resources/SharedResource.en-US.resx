@@ -1539,4 +1539,10 @@
   <data name="DM_Filter_CoopPending" xml:space="preserve">
     <value>Cooperation pending</value>
   </data>
+  <data name="_CM_Today" xml:space="preserve">
+    <value>Today</value>
+  </data>
+  <data name="_CM_OK" xml:space="preserve">
+    <value>OK</value>
+  </data>
 </root>

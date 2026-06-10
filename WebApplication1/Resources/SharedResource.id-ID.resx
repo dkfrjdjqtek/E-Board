@@ -1539,4 +1539,10 @@
   <data name="DM_Filter_CoopPending" xml:space="preserve">
     <value>Menunggu koordinasi</value>
   </data>
+  <data name="_CM_Today" xml:space="preserve">
+    <value>Hari ini</value>
+  </data>
+  <data name="_CM_OK" xml:space="preserve">
+    <value>OK</value>
+  </data>
 </root>

@@ -1,14 +1,20 @@
-﻿@* 2026.03.23 Changed: 문서함 메인 탭을 상신 결재 협조 공유 순으로 재구성하고 협조 문서함 진행 완료 서브탭과 배지를 추가함 *@
-@* 2026.02.02 Changed: 일괄 승인 버튼 클릭 시 서버 BulkApprove로 실제 요청을 보내고 성공 시 리로드 없이 리스트와 배지를 부분 갱신하도록 보강 *@
-@* 2026.02.02 Changed 보드 후처리 MutationObserver가 스스로 DOM을 계속 변경해 무한 루프가 발생하는 문제를 차단하고 결재 진행 탭에서만 체크박스를 표시하도록 정리 *@
-@* 2026.02.02 Changed 보드 상태 결과 표시를 좌우 정렬로 통합하고 결과 컬럼을 열람 미열람으로 표시 *@
-@* 2026.02.02 Changed 보드 스크립트 캐시 방지 및 중복 초기화 제거 외부 스크립트 오류로 배지 갱신이 누락되는 문제를 방지하기 위해 BoardBadges 폴백 갱신 로직을 추가 *@
-@* 2026.01.30 Changed Board 페이지 inline script를 wwwroot/js/eb.doc.board.js로 분리하고 i18n JSON을 script 태그로 전달하도록 정리 *@
-@* 2026.01.30 Changed 선택탭 하단 라운딩을 제거하고 상단만 라운딩하여 안쪽 굽음과 삼각형 잔상과 선 끊김을 구조적으로 제거 하단선은 border bottom 단일화 *@
+﻿@* 2026.06.09 Changed: Board 작성일 표시/필터를 DocManage/DocTemplateManage와 동일하게 DocControllerHelper 공용 날짜 헬퍼 기준으로 통일 *@
+@* 2026.06.05 Changed: 문서함 목록 table/search 영역을 제거하고 DevExtreme DataGrid 기반 구조로 교체 *@
 @using System.Text.Json
+@using System.Globalization
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @{
     ViewData["Title"] = S["DOC_Board_Title"];
+    ViewData["DisableDxAll"] = false;
+    ViewData["UseDxSpreadsheet"] = false;
+
+    var currentCulture = WebApplication1.Controllers.DocControllerHelper.NormalizeCultureName(CultureInfo.CurrentUICulture.Name);
+    if (string.IsNullOrWhiteSpace(currentCulture))
+    {
+        currentCulture = "ko-KR";
+    }
+
+    var datePattern = WebApplication1.Controllers.DocControllerHelper.GetLocalDatePattern(currentCulture);
 
     var __docBoardI18n = new
     {
@@ -35,7 +41,31 @@
         PAGINATION_PREV = S["DOC_Pagination_Prev"].Value,
         PAGINATION_NEXT = S["DOC_Pagination_Next"].Value,
         DOC_Toast_BulkApproved = S["DOC_Toast_BulkApproved"].Value,
-        BULK_FAIL = S["DOC_Toast_BulkApproveFailed"].Value
+        BULK_FAIL = S["DOC_Toast_BulkApproveFailed"].Value,
+
+        CURRENT_CULTURE = currentCulture,
+        DATE_PATTERN = datePattern,
+        DATE_OK = S["_CM_OK"].Value,
+        DATE_CANCEL = S["_CM_Cancel"].Value,
+        DATE_TODAY = S["_CM_Today"].Value,
+
+        COL_NO = S["DOC_Col_No"].Value,
+        COL_TITLE = S["DOC_Col_Title"].Value,
+        COL_AUTHOR = S["DOC_Col_Author"].Value,
+        COL_DATE = S["DOC_Col_Date"].Value,
+        COL_STATUS = S["DOC_Col_Status"].Value,
+        COL_READ = S["DOC_Result_Viewed"].Value,
+
+        GRID_ALL = S["_CM_All"].Value,
+        BULK_APPROVE = S["DOC_Btn_Approve"].Value,
+
+        TAB_CREATED = S["DOC_Tab_CreatedByMe"].Value,
+        TAB_APPROVAL = S["DOC_Tab_Approval"].Value,
+        TAB_COOPERATION = S["DOC_Tab_Cooperation"].Value,
+        TAB_SHARED = S["DOC_Tab_SharedWithMe"].Value,
+
+        SUB_ONGOING = S["DOC_Approval_Sub_Ongoing"].Value,
+        SUB_COMPLETED = S["DOC_Approval_Sub_Completed"].Value
     };
 }
 
@@ -46,6 +76,7 @@
         --tabbar-bg: #bfbfbf;
         --tabline: #111827;
         --tab-h: 44px;
+        --board-grid-min-w: 1440px;
     }
 
     .doc-board-wrap {
@@ -68,10 +99,11 @@
         margin-top: 16px;
         margin-bottom: 16px;
         width: 100%;
+        min-width: var(--board-grid-min-w);
         padding: 0 24px;
         box-sizing: border-box;
-        min-width: 1176px;
     }
+
 
     .doc-tabs,
     .doc-subtabs {
@@ -180,110 +212,132 @@
         position: relative;
         z-index: 1;
         padding: 14px;
+        width: 100%;
+        min-width: var(--board-grid-min-w);
         box-sizing: border-box;
     }
 
-    .doc-filter {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: center;
-        padding: 10px 10px;
-        border: 1px solid #e6e6e6;
-        border-radius: 2px;
-        background: #fff;
-        margin-bottom: 12px;
-        margin-left: -14px;
-        margin-right: -14px;
-        padding-left: 24px;
-        padding-right: 24px;
-    }
-
-        .doc-filter select,
-        .doc-filter input {
-            padding: 10px 12px;
-            border: 1px solid #cfcfcf;
-            border-radius: 2px;
-            background: #fff;
-            font-size: 15px;
-        }
-
-    #filterApply {
-        padding: 10px 14px;
-        border: 1px solid #2c2c2c;
-        border-radius: 2px;
-        background: #2c2c2c;
-        color: #fff;
-        font-weight: 900;
-        font-size: 15px;
-        line-height: 1.1;
-        cursor: pointer;
-    }
-
-        #filterApply:hover {
-            opacity: .92;
-        }
-
-    .doc-tablewrap {
-        border: 1px solid #e6e6e6;
-        border-radius: 2px;
-        background: #fff;
-        overflow-x: visible;
-        margin-left: -14px;
-        margin-right: -14px;
-    }
-
-    .doc-list {
+    .doc-grid-host {
         width: 100%;
-        border-collapse: collapse;
-        min-width: 1100px;
+        min-width: var(--board-grid-min-w);
         background: #fff;
-        font-size: 15px;
+        box-sizing: border-box;
     }
 
-        .doc-list th {
-            padding: 12px 10px;
-            font-weight: 900;
-            color: #2c2c2c;
-            background: #f4f4f4;
-            text-align: center;
-            border-bottom: 1px solid #d8d8d8;
-            font-size: 15px;
-            white-space: nowrap;
+    .doc-board .dx-datagrid-pager,
+    .doc-board .dx-pager {
+        width: 100% !important;
+        min-width: var(--board-grid-min-w) !important;
+        max-width: none !important;
+        box-sizing: border-box;
+    }
+
+
+    .doc-board .dx-datagrid-rowsview .dx-scrollable-container {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+        .doc-board .dx-datagrid-rowsview .dx-scrollable-container::-webkit-scrollbar:horizontal {
+            height: 0 !important;
         }
 
-        .doc-list td {
-            padding: 12px 10px;
-            border-bottom: 1px solid #e6e6e6;
-            font-size: 15px;
+    .doc-board .dx-datagrid-rowsview .dx-scrollable-scrollbar,
+    .doc-board .dx-datagrid-rowsview .dx-scrollable-scrollbar-horizontal,
+    .doc-board .dx-datagrid-rowsview .dx-scrollbar-horizontal {
+        display: none !important;
+        height: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+
+    .doc-board .dx-datagrid {
+        width: 100% !important;
+        min-width: var(--board-grid-min-w) !important;
+        font-size: 0.875rem;
+        box-sizing: border-box;
+    }
+
+    .doc-board .dx-datagrid-headers .dx-header-row > td {
+        font-weight: 600;
+        color: #212529;
+        text-align: center !important;
+    }
+
+    .doc-board .dx-datagrid-filter-row .dx-editor-cell {
+        text-align: left !important;
+    }
+
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu {
+            display: flex !important;
+            align-items: center !important;
+            width: 100% !important;
+            min-width: 0 !important;
         }
 
-        .doc-list tbody td:nth-child(1) {
-            text-align: center;
+            .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu,
+            .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu-base {
+                flex: 0 0 24px !important;
+                width: 24px !important;
+                min-width: 24px !important;
+                max-width: 24px !important;
+                overflow: visible !important;
+            }
+
+                .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-items-container,
+                .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item-wrapper,
+                .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-with-menu > .dx-menu .dx-menu-item {
+                    width: 24px !important;
+                    min-width: 24px !important;
+                    max-width: 24px !important;
+                }
+
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-editor-container {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            width: auto !important;
         }
 
-        .doc-list tbody td:nth-child(2) {
-            text-align: left;
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor {
+            width: 100% !important;
+            min-width: 0 !important;
+            min-height: 30px;
         }
 
-        .doc-list tbody td:nth-child(3) {
-            text-align: left;
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-container,
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input-container,
+        .doc-board .dx-datagrid-filter-row .dx-editor-cell .dx-texteditor-input {
+            width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
         }
 
-        .doc-list tbody td:nth-child(4) {
-            text-align: center;
+    .doc-board .doc-no-cell {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+    }
+
+        .doc-board .doc-no-cell input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            transform: translateY(1px);
         }
 
-        .doc-list tbody td:nth-child(5) {
-            text-align: center;
-        }
+    .doc-title a.doc-unread {
+        font-weight: 900;
+        font-size: 17px;
+    }
 
-        .doc-list tbody td:nth-child(6) {
-            text-align: center;
-        }
+    .doc-title a {
+        color: inherit;
+        text-decoration: none;
+    }
 
-        .doc-list tbody td:nth-child(7) {
-            text-align: center;
+        .doc-title a:hover {
+            text-decoration: underline;
         }
 
     .doc-status-join {
@@ -307,65 +361,19 @@
             white-space: nowrap;
         }
 
-    .doc-title a.doc-unread {
-        font-weight: 900;
-        font-size: 17px;
-    }
-
-    .doc-paging-wrap {
-        display: flex;
+    .doc-bulk-tools {
+        display: none;
         align-items: center;
-        justify-content: center;
-        gap: 12px;
-        padding-top: 12px;
-        position: relative;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 10px 0 0 0;
     }
 
-    .doc-paging {
-        display: flex;
-        gap: 8px;
-        justify-content: center;
-        padding-top: 0;
-    }
-
-        .doc-paging button {
-            min-width: 34px;
-            height: 34px;
-            border: 1px solid #cfcfcf;
-            background: #fff;
-            border-radius: 2px;
-            cursor: pointer;
-            font-weight: 400;
-            font-size: 15px;
+        .doc-bulk-tools.is-visible {
+            display: flex;
         }
 
-            .doc-paging button[aria-current="page"] {
-                background: #2c2c2c;
-                color: #fff;
-                border-color: #2c2c2c;
-                font-weight: 400;
-            }
-
-    .sr-only {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: 0;
-        overflow: hidden;
-        clip: rect(0,0,0,0);
-        border: 0;
-    }
-
-    .doc-paging-tools {
-        position: absolute;
-        right: 0;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-        .doc-paging-tools .chk-all {
+        .doc-bulk-tools .chk-all {
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -373,7 +381,7 @@
             font-size: 14px;
         }
 
-        .doc-paging-tools .btn-approve-bulk {
+        .doc-bulk-tools .btn-approve-bulk {
             padding: 9px 14px;
             border: 1px solid #2c2c2c;
             border-radius: 2px;
@@ -385,22 +393,10 @@
             cursor: pointer;
         }
 
-            .doc-paging-tools .btn-approve-bulk[disabled] {
+            .doc-bulk-tools .btn-approve-bulk[disabled] {
                 opacity: .45;
                 cursor: not-allowed;
             }
-
-    .doc-no-cell {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-        .doc-no-cell input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            transform: translateY(1px);
-        }
 
     #ebTopToastHost {
         position: fixed;
@@ -464,13 +460,23 @@
             height: 14px;
             display: block;
         }
+
+    @@media (max-width: 991.98px) {
+        .doc-board-wrap {
+            left: 0;
+        }
+    }
 </style>
 
 <div class="doc-board-wrap">
     <div class="doc-board" id="docBoard"
          data-api-list="/Doc/BoardData"
          data-api-badges="/Doc/BoardBadges"
+         data-current-culture="@currentCulture"
+         data-date-pattern="@datePattern"
          data-detail-url="/Doc/DetailDX/{docId}">
+
+        @Html.AntiForgeryToken()
 
         <div class="doc-tabs" role="tablist" aria-label="@S["DOC_Board_Tablist_Aria"]">
             <button class="doc-tab" type="button" role="tab" data-tab="created" aria-selected="true">
@@ -488,7 +494,6 @@
         </div>
 
         <div class="doc-sheet" id="docSheet">
-
             <div class="doc-subtabs" id="createdSubtabs" role="tablist" aria-label="@S["DOC_Approval_SubTablist_Aria"]">
                 <button class="doc-subtab" type="button" role="tab" data-created-sub="ongoing" aria-selected="true">
                     @S["DOC_Approval_Sub_Ongoing"]
@@ -525,69 +530,23 @@
                 </button>
             </div>
 
-            <div class="doc-filter">
-                <label class="sr-only" for="filterTitle">@S["DOC_Filter_Title_Label"]</label>
-                <select id="filterTitle">
-                    <option value="all">@S["DOC_Filter_Title_All"]</option>
-                    <option value="viewed" data-shared-only="true">@S["DOC_Result_Viewed"]</option>
-                    <option value="unviewed" data-shared-only="true">@S["DOC_Result_Unviewed"]</option>
-                    <option value="approved" data-nonshared-only="true">@S["DOC_Filter_Title_Approved"]</option>
-                    <option value="rejected" data-nonshared-only="true">@S["DOC_Filter_Title_Rejected"]</option>
-                    <option value="pending" data-nonshared-only="true">@S["DOC_Filter_Title_Pending"]</option>
-                    <option value="onhold" data-nonshared-only="true">@S["DOC_Filter_Title_OnHold"]</option>
-                    <option value="recalled" data-created-only="true" data-nonshared-only="true">@S["DOC_Filter_Title_Recalled"]</option>
-                </select>
+            <div id="docBoardGrid" class="doc-grid-host"></div>
 
-                <label class="sr-only" for="filterSort">@S["DOC_Filter_Sort_Label"]</label>
-                <select id="filterSort">
-                    <option value="created_desc">@S["DOC_Filter_Sort_CreatedDesc"]</option>
-                    <option value="created_asc">@S["DOC_Filter_Sort_CreatedAsc"]</option>
-                    <option value="title_asc">@S["DOC_Filter_Sort_TitleAsc"]</option>
-                    <option value="title_desc">@S["DOC_Filter_Sort_TitleDesc"]</option>
-                </select>
-
-                <label class="sr-only" for="filterQuery">@S["DOC_Filter_Search_Label"]</label>
-                <input id="filterQuery" type="search" placeholder="@S["DOC_Filter_Search_Placeholder"]" />
-                <button type="button" id="filterApply">@S["DOC_Filter_Apply"]</button>
-            </div>
-
-            <div class="doc-tablewrap">
-                <table class="doc-list" aria-live="polite" id="docListTable">
-                    <thead>
-                        <tr>
-                            <th style="width:72px">
-                                <span id="docNoHeaderWrap">@S["DOC_Col_No"]</span>
-                            </th>
-                            <th>@S["DOC_Col_Title"]</th>
-                            <th style="width:180px">@S["DOC_Col_Author"]</th>
-                            <th style="width:160px">@S["DOC_Col_Date"]</th>
-                            <th style="width:420px">@S["DOC_Col_Status"]</th>
-                            <th style="width:160px">@S["DOC_Result_Viewed"]</th>
-                        </tr>
-                    </thead>
-                    <tbody id="docListBody">
-                        <tr>
-                            <td colspan="6">@S["DOC_List_Loading"]</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="doc-paging-wrap">
-                <div class="doc-paging" id="docPaging" aria-label="@S["DOC_Pagination_Label"]"></div>
-
-                <div class="doc-paging-tools" id="docPagingTools" hidden>
-                    <label class="chk-all">
-                        <input type="checkbox" id="chkAllBottom" />
-                        <span>@S["DOC_Filter_Title_All"]</span>
-                    </label>
-                    <button type="button" class="btn-approve-bulk" id="btnApproveBulk" disabled>승인</button>
-                </div>
+            <div class="doc-bulk-tools" id="docBulkTools">
+                <label class="chk-all">
+                    <input type="checkbox" id="chkAllBottom" />
+                    <span>@S["DOC_Filter_Title_All"]</span>
+                </label>
+                <button type="button" class="btn-approve-bulk" id="btnApproveBulk" disabled>
+                    @S["DOC_Btn_Approve"]
+                </button>
             </div>
         </div>
 
         <script type="application/json" id="docBoardI18n">@Html.Raw(JsonSerializer.Serialize(__docBoardI18n))</script>
+        <script src="~/js/DocControllerHelper.js" asp-append-version="true"></script>
         <script src="~/js/eb.doc.board.js" asp-append-version="true"></script>
     </div>
 </div>
+
 <div id="ebTopToastHost" aria-live="polite" aria-atomic="true"></div>

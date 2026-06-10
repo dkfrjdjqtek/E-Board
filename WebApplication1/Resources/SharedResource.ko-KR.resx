@@ -1539,4 +1539,10 @@
   <data name="DM_Filter_CoopPending" xml:space="preserve">
     <value>협조대기</value>
   </data>
+  <data name="_CM_Today" xml:space="preserve">
+    <value>금일</value>
+  </data>
+  <data name="_CM_OK" xml:space="preserve">
+    <value>확인</value>
+  </data>
 </root>

@@ -1,5 +1,4 @@
-﻿// File: Controllers/DocTemplateManageController.cs
-// 2026.05.07 Changed: TemplateKindMasters를 CompCd DepartmentId Code 기준으로 조인하여 종류명을 표시하도록 수정
+﻿// 2026.06.08 Changed: 템플릿 관리 수정일을 CompMasters.TimeZoneId 기준 로컬 시간으로 변환하고 SaveUseState 저장 시간을 UTC로 통일
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -115,7 +114,7 @@ namespace WebApplication1.Controllers
 UPDATE dbo.DocTemplateMaster
    SET IsActive = @IsActive,
        UpdatedBy = @UpdatedBy,
-       UpdatedAt = SYSDATETIME()
+       UpdatedAt = SYSUTCDATETIME()
  WHERE Id = @TemplateId;";
 
                     cmd.Parameters.Add("@IsActive", SqlDbType.Bit).Value = item.IsActive;
@@ -179,6 +178,16 @@ SELECT
     m.CreatedAt AS MasterCreatedAt,
     m.UpdatedBy AS MasterUpdatedBy,
     m.UpdatedAt AS MasterUpdatedAt,
+    COALESCE
+    (
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), cm.TimeZoneId))), N''),
+        N'Asia/Seoul'
+    ) AS CompTimeZoneId,
+    COALESCE
+    (
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(20), cm.Locale))), N''),
+        N''
+    ) AS CompLocale,
     ISNULL(vc.VersionCount, 0) AS VersionCount,
     COALESCE(mcup.DisplayName, mcu.DisplayName, m.CreatedBy) AS CreatedByName,
     COALESCE
@@ -210,6 +219,8 @@ OUTER APPLY
       AND x.FileRole = N'ExcelFile'
     ORDER BY x.Id DESC
 ) f
+LEFT JOIN dbo.CompMasters cm
+       ON cm.CompCd = m.CompCd
 LEFT JOIN dbo.TemplateKindMasters tkm
        ON tkm.CompCd = m.CompCd
       AND tkm.DepartmentId = m.DepartmentId
@@ -281,6 +292,20 @@ ORDER BY
                 var fileExists = isDbStorage ? blobSize > 0 : diskFileExists;
                 var isUnderTemplateRoot = IsUnderDocTemplatesRoot(dbPath, absolutePath);
 
+                var compTimeZoneId = ReadString(rd, "CompTimeZoneId");
+                var compLocale = ReadString(rd, "CompLocale");
+
+                var createdAtUtc = FirstNotNull(
+                    ReadDateTime(rd, "FileCreatedAt"),
+                    ReadDateTime(rd, "VersionCreatedAt"),
+                    ReadDateTime(rd, "MasterCreatedAt")
+                );
+
+                var updatedAtUtc = ReadDateTime(rd, "MasterUpdatedAt");
+
+                var createdAtLocal = DocControllerHelper.ConvertUtcToLocal(createdAtUtc, compTimeZoneId);
+                var updatedAtLocal = DocControllerHelper.ConvertUtcToLocal(updatedAtUtc, compTimeZoneId);
+
                 var row = new DocTemplateManageRowVm
                 {
                     TemplateId = ReadInt(rd, "TemplateId") ?? 0,
@@ -312,10 +337,18 @@ ORDER BY
                     PathStatusKey = GetPathStatusKey(storage, dbPath, absolutePath, fileExists, isUnderTemplateRoot),
                     CreatedBy = FirstNotEmpty(ReadString(rd, "FileCreatedBy"), ReadString(rd, "VersionCreatedBy"), ReadString(rd, "MasterCreatedBy")),
                     CreatedByName = ReadString(rd, "CreatedByName"),
-                    CreatedAt = FirstNotNull(ReadDateTime(rd, "FileCreatedAt"), ReadDateTime(rd, "VersionCreatedAt"), ReadDateTime(rd, "MasterCreatedAt")),
+                    CreatedAtUtc = DocControllerHelper.TreatAsUtc(createdAtUtc),
+                    CreatedAt = createdAtLocal,
+                    CreatedAtLocalText = DocControllerHelper.FormatLocalMinute(createdAtLocal),
+                    CreatedAtLocalDateKey = DocControllerHelper.FormatLocalDateKey(createdAtLocal),
                     UpdatedBy = ReadString(rd, "MasterUpdatedBy"),
                     UpdatedByName = ReadString(rd, "UpdatedByName"),
-                    UpdatedAt = ReadDateTime(rd, "MasterUpdatedAt"),
+                    UpdatedAtUtc = DocControllerHelper.TreatAsUtc(updatedAtUtc),
+                    UpdatedAt = updatedAtLocal,
+                    UpdatedAtLocalText = DocControllerHelper.FormatLocalMinute(updatedAtLocal),
+                    UpdatedAtLocalDateKey = DocControllerHelper.FormatLocalDateKey(updatedAtLocal),
+                    CompTimeZoneId = compTimeZoneId,
+                    CompLocale = compLocale,
                     FileLastWriteAt = diskFileExists ? System.IO.File.GetLastWriteTime(absolutePath!) : null
                 };
 
@@ -807,6 +840,8 @@ SELECT CASE
             public long? FileId { get; set; }
             public string? CompCd { get; set; }
             public string? CompName { get; set; }
+            public string? CompTimeZoneId { get; set; }
+            public string? CompLocale { get; set; }
             public int? DepartmentId { get; set; }
             public string? DepartmentName { get; set; }
             public string? KindCode { get; set; }
@@ -829,10 +864,16 @@ SELECT CASE
             public string PathStatusKey { get; set; } = "DTM_PathStatus_NoPath";
             public string? CreatedBy { get; set; }
             public string? CreatedByName { get; set; }
+            public DateTime? CreatedAtUtc { get; set; }
             public DateTime? CreatedAt { get; set; }
+            public string? CreatedAtLocalText { get; set; }
+            public string? CreatedAtLocalDateKey { get; set; }
             public string? UpdatedBy { get; set; }
             public string? UpdatedByName { get; set; }
+            public DateTime? UpdatedAtUtc { get; set; }
             public DateTime? UpdatedAt { get; set; }
+            public string? UpdatedAtLocalText { get; set; }
+            public string? UpdatedAtLocalDateKey { get; set; }
             public DateTime? FileLastWriteAt { get; set; }
         }
 

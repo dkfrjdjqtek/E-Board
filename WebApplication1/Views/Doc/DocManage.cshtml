@@ -1,4 +1,6 @@
-﻿@model WebApplication1.Controllers.DocManageController.DocManageIndexVm
+﻿File: Views/Doc/DocManage.cshtml
+@* 2026.06.09 Changed: DocControllerHelper.js 공용 날짜 헬퍼를 사용하도록 작성일 컬럼을 정리하고 DocManage DataGrid 초기화를 복원 *@
+@model WebApplication1.Controllers.DocManageController.DocManageIndexVm
 @using System
 @using System.Globalization
 @using System.Text.Json
@@ -20,8 +22,19 @@
     var fromDateText = Model.Search.FromDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
     var toDateText = Model.Search.ToDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
 
+    var currentCulture = CultureInfo.CurrentUICulture.Name;
+    if (string.IsNullOrWhiteSpace(currentCulture))
+    {
+        currentCulture = "ko-KR";
+    }
+
+    var datePattern = WebApplication1.Controllers.DocControllerHelper.GetLocalDatePattern(currentCulture);
+
     var textJson = JsonSerializer.Serialize(new
     {
+        currentCulture,
+        datePattern,
+
         noData = L["DM_Message_NoData"].Value,
         gridLoadFail = L["_CM_Error"].Value,
 
@@ -55,7 +68,11 @@
         onHold = L["DOC_Status_OnHold"].Value,
         recalled = L["DOC_Filter_ApprovalView_Recalled"].Value,
         statusFilterApprovalPending = L["DM_Filter_ApprovalPending"].Value,
-        statusFilterCoopPending = L["DM_Filter_CoopPending"].Value
+        statusFilterCoopPending = L["DM_Filter_CoopPending"].Value,
+
+        ok = L["_CM_OK"].Value,
+        cancel = L["_CM_Cancel"].Value,
+        today = L["_CM_Today"].Value
     }, jsonOptions);
 }
 
@@ -297,6 +314,7 @@
 </script>
 
 <script src="~/js/eb.doc.board.js" asp-append-version="true"></script>
+<script src="~/js/DocControllerHelper.js" asp-append-version="true"></script>
 
 <script>
     (() => {
@@ -306,22 +324,16 @@
 
         if (!page || !gridEl || !scrollHost) return;
 
-        function readJsonScript(id, fallbackValue) {
-            const el = document.getElementById(id);
-            if (!el) return fallbackValue;
-
-            try {
-                const raw = el.textContent || '';
-                if (!raw.trim()) return fallbackValue;
-                return JSON.parse(raw);
-            } catch (e) {
-                console.error('JSON parse failed:', id, e);
-                return fallbackValue;
-            }
+        const H = window.DocControllerHelper;
+        if (!H) {
+            console.error('DocControllerHelper.js가 로드되지 않았습니다.');
+            gridEl.innerHTML = '<div class="alert alert-danger m-3">@L["_CM_Error"]</div>';
+            return;
         }
 
-        const rows = readJsonScript('dm-rows-json', []);
-        const text = readJsonScript('dm-text-json', {});
+        const rows = H.readJsonScript('dm-rows-json', []);
+        const text = H.readJsonScript('dm-text-json', {});
+
         const statusDotI18n = {
             DOT_LABELS: {
                 ApprovedDone: text.approved || '승인됨',
@@ -333,7 +345,7 @@
         };
 
         function unwrap(container) {
-            return container && container.jquery ? container[0] : container;
+            return H.unwrap(container);
         }
 
         function valueOrEmpty(value) {
@@ -385,13 +397,11 @@
             if (action === 'HOLD' || status === 'HOLD' || status.indexOf('ONHOLD') === 0 || status.indexOf('PENDINGHOLD') === 0) return 'hold';
             if (action === 'VETO' || status === 'VETO' || status.indexOf('VETOED') === 0) return 'veto';
 
-
             return 'todo';
         }
 
         function dmTextOrFallback(value, key, fallbackValue) {
-            const s = String(value || '').trim();
-            return !s || s === key ? fallbackValue : s;
+            return H.textOrFallback(value, key, fallbackValue);
         }
 
         function dmStatusFilterText(item) {
@@ -568,15 +578,6 @@
             if (!parts.includes(s)) parts.push(s);
         }
 
-        function dmStatusLabelForSearch(type) {
-            if (type === 'approve') return text.approved || '승인됨';
-            if (type === 'reject') return text.rejected || '반려됨';
-            if (type === 'veto') return text.vetoed || '부결됨';
-            if (type === 'recall') return text.recalled || '회수됨';
-            if (type === 'hold') return text.onHold || '보류됨';
-            return text.pending || '대기';
-        }
-
         function dmCountKeyList(value) {
             return String(value || '')
                 .split(',')
@@ -681,7 +682,7 @@
             }
 
             return String(row.coopPendingName || row.CoopPendingName || '').trim();
-        }        
+        }
 
         function dmBuildStatusSearchText(row) {
             const parts = [];
@@ -693,6 +694,11 @@
         }
 
         rows.forEach(row => {
+            H.normalizeLocalDateRow(row, {
+                localTextField: 'CreatedAtLocalText',
+                localDateKeyField: 'CreatedAtLocalDateKey'
+            });
+
             row.statusSearchText = dmBuildStatusSearchText(row);
             row.statusFilterKeyText = dmBuildStatusFilterKeyText(row);
         });
@@ -805,16 +811,17 @@
                 visible: false
             },
             columns: [
-                {
+                H.createLocalDateColumn({
                     caption: text.colCreatedAt,
-                    dataField: 'CreatedAt',
-                    dataType: 'datetime',
-                    format: 'yyyy-MM-dd HH:mm',
+                    text: text,
+                    localTextField: 'CreatedAtLocalText',
+                    localDateKeyField: 'CreatedAtLocalDateKey',
+                    sortFields: ['CreatedAtUtc', 'createdAtUtc', 'CreatedAt', 'createdAt', 'CreatedAtLocalText', 'createdAtLocalText'],
                     width: 150,
-                    sortOrder: 'desc',
                     alignment: 'center',
-                    cssClass: 'dm-cell-center'
-                },
+                    cssClass: 'dm-cell-center',
+                    allowHeaderFiltering: false
+                }),
                 {
                     caption: text.colCompCd,
                     dataField: 'CompName',
@@ -925,7 +932,7 @@
                         appendEllipsis(container, row.resultSummary || row.ResultSummary || row.statusCode || row.Status || '');
                     }
                 },
-               {
+                {
                     caption: text.colHasFiles,
                     dataField: 'HasFiles',
                     dataType: 'boolean',
@@ -967,7 +974,7 @@
                             appendBadge(container, text.hasFileNo || '없음', 'badge bg-danger');
                         }
                     }
-                },                   
+                },
                 {
                     caption: text.colDocId,
                     dataField: 'DocId',
