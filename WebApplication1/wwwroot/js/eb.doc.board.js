@@ -1,4 +1,5 @@
-﻿// 2026.06.09 Changed: Board 작성일 표시/필터를 DocManage/DocTemplateManage와 동일하게 DocControllerHelper 공용 날짜 헬퍼 기준으로 통일
+﻿// 2026.06.15 Removed: Board 진입 시 클라이언트 hidden iframe 으로 DetailDX warm-up 을 자동 호출하던 코드를 제거함
+// 2026.06.09 Changed: Board 작성일 표시/필터를 DocManage/DocTemplateManage와 동일하게 DocControllerHelper 공용 날짜 헬퍼 기준으로 통일
 (function () {
     'use strict';
 
@@ -654,8 +655,8 @@
         }
 
         var boardDateText = {
-            currentCulture: String((root.dataset && root.dataset.currentCulture) || i18n.CURRENT_CULTURE || 'ko-KR'),
-            datePattern: String((root.dataset && root.dataset.datePattern) || i18n.DATE_PATTERN || H.getLocalDatePattern((root.dataset && root.dataset.currentCulture) || i18n.CURRENT_CULTURE || 'ko-KR')),
+            currentCulture: String(i18n.CURRENT_CULTURE || 'ko-KR'),
+            datePattern: String(i18n.DATE_PATTERN || H.getLocalDatePattern(i18n.CURRENT_CULTURE || 'ko-KR')),
             ok: String(i18n.DATE_OK || '확인'),
             cancel: String(i18n.DATE_CANCEL || '취소'),
             today: String(i18n.DATE_TODAY || '금일'),
@@ -1048,18 +1049,9 @@
                 var row = item || {};
                 var displayNo = total - startIndex - idx;
 
-                row.CreatedAtLocalText = H.getFieldValue(row, ['CreatedAtLocalText', 'createdAtLocalText'], '');
-                row.createdAtLocalText = row.CreatedAtLocalText;
-                row.CreatedAtLocalDateKey = H.getFieldValue(row, ['CreatedAtLocalDateKey', 'createdAtLocalDateKey'], '');
-                row.createdAtLocalDateKey = row.CreatedAtLocalDateKey;
-                row.CreatedAtUtc = H.getFieldValue(row, ['CreatedAtUtc', 'createdAtUtc'], '');
-                row.createdAtUtc = row.CreatedAtUtc;
-                row.CreatedAt = row.CreatedAtLocalText;
-                row.createdAt = row.CreatedAtLocalText;
-
                 H.normalizeLocalDateRow(row, {
-                    localTextField: 'CreatedAtLocalText',
-                    localDateKeyField: 'CreatedAtLocalDateKey'
+                    localTextField: 'createdAtLocalText',
+                    localDateKeyField: 'createdAtLocalDateKey'
                 });
 
                 row.__displayNo = displayNo;
@@ -1130,12 +1122,6 @@
             params.set('titleFilter', 'all');
             params.set('sort', mapDxSortToLegacy(loadOptions && loadOptions.sort));
             params.set('q', '');
-
-            var requestCulture = String(boardDateText.currentCulture || i18n.CURRENT_CULTURE || '').trim();
-            if (requestCulture) {
-                params.set('culture', requestCulture);
-                params.set('ui-culture', requestCulture);
-            }
 
             if (state.tab === 'created') params.set('createdSub', String(state.createdSub || 'ongoing'));
             if (state.tab === 'approval') params.set('approvalSub', String(state.approvalSub || 'ongoing'));
@@ -1508,27 +1494,13 @@
                     },
                     H.createLocalDateColumn({
                         caption: String(i18n.COL_DATE || '작성일시'),
-                        text: {
-                            currentCulture: i18n.CURRENT_CULTURE || 'ko-KR',
-                            datePattern: i18n.DATE_PATTERN || 'yyyy-MM-dd',
-                            ok: i18n.DATE_OK || '확인',
-                            cancel: i18n.DATE_CANCEL || '취소',
-                            today: i18n.DATE_TODAY || '금일',
-                            empty: ''
-                        },
-                        localTextField: 'CreatedAtLocalText',
-                        localDateKeyField: 'CreatedAtLocalDateKey',
-                        sortFields: [
-                            'CreatedAtLocalDateKey',
-                            'createdAtLocalDateKey',
-                            'CreatedAtLocalText',
-                            'createdAtLocalText'
-                        ],
+                        text: boardDateText,
+                        localTextField: 'createdAtLocalText',
+                        localDateKeyField: 'createdAtLocalDateKey',
+                        sortFields: ['createdAtUtc', 'CreatedAtUtc', 'createdAtLocalDateKey', 'CreatedAtLocalDateKey', 'createdAtLocalText', 'CreatedAtLocalText'],
                         width: 170,
                         alignment: 'center',
-                        allowHeaderFiltering: false,
-                        allowFiltering: true,
-                        allowSorting: true
+                        allowHeaderFiltering: false
                     }),
                     {
                         caption: String(i18n.COL_STATUS || '상태'),

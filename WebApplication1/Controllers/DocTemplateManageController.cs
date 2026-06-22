@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using WebApplication1.Services;
 
 namespace WebApplication1.Controllers
 {
@@ -21,11 +22,16 @@ namespace WebApplication1.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly IWebHostEnvironment _env;
+        private readonly TemplateVersionPrepareService _templateVersionPrepareService;
 
-        public DocTemplateManageController(IConfiguration configuration, IWebHostEnvironment env)
+        public DocTemplateManageController(
+            IConfiguration configuration,
+            IWebHostEnvironment env,
+            TemplateVersionPrepareService templateVersionPrepareService)
         {
             _configuration = configuration;
             _env = env;
+            _templateVersionPrepareService = templateVersionPrepareService;
         }
 
         [HttpGet("")]
@@ -139,6 +145,199 @@ UPDATE dbo.DocTemplateMaster
             }
         }
 
+        // 2026.06.15 Added: 기존 템플릿 버전 파일을 백업한 뒤 현재 템플릿 준비 규칙으로 보호와 표시 메타 값을 일괄 보정한다.
+        [HttpPost("backfill-visual-metrics")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> BackfillVisualMetrics()
+        {
+            await using var cn = new SqlConnection(GetConnectionString());
+            await cn.OpenAsync();
+
+            if (!await IsCurrentUserAdminAsync(cn))
+                return Forbid();
+
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.Identity?.Name ?? "system";
+            var rows = await LoadTemplateBackfillRowsAsync(cn);
+
+            var result = new TemplateBackfillResultVm
+            {
+                Total = rows.Count
+            };
+
+            foreach (var row in rows)
+            {
+                var dbPath = FirstNotEmpty(row.FilePath, row.ExcelFilePath);
+                var absolutePath = ToSafeAbsolutePath(dbPath);
+
+                if (string.IsNullOrWhiteSpace(absolutePath) || !System.IO.File.Exists(absolutePath))
+                {
+                    result.FileMissing++;
+                    result.Items.Add(new TemplateBackfillItemVm
+                    {
+                        VersionId = row.VersionId,
+                        Status = "FileMissing",
+                        Path = dbPath
+                    });
+                    continue;
+                }
+
+                if (!string.Equals(row.Storage, "Disk", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Skipped++;
+                    result.Items.Add(new TemplateBackfillItemVm
+                    {
+                        VersionId = row.VersionId,
+                        Status = "SkippedStorage",
+                        Path = dbPath
+                    });
+                    continue;
+                }
+
+                string? backupPath = null;
+
+                try
+                {
+                    backupPath = _templateVersionPrepareService.CreateBackupFile(absolutePath);
+
+                    var prepare = _templateVersionPrepareService.PrepareExistingVersionFile(
+                        cn,
+                        row.VersionId,
+                        absolutePath
+                    );
+
+                    var preparedAt = DateTime.Now;
+
+                    await using var tx = await cn.BeginTransactionAsync();
+
+                    try
+                    {
+                        await using (var cmd = cn.CreateCommand())
+                        {
+                            cmd.Transaction = (SqlTransaction)tx;
+                            cmd.CommandText = @"
+UPDATE dbo.DocTemplateVersion
+   SET ExcelFileSize = @ExcelFileSize,
+       PreviewJson = @PreviewJson,
+       PreparedAt = @PreparedAt,
+       TemplateFileHash = @TemplateFileHash,
+       ProtectionRuleCode = @ProtectionRuleCode,
+       VisualMetricRuleCode = @VisualMetricRuleCode,
+       VisualSource = @VisualSource,
+       VisualRangeA1 = @VisualRangeA1,
+       VisualWidthPx = @VisualWidthPx,
+       VisualHeightPx = @VisualHeightPx
+ WHERE Id = @VersionId;";
+
+                            cmd.Parameters.Add("@ExcelFileSize", SqlDbType.BigInt).Value = prepare.ExcelFileSize;
+                            cmd.Parameters.Add("@PreviewJson", SqlDbType.NVarChar, -1).Value = prepare.PreviewJson;
+                            cmd.Parameters.Add("@PreparedAt", SqlDbType.DateTime2).Value = preparedAt;
+                            cmd.Parameters.Add("@TemplateFileHash", SqlDbType.Char, 64).Value = prepare.TemplateFileHash;
+                            cmd.Parameters.Add("@ProtectionRuleCode", SqlDbType.NVarChar, 50).Value = prepare.ProtectionRuleCode;
+                            cmd.Parameters.Add("@VisualMetricRuleCode", SqlDbType.NVarChar, 50).Value = prepare.VisualMetricRuleCode;
+                            cmd.Parameters.Add("@VisualSource", SqlDbType.NVarChar, 50).Value = prepare.VisualSource;
+                            cmd.Parameters.Add("@VisualRangeA1", SqlDbType.NVarChar, 100).Value = prepare.VisualRangeA1;
+                            cmd.Parameters.Add("@VisualWidthPx", SqlDbType.Int).Value = prepare.VisualWidthPx;
+                            cmd.Parameters.Add("@VisualHeightPx", SqlDbType.Int).Value = prepare.VisualHeightPx;
+                            cmd.Parameters.Add("@VersionId", SqlDbType.BigInt).Value = row.VersionId;
+
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        await using (var cmd = cn.CreateCommand())
+                        {
+                            cmd.Transaction = (SqlTransaction)tx;
+                            cmd.CommandText = @"
+UPDATE dbo.DocTemplateFile
+   SET FileSize = @ExcelFileSize,
+       FileSizeBytes = @ExcelFileSize
+ WHERE VersionId = @VersionId
+   AND FileRole = N'ExcelFile';";
+
+                            cmd.Parameters.Add("@ExcelFileSize", SqlDbType.BigInt).Value = prepare.ExcelFileSize;
+                            cmd.Parameters.Add("@VersionId", SqlDbType.BigInt).Value = row.VersionId;
+
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        await using (var cmd = cn.CreateCommand())
+                        {
+                            cmd.Transaction = (SqlTransaction)tx;
+                            cmd.CommandText = @"
+IF EXISTS (SELECT 1 FROM dbo.DocTemplateFile WHERE VersionId = @VersionId AND FileRole = N'PreviewJson')
+BEGIN
+    UPDATE dbo.DocTemplateFile
+       SET Contents = @PreviewJson,
+           FileSize = DATALENGTH(@PreviewJson),
+           FileSizeBytes = DATALENGTH(@PreviewJson),
+           ContentType = N'application/json'
+     WHERE VersionId = @VersionId
+       AND FileRole = N'PreviewJson';
+END
+ELSE
+BEGIN
+    INSERT dbo.DocTemplateFile
+           (TemplateId, VersionId, FileRole, Storage, FileName, FilePath,
+            FileSize, FileSizeBytes, ContentType, Contents, CreatedAt, CreatedBy)
+    VALUES (@TemplateId, @VersionId, N'PreviewJson', N'Db', N'preview.json', NULL,
+            DATALENGTH(@PreviewJson), DATALENGTH(@PreviewJson), N'application/json', @PreviewJson,
+            SYSUTCDATETIME(), @CreatedBy);
+END";
+
+                            cmd.Parameters.Add("@TemplateId", SqlDbType.Int).Value = row.TemplateId;
+                            cmd.Parameters.Add("@VersionId", SqlDbType.BigInt).Value = row.VersionId;
+                            cmd.Parameters.Add("@PreviewJson", SqlDbType.NVarChar, -1).Value = prepare.PreviewJson;
+                            cmd.Parameters.Add("@CreatedBy", SqlDbType.NVarChar, 100).Value = userId;
+
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        await tx.CommitAsync();
+                    }
+                    catch
+                    {
+                        await tx.RollbackAsync();
+                        TemplateVersionPrepareService.RestoreBackupFile(backupPath, absolutePath);
+                        throw;
+                    }
+
+                    result.Success++;
+                    result.Items.Add(new TemplateBackfillItemVm
+                    {
+                        VersionId = row.VersionId,
+                        Status = "Success",
+                        Path = dbPath,
+                        VisualRangeA1 = prepare.VisualRangeA1,
+                        VisualWidthPx = prepare.VisualWidthPx,
+                        VisualHeightPx = prepare.VisualHeightPx
+                    });
+                }
+                catch
+                {
+                    if (!string.IsNullOrWhiteSpace(backupPath))
+                        TemplateVersionPrepareService.RestoreBackupFile(backupPath, absolutePath);
+
+                    result.Failed++;
+                    result.Items.Add(new TemplateBackfillItemVm
+                    {
+                        VersionId = row.VersionId,
+                        Status = "Failed",
+                        Path = dbPath
+                    });
+                }
+            }
+
+            return Json(new
+            {
+                ok = result.Failed == 0,
+                result.Total,
+                result.Success,
+                result.FileMissing,
+                result.Skipped,
+                result.Failed,
+                result.Items
+            });
+        }
+
         private async Task<List<DocTemplateManageRowVm>> LoadLatestTemplateRowsAsync(SqlConnection cn)
         {
             const string sql = @"
@@ -156,6 +355,9 @@ SELECT
     m.ApprovalCount,
     m.IsActive,
     v.VersionNo,
+    v.VisualRangeA1,
+    v.VisualWidthPx,
+    v.VisualHeightPx,
     v.ExcelFileName,
     v.ExcelStorage,
     v.ExcelFilePath,
@@ -321,8 +523,12 @@ ORDER BY
                     ApprovalCount = ReadInt(rd, "ApprovalCount") ?? 0,
                     IsActive = ReadBool(rd, "IsActive"),
                     VersionNo = ReadInt(rd, "VersionNo"),
+                    VisualRangeA1 = ReadString(rd, "VisualRangeA1"),
+                    VisualWidthPx = ReadInt(rd, "VisualWidthPx"),
+                    VisualHeightPx = ReadInt(rd, "VisualHeightPx"),
                     VersionCount = ReadInt(rd, "VersionCount") ?? 0,
                     FileName = fileName,
+
                     Storage = storage,
                     ContentType = FirstNotEmpty(ReadString(rd, "FileContentType"), ReadString(rd, "ExcelContentType")),
                     FileSizeBytes = FirstNotNull(
@@ -692,6 +898,59 @@ SELECT CASE
             return full;
         }
 
+        // 2026.06.15 Added: 메타 누락 템플릿 버전 전체를 조회하여 최신 버전 그리드 표시 여부와 무관하게 보정 대상으로 사용한다.
+        private async Task<List<TemplateBackfillVersionRow>> LoadTemplateBackfillRowsAsync(SqlConnection cn)
+        {
+            var list = new List<TemplateBackfillVersionRow>();
+
+            await using var cmd = cn.CreateCommand();
+            cmd.CommandText = @"
+SELECT
+    v.Id AS VersionId,
+    v.TemplateId,
+    v.VersionNo,
+    COALESCE(f.Storage, v.ExcelStorage, N'Disk') AS Storage,
+    COALESCE(f.FilePath, v.ExcelFilePath) AS FilePath,
+    v.ExcelFilePath
+FROM dbo.DocTemplateVersion v
+OUTER APPLY
+(
+    SELECT TOP 1
+        x.Storage,
+        x.FilePath
+    FROM dbo.DocTemplateFile x
+    WHERE x.TemplateId = v.TemplateId
+      AND x.VersionId = v.Id
+      AND x.FileRole = N'ExcelFile'
+    ORDER BY x.Id DESC
+) f
+WHERE v.PreparedAt IS NULL
+   OR v.TemplateFileHash IS NULL
+   OR v.ProtectionRuleCode IS NULL
+   OR v.VisualMetricRuleCode IS NULL
+   OR v.VisualSource IS NULL
+   OR v.VisualRangeA1 IS NULL
+   OR v.VisualWidthPx IS NULL
+   OR v.VisualHeightPx IS NULL
+ORDER BY v.Id ASC;";
+
+            await using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                list.Add(new TemplateBackfillVersionRow
+                {
+                    VersionId = ReadLong(rd, "VersionId") ?? 0,
+                    TemplateId = ReadInt(rd, "TemplateId") ?? 0,
+                    VersionNo = ReadInt(rd, "VersionNo") ?? 0,
+                    Storage = ReadString(rd, "Storage"),
+                    FilePath = ReadString(rd, "FilePath"),
+                    ExcelFilePath = ReadString(rd, "ExcelFilePath")
+                });
+            }
+
+            return list.Where(x => x.VersionId > 0 && x.TemplateId > 0).ToList();
+        }
+
         private bool IsUnderDocTemplatesRoot(string? dbPath, string? absolutePath)
         {
             var relative = NormalizeDbPath(dbPath);
@@ -714,7 +973,7 @@ SELECT CASE
         private static string GetPathStatusKey(string? storage, string? dbPath, string? absolutePath, bool fileExists, bool isUnderTemplateRoot)
         {
             if (string.Equals(storage, "Db", StringComparison.OrdinalIgnoreCase))
-                return fileExists ? "DTM_PathStatus_Exists" : "DTM_PathStatus_FileMissing";
+                return fileExists ? "DTM_PathStatus_Exists" : "DTM_Option_FileMissing";
 
             if (string.IsNullOrWhiteSpace(dbPath))
                 return "DTM_PathStatus_NoPath";
@@ -726,7 +985,7 @@ SELECT CASE
                 return "DTM_PathStatus_OutOfRoot";
 
             if (!fileExists)
-                return "DTM_PathStatus_FileMissing";
+                return "DTM_Option_FileMissing";
 
             return "DTM_PathStatus_Exists";
         }
@@ -852,6 +1111,9 @@ SELECT CASE
             public int ApprovalCount { get; set; }
             public bool IsActive { get; set; }
             public int? VersionNo { get; set; }
+            public string? VisualRangeA1 { get; set; }
+            public int? VisualWidthPx { get; set; }
+            public int? VisualHeightPx { get; set; }
             public int VersionCount { get; set; }
             public string? FileName { get; set; }
             public string? Storage { get; set; }
@@ -895,6 +1157,39 @@ SELECT CASE
             public string? FileName { get; set; }
             public string? ContentType { get; set; }
             public byte[]? Blob { get; set; }
+        }
+
+        // 2026.06.15 Added: 템플릿 버전 일괄 보정 대상 행 정보를 보관한다.
+        private sealed class TemplateBackfillVersionRow
+        {
+            public long VersionId { get; set; }
+            public int TemplateId { get; set; }
+            public int VersionNo { get; set; }
+            public string? Storage { get; set; }
+            public string? FilePath { get; set; }
+            public string? ExcelFilePath { get; set; }
+        }
+
+        // 2026.06.15 Added: 템플릿 버전 일괄 보정 결과를 반환한다.
+        private sealed class TemplateBackfillResultVm
+        {
+            public int Total { get; set; }
+            public int Success { get; set; }
+            public int FileMissing { get; set; }
+            public int Skipped { get; set; }
+            public int Failed { get; set; }
+            public List<TemplateBackfillItemVm> Items { get; set; } = new();
+        }
+
+        // 2026.06.15 Added: 템플릿 버전별 일괄 보정 처리 결과를 보관한다.
+        private sealed class TemplateBackfillItemVm
+        {
+            public long VersionId { get; set; }
+            public string Status { get; set; } = string.Empty;
+            public string? Path { get; set; }
+            public string? VisualRangeA1 { get; set; }
+            public int VisualWidthPx { get; set; }
+            public int VisualHeightPx { get; set; }
         }
 
         private sealed class LookupTableSpec

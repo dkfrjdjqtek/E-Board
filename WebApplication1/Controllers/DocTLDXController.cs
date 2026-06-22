@@ -1,4 +1,4 @@
-﻿// 2026.03.23 Changed: 승인 descriptor 처리와 동일하게 협조 descriptor 파싱 저장 정규화를 추가하여 템플릿 저장 시 Cooperations 정보가 누락되지 않도록 수정함
+﻿// 2026.06.16 Changed: 전결 Always 및 AmountLimit 저장 조회 처리를 추가함 Contents 템플릿 버전별 전결 정책을 별도 테이블에 저장하고 로드시 Descriptor에 병합
 using ClosedXML.Excel;
 using DevExpress.AspNetCore.Spreadsheet;
 using Microsoft.AspNetCore.Authorization;
@@ -17,6 +17,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -32,6 +33,28 @@ namespace WebApplication1.Controllers
         private readonly ApplicationDbContext _db;
         private readonly IStringLocalizer<SharedResource> _S;
         private readonly IWebHostEnvironment _env;
+
+        private const string TemplateProtectionRuleCode = "ResetLockByMappingV1";
+        private const string TemplateVisualMetricRuleCode = "OpenXmlRangePxV1";
+        private const string ApproverValueDrafter = "__DRAFTER__";
+
+        // 2026.06.18 Added: 전결 허용 통화 코드 목록 추가 Contents 화면 통화 콤보와 서버 저장 검증 기준을 동일하게 유지
+        private static readonly HashSet<string> AllowedDelegationCurrencyCodes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "KRW",
+            "USD",
+            "VND",
+            "IDR",
+            "CNY"
+        };
+
+        // 2026.06.18 Added: 기안자 예약값 판정 추가 Contents 실제 사용자 코드가 없는 기안자 항목도 템플릿 저장 검증에서 허용
+        private static bool IsDrafterApproverValue(string? value)
+            => string.Equals((value ?? string.Empty).Trim(), ApproverValueDrafter, StringComparison.OrdinalIgnoreCase);
+
+        // 2026.06.18 Added: 전결 통화 코드 허용 여부 판정 추가 Contents 기준 통화 코드가 허용 목록에 있는지 서버에서 재검증
+        private static bool IsAllowedDelegationCurrencyCode(string? value)
+            => AllowedDelegationCurrencyCodes.Contains((value ?? string.Empty).Trim());
 
         public DocTLDXController(ApplicationDbContext db, IStringLocalizer<SharedResource> s, IWebHostEnvironment env)
         {
@@ -243,7 +266,7 @@ namespace WebApplication1.Controllers
                 Debug.WriteLine("[DocTLDX][MapSave] Upload temp file delete failed: " + ex);
             }
         }
-        
+
         private async Task<(bool found, string compCd, string compName, int? deptId, string? deptName, int adminLevel, string userName)> GetUserContextAsync()
         {
             var uid = CurrentUserId();
@@ -318,6 +341,35 @@ namespace WebApplication1.Controllers
             public CellRef Cell { get; set; } = new();
             public string ApproverType { get; set; } = "Person";
             public string? ApproverValue { get; set; } = string.Empty;
+
+            // 2026.06.16 Added: 전결권자 표시값 추가 Contents 화면 결재라인에서 전결권자로 선택된 차수를 Descriptor에 보관
+            public bool IsDelegationApprover { get; set; }
+        }
+
+        // 2026.06.16 Added: 전결 금액 기준 DTO 추가 Contents AmountLimit 조건에서 통화별 기준 금액을 Descriptor로 전달
+        public sealed class DelegationAmountLimitDef
+        {
+            public string CurrencyCode { get; set; } = string.Empty;
+            public decimal? LimitAmount { get; set; }
+        }
+
+        // 2026.06.16 Added: 전결 설정 DTO 추가 Contents 템플릿 매핑 화면의 전결 조건을 Descriptor로 전달
+        public sealed class DelegationDef
+        {
+            public bool Enabled { get; set; }
+            public string ConditionType { get; set; } = "None";
+            public int DelegationStepOrder { get; set; }
+            public int SkipFromStepOrder { get; set; }
+            public int SkipToStepOrder { get; set; }
+
+            public string? AmountFieldKey { get; set; }
+            public string? CurrencyFieldKey { get; set; }
+
+            // 2026.06.18 Added: 전결 금액 조건 셀 직접 참조 추가 Contents 입력 필드가 아닌 수식 셀과 통화 셀을 잠금 상태로 유지한 채 조건 비교에 사용
+            public string? AmountCellA1 { get; set; }
+            public string? CurrencyCellA1 { get; set; }
+
+            public List<DelegationAmountLimitDef> AmountLimits { get; set; } = new();
         }
 
         public sealed class TemplateDescriptor
@@ -331,6 +383,9 @@ namespace WebApplication1.Controllers
             public List<FieldDef> Fields { get; set; } = new();
             public List<ApprovalDef> Approvals { get; set; } = new();
             public List<ApprovalDef> Cooperations { get; set; } = new();
+
+            // 2026.06.16 Added: 전결 설정 추가 Contents 템플릿 버전별 전결 조건을 Descriptor에 포함
+            public DelegationDef Delegation { get; set; } = new();
         }
 
         [HttpGet("SearchUser")]
@@ -1082,7 +1137,6 @@ namespace WebApplication1.Controllers
             return null;
         }
 
-
         [HttpPost("new-template")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> NewTemplatePost([FromForm] string? compCd, [FromForm] int? departmentId, [FromForm] string? kind, [FromForm] string docName, [FromForm] IFormFile? excelFile, [FromForm] bool embed = false)
@@ -1192,7 +1246,8 @@ namespace WebApplication1.Controllers
                 ApprovalCount = meta.ApprovalCount ?? 0,
                 Fields = parsed.Fields,
                 Approvals = parsed.Approvals,
-                Cooperations = parsed.Cooperations
+                Cooperations = parsed.Cooperations,
+                Delegation = new DelegationDef()
             };
 
             var descriptorJsonPretty = JsonSerializer.Serialize(
@@ -1338,6 +1393,8 @@ namespace WebApplication1.Controllers
             if (!IsJson(descriptorJsonRaw))
                 return BadRequest("Descriptor parse error.");
 
+            descriptorJsonRaw = await MergeDelegationRuleToDescriptorJsonAsync(descriptorJsonRaw, latest.Id);
+
             string? excelPath = null;
 
             if (!string.IsNullOrWhiteSpace(openRel))
@@ -1421,6 +1478,102 @@ namespace WebApplication1.Controllers
 
             if (embed || isAjax) return PartialView(viewPath, vm);
             return View(viewPath, vm);
+        }
+
+        // 2026.06.16 Added: 전결 Descriptor 병합 처리 추가 Contents 저장된 전결 정책을 템플릿 로드시 Descriptor에 포함
+        private async Task<string> MergeDelegationRuleToDescriptorJsonAsync(string? descriptorJson, long templateVersionId)
+        {
+            TemplateDescriptor? descriptor;
+            try
+            {
+                descriptor = JsonSerializer.Deserialize<TemplateDescriptor>(
+                    descriptorJson ?? "{}",
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                descriptor = null;
+            }
+
+            descriptor ??= new TemplateDescriptor();
+            descriptor.Fields ??= new List<FieldDef>();
+            descriptor.Approvals ??= new List<ApprovalDef>();
+            descriptor.Cooperations ??= new List<ApprovalDef>();
+
+            var delegation = await LoadDelegationRuleForVersionAsync(templateVersionId);
+            descriptor.Delegation = delegation;
+
+            foreach (var approval in descriptor.Approvals)
+            {
+                if (approval == null) continue;
+                approval.IsDelegationApprover =
+                    delegation.Enabled &&
+                    delegation.DelegationStepOrder > 0 &&
+                    approval.Slot == delegation.DelegationStepOrder;
+            }
+
+            return JsonSerializer.Serialize(
+                descriptor,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        // 2026.06.16 Added: 전결 정책 조회 추가 Contents 템플릿 버전별 전결 마스터와 금액 조건을 조회
+        private async Task<DelegationDef> LoadDelegationRuleForVersionAsync(long templateVersionId)
+        {
+            var empty = new DelegationDef();
+
+            if (templateVersionId <= 0)
+                return empty;
+
+            var rule = await _db.DocTemplateDelegationRules
+                .AsNoTracking()
+                .Where(x => x.TemplateVersionId == templateVersionId && x.IsActive)
+                .OrderBy(x => x.Priority)
+                .ThenBy(x => x.Id)
+                .FirstOrDefaultAsync();
+
+            if (rule == null)
+                return empty;
+
+            var delegation = new DelegationDef
+            {
+                Enabled = true,
+                ConditionType = NormalizeDelegationConditionType(rule.ConditionType),
+                DelegationStepOrder = rule.DelegationStepOrder,
+                SkipFromStepOrder = rule.SkipFromStepOrder,
+                SkipToStepOrder = rule.SkipToStepOrder,
+                AmountLimits = new List<DelegationAmountLimitDef>()
+            };
+
+            if (string.Equals(delegation.ConditionType, "AmountLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                var amountRules = await _db.DocTemplateDelegationAmountRules
+                    .AsNoTracking()
+                    .Where(x => x.RuleId == rule.Id && x.IsActive)
+                    .OrderBy(x => x.Id)
+                    .ToListAsync();
+
+                var first = amountRules.FirstOrDefault();
+                if (first != null)
+                {
+                    delegation.AmountFieldKey = first.AmountFieldKey;
+                    delegation.CurrencyFieldKey = first.CurrencyFieldKey;
+
+                    // 2026.06.18 Added: 저장된 전결 조건 셀 주소를 Descriptor로 복원 Contents 전결 금액 조건 화면 재조회 시 금액 셀과 통화 셀을 표시
+                    delegation.AmountCellA1 = first.AmountCellA1;
+                    delegation.CurrencyCellA1 = first.CurrencyCellA1;
+                }
+
+                delegation.AmountLimits = amountRules
+                    .Select(x => new DelegationAmountLimitDef
+                    {
+                        CurrencyCode = x.CurrencyCode,
+                        LimitAmount = x.LimitAmount
+                    })
+                    .ToList();
+            }
+
+            return delegation;
         }
 
         private static readonly Regex _reA1Range = new(@"^([A-Z]+)(\d+):([A-Z]+)(\d+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -1573,6 +1726,1227 @@ namespace WebApplication1.Controllers
             return revisionPath;
         }
 
+        private sealed class TemplatePrepareResult
+        {
+            public string ProtectionRuleCode { get; set; } = TemplateProtectionRuleCode;
+            public string VisualMetricRuleCode { get; set; } = TemplateVisualMetricRuleCode;
+            public string VisualSource { get; set; } = string.Empty;
+            public string VisualRangeA1 { get; set; } = string.Empty;
+            public int VisualWidthPx { get; set; }
+            public int VisualHeightPx { get; set; }
+        }
+
+        private sealed class TemplateRangeInfo
+        {
+            public string SheetName { get; set; } = string.Empty;
+            public int FirstRow1 { get; set; }
+            public int FirstCol1 { get; set; }
+            public int LastRow1 { get; set; }
+            public int LastCol1 { get; set; }
+            public string Source { get; set; } = string.Empty;
+
+            public string A1 => $"{ToColumnLettersForTemplateVersion(FirstCol1)}{FirstRow1}:{ToColumnLettersForTemplateVersion(LastCol1)}{LastRow1}";
+        }
+
+        // 2026.06.11 Added: 템플릿 저장 시점에 실제 xlsx 파일 자체에 보호/잠금과 표시 메트릭을 확정 저장함.
+        private static TemplatePrepareResult PrepareTemplateExcelForVersion(string excelAbsPath, TemplateDescriptor descriptor)
+        {
+            if (string.IsNullOrWhiteSpace(excelAbsPath) || !System.IO.File.Exists(excelAbsPath))
+                throw new FileNotFoundException("Template Excel file not found.", excelAbsPath);
+
+            TemplateRangeInfo primaryRange;
+            string primarySheetName;
+
+            using (var wb = new XLWorkbook(excelAbsPath))
+            {
+                var primaryWs = wb.Worksheets.FirstOrDefault(w => !string.Equals(w.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                                ?? wb.Worksheets.FirstOrDefault()
+                                ?? throw new InvalidOperationException("Template workbook has no worksheet.");
+
+                primarySheetName = primaryWs.Name;
+                primaryRange = ResolveTemplateVisualRange(primaryWs, descriptor);
+
+                foreach (var ws in wb.Worksheets)
+                {
+                    if (string.Equals(ws.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (ws.IsProtected)
+                    {
+                        try
+                        {
+                            ws.Unprotect();
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException($"Worksheet protection cannot be reset. sheet={ws.Name}", ex);
+                        }
+                    }
+
+                    var lockRange = string.Equals(ws.Name, primarySheetName, StringComparison.OrdinalIgnoreCase)
+                        ? primaryRange
+                        : ResolveTemplateProtectRange(ws, descriptor);
+
+                    if (lockRange != null)
+                    {
+                        ws.Range(lockRange.FirstRow1, lockRange.FirstCol1, lockRange.LastRow1, lockRange.LastCol1)
+                          .Style.Protection.Locked = true;
+                    }
+
+                    UnlockMappedFieldCells(ws, descriptor);
+
+                    ws.Protect(allowedElements:
+                        XLSheetProtectionElements.SelectLockedCells |
+                        XLSheetProtectionElements.SelectUnlockedCells);
+                }
+
+                wb.Save();
+            }
+
+            var widthPx = ComputeTemplateVisualWidthPx(excelAbsPath, primarySheetName, primaryRange.FirstCol1, primaryRange.LastCol1);
+            var heightPx = ComputeTemplateVisualHeightPx(excelAbsPath, primarySheetName, primaryRange.FirstRow1, primaryRange.LastRow1);
+
+            return new TemplatePrepareResult
+            {
+                ProtectionRuleCode = TemplateProtectionRuleCode,
+                VisualMetricRuleCode = TemplateVisualMetricRuleCode,
+                VisualSource = primaryRange.Source,
+                VisualRangeA1 = primaryRange.A1,
+                VisualWidthPx = widthPx,
+                VisualHeightPx = heightPx
+            };
+        }
+
+        private static TemplateRangeInfo ResolveTemplateProtectRange(IXLWorksheet ws, TemplateDescriptor descriptor)
+        {
+            if (TryGetDescriptorBoundsForSheet(ws.Name, descriptor, out var descriptorRange))
+                return descriptorRange;
+
+            var used = ws.RangeUsed(XLCellsUsedOptions.All);
+            if (used != null)
+            {
+                var a = used.RangeAddress;
+                return new TemplateRangeInfo
+                {
+                    SheetName = ws.Name,
+                    FirstRow1 = a.FirstAddress.RowNumber,
+                    FirstCol1 = a.FirstAddress.ColumnNumber,
+                    LastRow1 = a.LastAddress.RowNumber,
+                    LastCol1 = a.LastAddress.ColumnNumber,
+                    Source = "UsedRange"
+                };
+            }
+
+            return new TemplateRangeInfo
+            {
+                SheetName = ws.Name,
+                FirstRow1 = 1,
+                FirstCol1 = 1,
+                LastRow1 = 1,
+                LastCol1 = 1,
+                Source = "DescriptorBounds"
+            };
+        }
+
+        private static TemplateRangeInfo ResolveTemplateVisualRange(IXLWorksheet ws, TemplateDescriptor descriptor)
+        {
+            try
+            {
+                var printAreas = ws.PageSetup.PrintAreas;
+                if (printAreas != null && printAreas.Any())
+                {
+                    var range = ExpandRangeWithMergedRanges(ws, printAreas.First());
+                    range.Source = "PrintArea";
+                    return range;
+                }
+            }
+            catch
+            {
+            }
+
+            var used = ws.RangeUsed(XLCellsUsedOptions.All);
+            if (used != null)
+            {
+                var usedRange = ExpandRangeWithMergedRanges(ws, used);
+
+                if (TryGetDescriptorBoundsForSheet(ws.Name, descriptor, out var descriptorRange))
+                {
+                    var usedRows = usedRange.LastRow1 - usedRange.FirstRow1 + 1;
+                    var usedCols = usedRange.LastCol1 - usedRange.FirstCol1 + 1;
+                    var descRows = descriptorRange.LastRow1 - descriptorRange.FirstRow1 + 1;
+                    var descCols = descriptorRange.LastCol1 - descriptorRange.FirstCol1 + 1;
+
+                    var usedLooksTooLarge =
+                        usedRows > Math.Max(descRows + 50, 300) ||
+                        usedCols > Math.Max(descCols + 20, 80);
+
+                    if (usedLooksTooLarge)
+                    {
+                        descriptorRange.Source = "DescriptorBounds";
+                        return descriptorRange;
+                    }
+                }
+
+                usedRange.Source = "UsedRange";
+                return usedRange;
+            }
+
+            if (TryGetDescriptorBoundsForSheet(ws.Name, descriptor, out var fallbackDescriptorRange))
+            {
+                fallbackDescriptorRange.Source = "DescriptorBounds";
+                return fallbackDescriptorRange;
+            }
+
+            return new TemplateRangeInfo
+            {
+                SheetName = ws.Name,
+                FirstRow1 = 1,
+                FirstCol1 = 1,
+                LastRow1 = 1,
+                LastCol1 = 1,
+                Source = "DescriptorBounds"
+            };
+        }
+
+        private static TemplateRangeInfo ExpandRangeWithMergedRanges(IXLWorksheet ws, IXLRange range)
+        {
+            var a = range.RangeAddress;
+            var firstRow = a.FirstAddress.RowNumber;
+            var firstCol = a.FirstAddress.ColumnNumber;
+            var lastRow = a.LastAddress.RowNumber;
+            var lastCol = a.LastAddress.ColumnNumber;
+
+            try
+            {
+                foreach (var mr in ws.MergedRanges)
+                {
+                    var ma = mr.RangeAddress;
+                    var intersects =
+                        ma.FirstAddress.RowNumber <= lastRow && ma.LastAddress.RowNumber >= firstRow &&
+                        ma.FirstAddress.ColumnNumber <= lastCol && ma.LastAddress.ColumnNumber >= firstCol;
+
+                    if (!intersects) continue;
+
+                    firstRow = Math.Min(firstRow, ma.FirstAddress.RowNumber);
+                    firstCol = Math.Min(firstCol, ma.FirstAddress.ColumnNumber);
+                    lastRow = Math.Max(lastRow, ma.LastAddress.RowNumber);
+                    lastCol = Math.Max(lastCol, ma.LastAddress.ColumnNumber);
+                }
+            }
+            catch
+            {
+            }
+
+            return new TemplateRangeInfo
+            {
+                SheetName = ws.Name,
+                FirstRow1 = Math.Max(1, firstRow),
+                FirstCol1 = Math.Max(1, firstCol),
+                LastRow1 = Math.Max(1, lastRow),
+                LastCol1 = Math.Max(1, lastCol),
+                Source = string.Empty
+            };
+        }
+
+        private static bool TryGetDescriptorBoundsForSheet(string sheetName, TemplateDescriptor descriptor, out TemplateRangeInfo range)
+        {
+            range = new TemplateRangeInfo { SheetName = sheetName };
+
+            var firstRow = int.MaxValue;
+            var firstCol = int.MaxValue;
+            var lastRow = 0;
+            var lastCol = 0;
+
+            void AddCell(CellRef? cell)
+            {
+                if (cell == null) return;
+
+                var cellSheet = (cell.Sheet ?? string.Empty).Trim();
+                if (!string.IsNullOrWhiteSpace(cellSheet) &&
+                    !string.Equals(cellSheet, sheetName, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                var r1 = Math.Max(1, cell.Row + 1);
+                var c1 = Math.Max(1, cell.Column + 1);
+                var r2 = r1 + Math.Max(1, cell.RowSpan) - 1;
+                var c2 = c1 + Math.Max(1, cell.ColSpan) - 1;
+
+                firstRow = Math.Min(firstRow, r1);
+                firstCol = Math.Min(firstCol, c1);
+                lastRow = Math.Max(lastRow, r2);
+                lastCol = Math.Max(lastCol, c2);
+            }
+
+            foreach (var f in descriptor.Fields ?? Enumerable.Empty<FieldDef>()) AddCell(f.Cell);
+            foreach (var a in descriptor.Approvals ?? Enumerable.Empty<ApprovalDef>()) AddCell(a.Cell);
+            foreach (var c in descriptor.Cooperations ?? Enumerable.Empty<ApprovalDef>()) AddCell(c.Cell);
+
+            if (lastRow <= 0 || lastCol <= 0 || firstRow == int.MaxValue || firstCol == int.MaxValue)
+                return false;
+
+            range = new TemplateRangeInfo
+            {
+                SheetName = sheetName,
+                FirstRow1 = firstRow,
+                FirstCol1 = firstCol,
+                LastRow1 = lastRow,
+                LastCol1 = lastCol,
+                Source = "DescriptorBounds"
+            };
+
+            return true;
+        }
+
+        private static void UnlockMappedFieldCells(IXLWorksheet ws, TemplateDescriptor descriptor)
+        {
+            foreach (var f in descriptor.Fields ?? Enumerable.Empty<FieldDef>())
+            {
+                if (f?.Cell == null) continue;
+
+                var cellSheet = (f.Cell.Sheet ?? string.Empty).Trim();
+                if (!string.IsNullOrWhiteSpace(cellSheet) &&
+                    !string.Equals(cellSheet, ws.Name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                try
+                {
+                    var r1 = Math.Max(1, f.Cell.Row + 1);
+                    var c1 = Math.Max(1, f.Cell.Column + 1);
+                    var r2 = r1 + Math.Max(1, f.Cell.RowSpan) - 1;
+                    var c2 = c1 + Math.Max(1, f.Cell.ColSpan) - 1;
+
+                    var range = ws.Range(r1, c1, r2, c2);
+                    range.Style.Protection.Locked = false;
+                    range.Style.Fill.BackgroundColor = XLColor.FromHtml("#EAF6FF");
+                    range.Style.Alignment.WrapText = false;
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static int ComputeTemplateVisualWidthPx(string excelAbsPath, string sheetName, int firstCol1, int lastCol1)
+        {
+            var openXmlColWidths = new Dictionary<int, double>();
+            var openXmlRowHeights = new Dictionary<int, double>();
+            double defaultColWidth = 8.43;
+            double defaultRowHeightPt = 15.0;
+
+            TryReadOpenXmlSheetMetricsForTemplateVersion(
+                excelAbsPath,
+                sheetName,
+                openXmlColWidths,
+                openXmlRowHeights,
+                ref defaultColWidth,
+                ref defaultRowHeightPt);
+
+            double sum = 0;
+            for (int c = Math.Max(1, firstCol1); c <= Math.Max(firstCol1, lastCol1); c++)
+            {
+                var width = openXmlColWidths.TryGetValue(c, out var w) && w > 0
+                    ? w
+                    : defaultColWidth;
+
+                sum += ExcelColumnWidthToPixelsForTemplateVersion(width);
+            }
+
+            sum += 24;
+            return Math.Max(1, (int)Math.Ceiling(sum));
+        }
+
+        private static int ComputeTemplateVisualHeightPx(string excelAbsPath, string sheetName, int firstRow1, int lastRow1)
+        {
+            var openXmlColWidths = new Dictionary<int, double>();
+            var openXmlRowHeights = new Dictionary<int, double>();
+            double defaultColWidth = 8.43;
+            double defaultRowHeightPt = 15.0;
+
+            TryReadOpenXmlSheetMetricsForTemplateVersion(
+                excelAbsPath,
+                sheetName,
+                openXmlColWidths,
+                openXmlRowHeights,
+                ref defaultColWidth,
+                ref defaultRowHeightPt);
+
+            double sum = 0;
+            for (int r = Math.Max(1, firstRow1); r <= Math.Max(firstRow1, lastRow1); r++)
+            {
+                var heightPt = openXmlRowHeights.TryGetValue(r, out var h) && h > 0
+                    ? h
+                    : defaultRowHeightPt;
+
+                sum += heightPt * 96.0 / 72.0;
+            }
+
+            sum += 32;
+            return Math.Max(1, (int)Math.Ceiling(sum));
+        }
+
+        private static bool TryReadOpenXmlSheetMetricsForTemplateVersion(
+            string excelAbsPath,
+            string sheetName,
+            Dictionary<int, double> openXmlColWidths,
+            Dictionary<int, double> openXmlRowHeights,
+            ref double defaultColWidth,
+            ref double defaultRowHeightPt)
+        {
+            try
+            {
+                using var doc = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(excelAbsPath, false);
+                var wbPart = doc.WorkbookPart;
+                if (wbPart?.Workbook == null) return false;
+
+                var sheets = wbPart.Workbook.Sheets?.Elements<DocumentFormat.OpenXml.Spreadsheet.Sheet>()?.ToList();
+                if (sheets == null || sheets.Count == 0) return false;
+
+                var sheet = sheets.FirstOrDefault(x =>
+                    string.Equals(x.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase))
+                    ?? sheets.First();
+
+                var relId = sheet.Id?.Value;
+                if (string.IsNullOrWhiteSpace(relId)) return false;
+
+                var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(relId);
+                var worksheet = wsPart.Worksheet;
+                if (worksheet == null) return false;
+
+                var sfp = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetFormatProperties>();
+                if (sfp?.DefaultColumnWidth?.Value != null && sfp.DefaultColumnWidth.Value > 0)
+                    defaultColWidth = sfp.DefaultColumnWidth.Value;
+
+                if (sfp?.DefaultRowHeight?.Value != null && sfp.DefaultRowHeight.Value > 0)
+                    defaultRowHeightPt = sfp.DefaultRowHeight.Value;
+
+                foreach (var cols in worksheet.Elements<DocumentFormat.OpenXml.Spreadsheet.Columns>())
+                {
+                    foreach (var col in cols.Elements<DocumentFormat.OpenXml.Spreadsheet.Column>())
+                    {
+                        var min = (int)(col.Min?.Value ?? 0U);
+                        var max = (int)(col.Max?.Value ?? 0U);
+                        var width = col.Width?.Value;
+                        var hidden = col.Hidden?.Value ?? false;
+
+                        if (hidden || min <= 0 || max <= 0 || width == null || width.Value <= 0) continue;
+
+                        for (int i = min; i <= max; i++)
+                            openXmlColWidths[i] = width.Value;
+                    }
+                }
+
+                var sheetData = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetData>();
+                if (sheetData != null)
+                {
+                    foreach (var row in sheetData.Elements<DocumentFormat.OpenXml.Spreadsheet.Row>())
+                    {
+                        var rowIndex = (int)(row.RowIndex?.Value ?? 0U);
+                        if (rowIndex <= 0) continue;
+                        if (row.Hidden?.Value == true) continue;
+
+                        if (row.Height?.Value != null && row.Height.Value > 0)
+                            openXmlRowHeights[rowIndex] = row.Height.Value;
+                    }
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static double ExcelColumnWidthToPixelsForTemplateVersion(double excelWidth)
+        {
+            if (excelWidth <= 0) return 0;
+            var px = Math.Round(excelWidth * 7.0 + 5.0, MidpointRounding.AwayFromZero);
+            return px < 1 ? 1 : px;
+        }
+
+        private static string ToColumnLettersForTemplateVersion(int col)
+        {
+            col = Math.Max(1, col);
+            var s = string.Empty;
+            var n = col;
+            while (n > 0)
+            {
+                var mod = (n - 1) % 26;
+                s = ((char)('A' + mod)) + s;
+                n = (n - 1) / 26;
+            }
+            return s;
+        }
+
+        private static string ComputeSha256Hex(string filePath)
+        {
+            using var sha = SHA256.Create();
+            using var stream = System.IO.File.OpenRead(filePath);
+            return Convert.ToHexString(sha.ComputeHash(stream));
+        }
+
+        private sealed class TemplateFieldCellInfo
+        {
+            public string Key { get; set; } = string.Empty;
+            public string Type { get; set; } = "Text";
+            public string Sheet { get; set; } = string.Empty;
+            public string A1 { get; set; } = string.Empty;
+        }
+
+        // 2026.06.12 Added: 템플릿 저장 프로시저 실행 후 확정된 DocTemplateField 좌표를 기준으로
+        // 최종 xlsx에 보호/Unlock/입력색/표시 메트릭을 적용한다.
+        private TemplatePrepareResult PrepareTemplateExcelForVersionByDbFields(string excelAbsPath, long versionId)
+        {
+            if (versionId <= 0)
+                throw new InvalidOperationException("Template version id is invalid.");
+
+            var fields = LoadTemplateFieldCellsForVersion(versionId);
+            return PrepareTemplateExcelForVersionByDbFields(excelAbsPath, fields);
+        }
+
+        private List<TemplateFieldCellInfo> LoadTemplateFieldCellsForVersion(long versionId)
+        {
+            var list = new List<TemplateFieldCellInfo>();
+            var cs = _db.Database.GetConnectionString();
+            if (string.IsNullOrWhiteSpace(cs))
+                throw new InvalidOperationException("Default database connection string is empty.");
+
+            using var conn = new SqlConnection(cs);
+            conn.Open();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT
+    Id,
+    [Key],
+    [Type],
+    Sheet,
+    A1,
+    CellA1,
+    [Row],
+    [Column],
+    CellRow,
+    CellColumn
+FROM dbo.DocTemplateField
+WHERE VersionId = @VersionId
+ORDER BY Id;";
+            cmd.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = versionId });
+
+            using var rd = cmd.ExecuteReader();
+            while (rd.Read())
+            {
+                var key = ReadString(rd, "Key");
+                var type = NormalizeType(ReadString(rd, "Type"));
+                var sheet = ReadString(rd, "Sheet");
+                var a1 = FirstNonEmpty(ReadString(rd, "A1"), ReadString(rd, "CellA1")) ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(a1))
+                {
+                    var row = FirstPositive(ReadInt(rd, "CellRow"), ReadInt(rd, "Row"));
+                    var col = FirstPositive(ReadInt(rd, "CellColumn"), ReadInt(rd, "Column"));
+                    if (row > 0 && col > 0)
+                        a1 = ToA1FromRowColForTemplateVersion(row, col);
+                }
+
+                if (string.IsNullOrWhiteSpace(a1))
+                    continue;
+
+                var (sheetFromA1, localA1) = SplitSheetAndA1ForTemplateVersion(a1);
+                if (string.IsNullOrWhiteSpace(sheet)) sheet = sheetFromA1;
+                if (string.IsNullOrWhiteSpace(localA1)) continue;
+
+                list.Add(new TemplateFieldCellInfo
+                {
+                    Key = key,
+                    Type = type,
+                    Sheet = sheet,
+                    A1 = localA1
+                });
+            }
+
+            return list;
+        }
+
+        private static TemplatePrepareResult PrepareTemplateExcelForVersionByDbFields(string excelAbsPath, IReadOnlyList<TemplateFieldCellInfo> fields)
+        {
+            if (string.IsNullOrWhiteSpace(excelAbsPath) || !System.IO.File.Exists(excelAbsPath))
+                throw new FileNotFoundException("Template Excel file not found.", excelAbsPath);
+
+            fields ??= Array.Empty<TemplateFieldCellInfo>();
+
+            TemplateRangeInfo primaryRange;
+            string primarySheetName;
+
+            using (var wb = new XLWorkbook(excelAbsPath))
+            {
+                var primaryWs = wb.Worksheets.FirstOrDefault(w => !string.Equals(w.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                                ?? wb.Worksheets.FirstOrDefault()
+                                ?? throw new InvalidOperationException("Template workbook has no worksheet.");
+
+                primarySheetName = primaryWs.Name;
+                primaryRange = ResolveTemplateVisualRangeByDbFields(primaryWs, fields, primarySheetName);
+
+                foreach (var ws in wb.Worksheets)
+                {
+                    if (string.Equals(ws.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (ws.IsProtected)
+                    {
+                        try
+                        {
+                            ws.Unprotect();
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException($"Worksheet protection cannot be reset. sheet={ws.Name}", ex);
+                        }
+                    }
+
+                    var lockRanges = ResolveTemplateLockRangesByDbFields(ws, fields, primarySheetName);
+                    foreach (var r in lockRanges)
+                    {
+                        r.Style.Protection.Locked = true;
+                    }
+
+                    ClearOldTemplateInputHighlights(ws, lockRanges, fields, primarySheetName);
+                    UnlockMappedFieldCellsByDbFields(ws, fields, primarySheetName);
+
+                    ws.Protect(allowedElements:
+                        XLSheetProtectionElements.SelectLockedCells |
+                        XLSheetProtectionElements.SelectUnlockedCells);
+                }
+
+                wb.Save();
+            }
+
+            var widthPx = ComputeTemplateVisualWidthPx(excelAbsPath, primarySheetName, primaryRange.FirstCol1, primaryRange.LastCol1);
+            var heightPx = ComputeTemplateVisualHeightPx(excelAbsPath, primarySheetName, primaryRange.FirstRow1, primaryRange.LastRow1);
+
+            return new TemplatePrepareResult
+            {
+                ProtectionRuleCode = TemplateProtectionRuleCode,
+                VisualMetricRuleCode = TemplateVisualMetricRuleCode,
+                VisualSource = primaryRange.Source,
+                VisualRangeA1 = primaryRange.A1,
+                VisualWidthPx = widthPx,
+                VisualHeightPx = heightPx
+            };
+        }
+
+        private static TemplateRangeInfo ResolveTemplateVisualRangeByDbFields(IXLWorksheet ws, IReadOnlyList<TemplateFieldCellInfo> fields, string primarySheetName)
+        {
+            try
+            {
+                var printAreas = ws.PageSetup.PrintAreas;
+                if (printAreas != null && printAreas.Any())
+                {
+                    var range = ExpandRangeWithMergedRanges(ws, printAreas.First());
+                    range.Source = "PrintArea";
+                    return range;
+                }
+            }
+            catch
+            {
+            }
+
+            var used = ws.RangeUsed(XLCellsUsedOptions.All);
+            if (used != null)
+            {
+                var usedRange = ExpandRangeWithMergedRanges(ws, used);
+
+                if (TryGetDbFieldBoundsForSheet(ws, fields, primarySheetName, out var fieldRange))
+                {
+                    var usedRows = usedRange.LastRow1 - usedRange.FirstRow1 + 1;
+                    var usedCols = usedRange.LastCol1 - usedRange.FirstCol1 + 1;
+                    var fieldRows = fieldRange.LastRow1 - fieldRange.FirstRow1 + 1;
+                    var fieldCols = fieldRange.LastCol1 - fieldRange.FirstCol1 + 1;
+
+                    var usedLooksTooLarge =
+                        usedRows > Math.Max(fieldRows + 50, 300) ||
+                        usedCols > Math.Max(fieldCols + 20, 80);
+
+                    if (usedLooksTooLarge)
+                    {
+                        fieldRange.Source = "DescriptorBounds";
+                        return fieldRange;
+                    }
+                }
+
+                usedRange.Source = "UsedRange";
+                return usedRange;
+            }
+
+            if (TryGetDbFieldBoundsForSheet(ws, fields, primarySheetName, out var fallbackRange))
+            {
+                fallbackRange.Source = "DescriptorBounds";
+                return fallbackRange;
+            }
+
+            return new TemplateRangeInfo
+            {
+                SheetName = ws.Name,
+                FirstRow1 = 1,
+                FirstCol1 = 1,
+                LastRow1 = 1,
+                LastCol1 = 1,
+                Source = "DescriptorBounds"
+            };
+        }
+
+        private static List<IXLRange> ResolveTemplateLockRangesByDbFields(IXLWorksheet ws, IReadOnlyList<TemplateFieldCellInfo> fields, string primarySheetName)
+        {
+            var ranges = new List<IXLRange>();
+
+            try
+            {
+                var used = ws.RangeUsed(XLCellsUsedOptions.All);
+                if (used != null) ranges.Add(used);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var printAreas = ws.PageSetup.PrintAreas;
+                if (printAreas != null)
+                {
+                    foreach (var pa in printAreas)
+                    {
+                        if (pa != null) ranges.Add(pa);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            if (TryGetDbFieldBoundsForSheet(ws, fields, primarySheetName, out var fieldBounds))
+            {
+                try
+                {
+                    ranges.Add(ws.Range(fieldBounds.FirstRow1, fieldBounds.FirstCol1, fieldBounds.LastRow1, fieldBounds.LastCol1));
+                }
+                catch
+                {
+                }
+            }
+
+            if (ranges.Count == 0)
+                ranges.Add(ws.Range(1, 1, 1, 1));
+
+            return ranges;
+        }
+
+        private static bool TryGetDbFieldBoundsForSheet(IXLWorksheet ws, IReadOnlyList<TemplateFieldCellInfo> fields, string primarySheetName, out TemplateRangeInfo range)
+        {
+            range = new TemplateRangeInfo { SheetName = ws.Name };
+
+            var firstRow = int.MaxValue;
+            var firstCol = int.MaxValue;
+            var lastRow = 0;
+            var lastCol = 0;
+
+            foreach (var f in fields ?? Array.Empty<TemplateFieldCellInfo>())
+            {
+                if (!IsTemplateFieldForWorksheet(f, ws.Name, primarySheetName))
+                    continue;
+
+                if (!TryParseA1OrRangeForTemplateVersion(f.A1, out var r1, out var c1, out var r2, out var c2))
+                    continue;
+
+                try
+                {
+                    var xlRange = ws.Range(r1, c1, r2, c2);
+                    var effective = xlRange.FirstCell().IsMerged()
+                        ? xlRange.FirstCell().MergedRange()
+                        : xlRange;
+
+                    var a = effective.RangeAddress;
+                    r1 = a.FirstAddress.RowNumber;
+                    c1 = a.FirstAddress.ColumnNumber;
+                    r2 = a.LastAddress.RowNumber;
+                    c2 = a.LastAddress.ColumnNumber;
+                }
+                catch
+                {
+                }
+
+                firstRow = Math.Min(firstRow, r1);
+                firstCol = Math.Min(firstCol, c1);
+                lastRow = Math.Max(lastRow, r2);
+                lastCol = Math.Max(lastCol, c2);
+            }
+
+            if (lastRow <= 0 || lastCol <= 0 || firstRow == int.MaxValue || firstCol == int.MaxValue)
+                return false;
+
+            range = new TemplateRangeInfo
+            {
+                SheetName = ws.Name,
+                FirstRow1 = firstRow,
+                FirstCol1 = firstCol,
+                LastRow1 = lastRow,
+                LastCol1 = lastCol,
+                Source = "DescriptorBounds"
+            };
+
+            return true;
+        }
+
+        private static void UnlockMappedFieldCellsByDbFields(IXLWorksheet ws, IReadOnlyList<TemplateFieldCellInfo> fields, string primarySheetName)
+        {
+            foreach (var f in fields ?? Array.Empty<TemplateFieldCellInfo>())
+            {
+                if (!IsTemplateFieldForWorksheet(f, ws.Name, primarySheetName))
+                    continue;
+
+                if (!TryParseA1OrRangeForTemplateVersion(f.A1, out var r1, out var c1, out var r2, out var c2))
+                    continue;
+
+                try
+                {
+                    var range = ws.Range(r1, c1, r2, c2);
+                    var targetRange = range.FirstCell().IsMerged()
+                        ? range.FirstCell().MergedRange()
+                        : range;
+
+                    targetRange.Style.Protection.Locked = false;
+                    targetRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#EAF6FF");
+                    targetRange.Style.Alignment.WrapText = false;
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void ClearOldTemplateInputHighlights(IXLWorksheet ws, IReadOnlyList<IXLRange> lockRanges, IReadOnlyList<TemplateFieldCellInfo> fields, string primarySheetName)
+        {
+            var editableCells = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var f in fields ?? Array.Empty<TemplateFieldCellInfo>())
+            {
+                if (!IsTemplateFieldForWorksheet(f, ws.Name, primarySheetName))
+                    continue;
+
+                if (!TryParseA1OrRangeForTemplateVersion(f.A1, out var r1, out var c1, out var r2, out var c2))
+                    continue;
+
+                try
+                {
+                    var range = ws.Range(r1, c1, r2, c2);
+                    var targetRange = range.FirstCell().IsMerged()
+                        ? range.FirstCell().MergedRange()
+                        : range;
+
+                    foreach (var cell in targetRange.Cells())
+                        editableCells.Add(cell.Address.ToStringRelative());
+                }
+                catch
+                {
+                }
+            }
+
+            foreach (var range in lockRanges ?? Array.Empty<IXLRange>())
+            {
+                foreach (var cell in range.Cells())
+                {
+                    if (editableCells.Contains(cell.Address.ToStringRelative()))
+                        continue;
+
+                    if (IsTemplateInputHighlight(cell))
+                    {
+                        cell.Style.Fill.BackgroundColor = XLColor.NoColor;
+                    }
+                }
+            }
+        }
+
+        private static bool IsTemplateInputHighlight(IXLCell cell)
+        {
+            try
+            {
+                var bg = cell.Style.Fill.BackgroundColor;
+                if (bg.ColorType != XLColorType.Color)
+                    return false;
+
+                var c = bg.Color;
+                return c.R == 0xEA && c.G == 0xF6 && c.B == 0xFF;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsTemplateFieldForWorksheet(TemplateFieldCellInfo field, string worksheetName, string primarySheetName)
+        {
+            var sheet = (field?.Sheet ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(sheet))
+                return string.Equals(worksheetName, primarySheetName, StringComparison.OrdinalIgnoreCase);
+
+            return string.Equals(sheet, worksheetName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static (string sheetName, string localA1) SplitSheetAndA1ForTemplateVersion(string? a1)
+        {
+            var s = (a1 ?? string.Empty).Trim().Replace("$", string.Empty).Replace("'", string.Empty);
+            if (string.IsNullOrWhiteSpace(s))
+                return (string.Empty, string.Empty);
+
+            var bang = s.LastIndexOf('!');
+            if (bang >= 0)
+                return (s[..bang].Trim(), s[(bang + 1)..].Trim());
+
+            return (string.Empty, s);
+        }
+
+        private static bool TryParseA1OrRangeForTemplateVersion(string? a1, out int firstRow, out int firstCol, out int lastRow, out int lastCol)
+        {
+            firstRow = 0;
+            firstCol = 0;
+            lastRow = 0;
+            lastCol = 0;
+
+            var (_, localA1) = SplitSheetAndA1ForTemplateVersion(a1);
+            localA1 = (localA1 ?? string.Empty).Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(localA1))
+                return false;
+
+            var parts = localA1.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 0 || parts.Length > 2)
+                return false;
+
+            if (!TryParseSingleA1ForTemplateVersion(parts[0], out firstRow, out firstCol))
+                return false;
+
+            if (parts.Length == 1)
+            {
+                lastRow = firstRow;
+                lastCol = firstCol;
+                return true;
+            }
+
+            if (!TryParseSingleA1ForTemplateVersion(parts[1], out lastRow, out lastCol))
+                return false;
+
+            if (lastRow < firstRow) (firstRow, lastRow) = (lastRow, firstRow);
+            if (lastCol < firstCol) (firstCol, lastCol) = (lastCol, firstCol);
+            return true;
+        }
+
+        private static bool TryParseSingleA1ForTemplateVersion(string? a1, out int row, out int col)
+        {
+            row = 0;
+            col = 0;
+
+            var m = Regex.Match((a1 ?? string.Empty).Trim().ToUpperInvariant(), @"^([A-Z]{1,3})(\d{1,7})$", RegexOptions.CultureInvariant);
+            if (!m.Success)
+                return false;
+
+            col = ColLettersToIndex(m.Groups[1].Value);
+            return col > 0 && int.TryParse(m.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out row) && row > 0;
+        }
+
+        private static string ToA1FromRowColForTemplateVersion(int row, int col)
+        {
+            if (row < 1 || col < 1) return string.Empty;
+            return ToColumnLettersForTemplateVersion(col) + row.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static int ReadOrdinal(System.Data.Common.DbDataReader rd, string name)
+        {
+            for (var i = 0; i < rd.FieldCount; i++)
+            {
+                if (string.Equals(rd.GetName(i), name, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+            return -1;
+        }
+
+        private static string ReadString(System.Data.Common.DbDataReader rd, string name)
+        {
+            var ord = ReadOrdinal(rd, name);
+            if (ord < 0 || rd.IsDBNull(ord)) return string.Empty;
+            return Convert.ToString(rd.GetValue(ord), CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+
+        private static int ReadInt(System.Data.Common.DbDataReader rd, string name)
+        {
+            var ord = ReadOrdinal(rd, name);
+            if (ord < 0 || rd.IsDBNull(ord)) return 0;
+            try { return Convert.ToInt32(rd.GetValue(ord), CultureInfo.InvariantCulture); }
+            catch { return 0; }
+        }
+
+        private static int FirstPositive(params int[] values)
+        {
+            foreach (var v in values)
+                if (v > 0) return v;
+            return 0;
+        }
+
+        // 2026.06.16 Added: 전결 조건 유형 정규화 추가 Contents 화면 입력값을 DB 저장 조건 유형으로 변환
+        private static string NormalizeDelegationConditionType(string? value)
+        {
+            var v = (value ?? string.Empty).Trim();
+
+            if (v.Equals("Always", StringComparison.OrdinalIgnoreCase))
+                return "Always";
+
+            if (v.Equals("AmountLimit", StringComparison.OrdinalIgnoreCase))
+                return "AmountLimit";
+
+            return "None";
+        }
+
+        // 2026.06.16 Added: 전결 저장값 정규화 추가 Contents 전결권자 체크와 조건 패널 값을 저장 가능한 형태로 보정
+        private static void NormalizeDelegationForSave(TemplateDescriptor model)
+        {
+            model.Delegation ??= new DelegationDef();
+            model.Approvals ??= new List<ApprovalDef>();
+            model.Fields ??= new List<FieldDef>();
+
+            var d = model.Delegation;
+            d.ConditionType = NormalizeDelegationConditionType(d.ConditionType);
+
+            if (!d.Enabled || string.Equals(d.ConditionType, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                d.Enabled = false;
+                d.ConditionType = "None";
+                d.DelegationStepOrder = 0;
+                d.SkipFromStepOrder = 0;
+                d.SkipToStepOrder = 0;
+                d.AmountFieldKey = null;
+                d.CurrencyFieldKey = null;
+                d.AmountCellA1 = null;
+                d.CurrencyCellA1 = null;
+                d.AmountLimits = new List<DelegationAmountLimitDef>();
+                foreach (var a in model.Approvals)
+                    if (a != null) a.IsDelegationApprover = false;
+                return;
+            }
+
+            if (d.DelegationStepOrder <= 0)
+            {
+                var marked = model.Approvals
+                    .Where(x => x != null && x.IsDelegationApprover)
+                    .OrderBy(x => x.Slot)
+                    .FirstOrDefault();
+
+                if (marked != null)
+                    d.DelegationStepOrder = marked.Slot;
+            }
+
+            foreach (var a in model.Approvals)
+            {
+                if (a == null) continue;
+                a.IsDelegationApprover = d.DelegationStepOrder > 0 && a.Slot == d.DelegationStepOrder;
+            }
+
+            var maxSlot = model.Approvals
+                .Where(x => x != null)
+                .Select(x => x.Slot)
+                .DefaultIfEmpty(0)
+                .Max();
+
+            if (d.SkipFromStepOrder <= 0 && d.DelegationStepOrder > 0)
+                d.SkipFromStepOrder = d.DelegationStepOrder + 1;
+
+            if (d.SkipToStepOrder <= 0 && d.SkipFromStepOrder > 0)
+                d.SkipToStepOrder = Math.Max(d.SkipFromStepOrder, maxSlot);
+
+            d.AmountFieldKey = string.IsNullOrWhiteSpace(d.AmountFieldKey) ? null : d.AmountFieldKey.Trim();
+            d.CurrencyFieldKey = string.IsNullOrWhiteSpace(d.CurrencyFieldKey) ? null : d.CurrencyFieldKey.Trim();
+
+            // 2026.06.18 Added: 전결 조건 셀 주소 정규화 추가 Contents 금액 조건 비교에 사용할 금액 셀과 통화 셀 주소를 저장 전 정리
+            d.AmountCellA1 = string.IsNullOrWhiteSpace(d.AmountCellA1) ? null : d.AmountCellA1.Trim().ToUpperInvariant();
+            d.CurrencyCellA1 = string.IsNullOrWhiteSpace(d.CurrencyCellA1) ? null : d.CurrencyCellA1.Trim().ToUpperInvariant();
+
+            d.AmountLimits ??= new List<DelegationAmountLimitDef>();
+            d.AmountLimits = d.AmountLimits
+                .Where(x => x != null)
+                .Select(x => new DelegationAmountLimitDef
+                {
+                    CurrencyCode = (x.CurrencyCode ?? string.Empty).Trim().ToUpperInvariant(),
+                    LimitAmount = x.LimitAmount
+                })
+                .Where(x => !string.IsNullOrWhiteSpace(x.CurrencyCode) || x.LimitAmount.HasValue)
+                .ToList();
+
+            if (!string.Equals(d.ConditionType, "AmountLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                d.AmountFieldKey = null;
+                d.CurrencyFieldKey = null;
+                d.AmountCellA1 = null;
+                d.CurrencyCellA1 = null;
+                d.AmountLimits = new List<DelegationAmountLimitDef>();
+            }
+        }
+
+        // 2026.06.16 Added: 전결 설정 검증 추가 Contents Always 및 AmountLimit 저장 전 필수값을 확인
+        private IActionResult? ValidateDelegationForSave(TemplateDescriptor model)
+        {
+            var d = model.Delegation ?? new DelegationDef();
+
+            if (!d.Enabled || string.Equals(d.ConditionType, "None", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!string.Equals(d.ConditionType, "Always", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(d.ConditionType, "AmountLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(_S["DTL_V_DelegationConditionRequired"].Value);
+            }
+
+            if (d.DelegationStepOrder <= 0 ||
+                !(model.Approvals ?? new List<ApprovalDef>()).Any(x => x != null && x.Slot == d.DelegationStepOrder))
+            {
+                return BadRequest(_S["DTL_V_DelegationStepRequired"].Value);
+            }
+
+            if (d.SkipFromStepOrder <= d.DelegationStepOrder ||
+                d.SkipToStepOrder < d.SkipFromStepOrder ||
+                !(model.Approvals ?? new List<ApprovalDef>()).Any(x => x != null && x.Slot == d.SkipFromStepOrder))
+            {
+                return BadRequest(_S["DTL_V_DelegationSkipStepRequired"].Value);
+            }
+
+            if (string.Equals(d.ConditionType, "AmountLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                // 2026.06.18 Changed: 금액 셀은 항상 필수로 유지 Contents 전결 금액 조건은 금액 셀 값을 기준으로 판단
+                if (string.IsNullOrWhiteSpace(d.AmountCellA1))
+                    return BadRequest(_S["DTL_V_DelegationAmountCellRequired"].Value);
+
+                if (d.AmountLimits == null || d.AmountLimits.Count == 0)
+                    return BadRequest(_S["DTL_V_DelegationAmountLimitRequired"].Value);
+
+                var currencyCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in d.AmountLimits)
+                {
+                    if (item == null || string.IsNullOrWhiteSpace(item.CurrencyCode))
+                        return BadRequest(_S["DTL_V_DelegationCurrencyCodeRequired"].Value);
+
+                    var currencyCode = item.CurrencyCode.Trim().ToUpperInvariant();
+
+                    // 2026.06.18 Added: 허용 통화 코드 서버 검증 추가 Contents 화면 우회 저장 시 허용되지 않은 통화 코드 저장을 차단
+                    if (!IsAllowedDelegationCurrencyCode(currencyCode))
+                        return BadRequest(_S["DTL_V_DelegationCurrencyCodeRequired"].Value);
+
+                    if (!currencyCodes.Add(currencyCode))
+                        return BadRequest(_S["DTL_V_DelegationCurrencyCodeDup"].Value);
+
+                    if (!item.LimitAmount.HasValue || item.LimitAmount.Value <= 0)
+                        return BadRequest(_S["DTL_V_DelegationAmountInvalid"].Value);
+                }
+
+                // 2026.06.18 Changed: 통화 셀 필수 조건을 기준 통화 개수에 따라 분기 Contents 기준 통화가 1개이면 고정 통화로 보고 통화 셀 없이 저장 허용
+                if (string.IsNullOrWhiteSpace(d.CurrencyCellA1) && currencyCodes.Count > 1)
+                    return BadRequest(_S["DTL_V_DelegationCurrencyCellRequired"].Value);
+            }
+
+            return null;
+        }
+
+        private static string TrimMaxOrDefault(string? value, int max, string fallback)
+        {
+            var v = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+            if (string.IsNullOrWhiteSpace(v)) v = fallback;
+            return v.Length > max ? v.Substring(0, max) : v;
+        }
+
+        // 2026.06.16 Added: 전결 정책 저장 추가 Contents 템플릿 버전별 기존 전결 정책을 삭제 후 현재 화면 설정으로 재저장
+        private void SaveDelegationRulesForVersion(int templateId, long versionId, TemplateDescriptor model)
+        {
+            if (versionId <= 0)
+                return;
+
+            model.Delegation ??= new DelegationDef();
+            var d = model.Delegation;
+
+            var actor = TrimMaxOrDefault(User?.Identity?.Name ?? CurrentUserId(), 100, "system");
+            var now = DateTime.UtcNow;
+
+            using var tx = _db.Database.BeginTransaction();
+
+            var oldRules = _db.DocTemplateDelegationRules
+                .Where(x => x.TemplateVersionId == versionId)
+                .ToList();
+
+            if (oldRules.Count > 0)
+            {
+                var oldIds = oldRules.Select(x => x.Id).ToList();
+
+                var oldAmounts = _db.DocTemplateDelegationAmountRules
+                    .Where(x => oldIds.Contains(x.RuleId))
+                    .ToList();
+
+                if (oldAmounts.Count > 0)
+                    _db.DocTemplateDelegationAmountRules.RemoveRange(oldAmounts);
+
+                _db.DocTemplateDelegationRules.RemoveRange(oldRules);
+                _db.SaveChanges();
+            }
+
+            if (!d.Enabled || string.Equals(d.ConditionType, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                tx.Commit();
+                return;
+            }
+
+            var rule = new DocTemplateDelegationRule
+            {
+                TemplateId = templateId,
+                TemplateVersionId = versionId,
+                RuleName = null,
+                ConditionType = d.ConditionType,
+                DelegationStepOrder = d.DelegationStepOrder,
+                SkipFromStepOrder = d.SkipFromStepOrder,
+                SkipToStepOrder = d.SkipToStepOrder,
+                Priority = 100,
+                IsActive = true,
+                Note = null,
+                CreatedBy = actor,
+                CreatedAt = now
+            };
+
+            _db.DocTemplateDelegationRules.Add(rule);
+            _db.SaveChanges();
+
+            if (string.Equals(d.ConditionType, "AmountLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in d.AmountLimits ?? new List<DelegationAmountLimitDef>())
+                {
+                    if (item == null) continue;
+
+                    _db.DocTemplateDelegationAmountRules.Add(new DocTemplateDelegationAmountRule
+                    {
+                        RuleId = rule.Id,
+
+                        // 2026.06.18 Changed: 필드 키는 호환용으로 빈 값 저장 Contents 실제 금액 조건 비교는 셀 주소 기준으로 처리
+                        AmountFieldKey = d.AmountFieldKey ?? string.Empty,
+                        CurrencyFieldKey = d.CurrencyFieldKey ?? string.Empty,
+
+                        // 2026.06.18 Added: 전결 금액 조건 셀 주소 저장 Contents 입력 필드가 아닌 수식 셀과 통화 셀을 비교 기준으로 저장
+                        AmountCellA1 = d.AmountCellA1,
+                        CurrencyCellA1 = d.CurrencyCellA1,
+
+                        CurrencyCode = (item.CurrencyCode ?? string.Empty).Trim().ToUpperInvariant(),
+                        LimitAmount = item.LimitAmount ?? 0,
+                        IsActive = true,
+                        CreatedBy = actor,
+                        CreatedAt = now
+                    });
+                }
+
+                _db.SaveChanges();
+            }
+
+            tx.Commit();
+        }
+
         [HttpPost("map-save")]
         [ValidateAntiForgeryToken]
         public IActionResult MapSave([FromForm] string descriptor, [FromForm] string? excelPath, [FromForm] string? previewJson, [FromForm] string? docCode, [FromForm] SpreadsheetClientState? spreadsheetState)
@@ -1586,6 +2960,8 @@ namespace WebApplication1.Controllers
             try { model = JsonSerializer.Deserialize<TemplateDescriptor>(descriptor); }
             catch { return BadRequest("Invalid descriptor"); }
             if (model == null) return BadRequest("Empty descriptor");
+
+            model.Delegation ??= new DelegationDef();
 
             var docCodeFromForm = (FirstNonEmpty(
                 docCode,
@@ -1667,10 +3043,23 @@ namespace WebApplication1.Controllers
                     catch { return BadRequest($"Approvals[{i}] 규칙 JSON이 올바르지 않습니다."); }
                 }
 
-                if ((a.ApproverType == "Person" || a.ApproverType == "Role") &&
-                    string.IsNullOrWhiteSpace(a.ApproverValue))
+                a.ApproverValue = (a.ApproverValue ?? string.Empty).Trim();
+
+                if (a.ApproverType == "Person")
                 {
-                    return BadRequest($"Approvals[{i}] {(a.ApproverType == "Person" ? "사용자ID" : "역할코드")}를 입력해 주세요.");
+                    if (string.IsNullOrWhiteSpace(a.ApproverValue))
+                        return BadRequest($"Approvals[{i}] 사용자ID를 입력해 주세요.");
+
+                    // 2026.06.18 Added: 기안자 예약값 허용 추가 Contents 기안자는 실제 사용자 코드 없이 문서 작성 시 작성자 사용자 ID로 해석할 예약값으로 저장
+                    if (IsDrafterApproverValue(a.ApproverValue))
+                    {
+                        model.Approvals[i] = a;
+                    }
+                }
+                else if (a.ApproverType == "Role")
+                {
+                    if (string.IsNullOrWhiteSpace(a.ApproverValue))
+                        return BadRequest($"Approvals[{i}] 역할코드를 입력해 주세요.");
                 }
 
                 if (a.Slot <= 0) a.Slot = 1;
@@ -1695,15 +3084,34 @@ namespace WebApplication1.Controllers
                     catch { return BadRequest($"Cooperations[{i}] 규칙 JSON이 올바르지 않습니다."); }
                 }
 
-                if ((c.ApproverType == "Person" || c.ApproverType == "Role") &&
-                    string.IsNullOrWhiteSpace(c.ApproverValue))
+                c.ApproverValue = (c.ApproverValue ?? string.Empty).Trim();
+
+                if (c.ApproverType == "Person")
                 {
-                    return BadRequest($"Cooperations[{i}] {(c.ApproverType == "Person" ? "사용자ID" : "역할코드")}를 입력해 주세요.");
+                    if (string.IsNullOrWhiteSpace(c.ApproverValue))
+                        return BadRequest($"Cooperations[{i}] 사용자ID를 입력해 주세요.");
+
+                    // 2026.06.18 Added: 기안자 예약값 허용 추가 Contents 협조란에서도 실제 사용자 코드 없는 기안자 예약값을 템플릿 저장 단계에서 허용
+                    if (IsDrafterApproverValue(c.ApproverValue))
+                    {
+                        model.Cooperations[i] = c;
+                    }
+                }
+                else if (c.ApproverType == "Role")
+                {
+                    if (string.IsNullOrWhiteSpace(c.ApproverValue))
+                        return BadRequest($"Cooperations[{i}] 역할코드를 입력해 주세요.");
                 }
 
                 if (c.Slot <= 0) c.Slot = 1;
                 model.Cooperations[i] = c;
             }
+
+            // 2026.06.16 Added: 전결 저장 전 정규화 및 검증 추가 Contents 전결권자 차수와 조건 값을 DB 저장 전 확인
+            NormalizeDelegationForSave(model);
+            var delegationGuard = ValidateDelegationForSave(model);
+            if (delegationGuard is not null)
+                return delegationGuard;
 
             var fileSetStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
@@ -1849,11 +3257,48 @@ namespace WebApplication1.Controllers
                 });
             }
 
+            TemplatePrepareResult templatePrepare;
+            try
+            {
+                // 2026.06.12 Changed: 보호/파란 배경/표시 메트릭은 프로시저 실행 후
+                // 확정된 outVersionId 기준 dbo.DocTemplateField 좌표를 다시 조회해서 적용한다.
+                // descriptor/model의 Row/Column 기본값(0)이 A1로 오염되는 문제를 방지한다.
+                templatePrepare = PrepareTemplateExcelForVersionByDbFields(finalExcelPath, outVersionId);
+                Debug.WriteLine($"[DocTLDX][MapSave] template prepared by DB fields source={templatePrepare.VisualSource} range={templatePrepare.VisualRangeA1} width={templatePrepare.VisualWidthPx} height={templatePrepare.VisualHeightPx}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DocTLDX][MapSave] PrepareTemplateExcelForVersionByDbFields failed: " + ex);
+                TempData["Alert"] = "Template prepare failed: " + ex.Message;
+
+                return RedirectToAction(nameof(MapSaved), new
+                {
+                    path = "",
+                    excelPath = finalExcelPath,
+                    fields = model.Fields?.Count ?? 0,
+                    approvals = model.Approvals?.Count ?? 0
+                });
+            }
+
+            try
+            {
+                // 저장 프로시저에는 임시 저장본 기준 previewJson이 먼저 들어가므로,
+                // 보호/표시색/그리드 상태가 반영된 최종 xlsx 기준으로 다시 생성하여 DB에 갱신한다.
+                previewJson = DocControllerHelper.BuildPreviewJsonFromExcel(finalExcelPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DocTLDX][MapSave] BuildPreviewJsonFromExcel(final) failed: " + ex);
+                previewJson ??= "{}";
+            }
+
             var finalExcelFileName = Path.GetFileName(finalExcelPath);
             var finalExcelSize = System.IO.File.Exists(finalExcelPath)
                 ? new FileInfo(finalExcelPath).Length
                 : 0L;
             var finalExcelRelPath = ToAppDataRelativePath(finalExcelPath);
+            var preparedAt = DateTime.Now;
+            var templateFileHash = ComputeSha256Hex(finalExcelPath);
 
             var excelDbSyncOk = false;
 
@@ -1865,7 +3310,16 @@ namespace WebApplication1.Controllers
 UPDATE dbo.DocTemplateVersion
    SET ExcelFileName = @ExcelFileName,
        ExcelFilePath = @ExcelFilePath,
-       ExcelFileSize = @ExcelFileSize
+       ExcelFileSize = @ExcelFileSize,
+       PreviewJson = @PreviewJson,
+       PreparedAt = @PreparedAt,
+       TemplateFileHash = @TemplateFileHash,
+       ProtectionRuleCode = @ProtectionRuleCode,
+       VisualMetricRuleCode = @VisualMetricRuleCode,
+       VisualSource = @VisualSource,
+       VisualRangeA1 = @VisualRangeA1,
+       VisualWidthPx = @VisualWidthPx,
+       VisualHeightPx = @VisualHeightPx
  WHERE Id = @VersionId;";
 
                 _db.Database.ExecuteSqlRaw(
@@ -1873,6 +3327,15 @@ UPDATE dbo.DocTemplateVersion
                     new SqlParameter("@ExcelFileName", SqlDbType.NVarChar, 255) { Value = finalExcelFileName },
                     new SqlParameter("@ExcelFilePath", SqlDbType.NVarChar, 500) { Value = finalExcelRelPath },
                     new SqlParameter("@ExcelFileSize", SqlDbType.BigInt) { Value = finalExcelSize },
+                    new SqlParameter("@PreviewJson", SqlDbType.NVarChar, -1) { Value = (object?)previewJson ?? "{}" },
+                    new SqlParameter("@PreparedAt", SqlDbType.DateTime2) { Value = preparedAt },
+                    new SqlParameter("@TemplateFileHash", SqlDbType.Char, 64) { Value = templateFileHash },
+                    new SqlParameter("@ProtectionRuleCode", SqlDbType.NVarChar, 50) { Value = templatePrepare.ProtectionRuleCode },
+                    new SqlParameter("@VisualMetricRuleCode", SqlDbType.NVarChar, 50) { Value = templatePrepare.VisualMetricRuleCode },
+                    new SqlParameter("@VisualSource", SqlDbType.NVarChar, 50) { Value = templatePrepare.VisualSource },
+                    new SqlParameter("@VisualRangeA1", SqlDbType.NVarChar, 100) { Value = templatePrepare.VisualRangeA1 },
+                    new SqlParameter("@VisualWidthPx", SqlDbType.Int) { Value = templatePrepare.VisualWidthPx },
+                    new SqlParameter("@VisualHeightPx", SqlDbType.Int) { Value = templatePrepare.VisualHeightPx },
                     new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = outVersionId }
                 );
 
@@ -1891,6 +3354,35 @@ UPDATE dbo.DocTemplateFile
                     new SqlParameter("@ExcelFilePath", SqlDbType.NVarChar, 500) { Value = finalExcelRelPath },
                     new SqlParameter("@ExcelFileSize", SqlDbType.BigInt) { Value = finalExcelSize },
                     new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = outVersionId }
+                );
+
+                const string sqlUpsertPreviewFile = @"
+IF EXISTS (SELECT 1 FROM dbo.DocTemplateFile WHERE VersionId = @VersionId AND FileRole = N'PreviewJson')
+BEGIN
+    UPDATE dbo.DocTemplateFile
+       SET Contents = @PreviewJson,
+           FileSize = DATALENGTH(@PreviewJson),
+           FileSizeBytes = DATALENGTH(@PreviewJson),
+           ContentType = N'application/json'
+     WHERE VersionId = @VersionId
+       AND FileRole = N'PreviewJson';
+END
+ELSE
+BEGIN
+    INSERT dbo.DocTemplateFile
+           (TemplateId, VersionId, FileRole, Storage, FileName, FilePath,
+            FileSize, FileSizeBytes, ContentType, Contents, CreatedAt, CreatedBy)
+    VALUES (@TemplateId, @VersionId, N'PreviewJson', N'Db', N'preview.json', NULL,
+            DATALENGTH(@PreviewJson), DATALENGTH(@PreviewJson), N'application/json', @PreviewJson,
+            SYSUTCDATETIME(), @CreatedBy);
+END";
+
+                _db.Database.ExecuteSqlRaw(
+                    sqlUpsertPreviewFile,
+                    new SqlParameter("@TemplateId", SqlDbType.Int) { Value = outTemplateId },
+                    new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = outVersionId },
+                    new SqlParameter("@PreviewJson", SqlDbType.NVarChar, -1) { Value = (object?)previewJson ?? "{}" },
+                    new SqlParameter("@CreatedBy", SqlDbType.NVarChar, 100) { Value = User?.Identity?.Name ?? "system" }
                 );
 
                 tx.Commit();
@@ -1913,45 +3405,46 @@ UPDATE dbo.DocTemplateFile
                 });
             }
 
+            // 2026.06.16 Added: 전결 정책 DB 저장 추가 Contents 템플릿 파일 및 버전 정보 동기화 성공 후 전결 규칙을 저장
+            try
+            {
+                SaveDelegationRulesForVersion(outTemplateId, outVersionId, model);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DocTLDX][MapSave] Delegation rule save failed: " + ex);
+                TempData["Alert"] = "Delegation rule save failed: " + ex.Message;
+
+                return RedirectToAction(nameof(MapSaved), new
+                {
+                    path = "",
+                    excelPath = finalExcelPath,
+                    fields = model.Fields?.Count ?? 0,
+                    approvals = model.Approvals?.Count ?? 0
+                });
+            }
+
             if (excelDbSyncOk)
             {
                 TryDeleteUploadTempExcel(excelPath, finalExcelPath);
             }
 
-            var jsonDir = Path.GetDirectoryName(finalExcelPath)
-                          ?? Path.Combine(_env.ContentRootPath, "App_Data", "DocTemplates");
-            Directory.CreateDirectory(jsonDir);
-
-            var vtag = (outVersionNo > 0) ? $"v{outVersionNo:D4}" : "v0000";
-            var jsonFileName = $"{SafeFilePart(model.CompCd)}_{SafeFilePart(model.Kind)}_{SafeFilePart(docCodeToSave)}_{vtag}_{fileSetStamp}.json";
-            var path = Path.Combine(jsonDir, jsonFileName);
-
-            var snap = new
-            {
-                docCode = docCodeToSave,
-                outTemplateId,
-                outVersionId,
-                outVersionNo,
-                excelPath = finalExcelPath,
-                model
-            };
-
-            System.IO.File.WriteAllText(
-                path,
-                JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true })
-            );
-
+            // 2026.06.12 Changed: 템플릿 저장 시 물리 JSON 스냅샷 파일을 생성하지 않는다.
+            // 실제 운영 기준 데이터는 dbo.DocTemplateVersion / dbo.DocTemplateField / dbo.DocTemplateApproval 및 xlsx 파일에 저장된다.
             Debug.WriteLine($"[DocTLDX][MapSave] saved docCode={docCodeToSave} templateId={outTemplateId} versionId={outVersionId} versionNo={outVersionNo} fields={(model.Fields?.Count ?? 0)} approvals={(model.Approvals?.Count ?? 0)} cooperations={(model.Cooperations?.Count ?? 0)} elapsed={swAll.ElapsedMilliseconds}ms");
             Debug.WriteLine($"[DocTLDX][MapSave] spreadsheetStateNull={(spreadsheetState == null)}");
             Debug.WriteLine($"[DocTLDX][MapSave] fileSetStamp={fileSetStamp}");
             Debug.WriteLine($"[DocTLDX][MapSave] tempExcelPath={tempExcelPath}");
             Debug.WriteLine($"[DocTLDX][MapSave] finalExcelPath={finalExcelPath}");
             Debug.WriteLine($"[DocTLDX][MapSave] excelDbSyncOk={excelDbSyncOk}");
-            Debug.WriteLine($"[DocTLDX][MapSave] saved snapshot path={path}");
+            Debug.WriteLine($"[DocTLDX][MapSave] preparedAt={preparedAt:O}");
+            Debug.WriteLine($"[DocTLDX][MapSave] templateFileHash={templateFileHash}");
+            Debug.WriteLine($"[DocTLDX][MapSave] protectionRule={templatePrepare.ProtectionRuleCode} visualRule={templatePrepare.VisualMetricRuleCode} visualSource={templatePrepare.VisualSource} visualRange={templatePrepare.VisualRangeA1} visualWidth={templatePrepare.VisualWidthPx} visualHeight={templatePrepare.VisualHeightPx}");
+            Debug.WriteLine($"[DocTLDX][MapSave] delegationEnabled={(model.Delegation?.Enabled ?? false)} delegationCondition={model.Delegation?.ConditionType ?? "None"} delegationStep={model.Delegation?.DelegationStepOrder ?? 0}");
 
             return RedirectToAction(nameof(MapSaved), new
             {
-                path,
+                path = string.Empty,
                 excelPath = finalExcelPath,
                 fields = model.Fields?.Count ?? 0,
                 approvals = model.Approvals?.Count ?? 0
@@ -2039,15 +3532,6 @@ UPDATE dbo.DocTemplateFile
             return View("~/Views/DocTL/DocTLMapSaved.cshtml");
         }
 
-        [HttpGet("download-descriptor")]
-        public IActionResult DownloadDescriptor([FromQuery] string path)
-        {
-            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
-                return NotFound();
-
-            var bytes = System.IO.File.ReadAllBytes(path);
-            var fileName = Path.GetFileName(path);
-            return File(bytes, "application/json", fileName);
-        }
+        // 2026.06.12 Removed: 물리 Descriptor JSON 파일 저장을 중단했으므로 download-descriptor 기능도 사용하지 않는다.
     }
 }

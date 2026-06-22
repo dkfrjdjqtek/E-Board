@@ -26,8 +26,7 @@ using System.Threading.Tasks;
 using WebApplication1;
 using WebApplication1.Data;
 using WebApplication1.Models;
-using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory, DocTemplateService
-
+using WebApplication1.Services; // SmtpEmailSender, CustomUserClaimsPrincipalFactory, DocTemplateService, TemplateVersionPrepareService
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -205,7 +204,12 @@ builder.Services.AddAntiforgery(options =>
 // 9) DocTemplateService
 // -----------------------------
 builder.Services.AddScoped<IDocTemplateService, DocTemplateService>();
+// 2026.06.15 Added: 기존 템플릿 버전 파일 재준비 서비스를 DI에 등록한다.
+builder.Services.AddScoped<TemplateVersionPrepareService>();
+// 2026.06.22 Changed: DocDXCompose 및 DocDXStamp 작업 파일을 7일 기준으로 정리하는 백그라운드 서비스를 등록 Contents 기존 ComposeDX 정리 서비스에 스탬프 작업 파일 정리를 함께 포함
 builder.Services.AddHostedService<ComposeDxTempCleanupService>();
+// 2026.06.15 Added: DevExpress Spreadsheet warm-up을 클라이언트가 아닌 서버 프로세스 시작 후 1회만 실행한다.
+builder.Services.AddHostedService<DxSpreadsheetWarmupHostedService>();
 
 // -----------------------------
 // 10) WebPushNotifier

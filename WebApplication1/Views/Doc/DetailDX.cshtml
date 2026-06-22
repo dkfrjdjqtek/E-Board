@@ -1,3 +1,7 @@
+@* 2026.06.19 Changed: DetailDX 엑셀 렌더링 구조를 ComposeDX와 동일하게 맞추기 위해 행열 헤더와 시트 스크롤바를 화면 렌더 영역에서 완전히 제거 *@
+@* 2026.06.15 Changed: DetailDX 렌더링을 ComposeDX와 동일하게 DB VisualMetric + 72px layout, byte accessor 직접 Open 방식으로 정리하고 DOM/Preview 기반 크기 재계산 제거 *@
+@* 2026.06.10 Added: DetailDX View 서버 렌더링/DevExpress Spreadsheet WriteTo/클라이언트 DX 이벤트 성능 계측 추가 *@
+@* 2026.06.10 Changed: 서버 StampRectsJson 의존 제거 확인 — 스탬프 오버레이는 ApprovalCellsJson/ApprovalsJson/CooperationsJson과 DX 렌더 좌표로 클라이언트에서 계산함 *@
 @* 2026.04.08 Changed: ApprovalCellsJson 좌표 범위 정보를 우선 복원하여 병합 결재란의 가로 폭이 단일 열 50px로 축소되지 않도록 클라이언트 계산 로직을 수정함 *@
 @* 2026.03.20 Changed: 협조 버튼을 공통 flex 규칙에서 분리하고 승인 버튼과 동일 폭으로 표시되도록 승인 영역 CSS와 마크업을 수정함 *@
 @* 2026.03.16 Added: DX Spreadsheet 기반 상세 화면 DetailDX 구성 ComposeDX 와 동일한 scroll host 및 DX 렌더링 구조 적용 기존 Detail 섹션 댓글 승인 공유 UI 유지 *@
@@ -5,6 +9,7 @@
 @* 2026.03.18 Fixed: 승인 스탬프 위치 크기 오류 수정 pxPerColUnit pxPerRowPt 직접 역산 이중 scale 적용 제거 *@
 @* 2026.03.20 Fixed: 스탬프 x좌표 rhRect.right 기준 col1부터 누적 pxPerColUnit = cellArea totalAllColW 중복 스탬프 제거 *@
 @* 2026.03.24 Added: 협조 스탬프 지원 — CooperationsJson 추가, renderApprovalOverlay에 협조 루프 통합 *@
+@* 2026.06.10 Changed: DetailDX 렌더링 성능 개선 — DX 로그 기본 비활성화, AdjustControl 재시도 축소, finalize 이후 관찰자 정리 *@
 @using System.IO
 @using System.Text.Json
 @using System.Text.Encodings.Web
@@ -12,6 +17,7 @@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@inject Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory
 
 @functions {
     public class __DocFileVm
@@ -58,6 +64,32 @@
         ?? (!string.IsNullOrWhiteSpace(routeId) ? routeId : null)
         ?? (!string.IsNullOrWhiteSpace(qid) ? qid : string.Empty);
 
+    var __detailDxViewLogger = LoggerFactory.CreateLogger("WebApplication1.Views.Doc.DetailDX");
+    var __detailDxViewSw = System.Diagnostics.Stopwatch.StartNew();
+    double __detailDxViewLastMs = 0d;
+
+    void __MarkDetailDxViewPerf(string name)
+    {
+        try
+        {
+            var elapsedMs = __detailDxViewSw.Elapsed.TotalMilliseconds;
+            var deltaMs = elapsedMs - __detailDxViewLastMs;
+            __detailDxViewLastMs = elapsedMs;
+
+            __detailDxViewLogger.LogInformation(
+                "DETAILDX-VIEW-PERF {Name} elapsedMs={ElapsedMs} deltaMs={DeltaMs} docId={DocId}",
+                name ?? "mark",
+                elapsedMs,
+                deltaMs,
+                docId ?? string.Empty);
+        }
+        catch
+        {
+        }
+    }
+
+    __MarkDetailDxViewPerf("view-start");
+
     var templateCode = (string?)ViewBag.TemplateCode ?? string.Empty;
     var templateTitle = (string?)ViewBag.TemplateTitle ?? string.Empty;
     var status = (string?)ViewBag.Status ?? "Draft";
@@ -84,6 +116,40 @@
     var renderHeightPx = Convert.ToDouble(ViewBag.RenderHeightPx ?? 0);
     var renderDiagJson = (string?)ViewBag.RenderDiagJson ?? "{}";
 
+    // 2026.06.12 Changed: DetailDX도 ComposeDX와 동일하게 실제 xlsx 파일을 byte accessor로 연다.
+    // App_Data 상대경로를 DevExpress Open(path)에 직접 넘기지 않는다.
+    var dxOpenByBytes = !string.IsNullOrWhiteSpace(excelPath)
+        && System.IO.Path.IsPathRooted(excelPath)
+        && System.IO.File.Exists(excelPath);
+
+    Func<byte[]> dxOpenContentAccessor = () =>
+    {
+        var readSw = System.Diagnostics.Stopwatch.StartNew();
+        var bytes = System.IO.File.ReadAllBytes(excelPath);
+        try
+        {
+            __detailDxViewLogger.LogInformation(
+                "DETAILDX-VIEW-PERF bytes-read elapsedMs={ElapsedMs} bytes={Bytes} docId={DocId} documentId={DocumentId} excelPath={ExcelPath}",
+                readSw.Elapsed.TotalMilliseconds,
+                bytes.Length,
+                docId ?? string.Empty,
+                dxDocumentId ?? string.Empty,
+                excelPath ?? string.Empty);
+        }
+        catch
+        {
+        }
+        return bytes;
+    };
+
+    // 2026.06.12 Changed: DetailDX 화면 크기는 템플릿 버전에 저장된 DB VisualMetric을 그대로 사용한다.
+    // ComposeDX와 동일하게 DX 내부 클리핑 여백만 고정 padding으로 더하고 최초 로딩 후 resize 이벤트에 의존하지 않는다.
+    var dxRenderPadWidthPx = renderWidthPx > 0 ? 72d : 0d;
+    var dxRenderPadHeightPx = renderHeightPx > 0 ? 72d : 0d;
+    var dxLayoutWidthPx = renderWidthPx > 0 ? renderWidthPx + dxRenderPadWidthPx : 900d;
+    var dxLayoutHeightPx = renderHeightPx > 0 ? renderHeightPx + dxRenderPadHeightPx : 900d;
+    var dxInitialWidthPx = (int)Math.Ceiling(dxLayoutWidthPx);
+    var dxInitialHeightPx = (int)Math.Ceiling(dxLayoutHeightPx);
 
     var openRel = (string?)ViewBag.OpenRel ?? excelPath;
     try
@@ -125,6 +191,8 @@
     {
         documentFiles = new List<__DocFileVm>();
     }
+
+    __MarkDetailDxViewPerf("view-model-ready");
 }
 
 @if (isAjax)
@@ -193,14 +261,14 @@ else
         overscroll-behavior: contain !important;
         box-sizing: border-box !important;
         background: #fff !important;
-        z-index: 10000 !important;
+        z-index: 100 !important;
         padding: 16px 24px 24px 16px !important;
-        opacity: 1 !important;
-        transition: none !important;
+        opacity: 0;
+        transition: opacity 0.2s ease;
     }
 
         #doc-scroll.dx-page-ready {
-            opacity: 1 !important;
+            opacity: 1;
         }
 
     .page-header {
@@ -228,12 +296,12 @@ else
         opacity: .7;
     }
 
-    /* ── dxDetailWrap 본체 ── */
+    /* ── dxDetailWrap 본체: ComposeDX와 동일 렌더링 CSS ── */
     #dxDetailWrap {
         position: relative !important;
         display: block !important;
         overflow: visible !important;
-        background: #fff !important;
+        background: transparent !important;
         border: 0 !important;
         outline: 0 !important;
         box-shadow: none !important;
@@ -253,72 +321,38 @@ else
         max-height: 100% !important;
     }
 
-    /* ── 내부 컨테이너 sizing ── */
     #dxDetailWrap #dxDetailSheet_WBC,
     #dxDetailWrap [id$="_WBC"],
+    #dxDetailWrap .dxss-md,
+    #dxDetailWrap .dxssControlSys,
+    #dxDetailWrap #dxDetailSheet,
+    #dxDetailWrap .dx-widget,
+    #dxDetailWrap .dx-template-wrapper {
+        border: 0 !important;
+        outline: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
     #dxDetailWrap #dxDetailSheet_Grid,
     #dxDetailWrap [id$="_Grid"],
     #dxDetailWrap #dxDetailSheet_ScrollContainer,
-    #dxDetailWrap [id$="_ScrollContainer"],
+    #dxDetailWrap [id$="_ScrollContainer"] {
+        margin: 0 !important;
+        border: 0 !important;
+        outline: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
     #dxDetailWrap .dxss-page,
     #dxDetailWrap .dxss-page-border,
-    #dxDetailWrap .dxss-print-area,
-    #dxDetailWrap .dxss-md {
-        max-width: none !important;
-        width: auto !important;
-        box-sizing: content-box !important;
-    }
-
-        /* ── 외곽 프레임 제거 (통합) ── */
-        #dxDetailWrap #dxDetailSheet_WBC,
-        #dxDetailWrap [id$="_WBC"],
-        #dxDetailWrap #dxDetailSheet_Grid,
-        #dxDetailWrap [id$="_Grid"],
-        #dxDetailWrap #dxDetailSheet_ScrollContainer,
-        #dxDetailWrap [id$="_ScrollContainer"],
-        #dxDetailWrap .dxss-page,
-        #dxDetailWrap .dxss-page-border,
-        #dxDetailWrap .dxss-print-area,
-        #dxDetailWrap .dxss-page-border::before,
-        #dxDetailWrap .dxss-page-border::after,
-        #dxDetailWrap .dxssControlSys,
-        #dxDetailWrap .dx-widget,
-        #dxDetailWrap .dx-widget > .dx-template-wrapper {
-            margin: 0 !important;
-            border: 0 !important;
-            border-color: transparent !important;
-            outline: 0 !important;
-            box-shadow: none !important;
-        }
-
-            /* ── DX 페이지 외곽선 자손까지 전부 제거 ── */
-            #dxDetailWrap .dxss-page-border,
-            #dxDetailWrap .dxss-page-border *,
-            #dxDetailWrap .dxss-page-border::before,
-            #dxDetailWrap .dxss-page-border::after {
-                border: 0 !important;
-                border-color: transparent !important;
-                box-shadow: none !important;
-                outline: 0 !important;
-            }
-
-    /* ── DX 내부 grid/sheet 컨테이너 외곽선 제거 ── */
-    #dxDetailWrap [class*="dxss-gc"],
-    #dxDetailWrap [class*="dxss-gbc"],
-    #dxDetailWrap [class*="dxss-dc"],
-    #dxDetailWrap [class*="dxss-sc"] {
-        border: 0 !important;
-        border-color: transparent !important;
+    #dxDetailWrap .dxss-print-area {
         outline: 0 !important;
+        box-shadow: none !important;
+        border: 0 !important;
     }
 
-    /* ── DX 외곽 SVG 선 (셀 테두리 아닌 외곽 프레임 선) 제거 ── */
-    #dxDetailWrap > .dx-widget svg > rect,
-    #dxDetailWrap > .dx-widget > svg > line {
-        stroke: transparent !important;
-    }
-
-    /* ── 리본/툴바/수식바/탭 완전 숨김 ── */
     #dxDetailWrap .dx-ribbon,
     #dxDetailWrap .dx-ribbon-container,
     #dxDetailWrap .dx-ribbonPanel,
@@ -350,23 +384,55 @@ else
         box-shadow: none !important;
     }
 
-    /* ── 행/열 헤더, 시트 선택 버튼 숨김 ── */
+    /* 2026.06.19 Changed: DetailDX 엑셀 렌더링 구조를 ComposeDX와 동일하게 맞추기 위해 행열 헤더와 시트 스크롤바를 화면 렌더 영역에서 완전히 제거 */
     #dxDetailWrap #dxDetailSheet_ColumnHeader,
     #dxDetailWrap #dxDetailSheet_RowHeader,
     #dxDetailWrap #dxDetailSheet_SSB,
     #dxDetailWrap [id$="_ColumnHeader"],
     #dxDetailWrap [id$="_RowHeader"],
-    #dxDetailWrap [id$="_SSB"] {
+    #dxDetailWrap [id$="_SSB"],
+    #dxDetailWrap .dxss-columnHeader,
+    #dxDetailWrap .dxss-rowHeader {
+        display: none !important;
         visibility: hidden !important;
-        pointer-events: none !important;
         opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        max-width: 0 !important;
+        max-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
         overflow: hidden !important;
-        background: transparent !important;
-        box-shadow: none !important;
-        border-color: transparent !important;
+        pointer-events: none !important;
     }
 
-    /* ── 내부 스크롤바 숨김 ── */
+        #dxDetailWrap #dxDetailSheet_ColumnHeader *,
+        #dxDetailWrap #dxDetailSheet_RowHeader *,
+        #dxDetailWrap #dxDetailSheet_SSB *,
+        #dxDetailWrap [id$="_ColumnHeader"] *,
+        #dxDetailWrap [id$="_RowHeader"] *,
+        #dxDetailWrap [id$="_SSB"] *,
+        #dxDetailWrap .dxss-columnHeader *,
+        #dxDetailWrap .dxss-rowHeader * {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            max-width: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+
     #dxDetailWrap #dxDetailSheet_ScrollContainer,
     #dxDetailWrap #dxDetailSheet_Grid,
     #dxDetailWrap [id$="_ScrollContainer"],
@@ -389,43 +455,12 @@ else
         overflow-y: hidden !important;
     }
 
-    /* ── 셀 선택/포커스 하이라이트 숨김 ── */
-    #dxDetailWrap .dxss-selection,
-    #dxDetailWrap [class*="dxss-selection"],
-    #dxDetailWrap .dxss-active-cell,
-    #dxDetailWrap [class*="dxss-active"],
-    #dxDetailWrap .dxss-focus,
-    #dxDetailWrap [class*="dxss-focus"],
-    #dxDetailWrap .dxss-trbe,
-    #dxDetailWrap .dxss-brbe,
-    #dxDetailWrap .dxss-rrbe,
-    #dxDetailWrap .dxss-lrbe,
-    #dxDetailWrap .dxss-crse,
-    #dxDetailWrap [class*="dxss-trbe"],
-    #dxDetailWrap [class*="dxss-brbe"],
-    #dxDetailWrap [class*="dxss-rrbe"],
-    #dxDetailWrap [class*="dxss-lrbe"],
-    #dxDetailWrap [class*="dxss-crse"] {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        border: none !important;
-        outline: none !important;
-    }
-
-    /* ── 전체 포커스 아웃라인 제거 ── */
     #dxDetailWrap *,
     #dxDetailWrap *:focus {
         outline: none !important;
         box-shadow: none !important;
     }
 
-    /* ── SVG 커서/선택 사각형 숨김 ── */
-    #dxDetailWrap svg rect[fill="rgba(0,0,0,0)"],
-    #dxDetailWrap svg rect[stroke-width="2"],
-    #dxDetailWrap svg .dxss-cur {
-        display: none !important;
-    }
 
     /* ── 승인 스탬프 오버레이 ── */
     .dx-detail-overlay {
@@ -767,7 +802,40 @@ else
             window.__dxRenderMaxCol = @Html.Raw(JsonSerializer.Serialize(renderMaxCol));
             window.__dxRenderWidthPx = @Html.Raw(JsonSerializer.Serialize(renderWidthPx));
             window.__dxRenderHeightPx = @Html.Raw(JsonSerializer.Serialize(renderHeightPx));
+            window.__dxRenderPadWidthPx = @Html.Raw(JsonSerializer.Serialize(dxRenderPadWidthPx));
+            window.__dxRenderPadHeightPx = @Html.Raw(JsonSerializer.Serialize(dxRenderPadHeightPx));
+            window.__dxLayoutWidthPx = @Html.Raw(JsonSerializer.Serialize(dxLayoutWidthPx));
+            window.__dxLayoutHeightPx = @Html.Raw(JsonSerializer.Serialize(dxLayoutHeightPx));
             window.__dxRenderDiag = @Html.Raw(renderDiagJson);
+            window.__DETAIL_DX_DEBUG__ = new URLSearchParams(window.location.search || '').get('dxdebug') === '1';
+            window.__dxDetailPerf = window.__dxDetailPerf || [];
+            window.__dxDetailPerfBase = (window.performance && performance.now) ? performance.now() : Date.now();
+            window.__dxPerfMark = function (name, data) {
+                try {
+                    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+                    var item = { name: String(name || 'mark'), elapsedMs: now - window.__dxDetailPerfBase, at: now, data: data || null };
+                    window.__dxDetailPerf.push(item);
+                    if (window.performance && performance.mark) {
+                        try { performance.mark('detaildx-' + item.name); } catch (e) { }
+                    }
+                    if (window.__DETAIL_DX_DEBUG__ && window.console && console.info) {
+                        console.info('[DETAILDX-CLIENT-PERF]', item.name, item.elapsedMs, item.data || '');
+                    }
+                } catch (e) { }
+            };
+            window.__dxPerfMark('view-script-ready', {
+                openRel: window.__dxOpenRel || '',
+                callbackUrl: window.__dxCallbackUrl || '',
+                renderLastCellA1: window.__dxRenderLastCellA1 || ''
+            });
+            window.__dxLog = function () {
+                if (!window.__DETAIL_DX_DEBUG__ || !window.console || !console.log) return;
+                try { console.log.apply(console, arguments); } catch (e) { }
+            };
+            window.__dxWarn = function () {
+                if (!window.__DETAIL_DX_DEBUG__ || !window.console || !console.warn) return;
+                try { console.warn.apply(console, arguments); } catch (e) { }
+            };
             
             window.__dxDetailInternalHooksInstalled = false;
 
@@ -783,6 +851,7 @@ else
             window.__dxDetailSyncing = false;
 
             function __dxInstallInternalDocumentHooks(inst) {
+                if (!window.__DETAIL_DX_DEBUG__) return;
                 if (!inst || window.__dxDetailInternalHooksInstalled) return;
                 window.__dxDetailInternalHooksInstalled = true;
 
@@ -793,7 +862,7 @@ else
                     const wrapped = function () {
                         const result = original.apply(this, arguments);
                         try {
-                            console.log('[DX-INT]', name, {
+                            window.__dxLog('[DX-INT]', name, {
                                 fireReason: fireReason,
                                 args: Array.prototype.slice.call(arguments)
                             });
@@ -819,17 +888,18 @@ else
                 wrapMethod('onAfterDocumentResponseProcessed', 'dx-after-document-response');
                 wrapMethod('documentUploadingComplete', 'dx-document-uploading-complete');
 
-                console.log('[DX-INT] internal hooks installed');
+                window.__dxLog('[DX-INT] internal hooks installed');
             }
 
             window.__dxDetailSyncing = false;
 
             window.__dxDetailOnInit = function (s, e) {
+                try { if (typeof window.__dxPerfMark === 'function') window.__dxPerfMark('dx-init'); } catch (ex0) { }
                 try {
                     __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
                 } catch (ex) { }
 
-                console.log('[DX-EVT] Init', {
+                window.__dxLog('[DX-EVT] Init', {
                     sender: s,
                     args: e,
                     renderUsedLastCellA1: window.__dxRenderUsedLastCellA1,
@@ -844,11 +914,12 @@ else
             };
 
             window.__dxDetailOnBeforeSend = function (s, e) {
+                try { if (typeof window.__dxPerfMark === 'function') window.__dxPerfMark('dx-before-send'); } catch (ex0) { }
                 try {
                     __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
                 } catch (ex) { }
 
-                console.log('[DX-EVT] BeforeSend', {
+                window.__dxLog('[DX-EVT] BeforeSend', {
                     sender: s,
                     args: e,
                     dxSyncing: window.__dxDetailSyncing
@@ -856,6 +927,7 @@ else
             };
 
             window.__dxDetailOnBeginSync = function (s, e) {
+                try { if (typeof window.__dxPerfMark === 'function') window.__dxPerfMark('dx-begin-sync'); } catch (ex0) { }
                 window.__dxDetailSyncing = true;
                 try {
                     if (window.__dxDetailState) window.__dxDetailState.dxSyncing = true;
@@ -865,7 +937,7 @@ else
                     __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
                 } catch (ex) { }
 
-                console.log('[DX-EVT] BeginSynchronization', {
+                window.__dxLog('[DX-EVT] BeginSynchronization', {
                     sender: s,
                     args: e,
                     dxSyncing: window.__dxDetailSyncing
@@ -873,6 +945,7 @@ else
             };
 
             window.__dxDetailOnEndSync = function (s, e) {
+                try { if (typeof window.__dxPerfMark === 'function') window.__dxPerfMark('dx-end-sync'); } catch (ex0) { }
                 window.__dxDetailSyncing = false;
                 try {
                     if (window.__dxDetailState) window.__dxDetailState.dxSyncing = false;
@@ -882,7 +955,7 @@ else
                     __dxInstallInternalDocumentHooks(s || window.dxDetailSheet || null);
                 } catch (ex) { }
 
-                console.log('[DX-EVT] EndSynchronization', {
+                window.__dxLog('[DX-EVT] EndSynchronization', {
                     sender: s,
                     args: e,
                     dxSyncing: window.__dxDetailSyncing
@@ -892,25 +965,27 @@ else
             };
 
             window.__dxDetailOnDocumentChanged = function (s, e) {
-                console.log('[DX-EVT] DocumentChanged', {
+                try { if (typeof window.__dxPerfMark === 'function') window.__dxPerfMark('dx-document-changed'); } catch (ex0) { }
+                window.__dxLog('[DX-EVT] DocumentChanged', {
                     sender: s,
                     args: e,
                     dxSyncing: window.__dxDetailSyncing
                 });
             };
+
+            // 2026.06.12 Changed: ComposeDX와 동일하게 본문에서 Spreadsheet를 직접 렌더링한다.
         </script>
 
-        <div id="dxDetailWrap">
+        <div id="dxDetailWrap"
+             style="height:@(dxInitialHeightPx)px; min-height:@(dxInitialHeightPx)px; width:@(dxInitialWidthPx)px; min-width:@(dxInitialWidthPx)px;">
             @{
-                var writer = ViewContext?.Writer;
-                if (writer != null)
-                {
-                    Html.DevExpress().Spreadsheet("dxDetailSheet")
+                __MarkDetailDxViewPerf("before-spreadsheet-write");
+
+                var dxSpreadsheet = Html.DevExpress().Spreadsheet("dxDetailSheet")
                     .Height("100%")
                     .Width("100%")
                     .WorkDirectory(workDir)
                     .DocumentRequestHandlerUrl(dxCallbackUrl)
-                    .Open(openRel)
                     .ReadOnly(true)
                     .ConfirmOnLosingChanges(c => c.Enabled(false))
                     .ClientSideEvents(events =>
@@ -920,9 +995,70 @@ else
                         events.OnBeginSynchronization("__dxDetailOnBeginSync");
                         events.OnEndSynchronization("__dxDetailOnEndSync");
                         events.OnDocumentChanged("__dxDetailOnDocumentChanged");
-                    })
-                    .WriteTo(writer, HtmlEncoder.Default);
+                    });
+
+                if (dxOpenByBytes)
+                {
+                    __detailDxViewLogger.LogInformation(
+                        "DETAILDX-VIEW-PERF open-mode mode=BytesWithExplicitFormat format={Format} docId={DocId} documentId={DocumentId} excelPath={ExcelPath}",
+                        DevExpress.Spreadsheet.DocumentFormat.Xlsx,
+                        docId ?? string.Empty,
+                        dxDocumentId ?? string.Empty,
+                        excelPath ?? string.Empty);
+
+                    // 2026.06.22 Added: 암호화된 xlsx 문서 열기 테스트를 위해 Open 직전에 암호 요청 이벤트를 연결 Contents 기존 byte accessor Open 방식은 유지
+                    const string dxWorkbookOpenPassword = "qkrwjdghroTlqtoRl";
+
+                    void __DetailDxSpreadsheet_EncryptedFilePasswordRequest(object? sender, DevExpress.Spreadsheet.EncryptedFilePasswordRequestEventArgs e)
+                    {
+                        try
+                        {
+                            e.Password = dxWorkbookOpenPassword;
+                            e.Handled = true;
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    void __DetailDxSpreadsheet_InitializeDocument(object? sender, DevExpress.Web.ASPxSpreadsheet.SpreadsheetInitializeDocumentEventArgs e)
+                    {
+                        try
+                        {
+                            if (e?.Document == null)
+                                return;
+
+                            e.Document.EncryptedFilePasswordRequest -= __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
+                            e.Document.EncryptedFilePasswordRequest += __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument -= __DetailDxSpreadsheet_InitializeDocument;
+                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument += __DetailDxSpreadsheet_InitializeDocument;
+
+                    dxSpreadsheet.Open(
+                        dxDocumentId,
+                        DevExpress.Spreadsheet.DocumentFormat.Xlsx,
+                        dxOpenContentAccessor);
                 }
+                else
+                {
+                    __detailDxViewLogger.LogInformation(
+                        "DETAILDX-VIEW-PERF open-mode mode=PathFallback openRel={OpenRel} docId={DocId} documentId={DocumentId} excelPath={ExcelPath}",
+                        openRel ?? string.Empty,
+                        docId ?? string.Empty,
+                        dxDocumentId ?? string.Empty,
+                        excelPath ?? string.Empty);
+
+                    dxSpreadsheet.Open(openRel);
+                }
+
+                dxSpreadsheet.WriteTo(ViewContext.Writer, HtmlEncoder.Default);
+
+                __MarkDetailDxViewPerf("after-spreadsheet-write");
             }
             <div id="dxApprovalOverlay" class="dx-detail-overlay"></div>
         </div>
@@ -1119,6 +1255,8 @@ else
             overlayResizeObserver: null,
             overlayReady: false,
             overlayRendering: false,
+            overlayRetryCount: 0,
+            overlayRetryTimer: 0,
             resizeTimer: 0,
             dxSyncing: false
         };
@@ -1305,521 +1443,90 @@ else
             return null;
         }
 
-        // ================== 실제 DX 콘텐츠 크기 직접 측정 (2026.04.14 Added) ==================
-        function measureActualDxContent() {
-            var wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return null;
+        // ================== ComposeDX 동일 렌더 크기 적용 ==================
+        function getServerDxExtent() {
+            const rawWidth = Number(window.__dxRenderWidthPx || 0);
+            const rawHeight = Number(window.__dxRenderHeightPx || 0);
+            const layoutWidth = Number(window.__dxLayoutWidthPx || 0);
+            const layoutHeight = Number(window.__dxLayoutHeightPx || 0);
+            const padW = Number(window.__dxRenderPadWidthPx || 0);
+            const padH = Number(window.__dxRenderPadHeightPx || 0);
 
-            var maxW = 0;
-            var maxH = 0;
+            const width = layoutWidth > 0
+                ? layoutWidth
+                : (rawWidth > 0 ? rawWidth + padW : 900);
 
-            // 1) DX 내부 페이지/그리드 요소의 scrollWidth/Height, offsetWidth/Height
-            var candidates = wrap.querySelectorAll(
-                '.dxss-page, .dxss-page-border, .dxss-print-area, .dxss-md, ' +
-                '[id$="_Grid"], [id$="_WBC"], [id$="_ScrollContainer"], ' +
-                '.dxss-ftc, [class*="dxss-gc"]'
-            );
-            candidates.forEach(function (el) {
-                var sw = el.scrollWidth || 0;
-                var sh = el.scrollHeight || 0;
-                if (sw > maxW) maxW = sw;
-                if (sh > maxH) maxH = sh;
-                var ow = el.offsetWidth || 0;
-                var oh = el.offsetHeight || 0;
-                if (ow > maxW) maxW = ow;
-                if (oh > maxH) maxH = oh;
-            });
-
-            // 2) 셀 타일의 bounding rect로 최대 right/bottom 계산
-            var wrapRect = wrap.getBoundingClientRect();
-            var tiles = wrap.querySelectorAll('.dxss-ftc, [id*="_ctb."]');
-            tiles.forEach(function (el) {
-                var r = el.getBoundingClientRect();
-                if (r.width <= 0 || r.height <= 0) return;
-                var right = r.right - wrapRect.left;
-                var bottom = r.bottom - wrapRect.top;
-                if (right > maxW) maxW = right;
-                if (bottom > maxH) maxH = bottom;
-            });
-
-            // 3) 행 헤더 scrollHeight (visibility:hidden이지만 layout 유지)
-            var rhEl = document.getElementById('dxDetailSheet_RowHeader')
-                || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-            if (rhEl) {
-                var rh = rhEl.scrollHeight || rhEl.offsetHeight || 0;
-                if (rh > maxH) maxH = rh;
-            }
-
-            // 4) 컬럼 헤더 scrollWidth
-            var chEl = document.getElementById('dxDetailSheet_ColumnHeader')
-                || document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
-            if (chEl) {
-                var cw = chEl.scrollWidth || chEl.offsetWidth || 0;
-                if (cw > maxW) maxW = cw;
-            }
-
-            if (maxW <= 50 || maxH <= 50) return null;
-            return { width: Math.ceil(maxW), height: Math.ceil(maxH) };
-        }
-
-        // 실측값으로 wrap 크기 동기화 — DX 이벤트 핸들러에서 호출
-        function syncWrapToActualContent(reason) {
-            var actual = measureActualDxContent();
-            if (!actual) return false;
-
-            var newW = Math.max(600, actual.width + 4);
-            var newH = Math.max(520, actual.height + 4);
-
-            var prev = state.previewExtent || {};
-            var prevW = prev.width || 0;
-            var prevH = prev.height || 0;
-
-            if (Math.abs(newW - prevW) <= 10 && Math.abs(newH - prevH) <= 10) return false;
-
-            console.log('[DX] syncWrapToActualContent:', reason || '', {
-                prevW: prevW, prevH: prevH, newW: newW, newH: newH
-            });
-
-            state.previewExtent = { width: newW, height: newH };
-            var wrap = document.getElementById('dxDetailWrap');
-            if (wrap) {
-                wrap.style.setProperty('width', newW + 'px', 'important');
-                wrap.style.setProperty('min-width', newW + 'px', 'important');
-                wrap.style.setProperty('max-width', newW + 'px', 'important');
-                wrap.style.setProperty('height', newH + 'px', 'important');
-                wrap.style.setProperty('min-height', newH + 'px', 'important');
-                wrap.style.setProperty('max-height', newH + 'px', 'important');
-            }
-            return true;
-        }
-
-        // ================== 프리뷰 extent 계산 ==================
-        function colIndexToLabel(index) {
-            let n = Math.max(1, Number(index) || 1);
-            let s = '';
-            while (n > 0) {
-                const r = (n - 1) % 26;
-                s = String.fromCharCode(65 + r) + s;
-                n = Math.floor((n - 1) / 26);
-            }
-            return s || 'A';
-        }
-
-        function getPreviewLastCellInfo(preview) {
-            let maxRow = 0;
-            let maxCol = 0;
-            let cellsCount = 0;
-            let mergesCount = 0;
-
-            const cells = preview && preview.cells;
-            if (cells && typeof cells === 'object') {
-                if (Array.isArray(cells)) {
-                    cells.forEach(function (item) {
-                        if (!item) return;
-
-                        if (Array.isArray(item) && item.length >= 2) {
-                            const r = Number(item[0] || 0);
-                            const c = Number(item[1] || 0);
-                            if (r > maxRow) maxRow = r;
-                            if (c > maxCol) maxCol = c;
-                            cellsCount++;
-                            return;
-                        }
-
-                        const r = Number(item.row ?? item.r ?? item.Row ?? item.R ?? 0);
-                        const c = Number(item.col ?? item.c ?? item.Col ?? item.C ?? 0);
-                        if (r > maxRow) maxRow = r;
-                        if (c > maxCol) maxCol = c;
-                        cellsCount++;
-                    });
-                } else {
-                    Object.keys(cells).forEach(function (k) {
-                        const v = cells[k];
-                        let r = 0;
-                        let c = 0;
-
-                        let m = String(k).match(/^(\d+)\s*[:|,]\s*(\d+)$/);
-                        if (m) {
-                            r = Number(m[1]);
-                            c = Number(m[2]);
-                        } else {
-                            m = String(k).match(/^R(\d+)C(\d+)$/i);
-                            if (m) {
-                                r = Number(m[1]);
-                                c = Number(m[2]);
-                            } else {
-                                r = Number(v?.row ?? v?.r ?? v?.Row ?? v?.R ?? 0);
-                                c = Number(v?.col ?? v?.c ?? v?.Col ?? v?.C ?? 0);
-                            }
-                        }
-
-                        if (r > maxRow) maxRow = r;
-                        if (c > maxCol) maxCol = c;
-                        cellsCount++;
-                    });
-                }
-            }
-
-            const merges = preview && preview.merges;
-            if (Array.isArray(merges)) {
-                merges.forEach(function (mg) {
-                    if (!mg) return;
-
-                    let r2 = 0;
-                    let c2 = 0;
-
-                    if (typeof mg === 'string') {
-                        const parts = String(mg).split(':');
-                        const end = parseA1(parts.length > 1 ? parts[1] : parts[0]);
-                        if (end) {
-                            r2 = Number(end.row1 || 0);
-                            c2 = Number(end.col1 || 0);
-                        }
-                    } else if (Array.isArray(mg) && mg.length >= 4) {
-                        r2 = Number(mg[2] || 0);
-                        c2 = Number(mg[3] || 0);
-                    } else {
-                        const a1 = mg.a1 || mg.A1 || mg.range || mg.Range || '';
-                        if (a1) {
-                            const parts = String(a1).split(':');
-                            const end = parseA1(parts.length > 1 ? parts[1] : parts[0]);
-                            if (end) {
-                                r2 = Number(end.row1 || 0);
-                                c2 = Number(end.col1 || 0);
-                            }
-                        } else {
-                            r2 = Number(mg.r2 ?? mg.row2 ?? mg.toRow ?? mg.endRow ?? 0);
-                            c2 = Number(mg.c2 ?? mg.col2 ?? mg.toCol ?? mg.endCol ?? 0);
-                        }
-                    }
-
-                    if (r2 > maxRow) maxRow = r2;
-                    if (c2 > maxCol) maxCol = c2;
-                    mergesCount++;
-                });
-            }
-
-            if (maxRow <= 0) maxRow = 1;
-            if (maxCol <= 0) maxCol = 1;
-
-            return {
-                lastRow: maxRow,
-                lastCol: maxCol,
-                lastCellA1: colIndexToLabel(maxCol) + String(maxRow),
-                extentRow: maxRow + 1,
-                extentCol: maxCol + 1,
-                extentA1: colIndexToLabel(maxCol + 1) + String(maxRow + 1),
-                cellsCount: cellsCount,
-                mergesCount: mergesCount
-            };
-        }
-
-        function buildExtentColumnRectMap() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return {};
-
-            const wrapRect = wrap.getBoundingClientRect();
-            const map = {};
-            const cells = wrap.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-            cells.forEach(function (el) {
-                const label = String(el.textContent || '').trim().toUpperCase();
-                if (!/^[A-Z]+$/.test(label)) return;
-
-                const r = el.getBoundingClientRect();
-                if (r.width <= 0 || r.height <= 0) return;
-
-                const left = r.left - wrapRect.left;
-                const right = r.right - wrapRect.left;
-
-                map[label] = {
-                    left: left,
-                    right: right,
-                    width: Math.max(0, right - left)
-                };
-            });
-
-            return map;
-        }
-
-        function buildExtentRowRectMap() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return {};
-
-            const rhEl =
-                document.getElementById('dxDetailSheet_RowHeader')
-                || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-
-            if (!rhEl) return {};
-
-            const rowMap = {};
-            const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
-            let tileOffsetTop = 0;
-            const rowTiles = rhEl.querySelectorAll('.dxss-ht');
-
-            rowTiles.forEach(function (tile) {
-                const tileHeight = parseFloat(tile.style.height || '0') || 0;
-                const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                cells.forEach(function (el) {
-                    const label = String(el.textContent || '').trim();
-                    if (!/^\d+$/.test(label)) return;
-
-                    const rowNo = parseInt(label, 10);
-                    const cellTop = parseFloat(el.style.top || '0') || 0;
-                    const cellHeight = parseFloat(el.style.height || '0') || 0;
-                    if (cellHeight <= 0) return;
-
-                    const top = rowBaseTop + tileOffsetTop + cellTop;
-                    const bottom = top + cellHeight;
-
-                    rowMap[rowNo] = {
-                        top: top,
-                        bottom: bottom,
-                        height: cellHeight
-                    };
-                });
-                tileOffsetTop += tileHeight;
-            });
-            return rowMap;
-        }
-
-        function computePreviewExtent(preview) {
-            const info = getPreviewLastCellInfo(preview || {});
-            const colRectMap = buildExtentColumnRectMap();
-            const rowRectMap = buildExtentRowRectMap();
-
-            const serverUsedLastCellA1 = String(window.__dxRenderUsedLastCellA1 || 'A1').trim().toUpperCase();
-            const serverRenderLastCellA1 = String(window.__dxRenderLastCellA1 || 'B2').trim().toUpperCase();
-            const serverWidthPx = Math.ceil(Number(window.__dxRenderWidthPx || 0));
-            const serverHeightPx = Math.ceil(Number(window.__dxRenderHeightPx || 0));
-
-            const usePreviewFallback = (serverUsedLastCellA1 === 'A1');
-            const selectedTargetA1 = usePreviewFallback ? info.extentA1 : serverRenderLastCellA1;
-            const selectedTarget = parseA1(selectedTargetA1);
-
-            const rightReservePx = 1;
-            const bottomReservePx = 1;
-            const fallbackColPx = 64;
-            const fallbackRowPx = 20;
-
-            let widthPx = 0;
-            let heightPx = 0;
-            let source = '';
-
-            // if (selectedTarget) {
-            //     const targetColLabel = colIndexToLabel(selectedTarget.col1);
-            //     const targetRowNo = Number(selectedTarget.row1 || 0);
-            //     const targetColRect = colRectMap[targetColLabel] || null;
-            //     const targetRowRect = rowRectMap[targetRowNo] || null;
-
-            //     if (targetColRect && targetRowRect) {
-            //         widthPx = Math.ceil(targetColRect.right + rightReservePx);
-            //         heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
-            //         source = usePreviewFallback ? 'preview-lastCell+1-measured' : 'server-renderLastCell-measured';
-            //     } else if (!usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
-            //         widthPx = Math.ceil(serverWidthPx + rightReservePx);
-            //         heightPx = Math.ceil(serverHeightPx + bottomReservePx);
-            //         source = 'server-renderLastCell-serverPx';
-            //     }
-            // }
-
-            // if (widthPx <= 0 || heightPx <= 0) {
-            //     const fallbackCol = selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol;
-            //     const fallbackRow = selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow;
-
-            //     widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
-            //     heightPx = Math.ceil((fallbackRow * fallbackRowPx) + bottomReservePx);
-            //     source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
-            // }
-            if (selectedTarget) {
-                const targetColLabel = colIndexToLabel(selectedTarget.col1);
-                const targetRowNo = Number(selectedTarget.row1 || 0);
-                const targetColRect = colRectMap[targetColLabel] || null;
-                const targetRowRect = rowRectMap[targetRowNo] || null;
-
-                if (targetColRect && targetRowRect) {
-                    widthPx = Math.ceil(targetColRect.right + rightReservePx);
-                    heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
-                    source = usePreviewFallback ? 'preview-lastCell+1-measured' : 'server-renderLastCell-measured';
-                } else {
-                    // 2026.04.14: DX 가상 스크롤로 마지막 행/열이 DOM에 없을 때 비례 추정
-                    // 폭: targetColRect가 있으면 사용, 없으면 측정된 열들에서 추정
-                    if (targetColRect) {
-                        widthPx = Math.ceil(targetColRect.right + rightReservePx);
-                    } else {
-                        // colRectMap에서 가장 오른쪽 열의 right 사용
-                        var maxColRight = 0;
-                        var maxColIdx = 0;
-                        var colKeys = Object.keys(colRectMap);
-                        colKeys.forEach(function (label) {
-                            var ci = 0;
-                            for (var i = 0; i < label.length; i++) ci = ci * 26 + (label.charCodeAt(i) - 64);
-                            if (colRectMap[label].right > maxColRight) {
-                                maxColRight = colRectMap[label].right;
-                                maxColIdx = ci;
-                            }
-                        });
-                        if (maxColRight > 0 && maxColIdx > 0 && selectedTarget.col1 > 0) {
-                            // 비례: (목표열/측정된 마지막열) × 마지막열 right
-                            widthPx = Math.ceil(maxColRight * (selectedTarget.col1 / maxColIdx) + rightReservePx);
-                        }
-                    }
-
-                    // 높이: targetRowRect가 있으면 사용, 없으면 측정된 행들에서 추정
-                    if (targetRowRect) {
-                        heightPx = Math.ceil(targetRowRect.bottom + bottomReservePx);
-                    } else {
-                        // rowRectMap에서 마지막 행의 bottom과 행번호로 비례 추정
-                        var maxRowBottom = 0;
-                        var maxRowNo = 0;
-                        var rowKeys = Object.keys(rowRectMap);
-                        rowKeys.forEach(function (k) {
-                            var rn = parseInt(k, 10);
-                            if (rowRectMap[k].bottom > maxRowBottom) {
-                                maxRowBottom = rowRectMap[k].bottom;
-                                maxRowNo = rn;
-                            }
-                        });
-                        if (maxRowBottom > 0 && maxRowNo > 0 && targetRowNo > 0) {
-                            // 비례 추정: (목표행/측정된 마지막행) × 마지막행 bottom
-                            heightPx = Math.ceil(maxRowBottom * (targetRowNo / maxRowNo) + bottomReservePx);
-                            source = (usePreviewFallback ? 'preview' : 'server') + '-proportional';
-                            console.log('[DX] height proportional estimate:', {
-                                measuredLastRow: maxRowNo,
-                                measuredBottom: maxRowBottom,
-                                targetRow: targetRowNo,
-                                estimatedHeight: heightPx
-                            });
-                        }
-                    }
-
-                    // 둘 다 구했으면 source 설정
-                    if (widthPx > 0 && heightPx > 0 && !source) {
-                        source = (usePreviewFallback ? 'preview' : 'server') + '-partial-measured';
-                    }
-
-                    // 서버값 fallback
-                    if ((widthPx <= 0 || heightPx <= 0) && !usePreviewFallback && serverWidthPx > 0 && serverHeightPx > 0) {
-                        if (widthPx <= 0) widthPx = Math.ceil(serverWidthPx + rightReservePx);
-                        if (heightPx <= 0) heightPx = Math.ceil(serverHeightPx + bottomReservePx);
-                        source = 'server-renderLastCell-serverPx';
-                    }
-                }
-            }
-
-            if (widthPx <= 0 || heightPx <= 0) {
-                const fallbackCol = selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol;
-                const fallbackRow = selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow;
-
-                // 2026.04.14: 측정된 행이 있으면 평균 높이 사용, 없으면 기존 20px
-                var avgRowPx = fallbackRowPx;
-                var measuredRowKeys = Object.keys(rowRectMap);
-                if (measuredRowKeys.length >= 2) {
-                    var mMaxBottom = 0;
-                    var mMaxRowNo = 0;
-                    measuredRowKeys.forEach(function (k) {
-                        var rn = parseInt(k, 10);
-                        if (rowRectMap[k].bottom > mMaxBottom) {
-                            mMaxBottom = rowRectMap[k].bottom;
-                            mMaxRowNo = rn;
-                        }
-                    });
-                    if (mMaxRowNo > 0 && mMaxBottom > 0) {
-                        avgRowPx = mMaxBottom / mMaxRowNo;
-                    }
-                }
-
-                if (widthPx <= 0) widthPx = Math.ceil((fallbackCol * fallbackColPx) + rightReservePx);
-                if (heightPx <= 0) heightPx = Math.ceil((fallbackRow * avgRowPx) + bottomReservePx);
-                if (!source) source = usePreviewFallback ? 'preview-lastCell+1-fallback' : 'server-renderLastCell-fallback';
-            }
-
+            const height = layoutHeight > 0
+                ? layoutHeight
+                : (rawHeight > 0 ? rawHeight + padH : 900);
 
             state.renderExtent = {
-                width: widthPx,
-                height: heightPx,
-                wrapWidth: Math.max(600, widthPx),
-                wrapHeight: Math.max(520, heightPx),
-                maxRow: selectedTarget && selectedTarget.row1 > 0 ? selectedTarget.row1 : info.extentRow,
-                maxCol: selectedTarget && selectedTarget.col1 > 0 ? selectedTarget.col1 : info.extentCol,
-                usedLastCellA1: serverUsedLastCellA1,
-                renderLastCellA1: selectedTargetA1,
-                source: source
+                width,
+                height,
+                wrapWidth: width,
+                wrapHeight: height,
+                maxRow: Number(window.__dxRenderMaxRow || 0),
+                maxCol: Number(window.__dxRenderMaxCol || 0),
+                usedLastCellA1: String(window.__dxRenderUsedLastCellA1 || 'A1'),
+                renderLastCellA1: String(window.__dxRenderLastCellA1 || 'B2'),
+                source: 'server-db-visual-metric'
             };
 
-            console.log('[DX] lastCell extent:', {
-                serverUsedLastCellA1: serverUsedLastCellA1,
-                serverRenderLastCellA1: serverRenderLastCellA1,
-                previewLastCellA1: info.lastCellA1,
-                previewLastCellPlus1A1: info.extentA1,
-                selectedTargetA1: selectedTargetA1,
-                selectedBy: usePreviewFallback ? 'preview-lastCell+1' : 'server-renderLastCell',
-                widthPx: widthPx,
-                heightPx: heightPx,
-                source: source
-            });
-
-            // var actual = measureActualDxContent();
-            // if (actual && actual.width > 100 && actual.height > 100) {
-            //     var actualW = actual.width + 4;
-            //     var actualH = actual.height + 4;
-            //     if (Math.abs(actualW - widthPx) > 30 || Math.abs(actualH - heightPx) > 30) {
-            //         console.log('[DX] computePreviewExtent: actual override', {
-            //             calcW: widthPx, calcH: heightPx, actualW: actualW, actualH: actualH
-            //         });
-            //         widthPx = actualW;
-            //         heightPx = actualH;
-            //         state.renderExtent.width = widthPx;wrap.style.setProperty('width', finalWidth + 'px', 'important');
-            //         state.renderExtent.height = heightPx;
-            //         state.renderExtent.source = source + '+actual-measured';
-            //     }
-            // }
-
             return {
-                width: Math.max(600, widthPx),
-                height: Math.max(520, heightPx)
+                width,
+                height,
+                rawWidth,
+                rawHeight,
+                mode: String(window.__dxRenderVisualMode || window.__dxVisualMode || 'server-db-visual-metric'),
+                lastA1: String(window.__dxRenderLastCellA1 || 'B2')
             };
         }
 
-         
-        function applyDxWrapSize(reason) {
+        function applyExtentToDxWrap(ext) {
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap || !ext || ext.width <= 0 || ext.height <= 0) return;
+
+            wrap.style.setProperty('width', ext.width + 'px', 'important');
+            wrap.style.setProperty('min-width', ext.width + 'px', 'important');
+            wrap.style.removeProperty('max-width');
+
+            wrap.style.setProperty('height', ext.height + 'px', 'important');
+            wrap.style.setProperty('min-height', ext.height + 'px', 'important');
+            wrap.style.removeProperty('max-height');
+            wrap.style.setProperty('overflow', 'visible', 'important');
+
+            state._lastAppliedWidth = ext.width;
+            state._lastAppliedHeight = ext.height;
+        }
+
+        function applyDxWrapSize() {
+            state.previewExtent = getServerDxExtent();
+            applyExtentToDxWrap(state.previewExtent);
+
+            window.__dxLog('[DX] applyDxWrapSize db-metric:', {
+                width: state.previewExtent.width,
+                height: state.previewExtent.height,
+                mode: state.previewExtent.mode,
+                lastA1: state.previewExtent.lastA1
+            });
+        }
+
+        function clampDxHorizontalExtent() {
+            applyDxWrapSize();
+
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return;
 
-            const ext = computePreviewExtent(state.preview);
-            const finalWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
-            const finalHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
+            const inner =
+                document.getElementById('dxDetailSheet_ScrollContainer')
+                || document.getElementById('dxDetailSheet_Grid')
+                || $('[id$="_ScrollContainer"]', wrap)
+                || $('[id$="_Grid"]', wrap);
 
-            const prev = state.previewExtent;
-            if (prev && prev.width === finalWidth && prev.height === finalHeight) {
-                console.log('[DX] applyDxWrapSize skipped:',
-                    'reason=' + (reason || ''),
-                    'finalWidth=' + finalWidth,
-                    'finalHeight=' + finalHeight,
-                    'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
-                    'source=' + String(state.renderExtent.source || ''));
-                return;
+            if (inner) {
+                inner.scrollLeft = 0;
+                inner.scrollTop = 0;
             }
-
-            state.previewExtent = { width: finalWidth, height: finalHeight };
-
-            wrap.style.setProperty('width', finalWidth + 'px', 'important');
-            wrap.style.setProperty('min-width', finalWidth + 'px', 'important');
-            wrap.style.setProperty('max-width', finalWidth + 'px', 'important');
-            wrap.style.setProperty('height', finalHeight + 'px', 'important');
-            wrap.style.setProperty('min-height', finalHeight + 'px', 'important');
-            wrap.style.setProperty('max-height', finalHeight + 'px', 'important');
-            
-            //wrap.style.setProperty('overflow', 'hidden', 'important');
-            wrap.style.setProperty('overflow', 'visible', 'important');
-
-            console.log('[DX] applyDxWrapSize:',
-                'reason=' + (reason || ''),
-                'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
-                'finalWidth=' + finalWidth,
-                'finalHeight=' + finalHeight,
-                'source=' + String(state.renderExtent.source || ''));
         }
 
         // ================== 외부 스크롤만 허용 ==================
@@ -1842,11 +1549,7 @@ else
             }
 
             lockInnerScroll();
-
-            if (!inner.dataset.dxOuterLocked) {
-                inner.addEventListener('scroll', lockInnerScroll, { passive: true });
-                inner.dataset.dxOuterLocked = '1';
-            }
+            inner.addEventListener('scroll', lockInnerScroll, { passive: true });
 
             if (!window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__) {
                 window.__DETAIL_DX_OUTER_WHEEL_INSTALLED__ = true;
@@ -1909,43 +1612,6 @@ else
             if (parts.length >= 3) return parts.slice(parts.length - 2).join(' ');
             if (parts.length === 2) return parts.join(' ');
             return parts[0];
-        }
-
-        function seedDxHostSize() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return;
-
-            const currentW = Math.ceil(wrap.getBoundingClientRect().width || 0);
-            const currentH = Math.ceil(wrap.getBoundingClientRect().height || 0);
-
-            if (currentW > 32 && currentH > 32) {
-                console.log('[DX] seedDxHostSize skipped:', 'already-sized', currentW, currentH);
-                return;
-            }
-
-            const ext = computePreviewExtent(state.preview);
-            const seedWidth = Math.max(600, Math.ceil(Number(ext.width || 900)));
-            const seedHeight = Math.max(520, Math.ceil(Number(ext.height || 520)));
-
-            wrap.style.setProperty('width', seedWidth + 'px', 'important');
-            wrap.style.setProperty('min-width', seedWidth + 'px', 'important');
-            wrap.style.setProperty('max-width', seedWidth + 'px', 'important');
-            wrap.style.setProperty('height', seedHeight + 'px', 'important');
-            wrap.style.setProperty('min-height', seedHeight + 'px', 'important');
-            wrap.style.setProperty('max-height', seedHeight + 'px', 'important');
-            
-            //wrap.style.setProperty('overflow', 'hidden', 'important');
-
-            //state.previewExtent = { width: seedWidth, height: seedHeight };
-            wrap.style.setProperty('overflow', 'visible', 'important');
-
-            state.previewExtent = { width: seedWidth, height: seedHeight };
-
-            console.log('[DX] seedDxHostSize:',
-                'seedWidth=' + seedWidth,
-                'seedHeight=' + seedHeight,
-                'selectedTarget=' + String(state.renderExtent.renderLastCellA1 || ''),
-                'source=' + String(state.renderExtent.source || ''));
         }
 
         // ================== A1 셀 주소 파싱 ==================
@@ -2265,7 +1931,7 @@ else
                 cropCtx.clearRect(0, 0, cropW, cropH);
                 cropCtx.drawImage(srcCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
 
-                console.log('[DX-DBG] stamp-bounds', {
+                window.__dxLog('[DX-DBG] stamp-bounds', {
                     originalW: srcW,
                     originalH: srcH,
                     cropW: cropW,
@@ -2341,7 +2007,7 @@ else
 
                 renderCaption(drawW);
 
-                console.log('[DX-DBG] stamp-size', {
+                window.__dxLog('[DX-DBG] stamp-size', {
                     placementMode: placementMode,
                     x: x,
                     y: y,
@@ -2375,7 +2041,7 @@ else
                         }
                     }
                 } catch (e) {
-                    console.warn('[DX-DBG] stamp-trim-failed', e);
+                    window.__dxWarn('[DX-DBG] stamp-trim-failed', e);
                 }
 
                 applyImageBox();
@@ -2401,7 +2067,7 @@ else
             const wrap = document.getElementById('dxDetailWrap');
             if (!wrap) return;
             if (state.overlayRendering) {
-                console.log('[DX] renderApprovalOverlay skipped: overlayRendering');
+                window.__dxLog('[DX] renderApprovalOverlay skipped: overlayRendering');
                 return;
             }
 
@@ -2413,7 +2079,7 @@ else
 
                 if (!window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__) {
                     window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__ = true;
-                    console.log('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
+                    window.__dxLog('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
                 }
 
                 const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
@@ -2429,15 +2095,16 @@ else
                     document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
 
                 if (!chEl || !rhEl) {
+                    state.overlayRetryCount = Number(state.overlayRetryCount || 0);
                     if (state.overlayRetryCount < 6) {
                         clearTimeout(state.overlayRetryTimer);
                         state.overlayRetryTimer = setTimeout(function () {
                             state.overlayRetryCount++;
-                            console.log('[DX] renderApprovalOverlay retry: missing headers', state.overlayRetryCount);
+                            window.__dxLog('[DX] renderApprovalOverlay retry: missing headers', state.overlayRetryCount);
                             renderApprovalOverlay();
                         }, 300);
                     } else {
-                        console.warn('[DX] renderApprovalOverlay stopped: missing headers');
+                        window.__dxWarn('[DX] renderApprovalOverlay stopped: missing headers');
                     }
                     return;
                 }
@@ -2447,15 +2114,16 @@ else
                 const rhRect = rhEl.getBoundingClientRect();
 
                 if (chRect.width < 50 || rhRect.height < 50) {
+                    state.overlayRetryCount = Number(state.overlayRetryCount || 0);
                     if (state.overlayRetryCount < 6) {
                         clearTimeout(state.overlayRetryTimer);
                         state.overlayRetryTimer = setTimeout(function () {
                             state.overlayRetryCount++;
-                            console.log('[DX] renderApprovalOverlay retry: header size too small', state.overlayRetryCount, chRect.width, rhRect.height);
+                            window.__dxLog('[DX] renderApprovalOverlay retry: header size too small', state.overlayRetryCount, chRect.width, rhRect.height);
                             renderApprovalOverlay();
                         }, 300);
                     } else {
-                        console.warn('[DX] renderApprovalOverlay stopped: header size too small');
+                        window.__dxWarn('[DX] renderApprovalOverlay stopped: header size too small');
                     }
                     return;
                 }
@@ -2509,29 +2177,179 @@ else
                 }
 
                 function buildColumnRectMap() {
-                    const colMap = {};
-                    const cells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
+                    const actualItems = [];
+                    const legacyItems = [];
 
-                    cells.forEach(function (el) {
+                    function pushItem(list, label, left, width, source) {
+                        const cleanLabel = String(label || '').trim().toUpperCase();
+                        if (!/^[A-Z]+$/.test(cleanLabel)) return;
+
+                        const colNo = colLabelToIndex(cleanLabel);
+                        const safeLeft = Number(left);
+                        const safeWidth = Number(width);
+
+                        if (!isFinite(colNo) || colNo <= 0) return;
+                        if (!isFinite(safeLeft)) return;
+                        if (!isFinite(safeWidth) || safeWidth <= 0) return;
+
+                        list.push({
+                            label: cleanLabel,
+                            colNo: colNo,
+                            left: safeLeft,
+                            width: safeWidth,
+                            right: safeLeft + safeWidth,
+                            source: source || ''
+                        });
+                    }
+
+                    const actualCells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
+
+                    actualCells.forEach(function (el) {
                         const label = String(el.textContent || '').trim().toUpperCase();
                         if (!/^[A-Z]+$/.test(label)) return;
 
                         const r = el.getBoundingClientRect();
                         if (r.width <= 0 || r.height <= 0) return;
 
-                        const left = r.left - wrapRect.left;
-                        const right = r.right - wrapRect.left;
-
-                        if (!colMap[label] || left < colMap[label].left) {
-                            colMap[label] = {
-                                left: left,
-                                right: right,
-                                width: right - left
-                            };
-                        }
+                        pushItem(
+                            actualItems,
+                            label,
+                            r.left - wrapRect.left,
+                            r.width,
+                            'actual-dom'
+                        );
                     });
 
-                    return colMap;
+                    const colBaseLeft = parseFloat(chEl.style.left || '0') || 0;
+                    let tileOffsetLeft = 0;
+                    const colTiles = chEl.querySelectorAll('.dxss-ht');
+
+                    colTiles.forEach(function (tile) {
+                        const tileWidth = parseFloat(tile.style.width || '0') || 0;
+                        const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
+
+                        cells.forEach(function (el) {
+                            const label = String(el.textContent || '').trim().toUpperCase();
+                            if (!/^[A-Z]+$/.test(label)) return;
+
+                            const cellLeft = parseFloat(el.style.left || '0') || 0;
+                            let cellWidth = parseFloat(el.style.width || '0') || 0;
+
+                            if (cellWidth <= 0) {
+                                const r = el.getBoundingClientRect();
+                                cellWidth = r.width || 0;
+                            }
+
+                            if (cellWidth <= 0) return;
+
+                            pushItem(
+                                legacyItems,
+                                label,
+                                colBaseLeft + tileOffsetLeft + cellLeft,
+                                cellWidth,
+                                'legacy-style'
+                            );
+                        });
+
+                        tileOffsetLeft += tileWidth;
+                    });
+
+                    function normalizeItems(items, source) {
+                        const map = {};
+
+                        if (!Array.isArray(items) || !items.length) {
+                            return {
+                                map: map,
+                                count: 0,
+                                source: source,
+                                outOfRange: true,
+                                minLeft: 0,
+                                maxRight: 0
+                            };
+                        }
+
+                        items.sort(function (a, b) {
+                            if (a.colNo !== b.colNo) return a.colNo - b.colNo;
+                            return a.left - b.left;
+                        });
+
+                        const minLeft = items.reduce(function (min, item) {
+                            return Math.min(min, item.left);
+                        }, items[0].left);
+
+                        const maxRight = items.reduce(function (max, item) {
+                            return Math.max(max, item.right);
+                        }, items[0].right);
+
+                        const renderLimitW = Math.max(
+                            Number(window.__dxLayoutWidthPx || 0),
+                            Number(window.__dxRenderWidthPx || 0),
+                            900
+                        ) + 300;
+
+                        let outOfRange = false;
+
+                        items.forEach(function (item) {
+                            const left = item.left - minLeft;
+                            const right = item.right - minLeft;
+                            const width = Math.max(1, item.width);
+
+                            if (!isFinite(left) || !isFinite(right) || left < -50 || right > renderLimitW) {
+                                outOfRange = true;
+                            }
+
+                            if (!map[item.label] || left < map[item.label].left) {
+                                map[item.label] = {
+                                    left: left,
+                                    right: right,
+                                    width: width
+                                };
+                            }
+                        });
+
+                        return {
+                            map: map,
+                            count: Object.keys(map).length,
+                            source: source,
+                            outOfRange: outOfRange,
+                            minLeft: minLeft,
+                            maxRight: maxRight,
+                            renderLimitW: renderLimitW
+                        };
+                    }
+
+                    const actual = normalizeItems(actualItems, 'actual-dom-normalized');
+                    const legacy = normalizeItems(legacyItems, 'legacy-style-normalized');
+
+                    let selected = actual;
+
+                    if (
+                        actual.count <= 0 ||
+                        actual.outOfRange ||
+                        (
+                            legacy.count > 0 &&
+                            !legacy.outOfRange &&
+                            legacy.count >= actual.count
+                        )
+                    ) {
+                        selected = legacy;
+                    }
+
+                    // 2026.06.19 Changed: DevExpress 열 헤더 가상 오프셋이 스탬프 x 좌표에 반영되지 않도록 첫 열 기준 상대 좌표로 보정
+                    window.__dxLog('[DX] column map mode', {
+                        mode: selected.source,
+                        colsActual: actual.count,
+                        colsLegacy: legacy.count,
+                        actualOutOfRange: actual.outOfRange,
+                        legacyOutOfRange: legacy.outOfRange,
+                        actualMinLeft: Math.round(actual.minLeft || 0),
+                        actualMaxRight: Math.round(actual.maxRight || 0),
+                        legacyMinLeft: Math.round(legacy.minLeft || 0),
+                        legacyMaxRight: Math.round(legacy.maxRight || 0),
+                        renderLimitW: Math.round(selected.renderLimitW || 0)
+                    });
+
+                    return selected.map || {};
                 }
 
                 function buildRowRectMap() {
@@ -2626,7 +2444,7 @@ else
                         useActual = Math.abs(medianDiff) >= 8 && maxSpread <= 3;
                     }
 
-                    console.log('[DX] row map mode', {
+                    window.__dxLog('[DX] row map mode', {
                         mode: useActual ? 'actual-dom-corrected' : 'legacy-style',
                         rowsLegacy: Object.keys(legacyMap).length,
                         rowsActual: Object.keys(actualMap).length,
@@ -2778,7 +2596,7 @@ else
                         h: Math.max(1, bottom - top)
                     };
 
-                    console.log('[DX-DBG] expanded-range-box', {
+                    window.__dxLog('[DX-DBG] expanded-range-box', {
                         raw: range.raw,
                         expandedFrom: expanded.from.colLabel + expanded.from.row,
                         expandedTo: expanded.to.colLabel + expanded.to.row,
@@ -3120,9 +2938,9 @@ else
 
                 function resolveStampMeta(raw) {
                     const STAMP_BASE = '/images/signatures/';
-                    const HOLDING_STAMP = STAMP_BASE + 'holding.png';
-                    const REJECTED_STAMP = STAMP_BASE + 'rejected.png';
-                    const APPROVED_STAMP = STAMP_BASE + 'approved.png';
+                    const HOLDING_STAMP = STAMP_BASE + 'Holding.png';
+                    const REJECTED_STAMP = STAMP_BASE + 'Rejected.png';
+                    const APPROVED_STAMP = STAMP_BASE + 'Approved.png';
 
                     const actionRaw = String(raw.action || raw.Action || '').trim().toUpperCase();
                     const statusRaw = String(raw.status || raw.Status || '').trim().toUpperCase();
@@ -3219,7 +3037,7 @@ else
 
                     overlay.appendChild(div);
 
-                    console.log(
+                    window.__dxLog(
                         `[DX] ${debugPrefix} stamp`,
                         'bucket=' + bucketName,
                         'step=' + step,
@@ -3237,7 +3055,7 @@ else
                 const colRectMap = buildColumnRectMap();
                 const rowRectMap = buildRowRectMap();
 
-                console.log(
+                window.__dxLog(
                     '[DX] measured header maps',
                     'cols=' + Object.keys(colRectMap).length,
                     'rows=' + Object.keys(rowRectMap).length
@@ -3261,7 +3079,7 @@ else
                     if (!step || !isFinite(step)) step = idx + 1;
 
                     const a1 = resolveMappedA1(c, step, 'cooperation');
-                    console.log('[DX] cooperation mapped a1', {
+                    window.__dxLog('[DX] cooperation mapped a1', {
                         step: step,
                         roleKey: String(c.roleKey || c.RoleKey || ''),
                         a1: a1,
@@ -3329,7 +3147,7 @@ else
 
             state.overlayRefreshRaf = requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
-                    try { renderApprovalOverlay(); } catch (e) { console.warn('[DX] renderApprovalOverlayStable failed', e); }
+                    try { renderApprovalOverlay(); } catch (e) { window.__dxWarn('[DX] renderApprovalOverlayStable failed', e); }
 
                     if (currentPass < 1) {
                         state.overlayRefreshTimer = window.setTimeout(function () {
@@ -3361,8 +3179,8 @@ else
 
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(function () {
-                    console.log('[DX] overlay resize observer refresh');
-                    try { renderApprovalOverlay(); } catch (e) { console.warn('[DX] overlay resize observer failed', e); }
+                    window.__dxLog('[DX] overlay resize observer refresh');
+                    try { renderApprovalOverlay(); } catch (e) { window.__dxWarn('[DX] overlay resize observer failed', e); }
                 }, 500);
             });
 
@@ -3929,300 +3747,37 @@ else
         }
 
         function hookDxReady() {
+            installOuterScrollOnly();
+
+            function applySize() {
+                applyDxWrapSize();
+
+                const scroll = document.getElementById('doc-scroll');
+                if (scroll) scroll.classList.add('dx-page-ready');
+            }
+
             const wrap = document.getElementById('dxDetailWrap');
-            const scroll = document.getElementById('doc-scroll');
             if (!wrap) return;
 
-            let finalized = false;
-            let rafId = 0;
-            let domObserver = null;
-            let sizeObserver = null;
-            let stableSignature = '';
-            let stableCount = 0;
-            let readySignal = false;
-            let readyReason = '';
-
-            function getWbc() {
-                return document.getElementById('dxDetailSheet_WBC')
-                    || document.querySelector('#dxDetailWrap [id$="_WBC"]');
-            }
-
-            function getPage() {
-                return wrap.querySelector('.dxss-print-area')
-                    || wrap.querySelector('.dxss-page');
-            }
-
-            function getInnerScroll() {
-                return document.getElementById('dxDetailSheet_ScrollContainer')
-                    || document.getElementById('dxDetailSheet_Grid')
-                    || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
-                    || document.querySelector('#dxDetailWrap [id$="_Grid"]');
-            }
-
-            function readBox(el) {
-                if (!el) return { width: 0, height: 0 };
-                const rect = el.getBoundingClientRect();
-                return {
-                    width: Math.max(
-                        Math.ceil(rect.width || 0),
-                        Math.ceil(el.clientWidth || 0),
-                        Math.ceil(el.offsetWidth || 0)
-                    ),
-                    height: Math.max(
-                        Math.ceil(rect.height || 0),
-                        Math.ceil(el.clientHeight || 0),
-                        Math.ceil(el.offsetHeight || 0)
-                    )
-                };
-            }
-
-            function hasVisibleContent() {
-                const wbcBox = readBox(getWbc());
-                const pageBox = readBox(getPage());
-
-                if ((wbcBox.width > 120 && wbcBox.height > 120) || (pageBox.width > 120 && pageBox.height > 120)) {
-                    return true;
+            let applied = false;
+            function tryApply() {
+                if (applied) return;
+                const wbc = document.getElementById('dxDetailSheet_WBC')
+                         || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+                if (wbc && wbc.offsetWidth > 0 && wbc.offsetHeight > 0) {
+                    applied = true;
+                    observer.disconnect();
+                    applySize();
                 }
-
-                const visibleTargets = wrap.querySelectorAll('[id*="_ctb."], .dxss-ftc');
-                for (let i = 0; i < visibleTargets.length; i++) {
-                    const r = visibleTargets[i].getBoundingClientRect();
-                    if (r.width > 20 && r.height > 10) return true;
-                }
-
-                return false;
             }
 
-            function getSignature() {
-                const wbcBox = readBox(getWbc());
-                const pageBox = readBox(getPage());
-
-                return JSON.stringify({
-                    w: wbcBox.width,
-                    h: wbcBox.height,
-                    pw: pageBox.width,
-                    ph: pageBox.height
-                });
-            }
-
-            function requestLayoutKick(reason) {
-                try {
-                    const inst = getDxInstance();
-                    if (inst && typeof inst.AdjustControl === 'function') {
-                        inst.AdjustControl();
-                    }
-                } catch (e) { }
-
-                const inner = getInnerScroll();
-                if (inner) {
-                    try {
-                        if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
-                        if (inner.scrollTop !== 0) inner.scrollTop = 0;
-                    } catch (e) { }
-                }
-
-                console.log('[DX] requestLayoutKick:', reason || '');
-            }
-
-            function isReadyReason(reason) {
-                const r = String(reason || '').toLowerCase();
-                return r.indexOf('dx-end-sync') >= 0
-                    || r.indexOf('dx-after-document-response') >= 0
-                    || r.indexOf('dx-process-document-response') >= 0;
-            }
-
-            function finalize(reason) {
-                if (finalized) return;
-                finalized = true;
-
-                if (rafId) cancelAnimationFrame(rafId);
-                if (domObserver) domObserver.disconnect();
-
-                state.previewExtent = { width: 0, height: 0 };
-                applyDxWrapSize(reason || 'dx-stable');
-                installOuterScrollOnly();
-                renderApprovalOverlay();
-
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
-                        state.previewExtent = { width: 0, height: 0 };
-                        applyDxWrapSize((reason || 'dx-stable') + '-postoverlay');
-                        renderApprovalOverlay();
-
-                        if (scroll) scroll.classList.add('dx-page-ready');
-                        state.overlayReady = true;
-                        bindOverlayResizeObserver();
-
-                        console.log('[DX] page shown by', reason || 'dx-stable');
-
-                        // DX 재렌더링 강제 — 2단계 AdjustControl
-                        try {
-                            var inst = getDxInstance();
-                            if (inst && typeof inst.AdjustControl === 'function') {
-                                inst.AdjustControl();
-                                // 1차 후 셀 확인, 없으면 재시도
-                                var retryCount = 0;
-                                var retryAdjust = function () {
-                                    retryCount++;
-                                    if (retryCount > 5) return;
-                                    requestAnimationFrame(function () {
-                                        requestAnimationFrame(function () {
-                                            if (!document.querySelector('.dxss-ftc')) {
-                                                console.log('[DX] finalize retry AdjustControl #' + retryCount);
-                                                try { inst.AdjustControl(); } catch (e) { }
-                                                retryAdjust();
-                                            } else {
-                                                console.log('[DX] finalize cells appeared after retry #' + retryCount);
-                                                state.previewExtent = { width: 0, height: 0 };
-                                                applyDxWrapSize('post-adjust-retry');
-                                                try { renderApprovalOverlay(); } catch (e) { }
-                                            }
-                                        });
-                                    });
-                                };
-                                retryAdjust();
-                            }
-                        } catch (e) { }
-                    });
-                });
-            }
-
-            function evaluateStable(reason) {
-                if (finalized) return;
-                if (state.dxSyncing) return;
-                if (!readySignal) {
-                    console.log('[DX] stable-check blocked: waiting-ready-signal', reason || '');
-                    return;
-                }
-                if (!hasVisibleContent()) return;
-
-                const sig = getSignature();
-                const parsed = JSON.parse(sig);
-
-                if (parsed.w <= 0 || parsed.h <= 0) return;
-
-                if (sig === stableSignature) {
-                    stableCount++;
-                } else {
-                    stableSignature = sig;
-                    stableCount = 1;
-                }
-
-                console.log('[DX] stable-check:', {
-                    reason: reason || '',
-                    readyReason: readyReason,
-                    stableCount: stableCount,
-                    signature: parsed
-                });
-
-                if (stableCount >= 2) {
-                    finalize(readyReason || reason || 'dx-stable');
-                    return;
-                }
-
-                rafId = requestAnimationFrame(function () {
-                    rafId = requestAnimationFrame(function () {
-                        evaluateStable((reason || 'dx-stable') + '-raf');
-                    });
-                });
-            }
-
-            function scheduleEvaluate(reason) {
-                if (!readySignal && !isReadyReason(reason)) {
-                    console.log('[DX] scheduleEvaluate ignored:', reason || '');
-                    return;
-                }
-
-                if (rafId) cancelAnimationFrame(rafId);
-                rafId = requestAnimationFrame(function () {
-                    rafId = requestAnimationFrame(function () {
-                        evaluateStable(reason || 'dx-eval');
-                    });
-                });
-            }
-
-            domObserver = new MutationObserver(function () {
-                if (!finalized) scheduleEvaluate('dx-dom-mutation');
+            // 2026.06.19 Changed: DetailDX 엑셀 렌더링 완료 판단을 ComposeDX와 동일한 WBC 감지 방식으로 단순화
+            const observer = new MutationObserver(function () {
+                tryApply();
             });
 
-            domObserver.observe(wrap, {
-                childList: true,
-                subtree: true,
-                attributes: false
-            });
-
-            if (typeof ResizeObserver !== 'undefined') {
-                sizeObserver = new ResizeObserver(function () {
-                    if (!finalized) scheduleEvaluate('dx-resize-observer');
-                });
-
-                [wrap, getWbc(), getPage()].filter(Boolean).forEach(function (el) {
-                    sizeObserver.observe(el);
-                });
-            }
-
-            window.__dxDetailOnEndSyncImpl = function (reason) {
-                state.dxSyncing = false;
-
-                if (isReadyReason(reason)) {
-                    readySignal = true;
-                    readyReason = reason || '';
-                    stableCount = 0;
-                    stableSignature = '';
-                    console.log('[DX] ready-signal accepted:', readyReason);
-                } else {
-                    console.log('[DX] ready-signal ignored:', reason || '');
-                }
-
-                requestLayoutKick(reason || 'dx-end-sync');
-
-                // 2026.04.14: finalize 이후 DX 이벤트 → 헤더 기반 재측정
-                if (finalized) {
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () {
-                            // 셀 타일이 없으면 AdjustControl로 강제 렌더링
-                            var hasCells = !!document.querySelector('.dxss-ftc');
-                            if (!hasCells) {
-                                try {
-                                    var inst = window.dxDetailSheet;
-                                    if (inst && typeof inst.AdjustControl === 'function') {
-                                        console.log('[DX] post-finalize: no cells, forcing AdjustControl');
-                                        inst.AdjustControl();
-                                    }
-                                } catch (e) { }
-                            }
-                            state.previewExtent = { width: 0, height: 0 };
-                            applyDxWrapSize('post-finalize:' + (reason || ''));
-                            try { renderApprovalOverlay(); } catch (e) { }
-                        });
-                    });
-                } else {
-                    scheduleEvaluate(reason || 'dx-end-sync');
-                }
-            };
-
-
-            if (window.__dxDetailOnEndSyncPending) {
-                const pendingReason = window.__dxDetailOnEndSyncPending;
-                window.__dxDetailOnEndSyncPending = null;
-                requestLayoutKick(pendingReason || 'pending-sync');
-                scheduleEvaluate(pendingReason || 'pending-sync');
-            } else {
-                requestLayoutKick('hook-start');
-            }
-
-            if (!window.__DETAIL_DX_RESIZE_BOUND__) {
-                window.__DETAIL_DX_RESIZE_BOUND__ = true;
-                window.addEventListener('resize', function () {
-                    requestLayoutKick('window-resize');
-                    if (state.overlayReady) {
-                        applyDxWrapSize('window-resize');
-                        renderApprovalOverlay();
-                    } else {
-                        scheduleEvaluate('window-resize');
-                    }
-                }, { passive: true });
-            }
+            observer.observe(wrap, { childList: true, subtree: true, attributes: true });
+            tryApply();
         }
 
         function run() {
@@ -4245,11 +3800,10 @@ else
             state.approvalCellMap = builtMap.approval || { byStep: {}, byRoleKey: {} };
             state.cooperationCellMap = builtMap.cooperation || { byStep: {}, byRoleKey: {} };
 
-            console.log('approvalCellMap', state.approvalCellMap, mapRows);
-            console.log('cooperationCellMap', state.cooperationCellMap, mapRows);
+            window.__dxLog('approvalCellMap', state.approvalCellMap, mapRows);
+            window.__dxLog('cooperationCellMap', state.cooperationCellMap, mapRows);
 
-            // 0높이 데드락 방지용 시드
-            seedDxHostSize();
+            applyDxWrapSize();
 
             renderViewLogs();
             renderApprovalsTable();
@@ -4271,3 +3825,4 @@ else
     })();
     </script>
 }
+@{ __MarkDetailDxViewPerf("view-end"); }

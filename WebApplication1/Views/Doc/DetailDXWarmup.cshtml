@@ -1,0 +1,219 @@
+﻿@* 2026.06.10 Added: DetailDX / DevExpress Spreadsheet cold-start warm-up 전용 View. 실제 문서 화면 구조와 분리됨. *@
+@using System
+@using System.IO
+@using System.Text.Encodings.Web
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory
+
+@{
+    Layout = null;
+    ViewData["DisableDxAll"] = true;
+    ViewData["UseDxSpreadsheet"] = true;
+
+    var workDir = Env.ContentRootPath;
+    var warmupPath = (string?)ViewBag.WarmupPath ?? string.Empty;
+    var dxCallbackUrl = (string?)ViewBag.DxCallbackUrl ?? "/Doc/dx-callback";
+    var dxDocumentId = (string?)ViewBag.DxDocumentId ?? ("detail_warmup_" + Guid.NewGuid().ToString("N"));
+
+    var logger = LoggerFactory.CreateLogger("WebApplication1.Views.Doc.DetailDXWarmup");
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    double lastMs = 0d;
+
+    void MarkWarmup(string name)
+    {
+        try
+        {
+            var elapsedMs = sw.Elapsed.TotalMilliseconds;
+            var deltaMs = elapsedMs - lastMs;
+            lastMs = elapsedMs;
+            logger.LogInformation(
+                "DETAILDX-WARMUP-VIEW {Name} elapsedMs={ElapsedMs} deltaMs={DeltaMs} documentId={DocumentId}",
+                name ?? "mark",
+                elapsedMs,
+                deltaMs,
+                dxDocumentId ?? string.Empty);
+        }
+        catch
+        {
+        }
+    }
+
+    MarkWarmup("view-start");
+
+    var dxOpenDocumentFormat = DevExpress.Spreadsheet.DocumentFormat.Xlsx;
+    try
+    {
+        var ext = (System.IO.Path.GetExtension(warmupPath) ?? string.Empty).Trim().ToLowerInvariant();
+        if (ext == ".xlsm")
+            dxOpenDocumentFormat = DevExpress.Spreadsheet.DocumentFormat.Xlsm;
+        else if (ext == ".xls")
+            dxOpenDocumentFormat = DevExpress.Spreadsheet.DocumentFormat.Xls;
+    }
+    catch
+    {
+        dxOpenDocumentFormat = DevExpress.Spreadsheet.DocumentFormat.Xlsx;
+    }
+
+    Func<byte[]> dxOpenContentAccessor = () =>
+    {
+        var readSw = System.Diagnostics.Stopwatch.StartNew();
+        var bytes = System.IO.File.Exists(warmupPath)
+            ? System.IO.File.ReadAllBytes(warmupPath)
+            : Array.Empty<byte>();
+
+        try
+        {
+            logger.LogInformation(
+                "DETAILDX-WARMUP-VIEW bytes-read elapsedMs={ElapsedMs} bytes={Bytes} documentId={DocumentId}",
+                readSw.Elapsed.TotalMilliseconds,
+                bytes.LongLength,
+                dxDocumentId ?? string.Empty);
+        }
+        catch
+        {
+        }
+
+        return bytes;
+    };
+
+    MarkWarmup("model-ready");
+}
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex,nofollow" />
+    <script>
+        (function () {
+            try {
+                window.DevExpress = window.DevExpress || {};
+                window.DevExpress.trial = window.DevExpress.trial || {};
+                if (typeof window.DevExpress.trial.registerTrialPanelComponents !== 'function') {
+                    window.DevExpress.trial.registerTrialPanelComponents = function () { };
+                }
+            } catch (e) { }
+        })();
+    </script>
+    <script src="~/dxresources/js/dx.all.js" asp-append-version="true"></script>
+    <script>
+        // 2026.06.10 Fixed v2:
+        // Layout 없는 warm-up iframe에서는 DevExpress.ui.themes.current()가 null을 반환할 수 있다.
+        // 단순히 current('generic.light')를 호출해도 CSS theme marker가 없으면 current()가 계속 null일 수 있으므로,
+        // warm-up 페이지에서만 current() getter가 항상 문자열을 반환하도록 안전 래퍼를 적용한다.
+        (function () {
+            try {
+                if (!window.DevExpress || !DevExpress.ui) return;
+
+                DevExpress.ui.themes = DevExpress.ui.themes || {};
+                var themes = DevExpress.ui.themes;
+                var originalCurrent = themes.current;
+
+                if (typeof originalCurrent === 'function' && !originalCurrent.__ebWarmupSafeCurrent) {
+                    var safeCurrent = function (themeName) {
+                        if (arguments.length > 0) {
+                            try {
+                                var setResult = originalCurrent.apply(this, arguments);
+                                return setResult || themeName || 'generic.light';
+                            } catch (e) {
+                                return themeName || 'generic.light';
+                            }
+                        }
+
+                        try {
+                            var currentName = originalCurrent.apply(this, arguments);
+                            return currentName || 'generic.light';
+                        } catch (e) {
+                            return 'generic.light';
+                        }
+                    };
+
+                    safeCurrent.__ebWarmupSafeCurrent = true;
+                    themes.current = safeCurrent;
+                }
+                else if (typeof originalCurrent !== 'function') {
+                    themes.current = function (themeName) {
+                        return themeName || 'generic.light';
+                    };
+                    themes.current.__ebWarmupSafeCurrent = true;
+                }
+
+                try {
+                    themes.current('generic.light');
+                } catch (e) { }
+            } catch (e) { }
+        })();
+    </script>
+    <link rel="stylesheet" href="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.css" asp-append-version="true" />
+    <script src="~/devex-spreadsheet/dist/dx-aspnetcore-spreadsheet.js" asp-append-version="true"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 360px;
+            height: 220px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        #dxWarmupHost {
+            width: 340px;
+            height: 180px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="dxWarmupHost">
+        @{
+            MarkWarmup("before-spreadsheet-write");
+
+            var writer = ViewContext?.Writer;
+            if (writer != null)
+            {
+                try
+                {
+                    logger.LogInformation(
+                    "DETAILDX-WARMUP-VIEW open-mode mode=BytesWithExplicitFormat format={Format} documentId={DocumentId} path={Path}",
+                    dxOpenDocumentFormat.ToString(),
+                    dxDocumentId ?? string.Empty,
+                    warmupPath ?? string.Empty);
+                }
+                catch
+                {
+                }
+
+                Html.DevExpress().Spreadsheet("dxWarmupSheet")
+                .Height("180px")
+                .Width("340px")
+                .WorkDirectory(workDir)
+                .DocumentRequestHandlerUrl(dxCallbackUrl)
+                .Open(dxDocumentId, dxOpenDocumentFormat, dxOpenContentAccessor)
+                .ReadOnly(true)
+                .ConfirmOnLosingChanges(c => c.Enabled(false))
+                .WriteTo(writer, HtmlEncoder.Default);
+            }
+
+            MarkWarmup("after-spreadsheet-write");
+        }
+    </div>
+    <script>
+        (function () {
+            function notifyDone() {
+                try {
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage({ type: 'eb-dx-warmup-done' }, window.location.origin);
+                    }
+                } catch (e) { }
+            }
+
+            if (document.readyState === 'complete') notifyDone();
+            else window.addEventListener('load', notifyDone, { once: true });
+
+            setTimeout(notifyDone, 3000);
+        })();
+    </script>
+</body>
+</html>
+@{
+    MarkWarmup("view-end");
+}

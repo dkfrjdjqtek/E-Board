@@ -957,9 +957,6 @@
   <data name="DOC_Filter_Title_Label" xml:space="preserve">
     <value>상태</value>
   </data>
-  <data name="DOC_Filter_Title_All" xml:space="preserve">
-    <value>전체</value>
-  </data>
   <data name="DOC_Filter_Title_Approved" xml:space="preserve">
     <value>승인</value>
   </data>
@@ -974,9 +971,6 @@
   </data>
   <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
     <value>결재 보기</value>
-  </data>
-  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
-    <value>전체</value>
   </data>
   <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
     <value>대기</value>
@@ -1335,9 +1329,6 @@
   <data name="DTM_Label_Keyword" xml:space="preserve">
     <value>검색어</value>
   </data>
-  <data name="DTM_Option_All" xml:space="preserve">
-    <value>전체</value>
-  </data>
   <data name="DTM_Option_Active" xml:space="preserve">
     <value>사용</value>
   </data>
@@ -1412,9 +1403,6 @@
   </data>
   <data name="DTM_PathStatus_Exists" xml:space="preserve">
     <value>정상</value>
-  </data>
-  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
-    <value>파일 없음</value>
   </data>
   <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
     <value>표준경로 아님</value>
@@ -1544,5 +1532,134 @@
   </data>
   <data name="_CM_OK" xml:space="preserve">
     <value>확인</value>
+  </data>
+  <data name="DTM_Col_VisualRangeA1" xml:space="preserve">
+    <value>표시 범위</value>
+  </data>
+  <data name="DTM_Col_VisualWidthPx" xml:space="preserve">
+    <value>표시 너비</value>
+  </data>
+  <data name="DTM_Col_VisualHeightPx" xml:space="preserve">
+    <value>표시 높이</value>
+  </data>
+  <data name="DTM_Btn_BackfillVisualMetrics" xml:space="preserve">
+    <value>누락 메타 보정</value>
+  </data>
+  <data name="DTM_Confirm_BackfillVisualMetrics" xml:space="preserve">
+    <value>누락된 템플릿 메타를 보정하시겠습니까? 기존 템플릿 파일은 백업 후 재준비됩니다.</value>
+  </data>
+  <data name="DTM_Message_BackfillRunning" xml:space="preserve">
+    <value>보정 중</value>
+  </data>
+  <data name="DTM_Message_BackfillCompleted" xml:space="preserve">
+    <value>보정이 완료되었습니다.</value>
+  </data>
+  <data name="DTM_Message_BackfillFailed" xml:space="preserve">
+    <value>보정 중 오류가 발생했습니다.</value>
+  </data>
+  <data name="_CM_Success" xml:space="preserve">
+    <value>성공</value>
+  </data>
+  <data name="_CM_Exclusion" xml:space="preserve">
+    <value>제외</value>
+  </data>
+  <data name="_CM_Fail" xml:space="preserve">
+    <value>실패</value>
+  </data>
+  <data name="DTL_Col_DelegationApprover" xml:space="preserve">
+    <value>전결권자</value>
+  </data>
+  <data name="DTL_Section_Delegation" xml:space="preserve">
+    <value>전결 설정</value>
+  </data>
+  <data name="DTL_Label_DelegationEnabled" xml:space="preserve">
+    <value>전결 사용</value>
+  </data>
+  <data name="DTL_Label_DelegationCondition" xml:space="preserve">
+    <value>전결 조건</value>
+  </data>
+  <data name="DTL_Label_DelegationNone" xml:space="preserve">
+    <value>사용 안 함</value>
+  </data>
+  <data name="DTL_Label_DelegationAlways" xml:space="preserve">
+    <value>항상 전결</value>
+  </data>
+  <data name="DTL_Label_DelegationAmountLimit" xml:space="preserve">
+    <value>금액 이하 전결</value>
+  </data>
+  <data name="DTL_Label_DelegationStep" xml:space="preserve">
+    <value>전결권자 차수</value>
+  </data>
+  <data name="DTL_Label_DelegationSkipRange" xml:space="preserve">
+    <value>생략 차수</value>
+  </data>
+  <data name="DTL_Label_AmountField" xml:space="preserve">
+    <value>금액 필드</value>
+  </data>
+  <data name="DTL_Label_CurrencyField" xml:space="preserve">
+    <value>통화 필드</value>
+  </data>
+  <data name="DTL_Label_CurrencyCode" xml:space="preserve">
+    <value>통화 코드</value>
+  </data>
+  <data name="DTL_Label_LimitAmount" xml:space="preserve">
+    <value>기준 금액</value>
+  </data>
+  <data name="DTL_Btn_AddAmountLimit" xml:space="preserve">
+    <value>기준 금액 추가</value>
+  </data>
+  <data name="DTL_V_DelegationStepRequired" xml:space="preserve">
+    <value>전결권자 차수를 선택해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationConditionRequired" xml:space="preserve">
+    <value>전결 조건을 선택해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationSkipStepRequired" xml:space="preserve">
+    <value>전결 생략 차수를 확인해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldRequired" xml:space="preserve">
+    <value>금액 필드를 선택해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldRequired" xml:space="preserve">
+    <value>통화 필드를 선택해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountLimitRequired" xml:space="preserve">
+    <value>통화별 기준 금액을 입력해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeRequired" xml:space="preserve">
+    <value>통화 코드를 입력해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountInvalid" xml:space="preserve">
+    <value>기준 금액은 0보다 커야 합니다.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldInvalid" xml:space="preserve">
+    <value>금액 필드가 입력 필드 목록에 없습니다.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldInvalid" xml:space="preserve">
+    <value>통화 필드가 입력 필드 목록에 없습니다.</value>
+  </data>
+  <data name="DTL_Label_AmountCellA1" xml:space="preserve">
+    <value>금액 셀</value>
+  </data>
+  <data name="DTL_Label_CurrencyCellA1" xml:space="preserve">
+    <value>통화 셀</value>
+  </data>
+  <data name="DTL_PH_AmountCellA1" xml:space="preserve">
+    <value>예: R31</value>
+  </data>
+  <data name="DTL_PH_CurrencyCellA1" xml:space="preserve">
+    <value>예: Q10</value>
+  </data>
+  <data name="DTL_V_DelegationAmountCellRequired" xml:space="preserve">
+    <value>금액 셀을 입력해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCellRequired" xml:space="preserve">
+    <value>통화 셀을 입력해 주세요.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeDup" xml:space="preserve">
+    <value>통화 코드가 중복되었습니다.</value>
+  </data>
+  <data name="DTL_Approver_Drafter" xml:space="preserve">
+    <value>기안자</value>
   </data>
 </root>

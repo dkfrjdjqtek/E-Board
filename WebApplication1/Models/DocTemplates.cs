@@ -31,6 +31,16 @@ namespace WebApplication1.Models
         public bool Templated { get; set; }     // 스키마에 있으면 사용, 없으면 false 디폴트
         public DateTime CreatedAt { get; set; }
         public string? CreatedBy { get; set; }
+
+        // 2026.06.11 Added: 템플릿 보호 재적용 및 실제 xlsx 기준 표시 메트릭
+        public DateTime? PreparedAt { get; set; }
+        public string? TemplateFileHash { get; set; }
+        public string? ProtectionRuleCode { get; set; }
+        public string? VisualMetricRuleCode { get; set; }
+        public string? VisualSource { get; set; }
+        public string? VisualRangeA1 { get; set; }
+        public int? VisualWidthPx { get; set; }
+        public int? VisualHeightPx { get; set; }
     }
 
     // dbo.DocTemplateFile
@@ -64,5 +74,78 @@ namespace WebApplication1.Models
         public string? CellA1 { get; set; }
         public int? CellRow { get; set; }
         public int? CellColumn { get; set; }
+    }
+
+    // 2026.06.16 Added: 전결 규칙 엔티티 추가 Contents 템플릿 버전별 전결권자 차수와 생략 대상 차수 및 조건 유형을 저장
+    public class DocTemplateDelegationRule
+    {
+        public long Id { get; set; }
+        public int TemplateId { get; set; }
+        public long TemplateVersionId { get; set; }
+        public string? RuleName { get; set; }
+        public string ConditionType { get; set; } = default!;
+        public int DelegationStepOrder { get; set; }
+        public int SkipFromStepOrder { get; set; }
+        public int SkipToStepOrder { get; set; }
+        public int Priority { get; set; }
+        public bool IsActive { get; set; }
+        public string? Note { get; set; }
+        public string CreatedBy { get; set; } = default!;
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // 2026.06.16 Added: 전결 금액 조건 엔티티 추가 Contents 금액 조건 전결의 금액 필드와 통화 필드 및 통화별 기준 금액을 저장
+    public class DocTemplateDelegationAmountRule
+    {
+        public long Id { get; set; }
+        public long RuleId { get; set; }
+        public string AmountFieldKey { get; set; } = default!;
+        public string CurrencyFieldKey { get; set; } = default!;
+
+        // 2026.06.18 Added: 전결 금액 조건 셀 직접 참조 추가 Contents 입력 필드가 아닌 수식 셀과 통화 셀을 참조하기 위한 셀 주소를 저장
+        public string? AmountCellA1 { get; set; }
+        public string? CurrencyCellA1 { get; set; }
+
+        public string CurrencyCode { get; set; } = default!;
+        public decimal LimitAmount { get; set; }
+        public bool IsActive { get; set; }
+        public string CreatedBy { get; set; } = default!;
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // 2026.06.16 Added: 문서별 전결 적용 결과 엔티티 추가 Contents 문서 작성 및 승인 시점의 전결 후보와 적용 결과를 스냅샷으로 저장
+    public class DocumentDelegationResult
+    {
+        public long Id { get; set; }
+        public string DocId { get; set; } = default!;
+        public long? RuleId { get; set; }
+        public long? TemplateVersionId { get; set; }
+        public string ConditionType { get; set; } = default!;
+        public int DelegationStepOrder { get; set; }
+        public int SkipFromStepOrder { get; set; }
+        public int SkipToStepOrder { get; set; }
+        public string? AmountFieldKey { get; set; }
+        public decimal? AmountValue { get; set; }
+        public string? CurrencyFieldKey { get; set; }
+
+        // 2026.06.18 Added: 문서별 전결 금액 조건 셀 직접 참조 추가 Contents 실제 문서 파일에서 비교한 금액 셀과 통화 셀 주소를 저장
+        public string? AmountCellA1 { get; set; }
+        public string? CurrencyCellA1 { get; set; }
+
+        public string? CurrencyCode { get; set; }
+        public decimal? LimitAmount { get; set; }
+        public string AppliedStatus { get; set; } = default!;
+        public string? AppliedBy { get; set; }
+        public DateTime? AppliedAt { get; set; }
+        public string? CancelledBy { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        public string? ResultMessageKey { get; set; }
+        public string? DetailJson { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 }

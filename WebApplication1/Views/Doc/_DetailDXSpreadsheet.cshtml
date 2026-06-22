@@ -1,0 +1,69 @@
+﻿@* 2026.06.10 Added: DetailDX Spreadsheet 지연 로딩용 partial. DetailDX 본문 View 응답에서 DevExpress .Open().WriteTo() 비용을 분리함 *@
+@* 2026.06.10 Note: 부모 DetailDX.cshtml에서 AJAX 삽입 전/후 명시 높이를 부여하여 Height(100%) 계산 문제를 보정함 *@
+@using System.Text.Encodings.Web
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory
+
+@{
+    Layout = null;
+
+    var workDir = Env.ContentRootPath;
+    var openRel = (string?)ViewBag.OpenRel ?? string.Empty;
+    var dxCallbackUrl = (string?)ViewBag.DxCallbackUrl ?? "/Doc/dx-callback";
+    var docId = (string?)ViewBag.DocId ?? (string?)ViewBag.DocumentId ?? string.Empty;
+
+    var __sheetViewLogger = LoggerFactory.CreateLogger("WebApplication1.Views.Doc.DetailDXSpreadsheet");
+    var __sheetViewSw = System.Diagnostics.Stopwatch.StartNew();
+    double __sheetViewLastMs = 0d;
+
+    void __MarkSheetViewPerf(string name)
+    {
+        try
+        {
+            var elapsedMs = __sheetViewSw.Elapsed.TotalMilliseconds;
+            var deltaMs = elapsedMs - __sheetViewLastMs;
+            __sheetViewLastMs = elapsedMs;
+
+            __sheetViewLogger.LogInformation(
+                "DETAILDX-SHEET-VIEW-PERF {Name} elapsedMs={ElapsedMs} deltaMs={DeltaMs} docId={DocId}",
+                name ?? "mark",
+                elapsedMs,
+                deltaMs,
+                docId ?? string.Empty);
+        }
+        catch
+        {
+        }
+    }
+
+    __MarkSheetViewPerf("partial-start");
+}
+
+@{
+    __MarkSheetViewPerf("before-spreadsheet-write");
+
+    var writer = ViewContext?.Writer;
+    if (writer != null)
+    {
+        Html.DevExpress().Spreadsheet("dxDetailSheet")
+            .Height("100%")
+            .Width("100%")
+            .WorkDirectory(workDir)
+            .DocumentRequestHandlerUrl(dxCallbackUrl)
+            .Open(openRel)
+            .ReadOnly(true)
+            .ConfirmOnLosingChanges(c => c.Enabled(false))
+            .ClientSideEvents(events =>
+            {
+                events.OnInit("__dxDetailOnInit");
+                events.OnBeforeSend("__dxDetailOnBeforeSend");
+                events.OnBeginSynchronization("__dxDetailOnBeginSync");
+                events.OnEndSynchronization("__dxDetailOnEndSync");
+                events.OnDocumentChanged("__dxDetailOnDocumentChanged");
+            })
+            .WriteTo(writer, HtmlEncoder.Default);
+    }
+
+    __MarkSheetViewPerf("after-spreadsheet-write");
+    __MarkSheetViewPerf("partial-end");
+}

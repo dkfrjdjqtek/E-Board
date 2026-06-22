@@ -53,6 +53,96 @@ namespace WebApplication1.Controllers
         private readonly IWebPushNotifier _webPushNotifier;
         private readonly DocControllerHelper _helper;
 
+        // 2026.06.18 Added: 기안자 예약값 상수 추가 Contents 공용 템플릿에서 문서 작성자를 결재자로 지정하기 위한 예약값
+        private const string ApproverValueDrafter = "__DRAFTER__";
+
+        // 2026.06.18 Added: 기안자 예약값 판정 추가 Contents 템플릿 원본은 유지하고 문서 생성 시점에 현재 작성자로 치환
+        private static bool IsDrafterApproverValue(string? value)
+            => string.Equals((value ?? string.Empty).Trim(), ApproverValueDrafter, StringComparison.OrdinalIgnoreCase);
+
+        // 2026.06.18 Added: 기안자 예약값 치환 추가 Contents 문서 생성 시점에 현재 작성자 UserId를 결재자 값으로 사용
+        private static string ResolveDrafterApproverValue(string? value, string? drafterUserId)
+        {
+            var v = (value ?? string.Empty).Trim();
+            if (!IsDrafterApproverValue(v))
+                return v;
+
+            return (drafterUserId ?? string.Empty).Trim();
+        }
+
+        // 2026.06.18 Added: Descriptor JSON 내부 기안자 예약값 치환 추가 Contents 공용 템플릿 원본은 유지하고 생성 문서 JSON만 현재 작성자 기준으로 확정
+        private static string ReplaceDrafterApproverValuesInJson(string? json, string? drafterUserId)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return "{}";
+
+            var resolvedUserId = (drafterUserId ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(resolvedUserId))
+                return json!;
+
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(json);
+                if (node == null)
+                    return json!;
+
+                static bool IsApproverValueKey(string key)
+                    => string.Equals(key, "value", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "ApproverValue", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "approverValue", StringComparison.OrdinalIgnoreCase);
+
+                static void Walk(System.Text.Json.Nodes.JsonNode? current, string resolved)
+                {
+                    if (current is System.Text.Json.Nodes.JsonObject obj)
+                    {
+                        var keys = obj.Select(x => x.Key).ToList();
+                        foreach (var key in keys)
+                        {
+                            var child = obj[key];
+
+                            if (IsApproverValueKey(key) &&
+                                child is System.Text.Json.Nodes.JsonValue valueNode &&
+                                valueNode.TryGetValue<string>(out var stringValue) &&
+                                IsDrafterApproverValue(stringValue))
+                            {
+                                obj[key] = resolved;
+                                continue;
+                            }
+
+                            Walk(child, resolved);
+                        }
+
+                        return;
+                    }
+
+                    if (current is System.Text.Json.Nodes.JsonArray arr)
+                    {
+                        foreach (var child in arr)
+                            Walk(child, resolved);
+                    }
+                }
+
+                Walk(node, resolvedUserId);
+
+                return node.ToJsonString(new JsonSerializerOptions
+                {
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    WriteIndented = false
+                });
+            }
+            catch
+            {
+                return json!;
+            }
+        }
+
+        // 2026.06.11 Added: ComposeDX 첫 진입/반복 진입 성능 개선용 캐시.
+        // OrgTree는 화면 표시용 동일 데이터이므로 짧은 TTL로 재사용한다.
+        private static readonly object _composeOrgTreeCacheLock = new();
+        private static DateTimeOffset _composeOrgTreeCacheUntilUtc = DateTimeOffset.MinValue;
+        private static IReadOnlyList<OrgTreeNode>? _composeOrgTreeCacheKo;
+
+
         public ComposeDXController(IStringLocalizer<SharedResource> S, IConfiguration cfg, IAntiforgery antiforgery, IWebHostEnvironment env, ApplicationDbContext db, IDocTemplateService tpl, IEmailSender emailSender, IOptions<SmtpOptions> smtpOptions, ILogger<ComposeDXController> log, IWebPushNotifier webPushNotifier)
         {
             _S = S;
@@ -71,442 +161,874 @@ namespace WebApplication1.Controllers
         [HttpGet("CreateDX")]
         public async Task<IActionResult> CreateDX(string templateCode)
         {
-            var meta = await _tpl.LoadMetaAsync(templateCode);
+            var perfSw = System.Diagnostics.Stopwatch.StartNew();
+            var lastMs = 0.0;
 
-            var descriptorJson = string.IsNullOrWhiteSpace(meta.descriptorJson)
+            void Mark(string stage)
+            {
+                var now = perfSw.Elapsed.TotalMilliseconds;
+                _log.LogInformation(
+                    "COMPOSEDX-PERF {Stage} elapsedMs={ElapsedMs} deltaMs={DeltaMs} templateCode={TemplateCode}",
+                    stage,
+                    now,
+                    now - lastMs,
+                    templateCode ?? string.Empty);
+                lastMs = now;
+            }
+
+            Mark("start");
+
+            var (loadedDescriptorJson, loadedPreviewJson, templateTitle, templateVersionId, excelPathRaw) = await _tpl.LoadMetaAsync(templateCode);
+            Mark("meta-load");
+
+            var descriptorJson = string.IsNullOrWhiteSpace(loadedDescriptorJson)
                 ? "{}"
-                : meta.descriptorJson;
+                : loadedDescriptorJson;
 
-            var previewJson = "{}";
-            var excelAbsPath = meta.excelFilePath ?? string.Empty;
+            var previewJson = string.IsNullOrWhiteSpace(loadedPreviewJson)
+                ? "{}"
+                : loadedPreviewJson;
 
-            if (!string.IsNullOrWhiteSpace(excelAbsPath) && System.IO.File.Exists(excelAbsPath))
-            {
-                try
-                {
-                    var rebuilt = BuildPreviewJsonFromExcel(excelAbsPath);
-                    if (!string.IsNullOrWhiteSpace(rebuilt) && HasCells(rebuilt))
-                        previewJson = rebuilt;
-                }
-                catch { }
-            }
-
-            if (previewJson == "{}")
-            {
-                var metaPreview = string.IsNullOrWhiteSpace(meta.previewJson) ? "{}" : meta.previewJson;
-                if (!string.IsNullOrWhiteSpace(metaPreview) && HasCells(metaPreview))
-                    previewJson = metaPreview;
-            }
+            var normalizedExcelPath = NormalizeTemplateExcelPath(excelPathRaw);
+            var excelAbsPath = _helper.ToContentRootAbsolute(normalizedExcelPath);
+            Mark("excel-path-normalize");
 
             try
             {
-                var orgNodes = await _helper.BuildOrgTreeNodesAsync("ko");
-                ViewBag.OrgTreeNodes = orgNodes;
+                var nowUtc = DateTimeOffset.UtcNow;
+                IReadOnlyList<OrgTreeNode>? cachedOrg = null;
+
+                lock (_composeOrgTreeCacheLock)
+                {
+                    if (_composeOrgTreeCacheKo != null && _composeOrgTreeCacheUntilUtc > nowUtc)
+                        cachedOrg = _composeOrgTreeCacheKo;
+                }
+
+                if (cachedOrg == null)
+                {
+                    var orgNodes = (await _helper.BuildOrgTreeNodesAsync("ko")).ToList();
+
+                    lock (_composeOrgTreeCacheLock)
+                    {
+                        _composeOrgTreeCacheKo = orgNodes;
+                        _composeOrgTreeCacheUntilUtc = DateTimeOffset.UtcNow.AddMinutes(5);
+                    }
+
+                    ViewBag.OrgTreeNodes = orgNodes;
+                    Mark("orgtree-load-db");
+                }
+                else
+                {
+                    ViewBag.OrgTreeNodes = cachedOrg;
+                    Mark("orgtree-load-cache");
+                }
             }
-            catch
+            catch (Exception ex)
             {
+                _log.LogWarning(ex, "COMPOSEDX-PERF orgtree load failed templateCode={TemplateCode}", templateCode);
                 ViewBag.OrgTreeNodes = Array.Empty<OrgTreeNode>();
+                Mark("orgtree-load-failed");
             }
 
+            var editableCellsFromDb = await LoadComposeEditableCellsAsync(templateVersionId);
+            Mark("editable-cells-load-db");
+
             descriptorJson = BuildDescriptorJsonWithFlowGroups(templateCode, descriptorJson);
+            descriptorJson = UpsertComposeInputsIntoDescriptorJson(descriptorJson, editableCellsFromDb);
+            Mark("descriptor-flowgroup-build");
 
             var dxDocumentId = $"compose_{Guid.NewGuid():N}";
             var composeDxExcelPath = excelAbsPath;
+
             try
             {
                 if (!string.IsNullOrWhiteSpace(excelAbsPath) && System.IO.File.Exists(excelAbsPath))
                 {
-                    composeDxExcelPath = await BuildComposeDxEditableWorkbookAsync(templateCode, excelAbsPath, descriptorJson, dxDocumentId);
+                    composeDxExcelPath = await CreateComposeDxWorkbookCopyAsync(templateCode, excelAbsPath, dxDocumentId, descriptorJson);
+                    Mark("workbook-copy");
                 }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "CreateDX editable workbook build failed. templateCode={tc}", templateCode);
-                composeDxExcelPath = excelAbsPath;
-            }
-
-            var visualExtentPath = !string.IsNullOrWhiteSpace(composeDxExcelPath) && System.IO.File.Exists(composeDxExcelPath)
-                ? composeDxExcelPath
-                : excelAbsPath;
-
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(visualExtentPath) && System.IO.File.Exists(visualExtentPath))
+                else
                 {
-                    var (lastRow1, lastCol1, heightPx, widthPx, mode) = ComputeVisualExtentPxForCompose(visualExtentPath);
-
-                    ViewBag.TargetHeightPx = heightPx;
-                    ViewBag.TargetWidthPx = widthPx;
-                    ViewBag.LastRow = Math.Max(0, lastRow1 - 1);
-                    ViewBag.LastCol = Math.Max(0, lastCol1 - 1);
-                    ViewBag.LastA1 = ToA1ForCompose(lastRow1, lastCol1);
-                    ViewBag.TargetA1 = ViewBag.LastA1;
-                    ViewBag.TargetRow1 = lastRow1;
-                    ViewBag.TargetCol1 = lastCol1;
-                    ViewBag.DxVisualMode = mode;
+                    Mark("workbook-copy-skipped-no-file");
                 }
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "CreateDX visual extent compute failed. templateCode={tc}", templateCode);
-
-                // 2026.06.04 Changed: 서버 계산 실패 시 900px를 정상값처럼 내려주지 않음.
-                // 클라이언트 ComposeDX.cshtml의 previewJson / DX DOM 기반 fallback 계산이 작동하도록 0으로 전달.
-                ViewBag.TargetHeightPx = 0;
-                ViewBag.TargetWidthPx = 0;
-                ViewBag.LastRow = 0;
-                ViewBag.LastCol = 0;
-                ViewBag.LastA1 = "A1";
-                ViewBag.TargetA1 = "A1";
-                ViewBag.TargetRow1 = 1;
-                ViewBag.TargetCol1 = 1;
-                ViewBag.DxVisualMode = "ErrorFallbackToClient";
+                _log.LogWarning(ex, "CreateDX workbook copy failed. templateCode={TemplateCode}", templateCode);
+                composeDxExcelPath = excelAbsPath;
+                Mark("workbook-copy-failed");
             }
+
+            var visual = await LoadComposeTemplateVisualMetricsAsync(templateVersionId, templateCode);
+            Mark("visual-metrics-load-db");
+
+            ViewBag.TargetHeightPx = visual.VisualHeightPx ?? 0;
+            ViewBag.TargetWidthPx = visual.VisualWidthPx ?? 0;
+            ViewBag.VisualSource = visual.VisualSource ?? string.Empty;
+            ViewBag.VisualRangeA1 = visual.VisualRangeA1 ?? string.Empty;
+            ViewBag.VisualMetricRuleCode = visual.VisualMetricRuleCode ?? string.Empty;
+
+            var targetA1 = TryGetLastCellFromRangeA1(visual.VisualRangeA1, out var lastA1, out var targetRow1, out var targetCol1)
+                ? lastA1
+                : "A1";
+
+            ViewBag.LastRow = Math.Max(0, targetRow1 - 1);
+            ViewBag.LastCol = Math.Max(0, targetCol1 - 1);
+            ViewBag.LastA1 = targetA1;
+            ViewBag.TargetA1 = targetA1;
+            ViewBag.TargetRow1 = targetRow1 <= 0 ? 1 : targetRow1;
+            ViewBag.TargetCol1 = targetCol1 <= 0 ? 1 : targetCol1;
+            ViewBag.DxVisualMode = string.IsNullOrWhiteSpace(visual.VisualMetricRuleCode)
+                ? "DbVisualMetricMissing"
+                : $"{visual.VisualMetricRuleCode}:{visual.VisualSource}";
+
+            _log.LogInformation(
+                "COMPOSEDX-PERF visual-metrics-db templateCode={TemplateCode} versionId={VersionId} range={Range} widthPx={WidthPx} heightPx={HeightPx} source={Source} rule={Rule}",
+                templateCode ?? string.Empty,
+                templateVersionId,
+                visual.VisualRangeA1 ?? string.Empty,
+                visual.VisualWidthPx ?? 0,
+                visual.VisualHeightPx ?? 0,
+                visual.VisualSource ?? string.Empty,
+                visual.VisualMetricRuleCode ?? string.Empty);
 
             ViewBag.DescriptorJson = descriptorJson;
             ViewBag.PreviewJson = previewJson;
-            ViewBag.TemplateTitle = meta.templateTitle ?? string.Empty;
+            ViewBag.TemplateTitle = templateTitle ?? string.Empty;
             ViewBag.TemplateCode = templateCode;
             ViewBag.ExcelPath = composeDxExcelPath;
             ViewBag.DxCallbackUrl = "/Doc/dx-callback";
             ViewBag.DxDocumentId = dxDocumentId;
             ViewBag.HideCellPicker = true;
 
-            return View("~/Views/Doc/ComposeDX.cshtml");
+            Mark("viewbag-assign");
+            Mark("before-return");
 
-            static bool HasCells(string json)
+            return View("~/Views/Doc/ComposeDX.cshtml");
+        }
+
+
+
+        private sealed class ComposeTemplateVisualMetrics
+        {
+            public int? VisualWidthPx { get; set; }
+            public int? VisualHeightPx { get; set; }
+            public string? VisualSource { get; set; }
+            public string? VisualRangeA1 { get; set; }
+            public string? VisualMetricRuleCode { get; set; }
+        }
+
+        // 2026.06.12 Changed: ComposeDX 진입 시 보호/잠금/폭높이 재계산을 하지 않는다.
+        // 템플릿 저장 시점에 준비된 실제 xlsx를 사용자별 임시 파일로 복사해서 연다.
+        private async Task<string> CreateComposeDxWorkbookCopyAsync(string? templateCode, string sourceExcelFullPath, string dxDocumentId, string descriptorJson)
+        {
+            if (string.IsNullOrWhiteSpace(sourceExcelFullPath) || !System.IO.File.Exists(sourceExcelFullPath))
+                return sourceExcelFullPath;
+
+            var outRoot = Path.Combine(_env.ContentRootPath, "App_Data", "DocDxCompose");
+            Directory.CreateDirectory(outRoot);
+
+            var safeTemplateCode = SanitizeComposeDxFilePart(templateCode);
+            var outPath = Path.Combine(
+                outRoot,
+                $"{safeTemplateCode}_{DateTime.Now:yyyyMMddHHmmssfff}_{dxDocumentId}.xlsx");
+
+            await Task.Run(() =>
             {
-                if (string.IsNullOrWhiteSpace(json)) return false;
-                if (!json.Contains("\"cells\"", StringComparison.Ordinal)) return false;
+                System.IO.File.Copy(sourceExcelFullPath, outPath, overwrite: true);
+
+                // 2026.06.12 Changed: 폭/높이는 DB 저장값을 사용하되,
+                // 작성 가능 셀의 Unlock/표시색은 작성용 임시 복사본에서 보강한다.
+                // 원본 템플릿 파일은 변경하지 않는다.
                 try
                 {
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("cells", out var cells)
-                        && cells.ValueKind == JsonValueKind.Array
-                        && cells.GetArrayLength() > 0)
+                    ApplyComposeDxEditableCells(outPath, descriptorJson);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "COMPOSEDX-PERF editable-cell-apply failed templateCode={TemplateCode} path={Path}", templateCode ?? string.Empty, outPath);
+                    // 편집 가능 셀 보강 실패는 문서 오픈 자체를 막지 않는다.
+                }
+
+                try
+                {
+                    HideComposeDxWorkbookGridLines(outPath);
+                }
+                catch
+                {
+                    // 격자선 숨김 실패는 문서 오픈 자체를 막지 않는다.
+                }
+            });
+
+            return outPath;
+        }
+
+
+        private sealed class ComposeDxEditableCell
+        {
+            public string Sheet { get; set; } = string.Empty;
+            public string Key { get; set; } = string.Empty;
+            public string Type { get; set; } = "Text";
+            public string A1 { get; set; } = string.Empty;
+        }
+
+        // 2026.06.12 Changed: ComposeDX 작성용 임시 복사본의 매핑 셀을 Unlock/표시색 보강.
+        // 기존 보호/잠금 상태는 신뢰하지 않고, 작성용 복사본에서만 다시 구성한다.
+        // 폭/높이 재계산은 하지 않으며, 저장된 원본 템플릿 파일은 변경하지 않는다.
+        private static void ApplyComposeDxEditableCells(string workbookPath, string? descriptorJson)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !System.IO.File.Exists(workbookPath))
+                return;
+
+            var editableCells = ParseComposeDxEditableCells(descriptorJson);
+            if (editableCells.Count == 0)
+                return;
+
+            // 기존 엑셀 보호 설정은 비밀번호/상태를 신뢰하지 않는다.
+            // 먼저 OpenXml에서 sheetProtection 노드를 제거해서 ClosedXML이 확실히 수정할 수 있게 한다.
+            TryRemoveWorksheetProtectionForCompose(workbookPath);
+
+            var tempPath = workbookPath + ".editable.tmp.xlsx";
+            if (System.IO.File.Exists(tempPath))
+                System.IO.File.Delete(tempPath);
+
+            using (var wb = new XLWorkbook(workbookPath))
+            {
+                var firstSheet = wb.Worksheets
+                    .FirstOrDefault(w => !string.Equals(w.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                    ?? wb.Worksheets.FirstOrDefault();
+
+                if (firstSheet == null)
+                    return;
+
+                var resolved = new List<(IXLWorksheet Ws, ComposeDxEditableCell Field, string LocalA1)>();
+
+                foreach (var f in editableCells)
+                {
+                    if (string.IsNullOrWhiteSpace(f.A1))
+                        continue;
+
+                    var (sheetNameFromA1, localA1) = SplitSheetAndA1ForCompose(f.A1);
+                    var sheetName = !string.IsNullOrWhiteSpace(f.Sheet) ? f.Sheet : sheetNameFromA1;
+
+                    var ws = !string.IsNullOrWhiteSpace(sheetName)
+                        ? wb.Worksheets.FirstOrDefault(w => string.Equals(w.Name, sheetName, StringComparison.OrdinalIgnoreCase)) ?? firstSheet
+                        : firstSheet;
+
+                    if (ws == null || string.IsNullOrWhiteSpace(localA1))
+                        continue;
+
+                    resolved.Add((ws, f, localA1));
+                }
+
+                if (resolved.Count == 0)
+                    return;
+
+                // 시트별로 문서 범위는 기본 Lock으로 초기화한다.
+                // 이렇게 해야 기존 파일에서 임의로 Unlock 되어 있던 A1 같은 셀이 작성 화면에서 열리지 않는다.
+                foreach (var g in resolved.GroupBy(x => x.Ws.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var ws = wb.Worksheet(g.Key);
+                    try { if (ws.IsProtected) ws.Unprotect(); } catch { }
+
+                    var baseRange = ResolveComposeDxProtectionRange(ws, g.Select(x => x.LocalA1));
+                    if (baseRange != null)
                     {
-                        return cells[0].ValueKind == JsonValueKind.Array;
+                        baseRange.Style.Protection.Locked = true;
                     }
                 }
-                catch { }
-                return false;
+
+                foreach (var item in resolved)
+                {
+                    var ws = item.Ws;
+                    var f = item.Field;
+                    var localA1 = item.LocalA1;
+
+                    try
+                    {
+                        var range = ws.Range(localA1);
+                        var targetRange = range.FirstCell().IsMerged()
+                            ? range.FirstCell().MergedRange()
+                            : range;
+
+                        // 병합셀은 좌상단 1개만이 아니라 병합 범위 전체를 Unlock 해야 DX/Excel 양쪽에서 안전하다.
+                        targetRange.Style.Protection.Locked = false;
+                        targetRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#EAF6FF");
+                        targetRange.Style.Alignment.WrapText = false;
+
+                        if (string.Equals(f.Type, "Date", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var firstCell = targetRange.FirstCell();
+                            if (firstCell.IsEmpty())
+                                firstCell.Value = DateTime.Today;
+                            firstCell.Style.DateFormat.Format = GetExcelDateFormatByCulture(CultureInfo.CurrentUICulture);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                foreach (var sheetName in resolved.Select(x => x.Ws.Name).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var ws = wb.Worksheet(sheetName);
+                        if (ws.IsProtected)
+                        {
+                            try { ws.Unprotect(); } catch { }
+                        }
+
+                        ws.Protect(allowedElements:
+                            XLSheetProtectionElements.SelectLockedCells |
+                            XLSheetProtectionElements.SelectUnlockedCells);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                wb.SaveAs(tempPath);
+            }
+
+            if (System.IO.File.Exists(tempPath))
+            {
+                System.IO.File.Delete(workbookPath);
+                System.IO.File.Move(tempPath, workbookPath);
             }
         }
 
-        // 2026.04.06 Changed: ComposeDX 가시 범위 계산 후 마지막 셀에 행 열 1칸 보정값을 추가하여 Q40 인식 시 R41까지 포함되도록 임시 보정함
-        private static (int lastRow1, int lastCol1, int heightPx, int widthPx, string mode) ComputeVisualExtentPxForCompose(string excelAbsPath)
+        private static void TryRemoveWorksheetProtectionForCompose(string workbookPath)
         {
-            using var wb = new XLWorkbook(excelAbsPath);
-            var ws = wb.Worksheets.First();
+            if (string.IsNullOrWhiteSpace(workbookPath) || !System.IO.File.Exists(workbookPath))
+                return;
 
-            IXLRange? baseRange = null;
+            try
+            {
+                using var doc = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(workbookPath, true);
+                var wbPart = doc.WorkbookPart;
+                if (wbPart == null)
+                    return;
 
+                foreach (var wsPart in wbPart.WorksheetParts)
+                {
+                    var worksheet = wsPart.Worksheet;
+                    if (worksheet == null)
+                        continue;
+
+                    var protections = worksheet.Elements<DocumentFormat.OpenXml.Spreadsheet.SheetProtection>().ToList();
+                    foreach (var p in protections)
+                        p.Remove();
+
+                    worksheet.Save();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static IXLRange? ResolveComposeDxProtectionRange(IXLWorksheet ws, IEnumerable<string> editableLocalA1s)
+        {
+            int firstRow = int.MaxValue;
+            int firstCol = int.MaxValue;
+            int lastRow = 0;
+            int lastCol = 0;
+
+            void IncludeRange(IXLRange? r)
+            {
+                if (r == null) return;
+                var a = r.RangeAddress;
+                firstRow = Math.Min(firstRow, a.FirstAddress.RowNumber);
+                firstCol = Math.Min(firstCol, a.FirstAddress.ColumnNumber);
+                lastRow = Math.Max(lastRow, a.LastAddress.RowNumber);
+                lastCol = Math.Max(lastCol, a.LastAddress.ColumnNumber);
+            }
+
+            // 2026.06.12 Fixed: PrintArea가 있더라도 UsedRange를 함께 포함한다.
+            // PrintArea가 B1:Q40이면 A1 같은 UsedRange 영역이 잠금 초기화에서 빠질 수 있으므로 둘 다 포함한다.
             try
             {
                 var pas = ws.PageSetup.PrintAreas;
                 if (pas != null && pas.Any())
                 {
-                    baseRange = pas.First();
+                    foreach (var pa in pas)
+                        IncludeRange(pa);
                 }
             }
-            catch { }
-
-            if (baseRange == null)
+            catch
             {
-                baseRange = ws.RangeUsed(XLCellsUsedOptions.All);
             }
 
-            if (baseRange == null)
-            {
-                return (1, 1, 600, 800, "Empty");
-            }
-
-            var firstRow1 = baseRange.RangeAddress.FirstAddress.RowNumber;
-            var firstCol1 = baseRange.RangeAddress.FirstAddress.ColumnNumber;
-            var candLastRow = baseRange.RangeAddress.LastAddress.RowNumber;
-            var candLastCol = baseRange.RangeAddress.LastAddress.ColumnNumber;
-
-            var merged = ws.MergedRanges?.ToList() ?? new List<IXLRange>();
-            if (merged.Count > 0)
-            {
-                foreach (var mr in merged)
-                {
-                    var lr = mr.RangeAddress.LastAddress.RowNumber;
-                    var lc = mr.RangeAddress.LastAddress.ColumnNumber;
-                    if (lr > candLastRow) candLastRow = lr;
-                    if (lc > candLastCol) candLastCol = lc;
-                }
-            }
-
-            bool RowHasInk(int r)
-            {
-                for (int i = 0; i < merged.Count; i++)
-                {
-                    var a = merged[i].RangeAddress;
-                    if (a.FirstAddress.RowNumber <= r && r <= a.LastAddress.RowNumber) return true;
-                }
-
-                for (int c = firstCol1; c <= candLastCol; c++)
-                {
-                    var cell = ws.Cell(r, c);
-                    if (!cell.IsEmpty()) return true;
-                    if (cell.HasFormula) return true;
-                    if (HasAnyBorderForCompose(cell)) return true;
-                }
-                return false;
-            }
-
-            bool ColHasInk(int c)
-            {
-                for (int i = 0; i < merged.Count; i++)
-                {
-                    var a = merged[i].RangeAddress;
-                    if (a.FirstAddress.ColumnNumber <= c && c <= a.LastAddress.ColumnNumber) return true;
-                }
-
-                for (int r = firstRow1; r <= candLastRow; r++)
-                {
-                    var cell = ws.Cell(r, c);
-                    if (!cell.IsEmpty()) return true;
-                    if (cell.HasFormula) return true;
-                    if (HasAnyBorderForCompose(cell)) return true;
-                }
-                return false;
-            }
-
-            var lastRow1 = candLastRow;
-            for (int r = candLastRow; r >= firstRow1; r--)
-            {
-                if (RowHasInk(r))
-                {
-                    lastRow1 = r;
-                    break;
-                }
-            }
-
-            var lastCol1 = candLastCol;
-            for (int c = candLastCol; c >= firstCol1; c--)
-            {
-                if (ColHasInk(c))
-                {
-                    lastCol1 = c;
-                    break;
-                }
-            }
-
-            // 2026.04.06 Changed: 마지막 셀 인식 후 행 열 1칸씩 추가 보정
-            lastRow1 += 1;
-            lastCol1 += 1;
-
-            var openXmlColWidths = new Dictionary<int, double>();
-            var openXmlRowHeights = new Dictionary<int, double>();
-            var defaultColWidth = ws.ColumnWidth > 0 ? ws.ColumnWidth : 8.43;
-            var defaultRowHeightPt = ws.RowHeight > 0 ? ws.RowHeight : 15.0;
-            var hasOpenXmlMetrics = TryReadOpenXmlSheetMetricsForCompose(
-                excelAbsPath,
-                ws.Name,
-                openXmlColWidths,
-                openXmlRowHeights,
-                ref defaultColWidth,
-                ref defaultRowHeightPt);
-
-            int SumRowHeightsPx(int startRow1, int endRow1)
-            {
-                double sum = 0;
-                for (int r = startRow1; r <= endRow1; r++)
-                {
-                    double pt;
-                    if (hasOpenXmlMetrics && openXmlRowHeights.TryGetValue(r, out var oxPt) && oxPt > 0)
-                    {
-                        pt = oxPt;
-                    }
-                    else
-                    {
-                        var row = ws.Row(r);
-                        pt = row.Height;
-                        if (pt <= 0) pt = defaultRowHeightPt;
-                    }
-
-                    sum += (pt * 96.0 / 72.0);
-                }
-
-                sum += 12;
-                return (int)Math.Ceiling(sum);
-            }
-
-            int SumColWidthsPx(int startCol1, int endCol1)
-            {
-                double sum = 0;
-                for (int c = startCol1; c <= endCol1; c++)
-                {
-                    double w;
-                    if (hasOpenXmlMetrics && openXmlColWidths.TryGetValue(c, out var oxW) && oxW > 0)
-                    {
-                        w = oxW;
-                    }
-                    else
-                    {
-                        var col = ws.Column(c);
-                        w = col.Width;
-                        if (w <= 0) w = defaultColWidth;
-                    }
-
-                    sum += ExcelColumnWidthToPixelsForCompose(w);
-                }
-
-                sum += 12;
-                return (int)Math.Ceiling(sum);
-            }
-
-            var heightPx = SumRowHeightsPx(firstRow1, lastRow1);
-            var widthPx = SumColWidthsPx(firstCol1, lastCol1);
-
-            var mode = (ws.PageSetup.PrintAreas != null && ws.PageSetup.PrintAreas.Any())
-                ? "PrintArea+VisualTrim"
-                : "RangeUsed(All)+VisualTrim";
-
-            if (hasOpenXmlMetrics)
-            {
-                mode += "+OpenXmlMetrics";
-            }
-
-            return (lastRow1, lastCol1, heightPx, widthPx, mode);
-        }
-
-        private static bool TryReadOpenXmlSheetMetricsForCompose(
-            string excelAbsPath,
-            string sheetName,
-            Dictionary<int, double> openXmlColWidths,
-            Dictionary<int, double> openXmlRowHeights,
-            ref double defaultColWidth,
-            ref double defaultRowHeightPt)
-        {
             try
             {
-                using var doc = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(excelAbsPath, false);
-                var wbPart = doc.WorkbookPart;
-                if (wbPart?.Workbook == null) return false;
+                IncludeRange(ws.RangeUsed(XLCellsUsedOptions.All));
+            }
+            catch
+            {
+            }
 
-                var sheets = wbPart.Workbook.Sheets?.Elements<DocumentFormat.OpenXml.Spreadsheet.Sheet>()?.ToList();
-                if (sheets == null || sheets.Count == 0) return false;
+            foreach (var a1 in editableLocalA1s ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(a1))
+                    continue;
 
-                var sheet = sheets.FirstOrDefault(x =>
-                    string.Equals(x.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase))
-                    ?? sheets.First();
+                try
+                {
+                    var r = ws.Range(a1);
+                    var effective = r.FirstCell().IsMerged()
+                        ? r.FirstCell().MergedRange()
+                        : r;
+                    IncludeRange(effective);
+                }
+                catch
+                {
+                }
+            }
 
-                if (sheet.Id == null) return false;
+            if (firstRow == int.MaxValue || firstCol == int.MaxValue || lastRow <= 0 || lastCol <= 0)
+                return null;
 
-                var relId = sheet.Id?.Value;
-                if (string.IsNullOrWhiteSpace(relId))
-                    return false;
+            firstRow = Math.Max(1, firstRow);
+            firstCol = Math.Max(1, firstCol);
+            lastRow = Math.Max(firstRow, lastRow);
+            lastCol = Math.Max(firstCol, lastCol);
 
-                var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(relId);
+            return ws.Range(firstRow, firstCol, lastRow, lastCol);
+        }
+
+        private static List<ComposeDxEditableCell> ParseComposeDxEditableCells(string? descriptorJson)
+        {
+            var result = new List<ComposeDxEditableCell>();
+            if (string.IsNullOrWhiteSpace(descriptorJson))
+                return result;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(descriptorJson);
+                var root = doc.RootElement;
+
+                if (TryGetJsonArrayProperty(root, out var inputs, "inputs", "Inputs"))
+                {
+                    foreach (var item in inputs.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        var key = GetJsonStringProperty(item, "key", "Key") ?? string.Empty;
+                        var type = GetJsonStringProperty(item, "type", "Type") ?? "Text";
+                        var a1 = GetJsonStringProperty(item, "a1", "A1", "cellA1", "CellA1") ?? string.Empty;
+                        var sheet = GetJsonStringProperty(item, "sheet", "Sheet") ?? string.Empty;
+
+                        if (!string.IsNullOrWhiteSpace(a1))
+                        {
+                            result.Add(new ComposeDxEditableCell
+                            {
+                                Sheet = sheet.Trim(),
+                                Key = key.Trim(),
+                                Type = NormalizeComposeDxFieldType(type),
+                                A1 = a1.Trim()
+                            });
+                        }
+                    }
+                }
+
+                if (TryGetJsonArrayProperty(root, out var fields, "Fields", "fields"))
+                {
+                    foreach (var item in fields.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        var key = GetJsonStringProperty(item, "Key", "key") ?? string.Empty;
+                        var type = GetJsonStringProperty(item, "Type", "type") ?? "Text";
+                        var a1 = GetJsonStringProperty(item, "A1", "a1", "CellA1", "cellA1") ?? string.Empty;
+                        var sheet = GetJsonStringProperty(item, "Sheet", "sheet") ?? string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(a1) && TryGetJsonObjectProperty(item, out var cell, "Cell", "cell"))
+                        {
+                            a1 = GetJsonStringProperty(cell, "A1", "a1", "CellA1", "cellA1") ?? string.Empty;
+                            sheet = GetJsonStringProperty(cell, "Sheet", "sheet") ?? sheet;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(a1))
+                        {
+                            result.Add(new ComposeDxEditableCell
+                            {
+                                Sheet = (sheet ?? string.Empty).Trim(),
+                                Key = key.Trim(),
+                                Type = NormalizeComposeDxFieldType(type),
+                                A1 = a1.Trim()
+                            });
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return result
+                .Where(x => !string.IsNullOrWhiteSpace(x.A1))
+                .GroupBy(x => ((x.Sheet ?? string.Empty).Trim() + "!" + NormalizeA1ForComposeDxCell(x.A1)), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.Last())
+                .ToList();
+        }
+
+        private static bool TryGetJsonArrayProperty(JsonElement obj, out JsonElement value, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (obj.TryGetProperty(name, out value) && value.ValueKind == JsonValueKind.Array)
+                    return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        private static bool TryGetJsonObjectProperty(JsonElement obj, out JsonElement value, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (obj.TryGetProperty(name, out value) && value.ValueKind == JsonValueKind.Object)
+                    return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        private static string? GetJsonStringProperty(JsonElement obj, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (!obj.TryGetProperty(name, out var value))
+                    continue;
+
+                if (value.ValueKind == JsonValueKind.String)
+                    return value.GetString();
+
+                if (value.ValueKind == JsonValueKind.Number || value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+                    return value.ToString();
+            }
+
+            return null;
+        }
+
+        private static string NormalizeComposeDxFieldType(string? type)
+        {
+            var s = (type ?? string.Empty).Trim().ToLowerInvariant();
+            if (s.StartsWith("date")) return "Date";
+            if (s.StartsWith("num") || s.Contains("number") || s.Contains("decimal") || s.Contains("integer")) return "Num";
+            return "Text";
+        }
+
+        private static (string sheetName, string localA1) SplitSheetAndA1ForCompose(string? a1)
+        {
+            var s = (a1 ?? string.Empty).Trim().Replace("$", string.Empty).Replace("'", string.Empty);
+            if (string.IsNullOrWhiteSpace(s))
+                return (string.Empty, string.Empty);
+
+            var bang = s.LastIndexOf('!');
+            if (bang >= 0)
+                return (s[..bang].Trim(), s[(bang + 1)..].Trim());
+
+            return (string.Empty, s);
+        }
+
+        private static string NormalizeA1ForComposeDxCell(string? a1)
+        {
+            var (_, localA1) = SplitSheetAndA1ForCompose(a1);
+            return (localA1 ?? string.Empty).Trim().ToUpperInvariant();
+        }
+
+        private static string ComposeDxA1FromRowCol(int row, int col)
+        {
+            if (row < 1 || col < 1)
+                return string.Empty;
+
+            var letters = string.Empty;
+            var n = col;
+            while (n > 0)
+            {
+                var r = (n - 1) % 26;
+                letters = (char)('A' + r) + letters;
+                n = (n - 1) / 26;
+            }
+
+            return letters + row.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static void HideComposeDxWorkbookGridLines(string workbookPath)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !System.IO.File.Exists(workbookPath))
+                return;
+
+            using var doc = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(workbookPath, true);
+            var wbPart = doc.WorkbookPart;
+            if (wbPart == null)
+                return;
+
+            foreach (var wsPart in wbPart.WorksheetParts)
+            {
                 var worksheet = wsPart.Worksheet;
-                if (worksheet == null) return false;
-                //var wsPart = (DocumentFormat.OpenXml.Packaging.WorksheetPart)wbPart.GetPartById(sheet.Id);
-                //var worksheet = wsPart.Worksheet;
-                //if (worksheet == null) return false;
+                if (worksheet == null)
+                    continue;
 
-                var sfp = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetFormatProperties>();
-                if (sfp?.DefaultColumnWidth?.Value != null && sfp.DefaultColumnWidth.Value > 0)
+                var sheetViews = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetViews>();
+                if (sheetViews == null)
                 {
-                    defaultColWidth = sfp.DefaultColumnWidth.Value;
+                    sheetViews = new DocumentFormat.OpenXml.Spreadsheet.SheetViews();
+                    worksheet.InsertAt(sheetViews, 0);
                 }
 
-                if (sfp?.DefaultRowHeight?.Value != null && sfp.DefaultRowHeight.Value > 0)
+                var sheetView = sheetViews.Elements<DocumentFormat.OpenXml.Spreadsheet.SheetView>().FirstOrDefault();
+                if (sheetView == null)
                 {
-                    defaultRowHeightPt = sfp.DefaultRowHeight.Value;
-                }
-
-                foreach (var cols in worksheet.Elements<DocumentFormat.OpenXml.Spreadsheet.Columns>())
-                {
-                    foreach (var col in cols.Elements<DocumentFormat.OpenXml.Spreadsheet.Column>())
+                    sheetView = new DocumentFormat.OpenXml.Spreadsheet.SheetView
                     {
-                        var min = (int)(col.Min?.Value ?? 0U);
-                        var max = (int)(col.Max?.Value ?? 0U);
-                        var width = col.Width?.Value;
-
-                        if (min <= 0 || max <= 0 || width == null || width.Value <= 0) continue;
-
-                        for (int i = min; i <= max; i++)
-                        {
-                            openXmlColWidths[i] = width.Value;
-                        }
-                    }
+                        WorkbookViewId = 0U
+                    };
+                    sheetViews.Append(sheetView);
                 }
 
-                var sheetData = worksheet.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetData>();
-                if (sheetData != null)
-                {
-                    foreach (var row in sheetData.Elements<DocumentFormat.OpenXml.Spreadsheet.Row>())
-                    {
-                        var rowIndex = (int)(row.RowIndex?.Value ?? 0U);
-                        if (rowIndex <= 0) continue;
-
-                        if (row.Height?.Value != null && row.Height.Value > 0)
-                        {
-                            openXmlRowHeights[rowIndex] = row.Height.Value;
-                        }
-                    }
-                }
-
-                return openXmlColWidths.Count > 0 || openXmlRowHeights.Count > 0;
-            }
-            catch
-            {
-                return false;
+                sheetView.ShowGridLines = false;
+                worksheet.Save();
             }
         }
 
-        private static bool HasAnyBorderForCompose(IXLCell cell)
+        private async Task<ComposeTemplateVisualMetrics> LoadComposeTemplateVisualMetricsAsync(long versionId, string? templateCode)
         {
+            var result = new ComposeTemplateVisualMetrics();
+            var cs = _cfg.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(cs))
+                return result;
+
+            static void FillMetrics(System.Data.Common.DbDataReader rd, ComposeTemplateVisualMetrics target)
+            {
+                target.VisualWidthPx = rd["VisualWidthPx"] == DBNull.Value ? null : Convert.ToInt32(rd["VisualWidthPx"], CultureInfo.InvariantCulture);
+                target.VisualHeightPx = rd["VisualHeightPx"] == DBNull.Value ? null : Convert.ToInt32(rd["VisualHeightPx"], CultureInfo.InvariantCulture);
+                target.VisualSource = rd["VisualSource"] as string;
+                target.VisualRangeA1 = rd["VisualRangeA1"] as string;
+                target.VisualMetricRuleCode = rd["VisualMetricRuleCode"] as string;
+            }
+
             try
             {
-                var b = cell.Style.Border;
-                return b.LeftBorder != XLBorderStyleValues.None
-                    || b.RightBorder != XLBorderStyleValues.None
-                    || b.TopBorder != XLBorderStyleValues.None
-                    || b.BottomBorder != XLBorderStyleValues.None;
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                if (versionId > 0)
+                {
+                    await using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = @"
+SELECT TOP (1)
+       VisualWidthPx,
+       VisualHeightPx,
+       VisualSource,
+       VisualRangeA1,
+       VisualMetricRuleCode
+FROM dbo.DocTemplateVersion
+WHERE Id = @VersionId;";
+                        cmd.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = versionId });
+
+                        await using var rd = await cmd.ExecuteReaderAsync();
+                        if (await rd.ReadAsync())
+                        {
+                            FillMetrics(rd, result);
+                            return result;
+                        }
+                    }
+                }
+
+                var code = (templateCode ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(code))
+                    return result;
+
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+SELECT TOP (1)
+       v.VisualWidthPx,
+       v.VisualHeightPx,
+       v.VisualSource,
+       v.VisualRangeA1,
+       v.VisualMetricRuleCode
+FROM dbo.DocTemplateMaster m
+JOIN dbo.DocTemplateVersion v ON v.TemplateId = m.Id
+WHERE m.DocCode = @DocCode
+ORDER BY v.VersionNo DESC, v.Id DESC;";
+                    cmd.Parameters.Add(new SqlParameter("@DocCode", SqlDbType.NVarChar, 100) { Value = code });
+
+                    await using var rd = await cmd.ExecuteReaderAsync();
+                    if (await rd.ReadAsync())
+                        FillMetrics(rd, result);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "COMPOSEDX-PERF visual metrics direct query failed templateCode={TemplateCode} versionId={VersionId}", templateCode ?? string.Empty, versionId);
+            }
+
+            return result;
+        }
+
+        private async Task<List<ComposeDxEditableCell>> LoadComposeEditableCellsAsync(long versionId)
+        {
+            var result = new List<ComposeDxEditableCell>();
+            if (versionId <= 0)
+                return result;
+
+            var cs = _cfg.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(cs))
+                return result;
+
+            try
+            {
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT [Key], [Type], Sheet, A1, CellA1, CellRow, CellColumn
+FROM dbo.DocTemplateField
+WHERE VersionId = @VersionId
+ORDER BY Id;";
+                cmd.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = versionId });
+
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var key = rd["Key"] as string ?? string.Empty;
+                    var type = NormalizeComposeDxFieldType(rd["Type"] as string);
+                    var sheet = rd["Sheet"] as string ?? string.Empty;
+                    var a1 = rd["A1"] as string ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(a1))
+                        a1 = rd["CellA1"] as string ?? string.Empty;
+
+                    if (string.IsNullOrWhiteSpace(a1))
+                    {
+                        var row = rd["CellRow"] == DBNull.Value ? 0 : Convert.ToInt32(rd["CellRow"], CultureInfo.InvariantCulture);
+                        var col = rd["CellColumn"] == DBNull.Value ? 0 : Convert.ToInt32(rd["CellColumn"], CultureInfo.InvariantCulture);
+                        if (row > 0 && col > 0)
+                            a1 = ComposeDxA1FromRowCol(row, col);
+                    }
+
+                    if (string.IsNullOrWhiteSpace(a1))
+                        continue;
+
+                    result.Add(new ComposeDxEditableCell
+                    {
+                        Sheet = sheet.Trim(),
+                        Key = key.Trim(),
+                        Type = type,
+                        A1 = a1.Trim()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "COMPOSEDX-PERF editable cells direct query failed versionId={VersionId}", versionId);
+            }
+
+            return result
+                .Where(x => !string.IsNullOrWhiteSpace(x.A1))
+                .GroupBy(x => ((x.Sheet ?? string.Empty).Trim() + "!" + NormalizeA1ForComposeDxCell(x.A1)), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.Last())
+                .ToList();
+        }
+
+        private static string UpsertComposeInputsIntoDescriptorJson(string? descriptorJson, IReadOnlyList<ComposeDxEditableCell> editableCells)
+        {
+            if (editableCells == null || editableCells.Count == 0)
+                return string.IsNullOrWhiteSpace(descriptorJson) ? "{}" : descriptorJson!;
+
+            try
+            {
+                var root = System.Text.Json.Nodes.JsonNode.Parse(string.IsNullOrWhiteSpace(descriptorJson) ? "{}" : descriptorJson) as System.Text.Json.Nodes.JsonObject
+                    ?? new System.Text.Json.Nodes.JsonObject();
+
+                var inputs = new System.Text.Json.Nodes.JsonArray();
+                foreach (var f in editableCells)
+                {
+                    var obj = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["key"] = f.Key ?? string.Empty,
+                        ["type"] = NormalizeComposeDxFieldType(f.Type),
+                        ["required"] = false,
+                        ["a1"] = f.A1 ?? string.Empty
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(f.Sheet))
+                        obj["sheet"] = f.Sheet;
+
+                    inputs.Add(obj);
+                }
+
+                root["inputs"] = inputs;
+
+                // 혼선을 막기 위해 좌표 없는 legacy Fields는 작성 화면용 descriptor에서 제거한다.
+                root.Remove("Fields");
+                root.Remove("fields");
+
+                return root.ToJsonString(new JsonSerializerOptions
+                {
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    WriteIndented = false
+                });
             }
             catch
             {
+                return string.IsNullOrWhiteSpace(descriptorJson) ? "{}" : descriptorJson!;
+            }
+        }
+
+        private static string SanitizeComposeDxFilePart(string? value)
+        {
+            var s = string.IsNullOrWhiteSpace(value) ? "template" : value.Trim();
+            foreach (var ch in Path.GetInvalidFileNameChars())
+                s = s.Replace(ch, '_');
+
+            s = Regex.Replace(s, @"[^a-zA-Z0-9_\-.]", "_");
+            if (s.Length > 80) s = s[..80];
+            return string.IsNullOrWhiteSpace(s) ? "template" : s;
+        }
+
+        private static bool TryGetLastCellFromRangeA1(string? rangeA1, out string lastA1, out int lastRow1, out int lastCol1)
+        {
+            lastA1 = "A1";
+            lastRow1 = 1;
+            lastCol1 = 1;
+
+            var s = (rangeA1 ?? string.Empty).Trim().Replace("$", string.Empty).Replace("'", string.Empty);
+            if (string.IsNullOrWhiteSpace(s))
                 return false;
-            }
-        }
 
-        //private static double ExcelColumnWidthToPixelsForCompose(double excelWidth)
-        //{
-        //    if (excelWidth <= 0) return 0;
-        //    var px = Math.Truncate(((256.0 * excelWidth + Math.Truncate(128.0 / 7.0)) / 256.0) * 7.0);
-        //    if (px < 1) px = 1;
-        //    return px;
-        //}
-        private static double ExcelColumnWidthToPixelsForCompose(double excelWidth)
-        {
-            if (excelWidth <= 0) return 0;
+            var bang = s.LastIndexOf('!');
+            if (bang >= 0)
+                s = s[(bang + 1)..];
 
-            var px = Math.Round(excelWidth * 7.0 + 5.0, MidpointRounding.AwayFromZero);
-            if (px < 1) px = 1;
+            var parts = s.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var target = parts.Length >= 2 ? parts[^1] : parts[0];
 
-            return px;
-        }
+            var m = Regex.Match(target, @"^([A-Z]{1,3})(\d{1,7})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!m.Success)
+                return false;
 
-        private static string ToA1ForCompose(int row1, int col1)
-        {
-            string ColLetter(int col)
-            {
-                var s = "";
-                var n = col;
-                while (n > 0)
-                {
-                    int mod = (n - 1) % 26;
-                    s = ((char)('A' + mod)) + s;
-                    n = (n - 1) / 26;
-                }
-                return s;
-            }
+            var colText = m.Groups[1].Value.ToUpperInvariant();
+            var col = 0;
+            foreach (var ch in colText)
+                col = (col * 26) + (ch - 'A' + 1);
 
-            return ColLetter(col1) + row1.ToString(CultureInfo.InvariantCulture);
+            if (!int.TryParse(m.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var row) || row <= 0 || col <= 0)
+                return false;
+
+            lastRow1 = row;
+            lastCol1 = col;
+            lastA1 = colText + row.ToString(CultureInfo.InvariantCulture);
+            return true;
         }
 
         [HttpPost("DeleteDxTemp")]
@@ -524,8 +1046,10 @@ namespace WebApplication1.Controllers
                     return Json(new { ok = true, detail = "dir not found" });
 
                 // dxDocumentId가 포함된 파일만 삭제 (다른 사용자 파일 건드리지 않음)
-                var pattern = $"*_{request.DxDocumentId}.xlsx";
-                var files = Directory.GetFiles(dir, pattern);
+                var files = Directory.GetFiles(dir, $"*_{request.DxDocumentId}.*")
+                    .Where(f => string.Equals(Path.GetExtension(f), ".xlsx", StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(Path.GetExtension(f), ".xlsm", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
 
                 foreach (var file in files)
                 {
@@ -550,7 +1074,250 @@ namespace WebApplication1.Controllers
         [HttpPost("dx-callback")]
         public IActionResult DxCallback()
         {
-            return SpreadsheetRequestProcessor.GetResponse(HttpContext);
+            // 2026.06.10 Changed: DevExpress Spreadsheet callback 지연 원인 분리를 위한 계측 강화.
+            // Request.Form / ReadFormAsync는 DevExpress 내부 처리에 영향을 줄 수 있으므로 여기서는 읽지 않는다.
+            var totalSw = System.Diagnostics.Stopwatch.StartNew();
+            var processorSw = new System.Diagnostics.Stopwatch();
+            var req = HttpContext.Request;
+            var traceId = HttpContext.TraceIdentifier ?? string.Empty;
+            var callbackId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            var method = req.Method;
+            var path = req.Path.Value ?? string.Empty;
+            var query = req.QueryString.Value ?? string.Empty;
+            var dxwsid = req.Query["dxwsid"].ToString();
+            var contentLength = req.ContentLength;
+            var contentType = req.ContentType ?? string.Empty;
+            var hasFormContentType = req.HasFormContentType;
+            var referer = req.Headers["Referer"].ToString();
+            var userAgent = req.Headers["User-Agent"].ToString();
+
+            HttpContext.Response.OnStarting(() =>
+            {
+                try
+                {
+                    var timing = $"dx-callback-total;dur={totalSw.Elapsed.TotalMilliseconds:0.##}";
+                    var existing = HttpContext.Response.Headers["Server-Timing"].ToString();
+                    HttpContext.Response.Headers["Server-Timing"] = string.IsNullOrWhiteSpace(existing)
+                        ? timing
+                        : existing + ", " + timing;
+                }
+                catch
+                {
+                }
+
+                return Task.CompletedTask;
+            });
+
+            _log.LogInformation(
+                "DX-CALLBACK start id={CallbackId} traceId={TraceId} method={Method} path={Path} query={Query} dxwsid={Dxwsid} contentLength={ContentLength} contentType={ContentType} hasFormContentType={HasFormContentType} referer={Referer} userAgent={UserAgent}",
+                callbackId,
+                traceId,
+                method,
+                path,
+                query,
+                dxwsid,
+                contentLength,
+                contentType,
+                hasFormContentType,
+                referer,
+                userAgent
+            );
+
+            try
+            {
+                _log.LogInformation(
+                    "DX-CALLBACK before-getresponse id={CallbackId} elapsedMs={ElapsedMs} dxwsid={Dxwsid}",
+                    callbackId,
+                    totalSw.Elapsed.TotalMilliseconds,
+                    dxwsid
+                );
+
+                processorSw.Start();
+                var result = SpreadsheetRequestProcessor.GetResponse(HttpContext);
+                processorSw.Stop();
+
+                _log.LogInformation(
+                    "DX-CALLBACK after-getresponse id={CallbackId} processorMs={ProcessorMs} totalMs={TotalMs} resultType={ResultType} dxwsid={Dxwsid}",
+                    callbackId,
+                    processorSw.Elapsed.TotalMilliseconds,
+                    totalSw.Elapsed.TotalMilliseconds,
+                    result?.GetType().FullName ?? string.Empty,
+                    dxwsid
+                );
+
+                return new DxCallbackTimedActionResult(
+                    result,
+                    _log,
+                    callbackId,
+                    traceId,
+                    method,
+                    path,
+                    query,
+                    dxwsid,
+                    processorSw.Elapsed.TotalMilliseconds,
+                    totalSw
+                );
+            }
+            catch (Microsoft.AspNetCore.Http.BadHttpRequestException ex) when ((ex.Message ?? string.Empty).IndexOf("Unexpected end of request content", StringComparison.OrdinalIgnoreCase) >= 0 || HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                // 2026.06.15 Changed: ASP.NET Core 8에서 이동된 BadHttpRequestException 네임스페이스로 변경한다.
+                // 브라우저 이동/새로고침/탭 닫기 등으로 DevExpress Spreadsheet callback 본문이
+                // 중간에 끊긴 경우 사용자가 취소한 요청으로 보고 499로 종료한다.
+                if (processorSw.IsRunning) processorSw.Stop();
+                totalSw.Stop();
+
+                _log.LogInformation(
+                    ex,
+                    "DX-CALLBACK aborted id={CallbackId} processorMs={ProcessorMs} totalMs={TotalMs} method={Method} path={Path} query={Query} dxwsid={Dxwsid} reason=UnexpectedEndOfRequestContent",
+                    callbackId,
+                    processorSw.Elapsed.TotalMilliseconds,
+                    totalSw.Elapsed.TotalMilliseconds,
+                    method,
+                    path,
+                    query,
+                    dxwsid
+                );
+
+                return StatusCode(499);
+            }
+
+            catch (OperationCanceledException ex) when (HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                // 2026.06.11 Changed: 클라이언트가 callback 요청을 취소한 경우 정상 종료 처리.
+                if (processorSw.IsRunning) processorSw.Stop();
+                totalSw.Stop();
+
+                _log.LogInformation(
+                    ex,
+                    "DX-CALLBACK aborted id={CallbackId} processorMs={ProcessorMs} totalMs={TotalMs} method={Method} path={Path} query={Query} dxwsid={Dxwsid} reason=RequestAborted",
+                    callbackId,
+                    processorSw.Elapsed.TotalMilliseconds,
+                    totalSw.Elapsed.TotalMilliseconds,
+                    method,
+                    path,
+                    query,
+                    dxwsid
+                );
+
+                return StatusCode(499);
+            }
+            catch (Exception ex)
+            {
+                if (processorSw.IsRunning) processorSw.Stop();
+                totalSw.Stop();
+
+                _log.LogError(
+                    ex,
+                    "DX-CALLBACK failed id={CallbackId} processorMs={ProcessorMs} totalMs={TotalMs} method={Method} path={Path} query={Query} dxwsid={Dxwsid}",
+                    callbackId,
+                    processorSw.Elapsed.TotalMilliseconds,
+                    totalSw.Elapsed.TotalMilliseconds,
+                    method,
+                    path,
+                    query,
+                    dxwsid
+                );
+
+                throw;
+            }
+        }
+
+        private sealed class DxCallbackTimedActionResult : IActionResult
+        {
+            private readonly IActionResult? _inner;
+            private readonly ILogger _log;
+            private readonly string _callbackId;
+            private readonly string _traceId;
+            private readonly string _method;
+            private readonly string _path;
+            private readonly string _query;
+            private readonly string _dxwsid;
+            private readonly double _processorMs;
+            private readonly System.Diagnostics.Stopwatch _totalSw;
+
+            public DxCallbackTimedActionResult(
+                IActionResult? inner,
+                ILogger log,
+                string callbackId,
+                string traceId,
+                string method,
+                string path,
+                string query,
+                string dxwsid,
+                double processorMs,
+                System.Diagnostics.Stopwatch totalSw)
+            {
+                _inner = inner;
+                _log = log;
+                _callbackId = callbackId;
+                _traceId = traceId;
+                _method = method;
+                _path = path;
+                _query = query;
+                _dxwsid = dxwsid;
+                _processorMs = processorMs;
+                _totalSw = totalSw;
+            }
+
+            public async Task ExecuteResultAsync(ActionContext context)
+            {
+                var executeSw = System.Diagnostics.Stopwatch.StartNew();
+
+                _log.LogInformation(
+                    "DX-CALLBACK before-execute id={CallbackId} traceId={TraceId} elapsedMs={ElapsedMs} processorMs={ProcessorMs} dxwsid={Dxwsid}",
+                    _callbackId,
+                    _traceId,
+                    _totalSw.Elapsed.TotalMilliseconds,
+                    _processorMs,
+                    _dxwsid
+                );
+
+                try
+                {
+                    if (_inner == null)
+                        throw new InvalidOperationException("SpreadsheetRequestProcessor.GetResponse returned null IActionResult.");
+
+                    await _inner.ExecuteResultAsync(context);
+                    executeSw.Stop();
+                    _totalSw.Stop();
+
+                    _log.LogInformation(
+                        "DX-CALLBACK after-execute id={CallbackId} traceId={TraceId} executeMs={ExecuteMs} processorMs={ProcessorMs} totalMs={TotalMs} statusCode={StatusCode} method={Method} path={Path} query={Query} dxwsid={Dxwsid}",
+                        _callbackId,
+                        _traceId,
+                        executeSw.Elapsed.TotalMilliseconds,
+                        _processorMs,
+                        _totalSw.Elapsed.TotalMilliseconds,
+                        context.HttpContext.Response.StatusCode,
+                        _method,
+                        _path,
+                        _query,
+                        _dxwsid
+                    );
+                }
+                catch (Exception ex)
+                {
+                    executeSw.Stop();
+                    _totalSw.Stop();
+
+                    _log.LogError(
+                        ex,
+                        "DX-CALLBACK execute-failed id={CallbackId} traceId={TraceId} executeMs={ExecuteMs} processorMs={ProcessorMs} totalMs={TotalMs} statusCode={StatusCode} method={Method} path={Path} query={Query} dxwsid={Dxwsid}",
+                        _callbackId,
+                        _traceId,
+                        executeSw.Elapsed.TotalMilliseconds,
+                        _processorMs,
+                        _totalSw.Elapsed.TotalMilliseconds,
+                        context.HttpContext.Response.StatusCode,
+                        _method,
+                        _path,
+                        _query,
+                        _dxwsid
+                    );
+
+                    throw;
+                }
+            }
         }
 
         [HttpPost("BatchEditDX")]
@@ -645,99 +1412,6 @@ namespace WebApplication1.Controllers
             return $"{m.Groups[1].Value}{int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)}";
         }
 
-        private sealed class ComposeDxEditableField
-        {
-            public string Key { get; set; } = string.Empty;
-            public string Type { get; set; } = "Text";
-            public string A1 { get; set; } = string.Empty;
-        }
-
-        // 2026.04.06 Changed: DX 작성용 임시 워크북에서 기본 격자선을 숨겨 문서 서식 외 빈 셀 격자가 노출되지 않도록 보정함
-        // 2026.04.06 Changed: ClosedXML에서 지원되지 않는 SheetView.ShowGridLines 대신 OpenXml로 시트 표시 격자선 숨김 플래그를 저장 후 직접 설정함
-        private async Task<string> BuildComposeDxEditableWorkbookAsync(string templateCode, string sourceExcelFullPath, string descriptorJson, string dxDocumentId)
-        {
-            var outRoot = Path.Combine(_env.ContentRootPath, "App_Data", "DocDxCompose");
-            Directory.CreateDirectory(outRoot);
-            var outPath = Path.Combine(outRoot,
-                $"{templateCode}_{DateTime.Now:yyyyMMddHHmmssfff}_{dxDocumentId}.xlsx");
-            System.IO.File.Copy(sourceExcelFullPath, outPath, true);
-            var editableFields = ParseEditableFields(descriptorJson);
-            var tempPath = outPath + "_tmp.xlsx";
-            var targetSheetName = string.Empty;
-
-            try
-            {
-                using (var wb = new XLWorkbook(outPath))
-                {
-                    var ws = wb.Worksheets.FirstOrDefault();
-                    if (ws != null)
-                    {
-                        targetSheetName = ws.Name;
-
-                        if (ws.IsProtected) ws.Unprotect();
-
-                        ws.Cells().Style.Protection.Locked = true;
-
-                        foreach (var f in editableFields)
-                        {
-                            if (string.IsNullOrWhiteSpace(f.A1)) continue;
-
-                            try
-                            {
-                                var cell = ws.Cell(f.A1);
-                                var targetCell = cell.IsMerged()
-                                    ? cell.MergedRange().FirstCell()
-                                    : cell;
-
-                                targetCell.Style.Protection.Locked = false;
-                                targetCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#EAF6FF");
-                                targetCell.Style.Alignment.WrapText = false;
-
-                                if (string.Equals(f.Type, "Date", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    try
-                                    {
-                                        var fmt = GetExcelDateFormatByCulture(CultureInfo.CurrentUICulture);
-                                        targetCell.Value = DateTime.Today;
-                                        targetCell.Style.DateFormat.Format = fmt;
-                                    }
-                                    catch { }
-                                }
-                            }
-                            catch { }
-                        }
-
-                        ws.Protect(allowedElements:
-                            XLSheetProtectionElements.SelectLockedCells |
-                            XLSheetProtectionElements.SelectUnlockedCells);
-
-                        wb.SaveAs(tempPath);
-                    }
-                }
-
-                if (System.IO.File.Exists(tempPath))
-                {
-                    // 2026.04.06 Changed: 문서 서식 외 빈 셀에 표시되는 기본 엑셀 격자선을 OpenXml로 숨김
-                    HideComposeDxSheetGridLines(tempPath, targetSheetName);
-
-                    System.IO.File.Delete(outPath);
-                    System.IO.File.Move(tempPath, outPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "BuildComposeDx failed tc={tc}", templateCode);
-                if (System.IO.File.Exists(tempPath))
-                {
-                    try { System.IO.File.Delete(tempPath); } catch { }
-                }
-            }
-
-            await Task.CompletedTask;
-            return outPath;
-        }
-
-        // 2026.04.06 Added: OpenXml 시트 표시 옵션에 ShowGridLines false 를 기록하여 DX 렌더 시 빈 영역 격자 노출을 줄임
         private static void HideComposeDxSheetGridLines(string workbookPath, string sheetName)
         {
             using var doc = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(workbookPath, true);
@@ -776,36 +1450,6 @@ namespace WebApplication1.Controllers
 
             sheetView.ShowGridLines = false;
             worksheet.Save();
-        }
-
-        private static List<ComposeDxEditableField> ParseEditableFields(string descriptorJson)
-        {
-            var list = new List<ComposeDxEditableField>();
-            if (string.IsNullOrWhiteSpace(descriptorJson)) return list;
-            try
-            {
-                using var doc = JsonDocument.Parse(descriptorJson);
-                var root = doc.RootElement;
-                if (!root.TryGetProperty("inputs", out var inputs) || inputs.ValueKind != JsonValueKind.Array)
-                    return list;
-                foreach (var item in inputs.EnumerateArray())
-                {
-                    var key = item.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String
-                        ? (k.GetString() ?? string.Empty).Trim() : string.Empty;
-                    var type = item.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
-                        ? (t.GetString() ?? "Text").Trim() : "Text";
-                    var a1 = item.TryGetProperty("a1", out var a) && a.ValueKind == JsonValueKind.String
-                        ? (a.GetString() ?? string.Empty).Trim().ToUpperInvariant() : string.Empty;
-                    if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(a1)) continue;
-                    list.Add(new ComposeDxEditableField { Key = key, Type = type, A1 = a1 });
-                }
-            }
-            catch { return new List<ComposeDxEditableField>(); }
-
-            return list
-                .GroupBy(x => $"{x.Key}||{x.A1}", StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .ToList();
         }
 
         private static string ResolveApproverValueToEmail(SqlConnection conn, string value)
@@ -960,6 +1604,10 @@ ORDER BY v.VersionNo DESC;", conn);
 
             var filledPreviewJson = BuildPreviewJsonFromExcel(tempExcelFullPath);
             var normalizedDesc = BuildDescriptorJsonWithFlowGroups(tc, descriptorJson);
+
+            // 2026.06.18 Added: 기안자 예약값 문서 생성 시점 치환 Contents 공용 템플릿의 기안자 예약값을 현재 작성자 UserId로 확정
+            var currentUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+            normalizedDesc = ReplaceDrafterApproverValuesInJson(normalizedDesc, currentUserId);
 
             List<string> toEmails;
             List<string> diag;
@@ -1144,7 +1792,7 @@ ORDER BY v.VersionNo DESC;", conn);
                 var pair = await SaveDocumentWithCollisionGuardAsync(
                     docId, tc, string.IsNullOrWhiteSpace(title) ? tc : title!, "PendingA1",
                     outputPathForDb, inputsMap, approvalsJson, cooperationsJson, normalizedDesc,
-                    User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+                    currentUserId,
                     User?.Identity?.Name ?? string.Empty, compCd, deptIdPart);
                 docId = pair.docId;
                 outputPathForDb = pair.outputPath;
@@ -1209,7 +1857,7 @@ ORDER BY v.VersionNo DESC;", conn);
                 await fix.ExecuteNonQueryAsync();
             }
             catch (Exception ex) { _log.LogWarning(ex, "CreateDX Post-fix cooperation UserId failed docId={docId}", docId); }
-            
+
 
             try
             {
@@ -1317,7 +1965,7 @@ WHERE DocId = @DocId
                         docId,
                         "/Doc/DetailDX?id=" + Uri.EscapeDataString(docId),
                         "badge-cooperation-pending");
-             }
+            }
             catch (Exception ex) { _log.LogWarning(ex, "CreateDX WebPush notify failed docId={docId}", docId); }
 
             var uploadUrl = $"/Doc/Upload?docId={Uri.EscapeDataString(docId)}";
@@ -1619,7 +2267,7 @@ WHERE DocId = @DocId
                 }
 
                 var rebuilt = new System.Text.Json.Nodes.JsonArray();
-                foreach (var kv in bestByStep.OrderBy(k => k.Key)) rebuilt.Add(kv.Value);
+                foreach (var kv in bestByStep.OrderBy(k => k.Key)) rebuilt.Add(kv.Value?.DeepClone());
                 if (root.ContainsKey("approvals")) root["approvals"] = rebuilt;
                 else if (root.ContainsKey("Approvals")) root["Approvals"] = rebuilt;
 
@@ -1631,19 +2279,47 @@ WHERE DocId = @DocId
         private long GetLatestVersionId(string templateCode)
         {
             var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(cs)) return 0;
+            if (string.IsNullOrWhiteSpace(cs))
+                return 0;
+
             try
             {
                 using var conn = new SqlConnection(cs);
                 conn.Open();
-                using var cmd = new SqlCommand(@"SELECT TOP 1 COALESCE(CAST(v.Id AS BIGINT), CAST(v.VersionId AS BIGINT)) AS VersionId FROM DocTemplateMaster m JOIN DocTemplateVersion v ON v.TemplateId = m.Id WHERE m.DocCode = @code ORDER BY v.VersionNo DESC;", conn);
-                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100) { Value = templateCode ?? string.Empty });
+
+                using var cmd = new SqlCommand(@"
+SELECT TOP 1
+       CAST(v.Id AS BIGINT) AS VersionId
+FROM dbo.DocTemplateMaster m
+JOIN dbo.DocTemplateVersion v
+     ON v.TemplateId = m.Id
+WHERE m.DocCode = @code
+ORDER BY v.VersionNo DESC, v.Id DESC;", conn);
+
+                cmd.Parameters.Add(new SqlParameter("@code", SqlDbType.NVarChar, 100)
+                {
+                    Value = templateCode ?? string.Empty
+                });
+
                 var obj = cmd.ExecuteScalar();
-                if (obj is long l) return l;
-                if (obj is int i) return i;
-                if (obj != null && long.TryParse(obj.ToString(), out var p)) return p;
+
+                if (obj is long l)
+                    return l;
+
+                if (obj is int i)
+                    return i;
+
+                if (obj != null && obj != DBNull.Value && long.TryParse(obj.ToString(), out var p))
+                    return p;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _log.LogWarning(
+                    ex,
+                    "GetLatestVersionId failed templateCode={TemplateCode}",
+                    templateCode ?? string.Empty);
+            }
+
             return 0;
         }
 
@@ -1766,6 +2442,10 @@ WHERE DocId = @DocId
         {
             var emails = new List<string>();
             var diag = new List<string>();
+
+            // 2026.06.18 Added: 메일 수신자 해석용 현재 작성자 UserId 추가 Contents 추후 메일 사용 시 기안자 예약값도 기존 수신자 해석 경로를 사용
+            var currentUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
             static bool LooksLikeEmail(string s) => !string.IsNullOrWhiteSpace(s) && s.Contains("@") && s.Contains(".");
 
             void AppendTokens(string raw, SqlConnection? conn)
@@ -1774,12 +2454,20 @@ WHERE DocId = @DocId
                 var tokens = raw.Split(new[] { ';', ',', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase);
                 foreach (var tk in tokens)
                 {
-                    if (LooksLikeEmail(tk)) { emails.Add(tk); diag.Add($"'{tk}' -> email"); continue; }
+                    var tokenValue = ResolveDrafterApproverValue(tk, currentUserId);
+
+                    if (string.IsNullOrWhiteSpace(tokenValue))
+                    {
+                        diag.Add($"'{tk}' -> drafter-empty");
+                        continue;
+                    }
+
+                    if (LooksLikeEmail(tokenValue)) { emails.Add(tokenValue); diag.Add($"'{tk}' -> email"); continue; }
                     if (conn == null) { diag.Add($"'{tk}' -> no-conn"); continue; }
                     string? email = null;
-                    using (var cmd = conn.CreateCommand()) { cmd.CommandText = @"SELECT TOP 1 Email FROM dbo.AspNetUsers WHERE Id=@v OR UserName=@v OR NormalizedUserName=UPPER(@v) OR Email=@v OR NormalizedEmail=UPPER(@v);"; cmd.Parameters.Add(new SqlParameter("@v", SqlDbType.NVarChar, 256) { Value = tk }); email = cmd.ExecuteScalar() as string; }
+                    using (var cmd = conn.CreateCommand()) { cmd.CommandText = @"SELECT TOP 1 Email FROM dbo.AspNetUsers WHERE Id=@v OR UserName=@v OR NormalizedUserName=UPPER(@v) OR Email=@v OR NormalizedEmail=UPPER(@v);"; cmd.Parameters.Add(new SqlParameter("@v", SqlDbType.NVarChar, 256) { Value = tokenValue }); email = cmd.ExecuteScalar() as string; }
                     if (!string.IsNullOrWhiteSpace(email) && LooksLikeEmail(email)) { emails.Add(email!); diag.Add($"'{tk}' -> AspNetUsers '{email}'"); continue; }
-                    using (var cmd = conn.CreateCommand()) { cmd.CommandText = @"SELECT TOP 1 COALESCE(u.Email, p.Email) FROM dbo.UserProfiles p LEFT JOIN dbo.AspNetUsers u ON u.Id = p.UserId WHERE p.DisplayName=@n OR p.Name=@n OR p.UserId=@n OR p.Email=@n;"; cmd.Parameters.Add(new SqlParameter("@n", SqlDbType.NVarChar, 256) { Value = tk }); email = cmd.ExecuteScalar() as string; }
+                    using (var cmd = conn.CreateCommand()) { cmd.CommandText = @"SELECT TOP 1 COALESCE(u.Email, p.Email) FROM dbo.UserProfiles p LEFT JOIN dbo.AspNetUsers u ON u.Id = p.UserId WHERE p.DisplayName=@n OR p.Name=@n OR p.UserId=@n OR p.Email=@n;"; cmd.Parameters.Add(new SqlParameter("@n", SqlDbType.NVarChar, 256) { Value = tokenValue }); email = cmd.ExecuteScalar() as string; }
                     if (!string.IsNullOrWhiteSpace(email) && LooksLikeEmail(email)) { emails.Add(email!); diag.Add($"'{tk}' -> UserProfiles '{email}'"); }
                     else diag.Add($"'{tk}' not resolved");
                 }
@@ -2157,16 +2845,18 @@ VALUES
 
                     foreach (var item in toInsert.OrderBy(x => x.step))
                     {
-                        string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
+                        // 2026.06.18 Added: 문서별 결재자 기안자 예약값 치환 Contents 현재 작성자 UserId로 저장하여 WebPush 대상 조회가 가능하도록 함
+                        var approverValue = ResolveDrafterApproverValue(item.approverValue, userId);
+                        string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, approverValue);
 
-                        string approverDisplayText = item.approverValue;
+                        string approverDisplayText = approverValue;
                         try
                         {
                             var snap = await BuildSnapshotDisplayNameAsync(
                                 conn,
                                 (SqlTransaction)tx,
                                 resolvedUserId,
-                                item.approverValue,
+                                approverValue,
                                 compCd);
 
                             if (!string.IsNullOrWhiteSpace(snap))
@@ -2174,7 +2864,7 @@ VALUES
                         }
                         catch (Exception ex)
                         {
-                            _log.LogWarning(ex, "SaveDocument approval snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, item.approverValue);
+                            _log.LogWarning(ex, "SaveDocument approval snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, approverValue);
                         }
 
                         await using var acmd = conn.CreateCommand();
@@ -2207,7 +2897,7 @@ VALUES
                         acmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         acmd.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = item.step });
                         acmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 10) { Value = item.roleKey });
-                        acmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 256) { Value = item.approverValue });
+                        acmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 256) { Value = approverValue });
                         acmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
                         acmd.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
                         acmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
@@ -2259,16 +2949,18 @@ VALUES
 
                     foreach (var item in toInsert)
                     {
-                        string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, item.approverValue);
+                        // 2026.06.18 Added: 문서별 협조자 기안자 예약값 치환 Contents 현재 작성자 UserId로 저장하여 WebPush 대상 조회가 가능하도록 함
+                        var approverValue = ResolveDrafterApproverValue(item.approverValue, userId);
+                        string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, approverValue);
 
-                        string approverDisplayText = item.approverValue;
+                        string approverDisplayText = approverValue;
                         try
                         {
                             var snap = await BuildSnapshotDisplayNameAsync(
                                 conn,
                                 (SqlTransaction)tx,
                                 resolvedUserId,
-                                item.approverValue,
+                                approverValue,
                                 compCd);
 
                             if (!string.IsNullOrWhiteSpace(snap))
@@ -2276,7 +2968,7 @@ VALUES
                         }
                         catch (Exception ex)
                         {
-                            _log.LogWarning(ex, "SaveDocument cooperation snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, item.approverValue);
+                            _log.LogWarning(ex, "SaveDocument cooperation snapshot failed docId={docId}, roleKey={roleKey}, approverValue={approverValue}", docId, item.roleKey, approverValue);
                         }
 
                         await using var ccmd = conn.CreateCommand();
@@ -2309,7 +3001,7 @@ VALUES
                         ccmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                         ccmd.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = item.lineType });
                         ccmd.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = item.roleKey });
-                        ccmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = item.approverValue });
+                        ccmd.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = approverValue });
                         ccmd.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
                         ccmd.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
                         ccmd.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(approverDisplayText) ? DBNull.Value : approverDisplayText });
@@ -2358,12 +3050,13 @@ VALUES
             {
                 string approvalsJson = "[]";
                 string compCd = string.Empty;
+                string drafterUserId = string.Empty;
 
                 await using (var metaCmd = conn.CreateCommand())
                 {
                     metaCmd.Transaction = (SqlTransaction)tx;
                     metaCmd.CommandText = @"
-SELECT TOP 1 DescriptorJson, CompCd
+SELECT TOP 1 DescriptorJson, CompCd, CreatedBy
 FROM dbo.Documents
 WHERE DocId = @DocId;";
                     metaCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
@@ -2373,6 +3066,7 @@ WHERE DocId = @DocId;";
                     {
                         approvalsJson = rd["DescriptorJson"] as string ?? "[]";
                         compCd = rd["CompCd"] as string ?? string.Empty;
+                        drafterUserId = rd["CreatedBy"] as string ?? string.Empty;
                     }
                 }
 
@@ -2451,16 +3145,18 @@ WHERE DocId = @DocId;";
                     .Select(g => g.First())
                     .OrderBy(x => x.StepOrder))
                 {
-                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, a.ApproverValue);
+                    // 2026.06.18 Added: 재동기화 시 결재자 기안자 예약값 치환 Contents 문서 작성자 UserId 기준으로 결재라인을 확정
+                    var approverValue = ResolveDrafterApproverValue(a.ApproverValue, drafterUserId);
+                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, approverValue);
 
-                    string snapshotText = a.ApproverValue;
+                    string snapshotText = approverValue;
                     try
                     {
                         var snap = await BuildSnapshotDisplayNameAsync(
                             conn,
                             (SqlTransaction)tx,
                             resolvedUserId,
-                            a.ApproverValue,
+                            approverValue,
                             compCd);
 
                         if (!string.IsNullOrWhiteSpace(snap))
@@ -2468,7 +3164,7 @@ WHERE DocId = @DocId;";
                     }
                     catch (Exception ex)
                     {
-                        _log.LogWarning(ex, "EnsureApprovalsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, a.RoleKey, a.ApproverValue);
+                        _log.LogWarning(ex, "EnsureApprovalsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, a.RoleKey, approverValue);
                     }
 
                     await using var ins = conn.CreateCommand();
@@ -2501,7 +3197,7 @@ VALUES
                     ins.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                     ins.Parameters.Add(new SqlParameter("@StepOrder", SqlDbType.Int) { Value = a.StepOrder });
                     ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = a.RoleKey });
-                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = a.ApproverValue });
+                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = approverValue });
                     ins.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
                     ins.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
                     ins.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
@@ -2527,12 +3223,18 @@ VALUES
             try
             {
                 string compCd = string.Empty;
+                string drafterUserId = string.Empty;
                 await using (var compCmd = conn.CreateCommand())
                 {
                     compCmd.Transaction = (SqlTransaction)tx;
-                    compCmd.CommandText = @"SELECT TOP 1 CompCd FROM dbo.Documents WHERE DocId = @DocId;";
+                    compCmd.CommandText = @"SELECT TOP 1 CompCd, CreatedBy FROM dbo.Documents WHERE DocId = @DocId;";
                     compCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
-                    compCd = ((await compCmd.ExecuteScalarAsync() as string) ?? string.Empty).Trim();
+                    await using var compRd = await compCmd.ExecuteReaderAsync();
+                    if (await compRd.ReadAsync())
+                    {
+                        compCd = (compRd["CompCd"] as string ?? string.Empty).Trim();
+                        drafterUserId = (compRd["CreatedBy"] as string ?? string.Empty).Trim();
+                    }
                 }
 
                 var cooperations = new List<(string LineType, string RoleKey, string ApproverValue)>();
@@ -2591,16 +3293,18 @@ VALUES
                     })
                     .Select(g => g.First()))
                 {
-                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, c.ApproverValue);
+                    // 2026.06.18 Added: 재동기화 시 협조자 기안자 예약값 치환 Contents 문서 작성자 UserId 기준으로 협조라인을 확정
+                    var approverValue = ResolveDrafterApproverValue(c.ApproverValue, drafterUserId);
+                    string? resolvedUserId = await TryResolveUserIdAsync(conn, (SqlTransaction)tx, approverValue);
 
-                    string snapshotText = c.ApproverValue;
+                    string snapshotText = approverValue;
                     try
                     {
                         var snap = await BuildSnapshotDisplayNameAsync(
                             conn,
                             (SqlTransaction)tx,
                             resolvedUserId,
-                            c.ApproverValue,
+                            approverValue,
                             compCd);
 
                         if (!string.IsNullOrWhiteSpace(snap))
@@ -2608,7 +3312,7 @@ VALUES
                     }
                     catch (Exception ex)
                     {
-                        _log.LogWarning(ex, "EnsureCooperationsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, c.RoleKey, c.ApproverValue);
+                        _log.LogWarning(ex, "EnsureCooperationsAndSyncAsync snapshot failed docId={docId} roleKey={roleKey} approverValue={approverValue}", docId, c.RoleKey, approverValue);
                     }
 
                     await using var ins = conn.CreateCommand();
@@ -2641,7 +3345,7 @@ VALUES
                     ins.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
                     ins.Parameters.Add(new SqlParameter("@LineType", SqlDbType.NVarChar, 20) { Value = c.LineType });
                     ins.Parameters.Add(new SqlParameter("@RoleKey", SqlDbType.NVarChar, 100) { Value = c.RoleKey });
-                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = c.ApproverValue });
+                    ins.Parameters.Add(new SqlParameter("@ApproverValue", SqlDbType.NVarChar, 128) { Value = approverValue });
                     ins.Parameters.Add(new SqlParameter("@UserId", SqlDbType.NVarChar, 64) { Value = (object?)resolvedUserId ?? DBNull.Value });
                     ins.Parameters.Add(new SqlParameter("@ActorName", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
                     ins.Parameters.Add(new SqlParameter("@ApproverDisplayText", SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(snapshotText) ? DBNull.Value : snapshotText });
@@ -2655,6 +3359,86 @@ VALUES
                 try { await tx.RollbackAsync(); } catch { }
                 _log.LogError(ex, "EnsureCooperationsAndSyncAsync failed docId={docId}", docId);
             }
+        }
+
+        // 2026.06.12 Added: 최종 저장 문서에서는 작성 화면용 매핑셀 배경색을 제거하고 다시 Lock 처리한다.
+        private static void ClearFinalOutputInputCellBackgrounds(string workbookPath, IEnumerable<string> mappedA1s)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !System.IO.File.Exists(workbookPath))
+                return;
+
+            var cells = (mappedA1s ?? Enumerable.Empty<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (cells.Count == 0)
+                return;
+
+            TryRemoveWorksheetProtectionForCompose(workbookPath);
+
+            using var wb = new XLWorkbook(workbookPath);
+            var firstSheet = wb.Worksheets
+                .FirstOrDefault(w => !string.Equals(w.Name, "EB_META", StringComparison.OrdinalIgnoreCase))
+                ?? wb.Worksheets.FirstOrDefault();
+
+            if (firstSheet == null)
+                return;
+
+            var touchedSheets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var rawA1 in cells)
+            {
+                try
+                {
+                    var (sheetNameFromA1, localA1) = SplitSheetAndA1ForCompose(rawA1);
+                    if (string.IsNullOrWhiteSpace(localA1))
+                        continue;
+
+                    var ws = !string.IsNullOrWhiteSpace(sheetNameFromA1)
+                        ? wb.Worksheets.FirstOrDefault(w => string.Equals(w.Name, sheetNameFromA1, StringComparison.OrdinalIgnoreCase)) ?? firstSheet
+                        : firstSheet;
+
+                    if (ws == null)
+                        continue;
+
+                    try { if (ws.IsProtected) ws.Unprotect(); } catch { }
+
+                    var range = ws.Range(localA1);
+                    var targetRange = range.FirstCell().IsMerged()
+                        ? range.FirstCell().MergedRange()
+                        : range;
+
+                    targetRange.Style.Fill.PatternType = XLFillPatternValues.None;
+                    targetRange.Style.Protection.Locked = true;
+                    touchedSheets.Add(ws.Name);
+                }
+                catch
+                {
+                }
+            }
+
+            foreach (var sheetName in touchedSheets)
+            {
+                try
+                {
+                    var ws = wb.Worksheet(sheetName);
+                    if (ws.IsProtected)
+                    {
+                        try { ws.Unprotect(); } catch { }
+                    }
+
+                    ws.Protect(allowedElements:
+                        XLSheetProtectionElements.SelectLockedCells |
+                        XLSheetProtectionElements.SelectUnlockedCells);
+                }
+                catch
+                {
+                }
+            }
+
+            wb.Save();
         }
 
         // 2026.04.06 Changed: 최종 저장 문서에도 시트 격자선 숨김을 적용하여 DetailDX에서 기본 엑셀 격자가 보이지 않게 함
@@ -2974,6 +3758,17 @@ VALUES
                 wbPart.Workbook.Save();
             }
 
+            try
+            {
+                // 2026.06.12 Changed: 작성 화면 표시용 입력셀 배경색은 최종 저장 문서에서는 제거한다.
+                // DetailDX는 조회/결재 화면이므로 매핑셀 안내색을 그대로 보여주지 않는다.
+                ClearFinalOutputInputCellBackgrounds(outPath, maps.Select(x => x.a1));
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "GenerateExcelFromInputsAsync input background clear failed path={path}", outPath);
+            }
+
             if (!string.IsNullOrWhiteSpace(targetSheetName))
             {
                 try
@@ -3071,6 +3866,202 @@ VALUES
             return idx >= 0 ? s[idx..].Replace('/', '\\') : s;
         }
 
+        [AllowAnonymous]
+        [HttpGet("ComposeDXWarmup")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public async Task<IActionResult> ComposeDXWarmup()
+        {
+            if (!IsComposeDxWarmupLoopbackRequest())
+                return NotFound();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var lastMs = 0.0;
+            string? copiedPath = null;
+
+            void Mark(string stage)
+            {
+                var now = sw.Elapsed.TotalMilliseconds;
+                _log.LogInformation(
+                    "COMPOSEDX-WARMUP {Stage} elapsedMs={ElapsedMs} deltaMs={DeltaMs}",
+                    stage,
+                    now,
+                    now - lastMs);
+                lastMs = now;
+            }
+
+            try
+            {
+                Mark("start");
+
+                var sourcePath = EnsureComposeDxWarmupWorkbookPath();
+                Mark("source-ready");
+
+                var descriptorJson = BuildComposeDxWarmupDescriptorJson();
+                var dxDocumentId = "compose_warmup_" + Guid.NewGuid().ToString("N");
+
+                copiedPath = await CreateComposeDxWorkbookCopyAsync(
+                    "COMPOSE_WARMUP",
+                    sourcePath,
+                    dxDocumentId,
+                    descriptorJson);
+
+                Mark("workbook-copy");
+
+                TryDeleteComposeDxWarmupOutputFile(copiedPath);
+                Mark("cleanup");
+
+                sw.Stop();
+
+                _log.LogInformation(
+                    "COMPOSEDX-WARMUP completed elapsedMs={ElapsedMs} copiedPath={CopiedPath}",
+                    sw.Elapsed.TotalMilliseconds,
+                    copiedPath ?? string.Empty);
+
+                return Json(new
+                {
+                    ok = true,
+                    elapsedMs = sw.Elapsed.TotalMilliseconds
+                });
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+
+                TryDeleteComposeDxWarmupOutputFile(copiedPath);
+
+                _log.LogWarning(
+                    ex,
+                    "COMPOSEDX-WARMUP failed elapsedMs={ElapsedMs}",
+                    sw.Elapsed.TotalMilliseconds);
+
+                return StatusCode(500, new
+                {
+                    ok = false,
+                    elapsedMs = sw.Elapsed.TotalMilliseconds
+                });
+            }
+        }
+
+        // 2026.06.15 Added: 서버 내부 warm-up 호출만 허용하여 외부에서 ComposeDX warm-up 액션을 직접 사용할 수 없게 한다.
+        private bool IsComposeDxWarmupLoopbackRequest()
+        {
+            var remoteIp = HttpContext?.Connection?.RemoteIpAddress;
+            if (remoteIp == null)
+                return false;
+
+            if (System.Net.IPAddress.IsLoopback(remoteIp))
+                return true;
+
+            if (remoteIp.IsIPv4MappedToIPv6 && System.Net.IPAddress.IsLoopback(remoteIp.MapToIPv4()))
+                return true;
+
+            return false;
+        }
+
+        // 2026.06.15 Added: 실제 템플릿을 변경하지 않고 workbook-copy 처리 경로만 예열하기 위한 최소 xlsx 파일을 생성한다.
+        private string EnsureComposeDxWarmupWorkbookPath()
+        {
+            var warmupDir = Path.Combine(_env.ContentRootPath, "App_Data", "DxWarmup", "Compose");
+            Directory.CreateDirectory(warmupDir);
+
+            var warmupPath = Path.Combine(warmupDir, "compose_warmup_source.xlsx");
+            var tempPath = warmupPath + ".tmp.xlsx";
+
+            if (System.IO.File.Exists(tempPath))
+                System.IO.File.Delete(tempPath);
+
+            using (var wb = new XLWorkbook())
+            {
+                var ws = wb.Worksheets.Add("Sheet1");
+
+                ws.Cell("A1").Value = "Warmup Text";
+                ws.Cell("B2").Value = 123;
+                ws.Cell("C3").Value = DateTime.Today;
+
+                ws.Range("D4:E4").Merge();
+                ws.Cell("D4").Value = "Warmup Merge";
+
+                ws.Range("A1:E8").Style.Protection.Locked = true;
+                ws.Range("A1:E8").Style.Alignment.WrapText = false;
+
+                try
+                {
+                    ws.PageSetup.PrintAreas.Add("A1:E8");
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    ws.Protect(allowedElements:
+                        XLSheetProtectionElements.SelectLockedCells |
+                        XLSheetProtectionElements.SelectUnlockedCells);
+                }
+                catch
+                {
+                }
+
+                wb.SaveAs(tempPath);
+            }
+
+            if (System.IO.File.Exists(warmupPath))
+                System.IO.File.Delete(warmupPath);
+
+            System.IO.File.Move(tempPath, warmupPath);
+
+            return warmupPath;
+        }
+
+        // 2026.06.15 Added: Text Date Num 병합셀 경로를 함께 예열할 수 있도록 warm-up 전용 descriptor 를 생성한다.
+        private static string BuildComposeDxWarmupDescriptorJson()
+        {
+            return """
+            {
+              "inputs": [
+                { "key": "WarmupText", "type": "Text", "required": false, "sheet": "Sheet1", "a1": "A1" },
+                { "key": "WarmupNumber", "type": "Num", "required": false, "sheet": "Sheet1", "a1": "B2" },
+                { "key": "WarmupDate", "type": "Date", "required": false, "sheet": "Sheet1", "a1": "C3" },
+                { "key": "WarmupMerge", "type": "Text", "required": false, "sheet": "Sheet1", "a1": "D4:E4" }
+              ],
+              "approvals": [],
+              "cooperations": [],
+              "version": "warmup"
+            }
+            """;
+        }
+
+        // 2026.06.15 Added: ComposeDX warm-up 으로 생성된 작성용 임시 복사본만 삭제한다.
+        private void TryDeleteComposeDxWarmupOutputFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            try
+            {
+                var composeRoot = Path.Combine(_env.ContentRootPath, "App_Data", "DocDxCompose");
+                var fullPath = Path.GetFullPath(path);
+                var fullRoot = Path.GetFullPath(composeRoot);
+
+                if (!fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                var fileName = Path.GetFileName(fullPath);
+                if (!fileName.StartsWith("COMPOSE_WARMUP_", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                if (System.IO.File.Exists(fullPath))
+                    System.IO.File.Delete(fullPath);
+
+                var editableTempPath = fullPath + ".editable.tmp.xlsx";
+                if (System.IO.File.Exists(editableTempPath))
+                    System.IO.File.Delete(editableTempPath);
+            }
+            catch (Exception ex)
+            {
+                _log.LogDebug(ex, "COMPOSEDX-WARMUP cleanup skipped path={Path}", path);
+            }
+        }
         // =========================================================
         // DTOs
         // =========================================================

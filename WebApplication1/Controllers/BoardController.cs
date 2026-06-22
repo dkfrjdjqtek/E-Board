@@ -1723,20 +1723,26 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             var items = new List<object>();
             using (var rdr = await cmdList.ExecuteReaderAsync())
             {
-                int ordIsRead = -1;
-                try { ordIsRead = rdr.GetOrdinal("IsRead"); } catch { ordIsRead = -1; }
+                // 2026.06.15 Changed: 선택 탭별로 없는 컬럼 조회 시 GetOrdinal 예외가 발생하지 않도록 컬럼명을 먼저 검사한다.
+                static int SafeBoardOrdinal(SqlDataReader reader, string columnName)
+                {
+                    if (reader == null || string.IsNullOrWhiteSpace(columnName))
+                        return -1;
 
-                int ordStatusCode = -1;
-                try { ordStatusCode = rdr.GetOrdinal("StatusCode"); } catch { ordStatusCode = -1; }
+                    for (var i = 0; i < reader.FieldCount; i++)
+                    {
+                        if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                            return i;
+                    }
 
-                int ordIsMyPendingTurn = -1;
-                try { ordIsMyPendingTurn = rdr.GetOrdinal("IsMyPendingTurn"); } catch { ordIsMyPendingTurn = -1; }
+                    return -1;
+                }
 
-                int ordIsMyPendingCooperation = -1;
-                try { ordIsMyPendingCooperation = rdr.GetOrdinal("IsMyPendingCooperation"); } catch { ordIsMyPendingCooperation = -1; }
-
-                int ordMyStepOrder = -1;
-                try { ordMyStepOrder = rdr.GetOrdinal("MyStepOrder"); } catch { ordMyStepOrder = -1; }
+                var ordIsRead = SafeBoardOrdinal(rdr, "IsRead");
+                var ordStatusCode = SafeBoardOrdinal(rdr, "StatusCode");
+                var ordIsMyPendingTurn = SafeBoardOrdinal(rdr, "IsMyPendingTurn");
+                var ordIsMyPendingCooperation = SafeBoardOrdinal(rdr, "IsMyPendingCooperation");
+                var ordMyStepOrder = SafeBoardOrdinal(rdr, "MyStepOrder");
 
                 while (await rdr.ReadAsync())
                 {

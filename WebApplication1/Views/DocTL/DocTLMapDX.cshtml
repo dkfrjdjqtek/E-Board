@@ -1,4 +1,4 @@
-﻿@* 2026.03.09 Changed: DX Spreadsheet 저장 직전 편집 commit 보강과 필드 그룹 복원 로직을 유지하면서 normalizeA1FromSelectionObject 종료부 오탈자를 제거하여 스크립트 파싱 오류를 수정함 *@
+﻿@* 2026.06.18 Changed: 전결 AmountLimit 설정을 셀 주소 직접 참조 방식으로 유지하고 통화 코드 순서와 단일 통화 기준 통화 셀 생략을 반영함 Contents 전체 합계 수식 셀 보호를 유지하며 기준 통화가 1개이면 고정 통화로 저장 허용 *@
 @using System.IO
 @using System.Text.Json
 @using System.Text.Encodings.Web
@@ -9,7 +9,7 @@
     var isAjax = string.Equals(Context.Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
     Layout = isAjax ? null : "~/Views/Shared/_Layout.cshtml";
 
-    ViewData["Title"] = ViewBag.TemplateTitle ?? "템플릿";
+    ViewData["Title"] = ViewBag.TemplateTitle ?? S["DTL_Title_NewTemplate"].Value;
     ViewData["DisableDxAll"] = true;
 
     var excelPath = (ViewBag.ExcelPath as string) ?? string.Empty;
@@ -131,6 +131,15 @@ else
         white-space: nowrap;
     }
 
+    .delegation-flag-cell {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .delegation-card .form-label {
+        margin-bottom: .25rem;
+    }
+
     #dxSheet {
         min-height: 520px;
         position: relative;
@@ -158,9 +167,10 @@ else
         #dxSheet .dxss-tab-panel {
             padding-bottom: 0 !important;
         }
-            #dxSheet .doc-dx-tab-actions .btn {
-                white-space: nowrap;
-            }
+
+        #dxSheet .doc-dx-tab-actions .btn {
+            white-space: nowrap;
+        }
 </style>
 
 <div id="doc-scroll">
@@ -228,11 +238,83 @@ else
                                             <th class="cell-a1">@S["DTL_Col_CellA1"]</th>
                                             <th style="width:8rem">@S["DTL_Col_ApproverType"]</th>
                                             <th>@S["DTL_Col_AssignValue"]</th>
+                                            <th style="width:6rem">@S["DTL_Col_DelegationApprover"]</th>
                                             <th style="width:4.5rem"></th>
                                         </tr>
                                     </thead>
                                     <tbody id="tblApprBody"></tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-3 delegation-card">
+                        <div class="card-header py-2">
+                            <span>@S["DTL_Section_Delegation"]</span>
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="row g-2">
+                                <div class="col-12 col-md-3">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="chkDelegationEnabled" />
+                                        <label class="form-check-label" for="chkDelegationEnabled">@S["DTL_Label_DelegationEnabled"]</label>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label" for="selDelegationCondition">@S["DTL_Label_DelegationCondition"]</label>
+                                    <select id="selDelegationCondition" class="form-select form-select-sm">
+                                        <option value="None">@S["DTL_Label_DelegationNone"]</option>
+                                        <option value="Always">@S["DTL_Label_DelegationAlways"]</option>
+                                        <option value="AmountLimit">@S["DTL_Label_DelegationAmountLimit"]</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label" for="txtDelegationStep">@S["DTL_Label_DelegationStep"]</label>
+                                    <input id="txtDelegationStep" class="form-control form-control-sm" type="text" readonly />
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label" for="txtDelegationSkipRange">@S["DTL_Label_DelegationSkipRange"]</label>
+                                    <input id="txtDelegationSkipRange" class="form-control form-control-sm" type="text" readonly />
+                                </div>
+                            </div>
+
+                            <div id="delegationAmountArea" class="mt-3">
+                                <div class="row g-2">
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label" for="txtDelegationAmountCellA1">@S["DTL_Label_AmountCellA1"]</label>
+                                        <div class="input-group input-group-sm">
+                                            <input id="txtDelegationAmountCellA1"
+                                                   class="form-control"
+                                                   type="text"
+                                                   placeholder="@S["DTL_PH_AmountCellA1"]" />
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label" for="txtDelegationCurrencyCellA1">@S["DTL_Label_CurrencyCellA1"]</label>
+                                        <div class="input-group input-group-sm">
+                                            <input id="txtDelegationCurrencyCellA1"
+                                                   class="form-control"
+                                                   type="text"
+                                                   placeholder="@S["DTL_PH_CurrencyCellA1"]" />
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-4 d-flex align-items-end">
+                                        <button id="btnAddDelegationAmountLimit" type="button" class="btn btn-outline-primary btn-sm w-100">@S["DTL_Btn_AddAmountLimit"]</button>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:10rem">@S["DTL_Label_CurrencyCode"]</th>
+                                                <th>@S["DTL_Label_LimitAmount"]</th>
+                                                <th style="width:4.5rem"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tblDelegationAmountBody"></tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -299,6 +381,7 @@ else
             PickCell: @Html.Raw(JsonSerializer.Serialize(S["DTL_Btn_PickCell"].Value)),
             NoRows: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_NoRows"].Value)),
             Delete: @Html.Raw(JsonSerializer.Serialize(S["_CM_Delete"].Value)),
+            Select: @Html.Raw(JsonSerializer.Serialize(S["_CM_Select"].Value)),
             MsgKeyEmpty: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyEmpty"].Value)),
             MsgKeyDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_Msg_FieldKeyDup"].Value)),
             Open: @Html.Raw(JsonSerializer.Serialize(S["_CM_Open"].Value)),
@@ -306,6 +389,7 @@ else
             ApprType_Person: @Html.Raw(JsonSerializer.Serialize(S["DTL_ApproverType_Person"].Value)),
             ApprType_Role: @Html.Raw(JsonSerializer.Serialize(S["DTL_ApproverType_Role"].Value)),
             ApprType_Rule: @Html.Raw(JsonSerializer.Serialize(S["DTL_ApproverType_Rule"].Value)),
+            Appr_Drafter: @Html.Raw(JsonSerializer.Serialize(S["DTL_Approver_Drafter"].Value)),
             PH_FieldKey: @Html.Raw(JsonSerializer.Serialize(S["DTL_PH_FieldKey"].Value)),
             PH_FieldA1: @Html.Raw(JsonSerializer.Serialize(S["DTL_PH_FieldA1"].Value)),
             PH_ApprA1: @Html.Raw(JsonSerializer.Serialize(S["DTL_PH_ApprA1"].Value)),
@@ -316,7 +400,16 @@ else
             V_Appr_PersonRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_Appr_PersonRequired"].Value)),
             V_Appr_RoleRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_Appr_RoleRequired"].Value)),
             V_Appr_RuleRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_Appr_RuleRequired"].Value)),
-            V_Appr_RuleJsonInvalid: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_Appr_RuleJsonInvalid"].Value))
+            V_Appr_RuleJsonInvalid: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_Appr_RuleJsonInvalid"].Value)),
+            V_DelegationStepRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationStepRequired"].Value)),
+            V_DelegationConditionRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationConditionRequired"].Value)),
+            V_DelegationSkipStepRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationSkipStepRequired"].Value)),
+            V_DelegationAmountLimitRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationAmountLimitRequired"].Value)),
+            V_DelegationCurrencyCodeRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationCurrencyCodeRequired"].Value)),
+            V_DelegationAmountInvalid: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationAmountInvalid"].Value)),
+            V_DelegationAmountCellRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationAmountCellRequired"].Value)),
+            V_DelegationCurrencyCellRequired: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationCurrencyCellRequired"].Value)),
+            V_DelegationCurrencyCodeDup: @Html.Raw(JsonSerializer.Serialize(S["DTL_V_DelegationCurrencyCodeDup"].Value))
         };
 
         const T = {
@@ -326,6 +419,16 @@ else
         };
 
         const USER_API = @Html.Raw(JsonSerializer.Serialize(Url.Action("SearchUser", "DocTLDX")));
+
+        const APPROVER_VALUE_DRAFTER = '__DRAFTER__';
+
+        const DELEGATION_CURRENCY_RULES = [
+            { code: 'KRW', scale: 0 },
+            { code: 'USD', scale: 2 },
+            { code: 'VND', scale: 0 },
+            { code: 'IDR', scale: 0 },
+            { code: 'CNY', scale: 2 }
+        ];
 
         const state = {
             intentionalLeave: false,
@@ -725,76 +828,76 @@ else
             return out;
         }
 
-            if (typeof window.__DOC_DX_OPEN_HANDLER !== 'function') {
-        window.__DOC_DX_OPEN_HANDLER = async function (file) {
-            try {
-                const form = new FormData();
-                form.append('file', file);
+        if (typeof window.__DOC_DX_OPEN_HANDLER !== 'function') {
+            window.__DOC_DX_OPEN_HANDLER = async function (file) {
+                try {
+                    const form = new FormData();
+                    form.append('file', file);
 
-                const currentQs = new URLSearchParams(window.location.search || '');
-                const docCode = (currentQs.get('docCode') || '').trim();
-                if (docCode) {
-                    form.append('docCode', docCode);
+                    const currentQs = new URLSearchParams(window.location.search || '');
+                    const docCode = (currentQs.get('docCode') || '').trim();
+                    if (docCode) {
+                        form.append('docCode', docCode);
+                    }
+
+                    const tokenEl = document.querySelector('#mapForm input[name="__RequestVerificationToken"]');
+                    if (tokenEl && tokenEl.value) {
+                        form.append('__RequestVerificationToken', tokenEl.value);
+                    }
+
+                    const res = await fetch('/DocumentTemplatesDX/upload-excel', {
+                        method: 'POST',
+                        body: form,
+                        credentials: 'same-origin'
+                    });
+
+                    if (!res.ok) {
+                        const txt = await res.text().catch(() => '');
+                        alert(txt || L.Error);
+                        return;
+                    }
+
+                    const json = await res.json();
+                    if (!json) {
+                        alert(L.Error);
+                        return;
+                    }
+
+                    if (json.redirectUrl) {
+                        markIntentionalLeave();
+                        window.location.replace(json.redirectUrl);
+                        return;
+                    }
+
+                    if (json.openUrl) {
+                        markIntentionalLeave();
+                        window.location.replace(json.openUrl);
+                        return;
+                    }
+
+                    if (json.openRel) {
+                        const qs = new URLSearchParams(window.location.search || '');
+                        qs.set('openRel', json.openRel);
+                        markIntentionalLeave();
+                        window.location.replace(window.location.pathname + '?' + qs.toString());
+                        return;
+                    }
+
+                    if (json.excelPath) {
+                        const qs = new URLSearchParams(window.location.search || '');
+                        qs.set('excelPath', json.excelPath);
+                        markIntentionalLeave();
+                        window.location.replace(window.location.pathname + '?' + qs.toString());
+                        return;
+                    }
+
+                    alert(L.Error);
+                } catch (e) {
+                    console.error(e);
+                    alert(L.Error);
                 }
-
-                const tokenEl = document.querySelector('#mapForm input[name="__RequestVerificationToken"]');
-                if (tokenEl && tokenEl.value) {
-                    form.append('__RequestVerificationToken', tokenEl.value);
-                }
-
-                const res = await fetch('/DocumentTemplatesDX/upload-excel', {
-                    method: 'POST',
-                    body: form,
-                    credentials: 'same-origin'
-                });
-
-                if (!res.ok) {
-                    const txt = await res.text().catch(() => '');
-                    alert(txt || L.Error || 'Upload failed.');
-                    return;
-                }
-
-                const json = await res.json();
-                if (!json) {
-                    alert(L.Error || 'Upload failed.');
-                    return;
-                }
-
-                if (json.redirectUrl) {
-                    markIntentionalLeave();
-                    window.location.replace(json.redirectUrl);
-                    return;
-                }
-
-                if (json.openUrl) {
-                    markIntentionalLeave();
-                    window.location.replace(json.openUrl);
-                    return;
-                }
-
-                if (json.openRel) {
-                    const qs = new URLSearchParams(window.location.search || '');
-                    qs.set('openRel', json.openRel);
-                    markIntentionalLeave();
-                    window.location.replace(window.location.pathname + '?' + qs.toString());
-                    return;
-                }
-
-                if (json.excelPath) {
-                    const qs = new URLSearchParams(window.location.search || '');
-                    qs.set('excelPath', json.excelPath);
-                    markIntentionalLeave();
-                    window.location.replace(window.location.pathname + '?' + qs.toString());
-                    return;
-                }
-
-                alert(L.Error || 'Upload result is invalid.');
-            } catch (e) {
-                console.error(e);
-                alert(L.Error || 'Upload failed.');
-            }
-        };
-    }
+            };
+        }
 
         function getActiveDxEditorElement() {
             const host = document.getElementById('dxSheet');
@@ -998,7 +1101,7 @@ else
                 if (!stateObj) {
                     state.isSaving = false;
                     if (btnSave) btnSave.disabled = false;
-                    alert(L.Error || 'Spreadsheet state not found.');
+                    alert(L.Error);
                     return;
                 }
 
@@ -1027,7 +1130,7 @@ else
                 console.error(e);
                 state.isSaving = false;
                 if (btnSave) btnSave.disabled = false;
-                alert(L.Error || 'Save failed.');
+                alert(L.Error);
             }
         }
 
@@ -1272,30 +1375,88 @@ else
             return o;
         }
 
-        async function buildUserSelect(selectedId) {
+        function getDelegationCurrencyScale(currencyCode) {
+            const code = String(currencyCode || '').trim().toUpperCase();
+            const found = DELEGATION_CURRENCY_RULES.find(function (x) {
+                return x.code === code;
+            });
+            return found ? found.scale : 0;
+        }
+
+        function isDelegationCurrencyCode(currencyCode) {
+            const code = String(currencyCode || '').trim().toUpperCase();
+            return DELEGATION_CURRENCY_RULES.some(function (x) {
+                return x.code === code;
+            });
+        }
+
+        function normalizeAmountForCurrency(value, currencyCode) {
+            const n = parseAmountValue(value);
+            if (n == null) return null;
+
+            const scale = getDelegationCurrencyScale(currencyCode);
+            const p = Math.pow(10, scale);
+
+            return Math.round(n * p) / p;
+        }
+
+        function formatAmountForCurrency(value, currencyCode) {
+            const n = parseAmountValue(value);
+            if (n == null) return '';
+
+            const scale = getDelegationCurrencyScale(currencyCode);
+
+            if (scale <= 0) {
+                return String(Math.round(n));
+            }
+
+            return n.toFixed(scale);
+        }
+
+        function buildDelegationCurrencySelect(current) {
+            const selected = String(current || '').trim().toUpperCase();
             const sel = document.createElement('select');
             sel.className = 'form-select form-select-sm';
-            sel.append(opt('', '—', !selectedId));
+
+            sel.append(opt('', L.Select, !selected));
+
+            DELEGATION_CURRENCY_RULES.forEach(function (item) {
+                sel.append(opt(item.code, item.code, selected === item.code));
+            });
+
+            return sel;
+        }
+
+        async function buildUserSelect(selectedId) {
+            const selected = String(selectedId || '').trim();
+
+            const sel = document.createElement('select');
+            sel.className = 'form-select form-select-sm';
+            sel.append(opt('', L.Select, !selected));
+
+            // 2026.06.18 Added: 기안자 예약 항목 추가 Contents 결재란과 협조란에서 문서 작성자를 승인권자로 지정할 수 있도록 함
+            sel.append(opt(APPROVER_VALUE_DRAFTER, L.Appr_Drafter, selected === APPROVER_VALUE_DRAFTER));
 
             let list = [];
             try { list = await fetchUsers('', 50); } catch { list = []; }
 
             list.forEach(function (x) {
                 const label = (x.text && !looksLikeGuid(x.text)) ? x.text : (x.text || x.id);
-                sel.append(opt(x.id, label, String(x.id) === String(selectedId)));
+                sel.append(opt(x.id, label, String(x.id) === selected));
             });
 
-            if (selectedId) {
-                const sid = String(selectedId);
-                const exists = Array.from(sel.options).some(function (o) { return String(o.value) === sid; });
+            if (selected) {
+                const exists = Array.from(sel.options).some(function (o) {
+                    return String(o.value) === selected;
+                });
 
                 if (!exists) {
-                    const one = await fetchUserByIdOrQuery(sid);
-                    const label = one ? ((one.text && !looksLikeGuid(one.text)) ? one.text : (one.text || one.id)) : sid;
-                    sel.insertBefore(opt(sid, label, true), sel.options[1] || null);
+                    const one = await fetchUserByIdOrQuery(selected);
+                    const label = one ? ((one.text && !looksLikeGuid(one.text)) ? one.text : (one.text || one.id)) : selected;
+                    sel.insertBefore(opt(selected, label, true), sel.options[2] || null);
                 }
 
-                sel.value = sid;
+                sel.value = selected;
             }
 
             return sel;
@@ -1400,7 +1561,7 @@ else
                 btnOpen.type = 'button';
                 btnOpen.className = 'btn btn-outline-secondary btn-sm';
                 btnOpen.id = 'btnDxOpen';
-                btnOpen.textContent = L.Open || 'Open';
+                btnOpen.textContent = L.Open;
                 btnOpen.addEventListener('click', function () {
                     const inp = document.getElementById('dxOpenFile');
                     if (inp) inp.click();
@@ -1435,7 +1596,6 @@ else
 
             const inst = getDxInstance();
 
-            // A1 선택
             try {
                 if (inst) {
                     if (typeof inst.SetSelection === 'function') inst.SetSelection(0, 0, 0, 0);
@@ -1443,7 +1603,6 @@ else
                 }
             } catch { }
 
-            // MutationObserver로 DX 캔버스 DOM이 안정된 시점에 스크롤 리셋
             const scrollReset = function () {
                 try {
                     host.querySelectorAll('[class*="scroll"]').forEach(function (el) {
@@ -1472,7 +1631,6 @@ else
                 attributeFilter: ['style', 'class']
             });
 
-            // 안전장치
             setTimeout(function () {
                 observer.disconnect();
                 scrollReset();
@@ -1492,13 +1650,11 @@ else
                 if (inst) {
                     bindDxStateEvents(inst);
 
-                    // ── A1 강제 이동 (최초 1회) - DocumentLoaded 이벤트 우선, fallback은 endSynchronization
                     if (!inst.__docTlA1Moved) {
                         inst.__docTlA1Moved = true;
 
                         let movedByEvent = false;
 
-                        // 방법1: DocumentLoaded 이벤트
                         try {
                             if (inst.DocumentLoaded && typeof inst.DocumentLoaded.AddHandler === 'function') {
                                 inst.DocumentLoaded.AddHandler(function () {
@@ -1508,7 +1664,6 @@ else
                             }
                         } catch { }
 
-                        // 방법2: endSynchronization - 동기화 끝나는 시점 (최초 1회만)
                         try {
                             if (inst.endSynchronization && typeof inst.endSynchronization.AddHandler === 'function') {
                                 let syncFired = false;
@@ -1523,7 +1678,6 @@ else
                         } catch { }
                     }
 
-                    // ── SelectionChanged 바인딩
                     try {
                         if (inst.SelectionChanged && typeof inst.SelectionChanged.AddHandler === 'function' && !inst.__docTlSelChangedBound) {
                             inst.__docTlSelChangedBound = true;
@@ -1555,6 +1709,25 @@ else
             requestAnimationFrame(tick);
         }
 
+        function normalizeDelegationConditionType(value) {
+            const v = String(value || '').trim();
+            if (v === 'Always') return 'Always';
+            if (v === 'AmountLimit') return 'AmountLimit';
+            return 'None';
+        }
+
+        function toIntOrZero(value) {
+            const n = parseInt(value, 10);
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        function parseAmountValue(value) {
+            const s = String(value == null ? '' : value).replaceAll(',', '').trim();
+            if (!s) return null;
+            const n = Number(s);
+            return Number.isFinite(n) ? n : null;
+        }
+
         function run() {
             const raw = (document.getElementById('desc-json')?.textContent || '{}').trim();
             let desc = {};
@@ -1570,11 +1743,333 @@ else
             const apprBody = document.getElementById('tblApprBody');
             const coopBody = document.getElementById('tblCoopBody');
 
-            function renderLines(tbody, lines, onChange, onDeleteReindex) {
+            function ensureDelegation() {
+                if (!desc.Delegation || typeof desc.Delegation !== 'object') desc.Delegation = {};
+
+                const d = desc.Delegation;
+                d.Enabled = !!d.Enabled;
+                d.ConditionType = normalizeDelegationConditionType(d.ConditionType);
+                d.DelegationStepOrder = toIntOrZero(d.DelegationStepOrder);
+                d.SkipFromStepOrder = toIntOrZero(d.SkipFromStepOrder);
+                d.SkipToStepOrder = toIntOrZero(d.SkipToStepOrder);
+
+                d.AmountFieldKey = String(d.AmountFieldKey || '').trim();
+                d.CurrencyFieldKey = String(d.CurrencyFieldKey || '').trim();
+
+                // 2026.06.18 Added: 전결 금액 조건 셀 주소 상태 추가 Contents 입력 필드가 아닌 수식 셀과 통화 셀을 참조
+                d.AmountCellA1 = String(d.AmountCellA1 || '').trim().toUpperCase();
+                d.CurrencyCellA1 = String(d.CurrencyCellA1 || '').trim().toUpperCase();
+
+                if (!Array.isArray(d.AmountLimits)) d.AmountLimits = [];
+
+                d.AmountLimits = d.AmountLimits
+                    .map(function (x) {
+                        x = x || {};
+                        return {
+                            CurrencyCode: String(x.CurrencyCode || '').trim().toUpperCase(),
+                            LimitAmount: x.LimitAmount
+                        };
+                    });
+
+                return d;
+            }
+
+            function getMaxApprovalSlot() {
+                const list = Array.isArray(desc.Approvals) ? desc.Approvals : [];
+                let max = 0;
+                for (let i = 0; i < list.length; i++) {
+                    const n = toIntOrZero(list[i] && list[i].Slot);
+                    if (n > max) max = n;
+                }
+                return max;
+            }
+
+            function syncDelegationApproverFlags() {
+                const d = ensureDelegation();
+                const list = Array.isArray(desc.Approvals) ? desc.Approvals : [];
+                for (let i = 0; i < list.length; i++) {
+                    list[i] = list[i] || {};
+                    list[i].IsDelegationApprover = d.Enabled && d.DelegationStepOrder > 0 && toIntOrZero(list[i].Slot) === d.DelegationStepOrder;
+                }
+            }
+
+            function setDelegationStep(slot) {
+                const d = ensureDelegation();
+                const step = toIntOrZero(slot);
+                const maxSlot = getMaxApprovalSlot();
+
+                if (step <= 0) {
+                    d.Enabled = false;
+                    d.ConditionType = 'None';
+                    d.DelegationStepOrder = 0;
+                    d.SkipFromStepOrder = 0;
+                    d.SkipToStepOrder = 0;
+                    d.AmountCellA1 = '';
+                    d.CurrencyCellA1 = '';
+                    d.AmountLimits = [];
+                    syncDelegationApproverFlags();
+                    return;
+                }
+
+                d.Enabled = true;
+                if (d.ConditionType === 'None') d.ConditionType = 'Always';
+                d.DelegationStepOrder = step;
+                d.SkipFromStepOrder = step + 1;
+                d.SkipToStepOrder = Math.max(step + 1, maxSlot);
+                syncDelegationApproverFlags();
+            }
+
+            function renderDelegationAmountRows() {
+                const d = ensureDelegation();
+                const tbody = document.getElementById('tblDelegationAmountBody');
+                if (!tbody) return;
+
+                tbody.innerHTML = '';
+
+                if (!Array.isArray(d.AmountLimits) || d.AmountLimits.length === 0) {
+                    renderEmptyRow(tbody, 3);
+                    return;
+                }
+
+                d.AmountLimits.forEach(function (item, i) {
+                    item = item || {};
+
+                    const tr = document.createElement('tr');
+
+                    const tdCode = document.createElement('td');
+
+                    // 2026.06.18 Changed: 통화 코드 자유 입력을 콤보박스로 변경 Contents 허용 통화 외 입력을 차단하고 표시 순서를 KRW USD VND IDR CNY로 고정
+                    const selCode = buildDelegationCurrencySelect(item.CurrencyCode || '');
+                    selCode.addEventListener('change', function (e) {
+                        const code = String(e.target.value || '').trim().toUpperCase();
+
+                        d.AmountLimits[i].CurrencyCode = code;
+                        d.AmountLimits[i].LimitAmount = normalizeAmountForCurrency(d.AmountLimits[i].LimitAmount, code);
+
+                        renderDelegationAmountRows();
+                    });
+                    tdCode.appendChild(selCode);
+
+                    const tdAmount = document.createElement('td');
+                    const inpAmount = document.createElement('input');
+                    inpAmount.type = 'text';
+                    inpAmount.inputMode = 'decimal';
+                    inpAmount.className = 'form-control form-control-sm';
+                    inpAmount.value = formatAmountForCurrency(item.LimitAmount, item.CurrencyCode);
+
+                    inpAmount.addEventListener('input', function (e) {
+                        d.AmountLimits[i].LimitAmount = parseAmountValue(e.target.value);
+                    });
+
+                    inpAmount.addEventListener('blur', function (e) {
+                        const code = String(d.AmountLimits[i].CurrencyCode || '').trim().toUpperCase();
+                        const n = normalizeAmountForCurrency(e.target.value, code);
+
+                        d.AmountLimits[i].LimitAmount = n;
+                        e.target.value = formatAmountForCurrency(n, code);
+                    });
+
+                    tdAmount.appendChild(inpAmount);
+
+                    const tdAct = document.createElement('td');
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-outline-danger btn-sm';
+                    btn.textContent = L.Delete;
+                    btn.addEventListener('click', function () {
+                        d.AmountLimits.splice(i, 1);
+                        renderDelegationAmountRows();
+                    });
+                    tdAct.appendChild(btn);
+
+                    tr.append(tdCode, tdAmount, tdAct);
+                    tbody.appendChild(tr);
+                });
+            }
+
+            function renderDelegationPanel() {
+                const d = ensureDelegation();
+                syncDelegationApproverFlags();
+
+                const chk = document.getElementById('chkDelegationEnabled');
+                const selCond = document.getElementById('selDelegationCondition');
+                const txtStep = document.getElementById('txtDelegationStep');
+                const txtSkip = document.getElementById('txtDelegationSkipRange');
+                const amountArea = document.getElementById('delegationAmountArea');
+
+                // 2026.06.18 Changed: 금액 조건 입력 요소를 필드 select에서 셀 A1 input으로 변경 Contents 전체 합계 수식 셀을 직접 참조
+                const txtAmountCell = document.getElementById('txtDelegationAmountCellA1');
+                const txtCurrencyCell = document.getElementById('txtDelegationCurrencyCellA1');
+
+                if (chk) chk.checked = !!d.Enabled;
+                if (selCond) selCond.value = d.ConditionType || 'None';
+                if (txtStep) txtStep.value = d.DelegationStepOrder > 0 ? String(d.DelegationStepOrder) : '';
+                if (txtSkip) {
+                    txtSkip.value = d.SkipFromStepOrder > 0 && d.SkipToStepOrder > 0
+                        ? String(d.SkipFromStepOrder) + ' - ' + String(d.SkipToStepOrder)
+                        : '';
+                }
+
+                if (txtAmountCell) txtAmountCell.value = d.AmountCellA1 || '';
+                if (txtCurrencyCell) txtCurrencyCell.value = d.CurrencyCellA1 || '';
+
+                if (amountArea) {
+                    amountArea.style.display = d.Enabled && d.ConditionType === 'AmountLimit' ? '' : 'none';
+                }
+
+                renderDelegationAmountRows();
+            }
+
+            function normalizeDelegationForPayload(payload) {
+                payload.Delegation = payload.Delegation || {};
+                const d = payload.Delegation;
+                d.Enabled = !!d.Enabled;
+                d.ConditionType = normalizeDelegationConditionType(d.ConditionType);
+                d.DelegationStepOrder = toIntOrZero(d.DelegationStepOrder);
+                d.SkipFromStepOrder = toIntOrZero(d.SkipFromStepOrder);
+                d.SkipToStepOrder = toIntOrZero(d.SkipToStepOrder);
+
+                payload.Approvals = Array.isArray(payload.Approvals) ? payload.Approvals : [];
+
+                if (d.DelegationStepOrder <= 0) {
+                    const marked = payload.Approvals
+                        .filter(function (x) { return x && x.IsDelegationApprover; })
+                        .sort(function (a, b) { return toIntOrZero(a.Slot) - toIntOrZero(b.Slot); })[0];
+
+                    if (marked) d.DelegationStepOrder = toIntOrZero(marked.Slot);
+                }
+
+                const maxSlot = payload.Approvals.reduce(function (max, x) {
+                    const n = toIntOrZero(x && x.Slot);
+                    return n > max ? n : max;
+                }, 0);
+
+                if (!d.Enabled || d.ConditionType === 'None') {
+                    d.Enabled = false;
+                    d.ConditionType = 'None';
+                    d.DelegationStepOrder = 0;
+                    d.SkipFromStepOrder = 0;
+                    d.SkipToStepOrder = 0;
+                    d.AmountFieldKey = '';
+                    d.CurrencyFieldKey = '';
+                    d.AmountCellA1 = '';
+                    d.CurrencyCellA1 = '';
+                    d.AmountLimits = [];
+                } else {
+                    if (d.SkipFromStepOrder <= 0 && d.DelegationStepOrder > 0) {
+                        d.SkipFromStepOrder = d.DelegationStepOrder + 1;
+                    }
+
+                    if (d.SkipToStepOrder <= 0 && d.SkipFromStepOrder > 0) {
+                        d.SkipToStepOrder = Math.max(d.SkipFromStepOrder, maxSlot);
+                    }
+
+                    payload.Approvals.forEach(function (a) {
+                        if (!a) return;
+                        a.IsDelegationApprover = toIntOrZero(a.Slot) === d.DelegationStepOrder;
+                    });
+
+                    // 2026.06.18 Changed: AmountLimit 조건은 입력 필드 키가 아니라 셀 주소를 사용 Contents 기존 필드 키는 호환용으로 비움
+                    d.AmountFieldKey = '';
+                    d.CurrencyFieldKey = '';
+                    d.AmountCellA1 = String(d.AmountCellA1 || '').trim().toUpperCase();
+                    d.CurrencyCellA1 = String(d.CurrencyCellA1 || '').trim().toUpperCase();
+
+                    if (d.ConditionType === 'AmountLimit') {
+                        d.AmountLimits = Array.isArray(d.AmountLimits) ? d.AmountLimits : [];
+                        d.AmountLimits = d.AmountLimits
+                            .map(function (x) {
+                                x = x || {};
+                                const currencyCode = String(x.CurrencyCode || '').trim().toUpperCase();
+
+                                return {
+                                    CurrencyCode: currencyCode,
+                                    // 2026.06.18 Changed: 기준 금액을 통화별 허용 소수 자릿수 기준으로 정규화 Contents KRW VND IDR은 정수 USD CNY는 소수 2자리로 저장
+                                    LimitAmount: normalizeAmountForCurrency(x.LimitAmount, currencyCode)
+                                };
+                            })
+                            .filter(function (x) {
+                                return x.CurrencyCode || x.LimitAmount != null;
+                            });
+                    } else {
+                        d.AmountCellA1 = '';
+                        d.CurrencyCellA1 = '';
+                        d.AmountLimits = [];
+                    }
+                }
+
+                return payload;
+            }
+
+            function validateDelegationPayload(payload) {
+                const d = payload.Delegation || {};
+                if (!d.Enabled || d.ConditionType === 'None') return { ok: true };
+
+                if (d.ConditionType !== 'Always' && d.ConditionType !== 'AmountLimit') {
+                    return { ok: false, msg: L.V_DelegationConditionRequired };
+                }
+
+                const approvals = Array.isArray(payload.Approvals) ? payload.Approvals : [];
+                const slots = approvals.map(function (x) { return toIntOrZero(x && x.Slot); });
+
+                if (d.DelegationStepOrder <= 0 || slots.indexOf(d.DelegationStepOrder) < 0) {
+                    return { ok: false, msg: L.V_DelegationStepRequired };
+                }
+
+                if (d.SkipFromStepOrder <= d.DelegationStepOrder ||
+                    d.SkipToStepOrder < d.SkipFromStepOrder ||
+                    slots.indexOf(d.SkipFromStepOrder) < 0) {
+                    return { ok: false, msg: L.V_DelegationSkipStepRequired };
+                }
+
+                if (d.ConditionType === 'AmountLimit') {
+                    // 2026.06.18 Changed: 전결 금액 조건 검증을 입력 필드 키 기준에서 셀 주소 기준으로 변경 Contents 수식 셀 보호를 유지하기 위함
+                    if (!String(d.AmountCellA1 || '').trim()) {
+                        return { ok: false, msg: L.V_DelegationAmountCellRequired };
+                    }
+
+                    const limits = Array.isArray(d.AmountLimits) ? d.AmountLimits : [];
+                    if (limits.length === 0) {
+                        return { ok: false, msg: L.V_DelegationAmountLimitRequired };
+                    }
+
+                    const currencySet = new Set();
+
+                    for (let i = 0; i < limits.length; i++) {
+                        const item = limits[i] || {};
+                        const currencyCode = String(item.CurrencyCode || '').trim().toUpperCase();
+
+                        if (!currencyCode || !isDelegationCurrencyCode(currencyCode)) {
+                            return { ok: false, msg: L.V_DelegationCurrencyCodeRequired };
+                        }
+
+                        if (currencySet.has(currencyCode)) {
+                            return { ok: false, msg: L.V_DelegationCurrencyCodeDup };
+                        }
+
+                        currencySet.add(currencyCode);
+
+                        const amount = parseAmountValue(item.LimitAmount);
+                        if (amount == null || amount <= 0) {
+                            return { ok: false, msg: L.V_DelegationAmountInvalid };
+                        }
+                    }
+
+                    // 2026.06.18 Changed: 기준 통화 1개일 때 통화 셀 선택을 생략 허용 Contents 기준 통화가 2개 이상이면 적용 통화를 판별하기 위해 통화 셀을 필수로 요구
+                    if (!String(d.CurrencyCellA1 || '').trim() && currencySet.size > 1) {
+                        return { ok: false, msg: L.V_DelegationCurrencyCellRequired };
+                    }
+                }
+
+                return { ok: true };
+            }
+
+            function renderLines(tbody, lines, onChange, onDeleteReindex, options) {
+                const showDelegation = !!(options && options.showDelegation);
                 tbody.innerHTML = '';
 
                 if (lines.length === 0) {
-                    renderEmptyRow(tbody, 6);
+                    renderEmptyRow(tbody, showDelegation ? 7 : 6);
                     return;
                 }
 
@@ -1592,7 +2087,19 @@ else
                     inpS.min = '1';
                     inpS.className = 'form-control form-control-sm';
                     inpS.value = a.Slot ?? (i + 1);
-                    inpS.addEventListener('input', function (e) { onChange(i, 'Slot', parseInt(e.target.value || '1', 10)); });
+                    inpS.addEventListener('input', function (e) {
+                        const oldSlot = toIntOrZero(a.Slot);
+                        const newSlot = parseInt(e.target.value || '1', 10);
+                        onChange(i, 'Slot', newSlot);
+
+                        if (showDelegation) {
+                            const d = ensureDelegation();
+                            if (d.DelegationStepOrder === oldSlot || a.IsDelegationApprover) {
+                                setDelegationStep(newSlot);
+                                renderDelegationPanel();
+                            }
+                        }
+                    });
                     tdS.appendChild(inpS);
 
                     const tdP = document.createElement('td');
@@ -1638,6 +2145,31 @@ else
                         tdVal.appendChild(inpVal);
                     }
 
+                    let tdDelegation = null;
+                    if (showDelegation) {
+                        const d = ensureDelegation();
+                        tdDelegation = document.createElement('td');
+                        tdDelegation.className = 'delegation-flag-cell';
+
+                        const chk = document.createElement('input');
+                        chk.type = 'checkbox';
+                        chk.className = 'form-check-input';
+                        chk.checked = d.Enabled && d.DelegationStepOrder > 0 && toIntOrZero(a.Slot) === d.DelegationStepOrder;
+                        chk.addEventListener('change', function (e) {
+                            if (e.target.checked) {
+                                setDelegationStep(toIntOrZero(a.Slot));
+                            } else {
+                                const dd = ensureDelegation();
+                                if (dd.DelegationStepOrder === toIntOrZero(a.Slot)) {
+                                    setDelegationStep(0);
+                                }
+                            }
+                            render();
+                        });
+
+                        tdDelegation.appendChild(chk);
+                    }
+
                     const tdAct = document.createElement('td');
                     const delBtn = document.createElement('button');
                     delBtn.type = 'button';
@@ -1646,16 +2178,29 @@ else
                     delBtn.addEventListener('click', function () {
                         lines.splice(i, 1);
                         try { if (typeof onDeleteReindex === 'function') onDeleteReindex(lines); } catch { }
+                        const d = ensureDelegation();
+                        if (showDelegation && d.DelegationStepOrder > 0) {
+                            const exists = lines.some(function (x) { return toIntOrZero(x && x.Slot) === d.DelegationStepOrder; });
+                            if (!exists) setDelegationStep(0);
+                        }
                         render();
                     });
                     tdAct.appendChild(delBtn);
 
-                    tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
+                    if (showDelegation) {
+                        tr.append(tdS, tdP, tdA1, tdType, tdVal, tdDelegation, tdAct);
+                    } else {
+                        tr.append(tdS, tdP, tdA1, tdType, tdVal, tdAct);
+                    }
+
                     tbody.appendChild(tr);
                 });
             }
 
             function render() {
+                ensureDelegation();
+                syncDelegationApproverFlags();
+
                 fieldsBody.innerHTML = '';
 
                 if (desc.Fields.length === 0) {
@@ -1672,7 +2217,10 @@ else
                         inpKey.className = 'form-control form-control-sm key-input';
                         inpKey.placeholder = L.PH_FieldKey;
                         inpKey.value = f.Key || '';
-                        inpKey.addEventListener('input', function (e) { desc.Fields[i].Key = e.target.value; });
+                        inpKey.addEventListener('input', function (e) {
+                            desc.Fields[i].Key = e.target.value;
+                            renderDelegationPanel();
+                        });
                         tdKey.appendChild(inpKey);
 
                         const tdType = document.createElement('td');
@@ -1730,7 +2278,9 @@ else
                     else if (k === 'CellA1') { a.Cell = a.Cell || {}; a.Cell.A1 = v; }
                     else if (k === 'ApproverType') a.ApproverType = v;
                     else if (k === 'ApproverValue') a.ApproverValue = v;
-                }, function (lines) { reindexSlots(lines); });
+                }, function (lines) { reindexSlots(lines); }, { showDelegation: true });
+
+                renderDelegationPanel();
 
                 renderLines(coopBody, desc.Cooperations, function (i, k, v) {
                     desc.Cooperations[i] = desc.Cooperations[i] || {};
@@ -1740,8 +2290,82 @@ else
                     else if (k === 'CellA1') { a.Cell = a.Cell || {}; a.Cell.A1 = v; }
                     else if (k === 'ApproverType') a.ApproverType = v;
                     else if (k === 'ApproverValue') a.ApproverValue = v;
-                }, function (lines) { reindexSlots(lines); });
+                }, function (lines) { reindexSlots(lines); }, { showDelegation: false });
             }
+
+            document.getElementById('chkDelegationEnabled')?.addEventListener('change', function (e) {
+                const d = ensureDelegation();
+                d.Enabled = !!e.target.checked;
+
+                if (!d.Enabled) {
+                    d.ConditionType = 'None';
+                    d.DelegationStepOrder = 0;
+                    d.SkipFromStepOrder = 0;
+                    d.SkipToStepOrder = 0;
+                    d.AmountCellA1 = '';
+                    d.CurrencyCellA1 = '';
+                    d.AmountLimits = [];
+                } else if (d.ConditionType === 'None') {
+                    d.ConditionType = 'Always';
+                }
+
+                syncDelegationApproverFlags();
+                render();
+            });
+
+            document.getElementById('selDelegationCondition')?.addEventListener('change', function (e) {
+                const d = ensureDelegation();
+                d.ConditionType = normalizeDelegationConditionType(e.target.value);
+                d.Enabled = d.ConditionType !== 'None';
+
+                if (!d.Enabled) {
+                    d.DelegationStepOrder = 0;
+                    d.SkipFromStepOrder = 0;
+                    d.SkipToStepOrder = 0;
+                    d.AmountCellA1 = '';
+                    d.CurrencyCellA1 = '';
+                    d.AmountLimits = [];
+                }
+
+                syncDelegationApproverFlags();
+                render();
+            });
+
+            const delegationAmountCellInput = document.getElementById('txtDelegationAmountCellA1');
+            if (delegationAmountCellInput) {
+                delegationAmountCellInput.addEventListener('input', function (e) {
+                    const d = ensureDelegation();
+                    d.AmountCellA1 = String(e.target.value || '').trim().toUpperCase();
+                });
+
+                // 2026.06.18 Added: 전결 금액 셀 선택 바인딩 추가 Contents 스프레드시트에서 선택한 셀 주소를 금액 조건 셀로 저장
+                bindA1Picker(delegationAmountCellInput, function (a1) {
+                    const d = ensureDelegation();
+                    d.AmountCellA1 = String(a1 || '').trim().toUpperCase();
+                    delegationAmountCellInput.value = d.AmountCellA1;
+                });
+            }
+
+            const delegationCurrencyCellInput = document.getElementById('txtDelegationCurrencyCellA1');
+            if (delegationCurrencyCellInput) {
+                delegationCurrencyCellInput.addEventListener('input', function (e) {
+                    const d = ensureDelegation();
+                    d.CurrencyCellA1 = String(e.target.value || '').trim().toUpperCase();
+                });
+
+                // 2026.06.18 Added: 전결 통화 셀 선택 바인딩 추가 Contents 스프레드시트에서 선택한 셀 주소를 통화 조건 셀로 저장
+                bindA1Picker(delegationCurrencyCellInput, function (a1) {
+                    const d = ensureDelegation();
+                    d.CurrencyCellA1 = String(a1 || '').trim().toUpperCase();
+                    delegationCurrencyCellInput.value = d.CurrencyCellA1;
+                });
+            }
+
+            document.getElementById('btnAddDelegationAmountLimit')?.addEventListener('click', function () {
+                const d = ensureDelegation();
+                d.AmountLimits.push({ CurrencyCode: '', LimitAmount: null });
+                renderDelegationAmountRows();
+            });
 
             document.getElementById('btnAddField')?.addEventListener('click', function () {
                 desc.Fields.push({ Key: '', Type: 'Text', Cell: { A1: '' } });
@@ -1750,7 +2374,7 @@ else
 
             document.getElementById('btnAddAppr')?.addEventListener('click', function () {
                 const next = getNextSlot(desc.Approvals);
-                desc.Approvals.push({ Slot: next, Part: '', Cell: { A1: '' }, ApproverType: 'Person', ApproverValue: '' });
+                desc.Approvals.push({ Slot: next, Part: '', Cell: { A1: '' }, ApproverType: 'Person', ApproverValue: '', IsDelegationApprover: false });
                 render();
             });
 
@@ -1790,6 +2414,10 @@ else
 
                     const vCoop = validateOneLine(payload.Cooperations || [], 'DTL_Section_Cooperations');
                     if (!vCoop.ok) { alert(vCoop.msg); return; }
+
+                    normalizeDelegationForPayload(payload);
+                    const vDelegation = validateDelegationPayload(payload);
+                    if (!vDelegation.ok) { alert(vDelegation.msg); return; }
 
                     await submitDxMapSave(payload);
                 });

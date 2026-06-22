@@ -31,6 +31,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DocTemplateFile> DocTemplateFiles { get; set; } = default!;
     public DbSet<DocTemplateApproval> DocTemplateApprovals { get; set; } = default!;
 
+    // 2026.06.16 Added: 전결 테이블 DbSet 등록 Contents 전결 규칙과 금액 조건 및 문서별 전결 적용 결과를 조회 저장
+    public DbSet<DocTemplateDelegationRule> DocTemplateDelegationRules { get; set; } = default!;
+    public DbSet<DocTemplateDelegationAmountRule> DocTemplateDelegationAmountRules { get; set; } = default!;
+    public DbSet<DocumentDelegationResult> DocumentDelegationResults { get; set; } = default!;
+
     public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; } = default!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -284,6 +289,17 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.Templated);
             e.Property(x => x.CreatedAt);
             e.Property(x => x.CreatedBy).HasMaxLength(100);
+
+            // 2026.06.11 Added: 템플릿 보호 재적용 및 실제 xlsx 기준 표시 메트릭
+            e.Property(x => x.PreparedAt);
+            e.Property(x => x.TemplateFileHash).HasMaxLength(64).IsFixedLength();
+            e.Property(x => x.ProtectionRuleCode).HasMaxLength(50);
+            e.Property(x => x.VisualMetricRuleCode).HasMaxLength(50);
+            e.Property(x => x.VisualSource).HasMaxLength(50);
+            e.Property(x => x.VisualRangeA1).HasMaxLength(100);
+            e.Property(x => x.VisualWidthPx);
+            e.Property(x => x.VisualHeightPx);
+
             e.HasIndex(x => new { x.TemplateId, x.VersionNo }).HasDatabaseName("IX_DocTemplateVersion_TmplVer");
         });
 
@@ -320,6 +336,85 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.CellA1).HasMaxLength(50);
             e.Property(x => x.CellRow);
             e.Property(x => x.CellColumn);
+        });
+
+        // 2026.06.16 Added: 전결 규칙 테이블 매핑 Contents 템플릿 버전별 전결권자 차수와 생략 대상 차수 및 조건 유형을 매핑
+        modelBuilder.Entity<DocTemplateDelegationRule>(e =>
+        {
+            e.ToTable("DocTemplateDelegationRule", "dbo");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.TemplateId).IsRequired();
+            e.Property(x => x.TemplateVersionId).IsRequired();
+            e.Property(x => x.RuleName).HasMaxLength(100);
+            e.Property(x => x.ConditionType).IsRequired().HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.DelegationStepOrder).IsRequired();
+            e.Property(x => x.SkipFromStepOrder).IsRequired();
+            e.Property(x => x.SkipToStepOrder).IsRequired();
+            e.Property(x => x.Priority).HasDefaultValue(100);
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.CreatedBy).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+            e.Property(x => x.UpdatedBy).HasMaxLength(100);
+            e.Property(x => x.UpdatedAt);
+        });
+
+        // 2026.06.16 Added: 전결 금액 조건 테이블 매핑 Contents 금액 조건 전결의 금액 필드와 통화 필드 및 통화별 기준 금액을 매핑
+        modelBuilder.Entity<DocTemplateDelegationAmountRule>(e =>
+        {
+            e.ToTable("DocTemplateDelegationAmountRule", "dbo");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.RuleId).IsRequired();
+            e.Property(x => x.AmountFieldKey).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CurrencyFieldKey).HasMaxLength(100).IsRequired();
+
+            // 2026.06.18 Added: 전결 금액 조건 셀 직접 참조 매핑 추가 Contents 입력 필드가 아닌 수식 셀과 통화 셀을 참조하기 위한 셀 주소를 매핑
+            e.Property(x => x.AmountCellA1).HasMaxLength(50);
+            e.Property(x => x.CurrencyCellA1).HasMaxLength(50);
+
+            e.Property(x => x.CurrencyCode).HasMaxLength(10).IsRequired();
+            e.Property(x => x.LimitAmount).HasPrecision(19, 4).IsRequired();
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.Property(x => x.CreatedBy).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+            e.Property(x => x.UpdatedBy).HasMaxLength(100);
+            e.Property(x => x.UpdatedAt);
+        });
+
+        // 2026.06.16 Added: 문서별 전결 적용 결과 테이블 매핑 Contents 문서 작성 및 승인 시점의 전결 후보와 적용 결과 스냅샷을 매핑
+        modelBuilder.Entity<DocumentDelegationResult>(e =>
+        {
+            e.ToTable("DocumentDelegationResult", "dbo");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.DocId).HasMaxLength(40).IsRequired().IsUnicode(false);
+            e.Property(x => x.RuleId);
+            e.Property(x => x.TemplateVersionId);
+            e.Property(x => x.ConditionType).HasMaxLength(30).IsRequired().IsUnicode(false);
+            e.Property(x => x.DelegationStepOrder).IsRequired();
+            e.Property(x => x.SkipFromStepOrder).IsRequired();
+            e.Property(x => x.SkipToStepOrder).IsRequired();
+            e.Property(x => x.AmountFieldKey).HasMaxLength(100);
+            e.Property(x => x.AmountValue).HasPrecision(19, 4);
+            e.Property(x => x.CurrencyFieldKey).HasMaxLength(100);
+
+            // 2026.06.18 Added: 문서별 전결 금액 조건 셀 직접 참조 매핑 추가 Contents 실제 문서 파일에서 비교한 금액 셀과 통화 셀 주소를 매핑
+            e.Property(x => x.AmountCellA1).HasMaxLength(50);
+            e.Property(x => x.CurrencyCellA1).HasMaxLength(50);
+
+            e.Property(x => x.CurrencyCode).HasMaxLength(10);
+            e.Property(x => x.LimitAmount).HasPrecision(19, 4);
+            e.Property(x => x.AppliedStatus).HasMaxLength(30).IsRequired().IsUnicode(false).HasDefaultValue("Candidate");
+            e.Property(x => x.AppliedBy).HasMaxLength(64);
+            e.Property(x => x.AppliedAt);
+            e.Property(x => x.CancelledBy).HasMaxLength(64);
+            e.Property(x => x.CancelledAt);
+            e.Property(x => x.ResultMessageKey).HasMaxLength(100);
+            e.Property(x => x.DetailJson);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+            e.Property(x => x.UpdatedAt);
         });
 
         modelBuilder.Entity<WebPushSubscription>(e =>

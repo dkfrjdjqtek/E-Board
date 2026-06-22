@@ -1,4 +1,5 @@
-﻿@* 2026.06.09 Changed: 수정일자 표시/필터를 DocControllerHelper.cs와 DocControllerHelper.js 공용 날짜 헬퍼 기준으로 정리 *@
+﻿@* 2026.06.15 Changed: 누락 메타 보정 버튼과 수정된 공통 리소스 키를 적용 *@
+@* 2026.06.09 Changed: 수정일자 표시/필터를 DocControllerHelper.cs와 DocControllerHelper.js 공용 날짜 헬퍼 기준으로 정리 *@
 @* 2026.06.05 Changed: 템플릿 관리 그리드의 관리 컬럼을 content area 가로 스크롤 구조에서 우측 고정처럼 표시되도록 transform 보정 방식으로 변경 *@
 @model WebApplication1.Controllers.DocTemplateManageController.DocTemplateManageIndexVm
 @using System.Text.Json
@@ -35,6 +36,19 @@
         noData = L["DTM_Message_NoData"].Value,
         saveOk = L["DTM_Message_SaveCompleted"].Value,
         saveFail = L["DTM_Message_SaveFailed"].Value,
+
+        // 2026.06.15 Added: 누락 메타 보정 버튼과 결과 메시지 리소스를 추가
+        backfillButton = L["DTM_Btn_BackfillVisualMetrics"].Value,
+        backfillConfirm = L["DTM_Confirm_BackfillVisualMetrics"].Value,
+        backfillRunning = L["DTM_Message_BackfillRunning"].Value,
+        backfillCompleted = L["DTM_Message_BackfillCompleted"].Value,
+        backfillFailed = L["DTM_Message_BackfillFailed"].Value,
+        backfillTotal = L["_CM_All"].Value,
+        backfillSuccess = L["_CM_Success"].Value,
+        backfillFileMissing = L["DTM_Option_FileMissing"].Value,
+        backfillSkipped = L["_CM_Exclusion"].Value,
+        backfillFailedCount = L["_CM_Fail"].Value,
+
         copyOk = L["DTM_Message_PathCopied"].Value,
         copyFail = L["DTM_Message_PathCopyFailed"].Value,
         noPath = L["DTM_Message_NoPathToCopy"].Value,
@@ -48,6 +62,9 @@
         colDocCode = L["DTM_Col_DocCode"].Value,
         colDocName = L["DTM_Col_DocName"].Value,
         colVersionNo = L["DTM_Col_VersionNo"].Value,
+        colVisualRangeA1 = L["DTM_Col_VisualRangeA1"].Value,
+        colVisualWidthPx = L["DTM_Col_VisualWidthPx"].Value,
+        colVisualHeightPx = L["DTM_Col_VisualHeightPx"].Value,
         colFileName = L["DTM_Col_FileName"].Value,
         colFileExists = L["DTM_Col_FileExists"].Value,
         colCurrentPath = L["DTM_Col_CurrentPath"].Value,
@@ -68,7 +85,7 @@
         openMap = L["DTM_Btn_OpenMap"].Value,
 
         pathExists = L["DTM_PathStatus_Exists"].Value,
-        pathFileMissing = L["DTM_PathStatus_FileMissing"].Value,
+        pathFileMissing = L["DTM_Option_FileMissing"].Value,
         pathOutOfRoot = L["DTM_PathStatus_OutOfRoot"].Value,
         pathUnsafePath = L["DTM_PathStatus_UnsafePath"].Value,
         pathNoPath = L["DTM_PathStatus_NoPath"].Value
@@ -85,6 +102,10 @@
                 <div class="text-muted small">@L["DTM_Desc_Manage"]</div>
             </div>
             <div class="d-flex gap-2">
+                @* 2026.06.15 Added: 누락 메타 보정 실행 버튼을 추가 *@
+                <button type="button" class="btn btn-outline-primary" id="btnBackfillVisualMetrics">
+                    @L["DTM_Btn_BackfillVisualMetrics"]
+                </button>
                 <button type="button" class="btn btn-primary" id="btnSaveUseState" disabled>
                     @L["DTM_Btn_SaveChanges"]
                 </button>
@@ -112,7 +133,7 @@
     }
 
     :root {
-        --dtm-grid-min-w: 2368px;
+        --dtm-grid-min-w: 2728px;
     }
 
     #dtm-scroll {
@@ -343,6 +364,8 @@
         const rows = H.readJsonScript('dtm-rows-json', []);
         const text = H.readJsonScript('dtm-text-json', {});
 
+        // 2026.06.15 Added: 누락 메타 보정 버튼 참조를 추가
+        const backfillButton = document.getElementById('btnBackfillVisualMetrics');
         const saveButton = document.getElementById('btnSaveUseState');
         const tokenInput = page.querySelector('input[name="__RequestVerificationToken"]');
         const changed = new Map();
@@ -490,6 +513,35 @@
             }
 
             refreshSaveButton();
+        }
+
+        // 2026.06.15 Added: 서버 응답의 대소문자 차이를 흡수하여 결과 건수를 읽는다
+        function readResultValue(result, pascalName, camelName) {
+            if (!result) return 0;
+
+            if (result[pascalName] !== null && result[pascalName] !== undefined) {
+                return result[pascalName];
+            }
+
+            if (result[camelName] !== null && result[camelName] !== undefined) {
+                return result[camelName];
+            }
+
+            return 0;
+        }
+
+        // 2026.06.15 Added: 누락 메타 보정 결과 메시지를 리소스 키 기준으로 구성한다
+        function makeBackfillResultMessage(result) {
+            const values = [
+                text.backfillCompleted || '',
+                (text.backfillTotal || '') + ': ' + String(readResultValue(result, 'Total', 'total')),
+                (text.backfillSuccess || '') + ': ' + String(readResultValue(result, 'Success', 'success')),
+                (text.backfillFileMissing || '') + ': ' + String(readResultValue(result, 'FileMissing', 'fileMissing')),
+                (text.backfillSkipped || '') + ': ' + String(readResultValue(result, 'Skipped', 'skipped')),
+                (text.backfillFailedCount || '') + ': ' + String(readResultValue(result, 'Failed', 'failed'))
+            ];
+
+            return values.filter(x => x && String(x).trim() !== '').join('\n');
         }
 
         function pathStatusText(key) {
@@ -789,12 +841,45 @@
                         appendEllipsis(container, options.value);
                     }
                 },
-                {
+               {
                     caption: text.colVersionNo,
                     dataField: 'VersionNo',
                     width: 85,
                     alignment: 'center',
                     dataType: 'number'
+                },
+                {
+                    caption: text.colVisualRangeA1,
+                    dataField: 'VisualRangeA1',
+                    width: 120,
+                    alignment: 'center',
+                    calculateCellValue: function (row) {
+                        return row.VisualRangeA1 || text.empty;
+                    }
+                },
+                {
+                    caption: text.colVisualWidthPx,
+                    dataField: 'VisualWidthPx',
+                    width: 120,
+                    alignment: 'center',
+                    dataType: 'number',
+                    customizeText: function (cellInfo) {
+                        return cellInfo.value === null || cellInfo.value === undefined
+                            ? text.empty
+                            : String(cellInfo.value);
+                    }
+                },
+                {
+                    caption: text.colVisualHeightPx,
+                    dataField: 'VisualHeightPx',
+                    width: 120,
+                    alignment: 'center',
+                    dataType: 'number',
+                    customizeText: function (cellInfo) {
+                        return cellInfo.value === null || cellInfo.value === undefined
+                            ? text.empty
+                            : String(cellInfo.value);
+                    }
                 },
                 {
                     caption: text.colFileName,
@@ -969,6 +1054,41 @@
                 scheduleManageColumnPosition();
             }
         });
+
+        // 2026.06.15 Added: 누락 메타 보정 버튼 클릭 시 서버 일괄 보정 액션을 호출한다
+        if (backfillButton) {
+            backfillButton.addEventListener('click', async () => {
+                if (!confirm(text.backfillConfirm)) {
+                    return;
+                }
+
+                const originalText = backfillButton.textContent;
+                backfillButton.disabled = true;
+                backfillButton.textContent = text.backfillRunning || originalText;
+
+                try {
+                    const response = await fetch('/DocTL/DocTemplateManage/backfill-visual-metrics', {
+                        method: 'POST',
+                        headers: {
+                            'RequestVerificationToken': tokenInput ? tokenInput.value : ''
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('backfill failed');
+                    }
+
+                    const result = await response.json();
+
+                    alert(makeBackfillResultMessage(result));
+                    location.reload();
+                } catch {
+                    alert(text.backfillFailed);
+                    backfillButton.disabled = false;
+                    backfillButton.textContent = originalText;
+                }
+            });
+        }
 
         if (saveButton) {
             saveButton.addEventListener('click', async () => {

@@ -17,6 +17,7 @@ using System.Data;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -38,6 +39,8 @@ namespace WebApplication1.Controllers
         private readonly ILogger<DetailDXController> _log;
         private readonly IWebPushNotifier _webPushNotifier;
         private readonly DocControllerHelper _helper;
+        // 2026.06.15 Added: DetailDX warm-up workbook 최초 생성 시 동시 요청 충돌을 방지한다.
+        private static readonly object _detailDxWarmupWorkbookLock = new();
 
         public DetailDXController(
             IStringLocalizer<SharedResource> S,
@@ -83,6 +86,7 @@ namespace WebApplication1.Controllers
             string? compTimeZoneId = null;
             string? creatorNameRaw = null;
             DateTime? createdAtUtc = null;
+            long? documentTemplateVersionId = null;
 
             await using (var cmd = conn.CreateCommand())
             {
@@ -97,6 +101,7 @@ SELECT TOP 1
        d.CompCd,
        d.CreatedByName,
        d.CreatedAt,
+       d.TemplateVersionId,
        COALESCE(NULLIF(LTRIM(RTRIM(cm.TimeZoneId)), N''), N'Asia/Seoul') AS CompTimeZoneId
 FROM dbo.Documents d
 LEFT JOIN dbo.CompMasters cm ON cm.CompCd = d.CompCd
@@ -121,6 +126,9 @@ WHERE d.DocId = @DocId;";
                 compTimeZoneId = rd["CompTimeZoneId"]?.ToString();
                 creatorNameRaw = rd["CreatedByName"] as string ?? string.Empty;
                 createdAtUtc = rd["CreatedAt"] is DateTime cdt ? cdt : (DateTime?)null;
+                documentTemplateVersionId = rd["TemplateVersionId"] == DBNull.Value
+                    ? null
+                    : Convert.ToInt64(rd["TemplateVersionId"], CultureInfo.InvariantCulture);
             }
 
             string createdAtText = FormatDetailLocalMinute(createdAtUtc, compTimeZoneId, currentCulture);
@@ -152,56 +160,97 @@ ORDER BY a.ActedAt DESC;";
                 _log.LogWarning(ex, "DetailDX: recalled time load failed for {DocId}", id);
             }
 
-            int? templateVersionId = null;
-            if (!string.IsNullOrWhiteSpace(templateCode))
+            long? templateVersionId = null;
+            string templateVisualRangeA1 = string.Empty;
+            string templateVisualSource = string.Empty;
+            int templateVisualWidthPx = 0;
+            int templateVisualHeightPx = 0;
+
+            if (documentTemplateVersionId.HasValue && documentTemplateVersionId.Value > 0)
             {
                 await using var tvCmd = conn.CreateCommand();
                 tvCmd.CommandText = @"
-SELECT TOP 1 v.Id
+SELECT TOP 1
+       v.Id,
+       ISNULL(v.VisualRangeA1, N'') AS VisualRangeA1,
+       ISNULL(v.VisualSource,  N'') AS VisualSource,
+       ISNULL(v.VisualWidthPx,  0) AS VisualWidthPx,
+       ISNULL(v.VisualHeightPx, 0) AS VisualHeightPx
+FROM dbo.DocTemplateVersion v
+WHERE v.Id = @TemplateVersionId;";
+                tvCmd.Parameters.Add(new SqlParameter("@TemplateVersionId", SqlDbType.BigInt) { Value = documentTemplateVersionId.Value });
+
+                await using var tvRd = await tvCmd.ExecuteReaderAsync();
+                if (await tvRd.ReadAsync())
+                {
+                    templateVersionId = tvRd.IsDBNull(0) ? null : Convert.ToInt64(tvRd.GetValue(0));
+                    templateVisualRangeA1 = tvRd["VisualRangeA1"]?.ToString() ?? string.Empty;
+                    templateVisualSource = tvRd["VisualSource"]?.ToString() ?? string.Empty;
+                    templateVisualWidthPx = tvRd["VisualWidthPx"] == DBNull.Value ? 0 : Convert.ToInt32(tvRd["VisualWidthPx"]);
+                    templateVisualHeightPx = tvRd["VisualHeightPx"] == DBNull.Value ? 0 : Convert.ToInt32(tvRd["VisualHeightPx"]);
+                }
+            }
+
+            // 2026.06.15 Changed: 문서에 저장된 TemplateVersionId가 없을 때만 기존 TemplateCode 최신 버전 조회를 fallback으로 사용한다.
+            if (!templateVersionId.HasValue && !string.IsNullOrWhiteSpace(templateCode))
+            {
+                await using var tvCmd = conn.CreateCommand();
+                tvCmd.CommandText = @"
+SELECT TOP 1
+       v.Id,
+       ISNULL(v.VisualRangeA1, N'') AS VisualRangeA1,
+       ISNULL(v.VisualSource,  N'') AS VisualSource,
+       ISNULL(v.VisualWidthPx,  0) AS VisualWidthPx,
+       ISNULL(v.VisualHeightPx, 0) AS VisualHeightPx
 FROM dbo.DocTemplateVersion v
 INNER JOIN dbo.DocTemplateMaster m ON v.TemplateId = m.Id
 WHERE m.DocCode = @TemplateCode
 ORDER BY v.VersionNo DESC, v.Id DESC;";
-                tvCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 50) { Value = templateCode! });
-                var obj = await tvCmd.ExecuteScalarAsync();
-                if (obj != null && obj != DBNull.Value)
-                    templateVersionId = Convert.ToInt32(obj);
+                tvCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode! });
+
+                await using var tvRd = await tvCmd.ExecuteReaderAsync();
+                if (await tvRd.ReadAsync())
+                {
+                    templateVersionId = tvRd.IsDBNull(0) ? null : Convert.ToInt64(tvRd.GetValue(0));
+                    templateVisualRangeA1 = tvRd["VisualRangeA1"]?.ToString() ?? string.Empty;
+                    templateVisualSource = tvRd["VisualSource"]?.ToString() ?? string.Empty;
+                    templateVisualWidthPx = tvRd["VisualWidthPx"] == DBNull.Value ? 0 : Convert.ToInt32(tvRd["VisualWidthPx"]);
+                    templateVisualHeightPx = tvRd["VisualHeightPx"] == DBNull.Value ? 0 : Convert.ToInt32(tvRd["VisualHeightPx"]);
+                }
             }
 
             var dxOpenAbsPath = ResolveContentRootRelativePath(outputPath) ?? string.Empty;
-            _log.LogInformation("DetailDX: dxOpenAbsPath={Path} exists={Exists}", dxOpenAbsPath, System.IO.File.Exists(dxOpenAbsPath ?? ""));
-            var previewJson = "{}";
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
-                    previewJson = BuildPreviewJsonFromExcel(dxOpenAbsPath, maxRows: 500, maxCols: 100);
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "DetailDX: preview json build failed for {DocId}", id);
-                previewJson = "{}";
-            }
+            _log.LogInformation(
+                "DetailDX: dxOpenAbsPath={Path} exists={Exists} templateVersionId={TemplateVersionId} visualRange={VisualRangeA1} visualWidth={VisualWidthPx} visualHeight={VisualHeightPx} visualSource={VisualSource}",
+                dxOpenAbsPath,
+                System.IO.File.Exists(dxOpenAbsPath ?? ""),
+                templateVersionId,
+                templateVisualRangeA1,
+                templateVisualWidthPx,
+                templateVisualHeightPx,
+                templateVisualSource);
 
-            if ((previewJson == "{}" || string.IsNullOrWhiteSpace(previewJson))
-                && !string.IsNullOrWhiteSpace(templateCode))
+            // 2026.06.12 Changed: DetailDX는 ComposeDX와 동일하게 DB 저장값만 사용한다.
+            // output xlsx 재스캔/Preview 재생성/RenderDiag 계산은 하지 않는다.
+            var previewJson = "{}";
+            if (templateVersionId.HasValue)
             {
                 try
                 {
                     await using var tvFbCmd = conn.CreateCommand();
                     tvFbCmd.CommandText = @"
-SELECT TOP 1 v.PreviewJson
-FROM dbo.DocTemplateVersion v
-JOIN dbo.DocTemplateMaster m ON m.Id = v.TemplateId
-WHERE m.DocCode = @TemplateCode
-ORDER BY v.VersionNo DESC, v.Id DESC;";
-                    tvFbCmd.Parameters.Add(new SqlParameter("@TemplateCode", SqlDbType.NVarChar, 100) { Value = templateCode! });
-                    var tplPreview = await tvFbCmd.ExecuteScalarAsync() as string;
+SELECT TOP 1 PreviewJson
+FROM dbo.DocTemplateVersion
+WHERE Id = @VersionId;";
+                    tvFbCmd.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = templateVersionId.Value });
+                    var tplPreviewObj = await tvFbCmd.ExecuteScalarAsync();
+                    var tplPreview = tplPreviewObj == null || tplPreviewObj == DBNull.Value ? null : tplPreviewObj.ToString();
                     if (!string.IsNullOrWhiteSpace(tplPreview) && tplPreview != "{}")
                         previewJson = tplPreview;
                 }
                 catch (Exception ex)
                 {
-                    _log.LogWarning(ex, "DetailDX: template previewJson fallback failed for {DocId}", id);
+                    _log.LogWarning(ex, "DetailDX: template previewJson load failed for {DocId}", id);
                 }
             }
 
@@ -255,7 +304,7 @@ SELECT Slot, ISNULL(CellA1, A1) AS A1
 FROM dbo.DocTemplateApproval
 WHERE VersionId = @VersionId
 ORDER BY Slot;";
-                ac2.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.Int) { Value = templateVersionId.Value });
+                ac2.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = templateVersionId.Value });
 
                 await using var rc = await ac2.ExecuteReaderAsync();
                 while (await rc.ReadAsync())
@@ -619,72 +668,29 @@ ORDER BY v.ViewedAt DESC;";
                 _log.LogWarning(ex, "DetailDX: load view logs failed for {DocId}", id);
             }
 
-            string stampRectsJson = "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
-            try
+            // 2026.06.12 Changed: DetailDX 렌더 크기는 DB 저장값을 그대로 사용한다.
+            // 여기서는 xlsx를 다시 열어 폭/높이를 계산하지 않는다.
+            var renderUsedLastCellA1 = templateVisualRangeA1;
+            var renderLastCellA1 = templateVisualRangeA1;
+            var renderMaxRow = 0;
+            var renderMaxCol = 0;
+
+            if (TryParseVisualRangeLastCell(templateVisualRangeA1, out var dbLastRow, out var dbLastCol, out var dbLastCellA1))
             {
-                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
-                {
-                    stampRectsJson = BuildStampRectsJsonFromExcel(
-                        dxOpenAbsPath,
-                        JsonSerializer.Serialize(approvalCells),
-                        JsonSerializer.Serialize(approvals),
-                        JsonSerializer.Serialize(cooperations),
-                        _log);
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "DetailDX: stamp rects build failed for {DocId}", id);
-                stampRectsJson = "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
+                renderUsedLastCellA1 = dbLastCellA1;
+                renderLastCellA1 = dbLastCellA1;
+                renderMaxRow = dbLastRow;
+                renderMaxCol = dbLastCol;
             }
 
-            var renderArea = new ExcelRenderAreaInfo
-            {
-                UsedMaxRow = 1,
-                UsedMaxCol = 1,
-                RenderMaxRow = 2,
-                RenderMaxCol = 2,
-                UsedLastCellA1 = "A1",
-                RenderLastCellA1 = "B2",
-                WidthPx = 0d,
-                HeightPx = 0d
-            };
+            ViewBag.RenderDiagJson = "{}";
+            ViewBag.RenderUsedLastCellA1 = string.IsNullOrWhiteSpace(renderUsedLastCellA1) ? "A1" : renderUsedLastCellA1;
+            ViewBag.RenderLastCellA1 = string.IsNullOrWhiteSpace(renderLastCellA1) ? "A1" : renderLastCellA1;
+            ViewBag.RenderMaxRow = renderMaxRow;
+            ViewBag.RenderMaxCol = renderMaxCol;
+            ViewBag.RenderWidthPx = templateVisualWidthPx;
+            ViewBag.RenderHeightPx = templateVisualHeightPx;
 
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
-                    renderArea = GetRenderAreaInfoFromExcel(dxOpenAbsPath, _log);
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "DetailDX: render area build failed for {DocId}", id);
-            }
-
-            string renderDiagJson = "{}";
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(dxOpenAbsPath) && System.IO.File.Exists(dxOpenAbsPath))
-                {
-                    renderDiagJson = BuildRenderAreaDiagJsonFromExcel(dxOpenAbsPath, _log);
-                    _log.LogInformation("DetailDX RenderDiag {DocId} {Diag}", id, renderDiagJson);
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "DetailDX: render diag build failed for {DocId}", id);
-                renderDiagJson = "{}";
-            }
-
-            ViewBag.RenderDiagJson = renderDiagJson;
-
-            ViewBag.RenderUsedLastCellA1 = renderArea.UsedLastCellA1;
-            ViewBag.RenderLastCellA1 = renderArea.RenderLastCellA1;
-            ViewBag.RenderMaxRow = renderArea.RenderMaxRow;
-            ViewBag.RenderMaxCol = renderArea.RenderMaxCol;
-            ViewBag.RenderWidthPx = Math.Ceiling(renderArea.WidthPx);
-            ViewBag.RenderHeightPx = Math.Ceiling(renderArea.HeightPx);
-
-            ViewBag.StampRectsJson = stampRectsJson;
 
             var caps = await GetApprovalCapabilitiesAsync(id!);
 
@@ -719,7 +725,7 @@ ORDER BY v.ViewedAt DESC;";
                 throw new InvalidOperationException("HttpContext is not available.");
             var request = http.Request;
 
-            ViewBag.DxCallbackUrl = $"{request.Scheme}://{request.Host}/Doc/dx-callback";
+            ViewBag.DxCallbackUrl = "/Doc/dx-callback";
             ViewBag.DxDocumentId = "detail_" + (id ?? Guid.NewGuid().ToString("N"));
             ViewBag.CanRecall = caps.canRecall;
             ViewBag.CanApprove = caps.canApprove;
@@ -732,6 +738,65 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.CanCooperateReject = caps.canCooperate;
 
             return View("~/Views/Doc/DetailDX.cshtml");
+        }
+
+        // 2026.06.12 Added: DetailDX 기본 렌더 크기는 템플릿 저장 시 확정한 DB VisualMetric을 사용한다.
+        private static ExcelRenderAreaInfo BuildRenderAreaInfoFromTemplateVisualMetrics(string? visualRangeA1, int visualWidthPx, int visualHeightPx)
+        {
+            var info = new ExcelRenderAreaInfo
+            {
+                UsedMaxRow = 1,
+                UsedMaxCol = 1,
+                RenderMaxRow = 2,
+                RenderMaxCol = 2,
+                UsedLastCellA1 = "A1",
+                RenderLastCellA1 = "B2",
+                WidthPx = Math.Max(0, visualWidthPx),
+                HeightPx = Math.Max(0, visualHeightPx)
+            };
+
+            if (TryParseVisualRangeLastCell(visualRangeA1, out var lastRow, out var lastCol, out var lastCellA1))
+            {
+                info.UsedMaxRow = Math.Max(1, lastRow);
+                info.UsedMaxCol = Math.Max(1, lastCol);
+                info.RenderMaxRow = Math.Max(2, lastRow);
+                info.RenderMaxCol = Math.Max(2, lastCol);
+                info.UsedLastCellA1 = lastCellA1;
+                info.RenderLastCellA1 = lastCellA1;
+            }
+
+            return info;
+        }
+
+        private static bool TryParseVisualRangeLastCell(string? visualRangeA1, out int lastRow, out int lastCol, out string lastCellA1)
+        {
+            lastRow = 0;
+            lastCol = 0;
+            lastCellA1 = "A1";
+
+            var s = (visualRangeA1 ?? string.Empty).Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(s)) return false;
+
+            var end = s.Contains(':') ? s[(s.LastIndexOf(':') + 1)..] : s;
+            var m = Regex.Match(end, @"^([A-Z]+)(\d+)$", RegexOptions.IgnoreCase);
+            if (!m.Success) return false;
+
+            int col = 0;
+            foreach (var ch in m.Groups[1].Value.ToUpperInvariant())
+            {
+                if (ch < 'A' || ch > 'Z') return false;
+                col = col * 26 + (ch - 'A' + 1);
+            }
+
+            if (!int.TryParse(m.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var row))
+                return false;
+
+            if (row <= 0 || col <= 0) return false;
+
+            lastRow = row;
+            lastCol = col;
+            lastCellA1 = ToA1(row, col);
+            return true;
         }
 
         private static ExcelRenderAreaInfo GetRenderAreaInfoFromExcel(string excelPath, ILogger? log = null)
@@ -1030,388 +1095,6 @@ ORDER BY v.ViewedAt DESC;";
             }
 
             return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
-        }
-
-        private static string BuildStampRectsJsonFromExcel(string excelPath, string approvalCellsJson, string approvalsJson, string cooperationsJson, ILogger? log = null)
-        {
-            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
-                return "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
-
-            try
-            {
-                using var wb = new XLWorkbook(excelPath);
-                var ws = wb.Worksheets.First();
-
-                double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
-                double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
-
-                int actualMaxC = 1;
-                int actualMaxR = 1;
-
-                foreach (var row in ws.RowsUsed(XLCellsUsedOptions.All))
-                {
-                    var rowNum = row.RowNumber();
-                    if (rowNum > actualMaxR) actualMaxR = rowNum;
-
-                    var last = row.LastCellUsed(XLCellsUsedOptions.All);
-                    if (last != null && last.Address.ColumnNumber > actualMaxC)
-                        actualMaxC = last.Address.ColumnNumber;
-                }
-
-                foreach (var mr in ws.MergedRanges)
-                {
-                    var lastR = mr.RangeAddress.LastAddress.RowNumber;
-                    var lastC = mr.RangeAddress.LastAddress.ColumnNumber;
-                    if (lastR > actualMaxR) actualMaxR = lastR;
-                    if (lastC > actualMaxC) actualMaxC = lastC;
-                }
-
-                double ColPxAt(int col1)
-                {
-                    var w = ws.Column(col1).Width <= 0 ? defaultColChar : ws.Column(col1).Width;
-                    return Math.Floor((w * 7d + 5d) / 7d) * 7d + 2d;
-                }
-
-                double RowPxAt(int row1)
-                {
-                    var h = ws.Row(row1).Height <= 0 ? defaultRowPt : ws.Row(row1).Height;
-                    return Math.Round(h * 96d / 72d, 2);
-                }
-
-                double SumColsBefore(int col1)
-                {
-                    double sum = 0;
-                    for (int c = 1; c < col1; c++) sum += ColPxAt(c);
-                    return sum;
-                }
-
-                double SumRowsBefore(int row1)
-                {
-                    double sum = 0;
-                    for (int r = 1; r < row1; r++) sum += RowPxAt(r);
-                    return sum;
-                }
-
-                double sheetWidthPx = 0;
-                for (int c = 1; c <= actualMaxC; c++) sheetWidthPx += ColPxAt(c);
-
-                double sheetHeightPx = 0;
-                for (int r = 1; r <= actualMaxR; r++) sheetHeightPx += RowPxAt(r);
-
-                var merged = ws.MergedRanges
-                    .Select(m => new
-                    {
-                        R1 = m.RangeAddress.FirstAddress.RowNumber,
-                        C1 = m.RangeAddress.FirstAddress.ColumnNumber,
-                        R2 = m.RangeAddress.LastAddress.RowNumber,
-                        C2 = m.RangeAddress.LastAddress.ColumnNumber
-                    })
-                    .ToList();
-
-                (int row, int col)? ParseA1(string? a1)
-                {
-                    var raw = (a1 ?? string.Empty).Trim().ToUpperInvariant();
-                    var m = Regex.Match(raw, "^([A-Z]+)(\\d+)$");
-                    if (!m.Success) return null;
-
-                    int col = 0;
-                    foreach (var ch in m.Groups[1].Value)
-                        col = (col * 26) + (ch - 'A' + 1);
-
-                    return (int.Parse(m.Groups[2].Value), col);
-                }
-
-                (int r1, int c1, int r2, int c2)? ParseA1Range(string? a1)
-                {
-                    var raw = (a1 ?? string.Empty).Trim().ToUpperInvariant();
-                    if (string.IsNullOrWhiteSpace(raw)) return null;
-
-                    if (!raw.Contains(':'))
-                    {
-                        var one = ParseA1(raw);
-                        if (one == null) return null;
-                        return (one.Value.row, one.Value.col, one.Value.row, one.Value.col);
-                    }
-
-                    var parts = raw.Split(':', StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length != 2) return null;
-
-                    var s = ParseA1(parts[0]);
-                    var e = ParseA1(parts[1]);
-                    if (s == null || e == null) return null;
-
-                    return (
-                        Math.Min(s.Value.row, e.Value.row),
-                        Math.Min(s.Value.col, e.Value.col),
-                        Math.Max(s.Value.row, e.Value.row),
-                        Math.Max(s.Value.col, e.Value.col)
-                    );
-                }
-
-                (int r1, int c1, int r2, int c2) GetMergeBounds(int row1, int col1)
-                {
-                    foreach (var m in merged)
-                    {
-                        if (row1 >= m.R1 && row1 <= m.R2 && col1 >= m.C1 && col1 <= m.C2)
-                            return (m.R1, m.C1, m.R2, m.C2);
-                    }
-
-                    return (row1, col1, row1, col1);
-                }
-
-                (int r1, int c1, int r2, int c2) UnionBounds(
-                    (int r1, int c1, int r2, int c2) a,
-                    (int r1, int c1, int r2, int c2) b)
-                {
-                    return (
-                        Math.Min(a.r1, b.r1),
-                        Math.Min(a.c1, b.c1),
-                        Math.Max(a.r2, b.r2),
-                        Math.Max(a.c2, b.c2)
-                    );
-                }
-
-                string ToColName(int col1)
-                {
-                    if (col1 <= 0) return string.Empty;
-                    var chars = new Stack<char>();
-                    var n = col1;
-                    while (n > 0)
-                    {
-                        n--;
-                        chars.Push((char)('A' + (n % 26)));
-                        n /= 26;
-                    }
-                    return new string(chars.ToArray());
-                }
-
-                string ToA1(int row1, int col1)
-                {
-                    return ToColName(col1) + row1.ToString();
-                }
-
-                string ToA1Range(int r1, int c1, int r2, int c2)
-                {
-                    var start = ToA1(r1, c1);
-                    var end = ToA1(r2, c2);
-                    return string.Equals(start, end, StringComparison.OrdinalIgnoreCase)
-                        ? start
-                        : start + ":" + end;
-                }
-
-                Dictionary<int, JsonElement> BuildApprovalMap(string rawJson)
-                {
-                    var map = new Dictionary<int, JsonElement>();
-                    if (string.IsNullOrWhiteSpace(rawJson)) return map;
-
-                    using var doc = JsonDocument.Parse(rawJson);
-                    if (doc.RootElement.ValueKind != JsonValueKind.Array) return map;
-
-                    foreach (var item in doc.RootElement.EnumerateArray())
-                    {
-                        int step = 0;
-
-                        if (item.TryGetProperty("step", out var s1) && s1.ValueKind == JsonValueKind.Number) step = s1.GetInt32();
-                        else if (item.TryGetProperty("Step", out var s2) && s2.ValueKind == JsonValueKind.Number) step = s2.GetInt32();
-
-                        if (step > 0)
-                            map[step] = item.Clone();
-                    }
-
-                    return map;
-                }
-
-                List<JsonElement> BuildArray(string rawJson)
-                {
-                    var list = new List<JsonElement>();
-                    if (string.IsNullOrWhiteSpace(rawJson)) return list;
-
-                    using var doc = JsonDocument.Parse(rawJson);
-                    if (doc.RootElement.ValueKind != JsonValueKind.Array) return list;
-
-                    foreach (var item in doc.RootElement.EnumerateArray())
-                        list.Add(item.Clone());
-
-                    return list;
-                }
-
-                string GetString(JsonElement el, params string[] names)
-                {
-                    foreach (var name in names)
-                    {
-                        if (el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String)
-                            return p.GetString() ?? string.Empty;
-                    }
-                    return string.Empty;
-                }
-
-                int GetInt(JsonElement el, params string[] names)
-                {
-                    foreach (var name in names)
-                    {
-                        if (el.TryGetProperty(name, out var p))
-                        {
-                            if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n)) return n;
-                            if (p.ValueKind == JsonValueKind.String && int.TryParse(p.GetString(), out var n2)) return n2;
-                        }
-                    }
-                    return 0;
-                }
-
-                bool IsApproved(string actionRaw, string statusRaw)
-                {
-                    return actionRaw == "APPROVE"
-                        || actionRaw.StartsWith("APPROV", StringComparison.OrdinalIgnoreCase)
-                        || statusRaw == "APPROVED"
-                        || statusRaw.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase)
-                        || statusRaw == "COOPERATED"
-                        || statusRaw.StartsWith("COOPERATED", StringComparison.OrdinalIgnoreCase);
-                }
-
-                bool IsHold(string actionRaw, string statusRaw)
-                {
-                    return actionRaw == "HOLD"
-                        || actionRaw.StartsWith("HOLD", StringComparison.OrdinalIgnoreCase)
-                        || statusRaw == "HOLD"
-                        || statusRaw == "ONHOLD"
-                        || statusRaw.StartsWith("PENDINGHOLD", StringComparison.OrdinalIgnoreCase)
-                        || statusRaw.StartsWith("HOLD", StringComparison.OrdinalIgnoreCase);
-                }
-
-                bool IsRejected(string actionRaw, string statusRaw)
-                {
-                    return actionRaw == "REJECT"
-                        || actionRaw.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)
-                        || statusRaw == "REJECTED"
-                        || statusRaw == "REJECT"
-                        || statusRaw.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase);
-                }
-
-                string GetStampKind(string actionRaw, string statusRaw)
-                {
-                    if (IsApproved(actionRaw, statusRaw)) return "approved";
-                    if (IsHold(actionRaw, statusRaw)) return "holding";
-                    if (IsRejected(actionRaw, statusRaw)) return "rejected";
-                    return string.Empty;
-                }
-
-                var approvalMapRows = BuildArray(approvalCellsJson);
-                var approvalsByStep = BuildApprovalMap(approvalsJson);
-                var cooperationRows = BuildArray(cooperationsJson);
-
-                var stamps = new List<object>();
-
-                foreach (var cellRow in approvalMapRows)
-                {
-                    var step = GetInt(cellRow, "Step", "step", "Slot", "slot");
-                    var a1 = GetString(cellRow, "A1", "a1", "CellA1", "cellA1");
-                    if (step <= 0 || string.IsNullOrWhiteSpace(a1)) continue;
-                    if (!approvalsByStep.TryGetValue(step, out var approval)) continue;
-
-                    var actionRaw = GetString(approval, "action", "Action").Trim().ToUpperInvariant();
-                    var statusRaw = GetString(approval, "status", "Status").Trim().ToUpperInvariant();
-                    var stampKind = GetStampKind(actionRaw, statusRaw);
-                    if (string.IsNullOrWhiteSpace(stampKind)) continue;
-
-                    var parsed = ParseA1Range(a1);
-                    if (parsed == null) continue;
-
-                    var b1 = GetMergeBounds(parsed.Value.r1, parsed.Value.c1);
-                    var b2 = GetMergeBounds(parsed.Value.r2, parsed.Value.c2);
-                    var bounds = UnionBounds(b1, b2);
-                    var boundsA1 = ToA1Range(bounds.r1, bounds.c1, bounds.r2, bounds.c2);
-
-                    double x = SumColsBefore(bounds.c1);
-                    double y = SumRowsBefore(bounds.r1);
-                    double w = 0;
-                    double h = 0;
-
-                    for (int c = bounds.c1; c <= bounds.c2; c++) w += ColPxAt(c);
-                    for (int r = bounds.r1; r <= bounds.r2; r++) h += RowPxAt(r);
-
-                    stamps.Add(new
-                    {
-                        lineType = "approval",
-                        step,
-                        roleKey = GetString(approval, "roleKey", "RoleKey"),
-                        a1,
-                        boundsA1,
-                        row1 = bounds.r1,
-                        col1 = bounds.c1,
-                        row2 = bounds.r2,
-                        col2 = bounds.c2,
-                        x = Math.Round(x, 2),
-                        y = Math.Round(y, 2),
-                        w = Math.Round(w, 2),
-                        h = Math.Round(h, 2),
-                        action = GetString(approval, "action", "Action"),
-                        status = GetString(approval, "status", "Status"),
-                        approverDisplayText = GetString(approval, "approverDisplayText", "ApproverDisplayText"),
-                        signaturePath = GetString(approval, "signaturePath", "SignaturePath"),
-                        stampKind
-                    });
-                }
-
-                foreach (var coop in cooperationRows)
-                {
-                    var a1 = GetString(coop, "cellA1", "CellA1", "A1", "a1");
-                    if (string.IsNullOrWhiteSpace(a1)) continue;
-
-                    var actionRaw = GetString(coop, "action", "Action").Trim().ToUpperInvariant();
-                    var statusRaw = GetString(coop, "status", "Status").Trim().ToUpperInvariant();
-                    var stampKind = GetStampKind(actionRaw, statusRaw);
-                    if (string.IsNullOrWhiteSpace(stampKind)) continue;
-
-                    var parsed = ParseA1Range(a1);
-                    if (parsed == null) continue;
-
-                    var b1 = GetMergeBounds(parsed.Value.r1, parsed.Value.c1);
-                    var b2 = GetMergeBounds(parsed.Value.r2, parsed.Value.c2);
-                    var bounds = UnionBounds(b1, b2);
-                    var boundsA1 = ToA1Range(bounds.r1, bounds.c1, bounds.r2, bounds.c2);
-
-                    double x = SumColsBefore(bounds.c1);
-                    double y = SumRowsBefore(bounds.r1);
-                    double w = 0;
-                    double h = 0;
-
-                    for (int c = bounds.c1; c <= bounds.c2; c++) w += ColPxAt(c);
-                    for (int r = bounds.r1; r <= bounds.r2; r++) h += RowPxAt(r);
-
-                    stamps.Add(new
-                    {
-                        lineType = "cooperation",
-                        roleKey = GetString(coop, "roleKey", "RoleKey"),
-                        a1,
-                        boundsA1,
-                        row1 = bounds.r1,
-                        col1 = bounds.c1,
-                        row2 = bounds.r2,
-                        col2 = bounds.c2,
-                        x = Math.Round(x, 2),
-                        y = Math.Round(y, 2),
-                        w = Math.Round(w, 2),
-                        h = Math.Round(h, 2),
-                        action = GetString(coop, "action", "Action"),
-                        status = GetString(coop, "status", "Status"),
-                        approverDisplayText = GetString(coop, "approverDisplayText", "ApproverDisplayText"),
-                        signaturePath = GetString(coop, "signaturePath", "SignaturePath"),
-                        stampKind
-                    });
-                }
-
-                return JsonSerializer.Serialize(new
-                {
-                    widthPx = Math.Round(sheetWidthPx, 2),
-                    heightPx = Math.Round(sheetHeightPx, 2),
-                    stamps
-                });
-            }
-            catch (Exception ex)
-            {
-                log?.LogWarning(ex, "BuildStampRectsJsonFromExcel failed path={Path}", excelPath);
-                return "{\"widthPx\":0,\"heightPx\":0,\"stamps\":[]}";
-            }
         }
 
         // ========== ApproveOrHold ==========
@@ -2847,6 +2530,8 @@ FROM dbo.Documents d WHERE d.DocId=@DocId;";
         private async Task<(bool canRecall, bool canApprove, bool canHold, bool canReject, bool canCooperate)> GetApprovalCapabilitiesAsync(string docId)
         {
             var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+            var userName = User?.Identity?.Name ?? string.Empty;
+            var userEmail = User?.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(docId) || string.IsNullOrWhiteSpace(userId))
                 return (false, false, false, false, false);
 
@@ -2971,10 +2656,14 @@ WHERE DocId = @id
   AND (
         NULLIF(LTRIM(RTRIM(UserId)), N'') = @uid
      OR NULLIF(LTRIM(RTRIM(ApproverValue)), N'') = @uid
+     OR (@userName <> N'' AND NULLIF(LTRIM(RTRIM(ApproverValue)), N'') = @userName)
+     OR (@userEmail <> N'' AND NULLIF(LTRIM(RTRIM(ApproverValue)), N'') = @userEmail)
   );";
                 cmd3.Parameters.Add(new SqlParameter("@id", SqlDbType.NVarChar, 40) { Value = docId });
                 cmd3.Parameters.Add(new SqlParameter("@step", SqlDbType.Int) { Value = currentStep });
-                cmd3.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 64) { Value = userId });
+                cmd3.Parameters.Add(new SqlParameter("@uid", SqlDbType.NVarChar, 450) { Value = userId.Trim() });
+                cmd3.Parameters.Add(new SqlParameter("@userName", SqlDbType.NVarChar, 256) { Value = userName.Trim() });
+                cmd3.Parameters.Add(new SqlParameter("@userEmail", SqlDbType.NVarChar, 256) { Value = userEmail.Trim() });
 
                 var mineObj = await cmd3.ExecuteScalarAsync();
                 canDo = (mineObj != null && mineObj != DBNull.Value);
@@ -2998,6 +2687,8 @@ ORDER BY StepOrder;";
                 isCurrentFinalApprovalStep = (nextObj == null || nextObj == DBNull.Value);
             }
 
+            // 2026.06.12 Fixed: 최종 결재자는 모든 협조 완료 + 모든 이전 결재 승인 완료 전에는
+            // 승인/보류/반려 버튼을 활성화하지 않는다.
             if (isCurrentFinalApprovalStep)
             {
                 int remainingCooperationCount = 0;
@@ -3012,8 +2703,30 @@ WHERE DocId = @DocId
                     remainingCooperationCount = Convert.ToInt32(await remainCmd.ExecuteScalarAsync());
                 }
 
-                if (remainingCooperationCount > 0)
+                int previousNotApprovedCount = 0;
+                await using (var prevCmd = conn.CreateCommand())
+                {
+                    prevCmd.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.DocumentApprovals
+WHERE DocId = @DocId
+  AND StepOrder < @Step
+  AND ISNULL(Status, N'Pending') NOT IN (N'Approved');";
+                    prevCmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                    prevCmd.Parameters.Add(new SqlParameter("@Step", SqlDbType.Int) { Value = currentStep });
+                    previousNotApprovedCount = Convert.ToInt32(await prevCmd.ExecuteScalarAsync());
+                }
+
+                if (remainingCooperationCount > 0 || previousNotApprovedCount > 0)
+                {
+                    _log.LogInformation(
+                        "DetailDX capability: final approval blocked. docId={DocId}, pendingCoop={PendingCoop}, prevNotApproved={PrevNotApproved}",
+                        docId,
+                        remainingCooperationCount,
+                        previousNotApprovedCount);
+
                     return (canRecall, false, false, false, canCooperate);
+                }
             }
 
             return (canRecall, canDo, canDo, canDo, canCooperate);
@@ -3114,6 +2827,115 @@ WHERE DocId=@DocId AND StepOrder=@StepOrder AND ISNULL(Status,N'Pending') LIKE N
                 if (!string.IsNullOrWhiteSpace(v)) result.Add(v.Trim());
             }
             return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        [AllowAnonymous]
+        [HttpGet("DetailDXWarmup")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public IActionResult DetailDXWarmup()
+        {
+            if (!IsLocalWarmupRequest())
+            {
+                _log.LogWarning(
+                    "DetailDXWarmup denied remoteIp={RemoteIp} localIp={LocalIp}",
+                    HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? string.Empty,
+                    HttpContext?.Connection?.LocalIpAddress?.ToString() ?? string.Empty);
+
+                return NotFound();
+            }
+
+            ViewData["DisableDxAll"] = true;
+            ViewData["UseDxSpreadsheet"] = true;
+
+            // 2026.06.15 Changed: 서버 시작 1회 warm-up 호출을 허용하되 localhost 요청만 처리하도록 제한한다.
+            var dxCallbackUrl = "/Doc/dx-callback";
+            var dxDocumentId = "detail_warmup_" + Guid.NewGuid().ToString("N");
+            var warmupPath = EnsureDetailDxWarmupWorkbookPath();
+            var warmupExists = System.IO.File.Exists(warmupPath);
+
+            ViewBag.DxCallbackUrl = dxCallbackUrl;
+            ViewBag.DxDocumentId = dxDocumentId;
+            ViewBag.WarmupPath = warmupPath;
+
+            _log.LogInformation(
+                "DetailDXWarmup requested documentId={DocumentId} warmupPath={WarmupPath} exists={Exists}",
+                dxDocumentId,
+                warmupPath,
+                warmupExists);
+
+            return View("~/Views/Doc/DetailDXWarmup.cshtml");
+        }
+
+        // 2026.06.15 Added: 서버 시작 warm-up endpoint를 외부에서 호출하지 못하도록 loopback 요청만 허용한다.
+        private bool IsLocalWarmupRequest()
+        {
+            var connection = HttpContext?.Connection;
+            if (connection == null)
+                return false;
+
+            var remoteIp = connection.RemoteIpAddress;
+            if (remoteIp == null)
+                return false;
+
+            if (IPAddress.IsLoopback(remoteIp))
+                return true;
+
+            var localIp = connection.LocalIpAddress;
+            if (localIp != null && remoteIp.Equals(localIp))
+                return true;
+
+            return false;
+        }
+
+        // 2026.06.15 Changed: ClosedXML SaveAs 대상 임시 파일 확장자를 xlsx로 유지하고 동시 생성 충돌을 방지한다.
+        private string EnsureDetailDxWarmupWorkbookPath()
+        {
+            var dir = Path.Combine(_env.ContentRootPath, "App_Data", "DxWarmup");
+            Directory.CreateDirectory(dir);
+
+            var path = Path.Combine(dir, "detaildx_warmup.xlsx");
+
+            if (System.IO.File.Exists(path))
+                return path;
+
+            lock (_detailDxWarmupWorkbookLock)
+            {
+                if (System.IO.File.Exists(path))
+                    return path;
+
+                var tempPath = Path.Combine(dir, "detaildx_warmup_" + Guid.NewGuid().ToString("N") + ".xlsx");
+
+                try
+                {
+                    using (var wb = new XLWorkbook())
+                    {
+                        var ws = wb.Worksheets.Add("Warmup");
+                        ws.Cell("A1").Value = "DetailDX Warmup";
+                        ws.Cell("B2").Value = DateTime.Now;
+                        ws.Range("A1:D8").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                        ws.Column(1).Width = 18;
+                        ws.Column(2).Width = 18;
+                        ws.Row(1).Height = 22;
+                        wb.SaveAs(tempPath);
+                    }
+
+                    if (!System.IO.File.Exists(path))
+                        System.IO.File.Move(tempPath, path);
+
+                    return path;
+                }
+                finally
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(tempPath))
+                            System.IO.File.Delete(tempPath);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
         }
 
         // ========== DTOs ==========

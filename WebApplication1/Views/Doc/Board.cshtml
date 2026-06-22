@@ -1,4 +1,5 @@
-﻿@* 2026.06.09 Changed: Board 작성일 표시/필터를 DocManage/DocTemplateManage와 동일하게 DocControllerHelper 공용 날짜 헬퍼 기준으로 통일 *@
+﻿@* 2026.06.10 Added: Board 최초 진입 시 DetailDX/DevExpress Spreadsheet warm-up 요청 URL 추가 *@
+@* 2026.06.09 Changed: Board 작성일 표시/필터를 DocManage/DocTemplateManage와 동일하게 DocControllerHelper 공용 날짜 헬퍼 기준으로 통일 *@
 @* 2026.06.05 Changed: 문서함 목록 table/search 영역을 제거하고 DevExtreme DataGrid 기반 구조로 교체 *@
 @using System.Text.Json
 @using System.Globalization
@@ -472,10 +473,8 @@
     <div class="doc-board" id="docBoard"
          data-api-list="/Doc/BoardData"
          data-api-badges="/Doc/BoardBadges"
-         data-current-culture="@currentCulture"
-         data-date-pattern="@datePattern"
-         data-detail-url="/Doc/DetailDX/{docId}">
-
+         data-detail-url="/Doc/DetailDX/{docId}"
+         
         @Html.AntiForgeryToken()
 
         <div class="doc-tabs" role="tablist" aria-label="@S["DOC_Board_Tablist_Aria"]">
@@ -535,7 +534,7 @@
             <div class="doc-bulk-tools" id="docBulkTools">
                 <label class="chk-all">
                     <input type="checkbox" id="chkAllBottom" />
-                    <span>@S["DOC_Filter_Title_All"]</span>
+                    <span>@S["_CM_All"]</span>
                 </label>
                 <button type="button" class="btn-approve-bulk" id="btnApproveBulk" disabled>
                     @S["DOC_Btn_Approve"]

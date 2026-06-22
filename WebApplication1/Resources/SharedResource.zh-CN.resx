@@ -957,9 +957,6 @@
   <data name="DOC_Filter_Title_Label" xml:space="preserve">
     <value>状态</value>
   </data>
-  <data name="DOC_Filter_Title_All" xml:space="preserve">
-    <value>全部</value>
-  </data>
   <data name="DOC_Filter_Title_Approved" xml:space="preserve">
     <value>已批准</value>
   </data>
@@ -974,9 +971,6 @@
   </data>
   <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
     <value>审批视图</value>
-  </data>
-  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
-    <value>全部</value>
   </data>
   <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
     <value>待处理</value>
@@ -1335,9 +1329,6 @@
   <data name="DTM_Label_Keyword" xml:space="preserve">
     <value>关键词</value>
   </data>
-  <data name="DTM_Option_All" xml:space="preserve">
-    <value>全部</value>
-  </data>
   <data name="DTM_Option_Active" xml:space="preserve">
     <value>使用</value>
   </data>
@@ -1412,9 +1403,6 @@
   </data>
   <data name="DTM_PathStatus_Exists" xml:space="preserve">
     <value>正常</value>
-  </data>
-  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
-    <value>文件不存在</value>
   </data>
   <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
     <value>非标准路径</value>
@@ -1544,5 +1532,134 @@
   </data>
   <data name="_CM_OK" xml:space="preserve">
     <value>确定</value>
+  </data>
+  <data name="DTM_Col_VisualRangeA1" xml:space="preserve">
+    <value>显示范围</value>
+  </data>
+  <data name="DTM_Col_VisualWidthPx" xml:space="preserve">
+    <value>显示宽度</value>
+  </data>
+  <data name="DTM_Col_VisualHeightPx" xml:space="preserve">
+    <value>显示高度</value>
+  </data>
+  <data name="DTM_Btn_BackfillVisualMetrics" xml:space="preserve">
+    <value>补全缺失元数据</value>
+  </data>
+  <data name="DTM_Confirm_BackfillVisualMetrics" xml:space="preserve">
+    <value>是否要补全缺失的模板元数据？现有模板文件将备份后重新准备。</value>
+  </data>
+  <data name="DTM_Message_BackfillRunning" xml:space="preserve">
+    <value>正在补全</value>
+  </data>
+  <data name="DTM_Message_BackfillCompleted" xml:space="preserve">
+    <value>补全已完成。</value>
+  </data>
+  <data name="DTM_Message_BackfillFailed" xml:space="preserve">
+    <value>补全过程中发生错误。</value>
+  </data>
+  <data name="_CM_Success" xml:space="preserve">
+    <value>成功</value>
+  </data>
+  <data name="_CM_Exclusion" xml:space="preserve">
+    <value>跳过</value>
+  </data>
+  <data name="_CM_Fail" xml:space="preserve">
+    <value>失败</value>
+  </data>
+  <data name="DTL_Col_DelegationApprover" xml:space="preserve">
+    <value>代决审批人</value>
+  </data>
+  <data name="DTL_Section_Delegation" xml:space="preserve">
+    <value>代决设置</value>
+  </data>
+  <data name="DTL_Label_DelegationEnabled" xml:space="preserve">
+    <value>使用代决</value>
+  </data>
+  <data name="DTL_Label_DelegationCondition" xml:space="preserve">
+    <value>代决条件</value>
+  </data>
+  <data name="DTL_Label_DelegationNone" xml:space="preserve">
+    <value>不使用</value>
+  </data>
+  <data name="DTL_Label_DelegationAlways" xml:space="preserve">
+    <value>始终代决</value>
+  </data>
+  <data name="DTL_Label_DelegationAmountLimit" xml:space="preserve">
+    <value>金额以下代决</value>
+  </data>
+  <data name="DTL_Label_DelegationStep" xml:space="preserve">
+    <value>代决审批人顺序</value>
+  </data>
+  <data name="DTL_Label_DelegationSkipRange" xml:space="preserve">
+    <value>跳过顺序</value>
+  </data>
+  <data name="DTL_Label_AmountField" xml:space="preserve">
+    <value>金额字段</value>
+  </data>
+  <data name="DTL_Label_CurrencyField" xml:space="preserve">
+    <value>币种字段</value>
+  </data>
+  <data name="DTL_Label_CurrencyCode" xml:space="preserve">
+    <value>币种代码</value>
+  </data>
+  <data name="DTL_Label_LimitAmount" xml:space="preserve">
+    <value>基准金额</value>
+  </data>
+  <data name="DTL_Btn_AddAmountLimit" xml:space="preserve">
+    <value>添加基准金额</value>
+  </data>
+  <data name="DTL_V_DelegationStepRequired" xml:space="preserve">
+    <value>请选择代决审批人顺序。</value>
+  </data>
+  <data name="DTL_V_DelegationConditionRequired" xml:space="preserve">
+    <value>请选择代决条件。</value>
+  </data>
+  <data name="DTL_V_DelegationSkipStepRequired" xml:space="preserve">
+    <value>请确认代决跳过顺序。</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldRequired" xml:space="preserve">
+    <value>请选择金额字段。</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldRequired" xml:space="preserve">
+    <value>请选择币种字段。</value>
+  </data>
+  <data name="DTL_V_DelegationAmountLimitRequired" xml:space="preserve">
+    <value>请输入各币种的基准金额。</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeRequired" xml:space="preserve">
+    <value>请输入币种代码。</value>
+  </data>
+  <data name="DTL_V_DelegationAmountInvalid" xml:space="preserve">
+    <value>基准金额必须大于 0。</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldInvalid" xml:space="preserve">
+    <value>金额字段不在输入字段列表中。</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldInvalid" xml:space="preserve">
+    <value>币种字段不在输入字段列表中。</value>
+  </data>
+  <data name="DTL_Label_AmountCellA1" xml:space="preserve">
+    <value>金额单元格</value>
+  </data>
+  <data name="DTL_Label_CurrencyCellA1" xml:space="preserve">
+    <value>币种单元格</value>
+  </data>
+  <data name="DTL_PH_AmountCellA1" xml:space="preserve">
+    <value>示例：R31</value>
+  </data>
+  <data name="DTL_PH_CurrencyCellA1" xml:space="preserve">
+    <value>示例：Q10</value>
+  </data>
+  <data name="DTL_V_DelegationAmountCellRequired" xml:space="preserve">
+    <value>请输入金额单元格。</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCellRequired" xml:space="preserve">
+    <value>请输入币种单元格。</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeDup" xml:space="preserve">
+    <value>币种代码重复。</value>
+  </data>
+  <data name="DTL_Approver_Drafter" xml:space="preserve">
+    <value>起草人</value>
   </data>
 </root>

@@ -957,9 +957,6 @@
   <data name="DOC_Filter_Title_Label" xml:space="preserve">
     <value>Trạng thái</value>
   </data>
-  <data name="DOC_Filter_Title_All" xml:space="preserve">
-    <value>Tất cả</value>
-  </data>
   <data name="DOC_Filter_Title_Approved" xml:space="preserve">
     <value>Đã phê duyệt</value>
   </data>
@@ -974,9 +971,6 @@
   </data>
   <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
     <value>Chế độ xem phê duyệt</value>
-  </data>
-  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
-    <value>Tất cả</value>
   </data>
   <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
     <value>Đang chờ</value>
@@ -1335,9 +1329,6 @@
   <data name="DTM_Label_Keyword" xml:space="preserve">
     <value>Từ khóa</value>
   </data>
-  <data name="DTM_Option_All" xml:space="preserve">
-    <value>Tất cả</value>
-  </data>
   <data name="DTM_Option_Active" xml:space="preserve">
     <value>Đang dùng</value>
   </data>
@@ -1412,9 +1403,6 @@
   </data>
   <data name="DTM_PathStatus_Exists" xml:space="preserve">
     <value>Bình thường</value>
-  </data>
-  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
-    <value>Không có tệp</value>
   </data>
   <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
     <value>Không đúng đường dẫn chuẩn</value>
@@ -1544,5 +1532,134 @@
   </data>
   <data name="_CM_OK" xml:space="preserve">
     <value>Xác nhận</value>
+  </data>
+  <data name="DTM_Col_VisualRangeA1" xml:space="preserve">
+    <value>Phạm vi hiển thị</value>
+  </data>
+  <data name="DTM_Col_VisualWidthPx" xml:space="preserve">
+    <value>Chiều rộng hiển thị</value>
+  </data>
+  <data name="DTM_Col_VisualHeightPx" xml:space="preserve">
+    <value>Chiều cao hiển thị</value>
+  </data>
+  <data name="DTM_Btn_BackfillVisualMetrics" xml:space="preserve">
+    <value>Bổ sung metadata bị thiếu</value>
+  </data>
+  <data name="DTM_Confirm_BackfillVisualMetrics" xml:space="preserve">
+    <value>Bạn có muốn bổ sung metadata mẫu bị thiếu không? Tệp mẫu hiện có sẽ được sao lưu rồi chuẩn bị lại.</value>
+  </data>
+  <data name="DTM_Message_BackfillRunning" xml:space="preserve">
+    <value>Đang bổ sung</value>
+  </data>
+  <data name="DTM_Message_BackfillCompleted" xml:space="preserve">
+    <value>Đã hoàn tất bổ sung.</value>
+  </data>
+  <data name="DTM_Message_BackfillFailed" xml:space="preserve">
+    <value>Đã xảy ra lỗi trong khi bổ sung.</value>
+  </data>
+  <data name="_CM_Success" xml:space="preserve">
+    <value>Thành công</value>
+  </data>
+  <data name="_CM_Exclusion" xml:space="preserve">
+    <value>Bỏ qua</value>
+  </data>
+  <data name="_CM_Fail" xml:space="preserve">
+    <value>Thất bại</value>
+  </data>
+  <data name="DTL_Col_DelegationApprover" xml:space="preserve">
+    <value>Người được ủy quyền phê duyệt</value>
+  </data>
+  <data name="DTL_Section_Delegation" xml:space="preserve">
+    <value>Thiết lập phê duyệt ủy quyền</value>
+  </data>
+  <data name="DTL_Label_DelegationEnabled" xml:space="preserve">
+    <value>Sử dụng phê duyệt ủy quyền</value>
+  </data>
+  <data name="DTL_Label_DelegationCondition" xml:space="preserve">
+    <value>Điều kiện phê duyệt ủy quyền</value>
+  </data>
+  <data name="DTL_Label_DelegationNone" xml:space="preserve">
+    <value>Không sử dụng</value>
+  </data>
+  <data name="DTL_Label_DelegationAlways" xml:space="preserve">
+    <value>Luôn phê duyệt ủy quyền</value>
+  </data>
+  <data name="DTL_Label_DelegationAmountLimit" xml:space="preserve">
+    <value>Phê duyệt ủy quyền dưới hạn mức</value>
+  </data>
+  <data name="DTL_Label_DelegationStep" xml:space="preserve">
+    <value>Cấp người được ủy quyền phê duyệt</value>
+  </data>
+  <data name="DTL_Label_DelegationSkipRange" xml:space="preserve">
+    <value>Cấp bỏ qua</value>
+  </data>
+  <data name="DTL_Label_AmountField" xml:space="preserve">
+    <value>Trường số tiền</value>
+  </data>
+  <data name="DTL_Label_CurrencyField" xml:space="preserve">
+    <value>Trường tiền tệ</value>
+  </data>
+  <data name="DTL_Label_CurrencyCode" xml:space="preserve">
+    <value>Mã tiền tệ</value>
+  </data>
+  <data name="DTL_Label_LimitAmount" xml:space="preserve">
+    <value>Số tiền 기준</value>
+  </data>
+  <data name="DTL_Btn_AddAmountLimit" xml:space="preserve">
+    <value>Thêm số tiền 기준</value>
+  </data>
+  <data name="DTL_V_DelegationStepRequired" xml:space="preserve">
+    <value>Vui lòng chọn cấp người được ủy quyền phê duyệt.</value>
+  </data>
+  <data name="DTL_V_DelegationConditionRequired" xml:space="preserve">
+    <value>Vui lòng chọn điều kiện phê duyệt ủy quyền.</value>
+  </data>
+  <data name="DTL_V_DelegationSkipStepRequired" xml:space="preserve">
+    <value>Vui lòng kiểm tra cấp bỏ qua phê duyệt ủy quyền.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldRequired" xml:space="preserve">
+    <value>Vui lòng chọn trường số tiền.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldRequired" xml:space="preserve">
+    <value>Vui lòng chọn trường tiền tệ.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountLimitRequired" xml:space="preserve">
+    <value>Vui lòng nhập số tiền 기준 theo từng loại tiền tệ.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeRequired" xml:space="preserve">
+    <value>Vui lòng nhập mã tiền tệ.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountInvalid" xml:space="preserve">
+    <value>Số tiền 기준 phải lớn hơn 0.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldInvalid" xml:space="preserve">
+    <value>Trường số tiền không có trong danh sách trường nhập.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldInvalid" xml:space="preserve">
+    <value>Trường tiền tệ không có trong danh sách trường nhập.</value>
+  </data>
+  <data name="DTL_Label_AmountCellA1" xml:space="preserve">
+    <value>Ô số tiền</value>
+  </data>
+  <data name="DTL_Label_CurrencyCellA1" xml:space="preserve">
+    <value>Ô tiền tệ</value>
+  </data>
+  <data name="DTL_PH_AmountCellA1" xml:space="preserve">
+    <value>Ví dụ: R31</value>
+  </data>
+  <data name="DTL_PH_CurrencyCellA1" xml:space="preserve">
+    <value>Ví dụ: Q10</value>
+  </data>
+  <data name="DTL_V_DelegationAmountCellRequired" xml:space="preserve">
+    <value>Vui lòng nhập ô số tiền.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCellRequired" xml:space="preserve">
+    <value>Vui lòng nhập ô tiền tệ.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeDup" xml:space="preserve">
+    <value>Mã tiền tệ bị trùng.</value>
+  </data>
+  <data name="DTL_Approver_Drafter" xml:space="preserve">
+    <value>Người soạn</value>
   </data>
 </root>

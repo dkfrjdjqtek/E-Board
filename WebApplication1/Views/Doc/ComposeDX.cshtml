@@ -6,6 +6,7 @@
 @model WebApplication1.Models.DocTLViewModel
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
+@inject Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory
 
 @{
     ViewData["Title"] = S["DOC_Title_Compose"];
@@ -34,23 +35,56 @@
     var dxTargetCol1 = (ViewBag.TargetCol1 is int) ? (int)ViewBag.TargetCol1 : 1;
     var dxVisualMode = (string?)ViewBag.DxVisualMode ?? string.Empty;
 
+    var composeViewLogger = LoggerFactory.CreateLogger("WebApplication1.Views.Doc.ComposeDX");
+    var composeViewSw = System.Diagnostics.Stopwatch.StartNew();
+    var composeViewLastMs = 0.0;
 
-    // 2026.06.04 Changed: 서버 계산값은 최종값이 아니라 초기 힌트값.
-    // 서버값이 없거나 실패한 경우 0으로 두어 클라이언트 fallback 계산을 막지 않음.
-    var __padH = dxTargetHeightPx > 0
-        ? Math.Max(24, Math.Min(120, (int)Math.Ceiling(dxTargetHeightPx * 0.03)))
-        : 0;
+    void ComposeViewMark(string stage)
+    {
+        var now = composeViewSw.Elapsed.TotalMilliseconds;
+        composeViewLogger.LogInformation(
+            "COMPOSEDX-VIEW-PERF {Stage} elapsedMs={ElapsedMs} deltaMs={DeltaMs} templateCode={TemplateCode} documentId={DocumentId} excelPath={ExcelPath}",
+            stage,
+            now,
+            now - composeViewLastMs,
+            templateCode ?? string.Empty,
+            dxDocumentId ?? string.Empty,
+            excelPath ?? string.Empty);
+        composeViewLastMs = now;
+    }
 
-    var __padW = dxTargetWidthPx > 0
-        ? Math.Max(24, Math.Min(160, (int)Math.Ceiling(dxTargetWidthPx * 0.03)))
-        : 0;
+    ComposeViewMark("view-start");
 
-    var dxTargetHeightSafePx = dxTargetHeightPx > 0 ? dxTargetHeightPx + __padH : 0;
-    var dxTargetWidthSafePx = dxTargetWidthPx > 0 ? dxTargetWidthPx + __padW : 0;
+    var dxOpenByBytes = !string.IsNullOrWhiteSpace(excelPath)
+        && System.IO.Path.IsPathRooted(excelPath)
+        && System.IO.File.Exists(excelPath);
 
-    // DX 최초 렌더링용 임시 크기. 최종 크기는 JS에서 다시 max 계산.
-    var dxInitialHeightPx = dxTargetHeightSafePx > 0 ? dxTargetHeightSafePx : 900;
-    var dxInitialWidthPx = dxTargetWidthSafePx > 0 ? dxTargetWidthSafePx : 900;
+    Func<byte[]> dxOpenContentAccessor = () =>
+    {
+        var readSw = System.Diagnostics.Stopwatch.StartNew();
+        var bytes = System.IO.File.ReadAllBytes(excelPath);
+        composeViewLogger.LogInformation(
+            "COMPOSEDX-VIEW-PERF bytes-read elapsedMs={ElapsedMs} bytes={Bytes} templateCode={TemplateCode} documentId={DocumentId} excelPath={ExcelPath}",
+            readSw.Elapsed.TotalMilliseconds,
+            bytes.Length,
+            templateCode ?? string.Empty,
+            dxDocumentId ?? string.Empty,
+            excelPath ?? string.Empty);
+        return bytes;
+    };
+
+    ComposeViewMark("model-ready");
+
+    // 2026.06.12 Changed: 문서 범위 폭/높이는 DB 저장값을 사용한다.
+    // 단, DevExpress Spreadsheet 컨테이너의 내부 클리핑/렌더링 여백은 셀 범위 폭/높이에 포함되지 않으므로
+    // 화면 래퍼에는 고정 렌더 패딩만 더한다. PreviewJson/DOM 기반 재계산은 하지 않는다.
+    var dxRenderPadWidthPx = dxTargetWidthPx > 0 ? 72 : 0;
+    var dxRenderPadHeightPx = dxTargetHeightPx > 0 ? 72 : 0;
+    var dxLayoutWidthPx = dxTargetWidthPx > 0 ? dxTargetWidthPx + dxRenderPadWidthPx : 900;
+    var dxLayoutHeightPx = dxTargetHeightPx > 0 ? dxTargetHeightPx + dxRenderPadHeightPx : 900;
+
+    var dxInitialHeightPx = dxLayoutHeightPx;
+    var dxInitialWidthPx = dxLayoutWidthPx;
 
     var openRel = excelPath;
     try
@@ -103,8 +137,10 @@
         dxDocumentId = dxDocumentId ?? string.Empty,
         dxTargetHeightPx,
         dxTargetWidthPx,
-        dxTargetHeightSafePx,
-        dxTargetWidthSafePx,
+        dxRenderPadWidthPx,
+        dxRenderPadHeightPx,
+        dxLayoutWidthPx,
+        dxLayoutHeightPx,
         dxLastRow,
         dxLastCol,
         dxLastA1,
@@ -462,8 +498,10 @@ else
                 window.__dxDocumentId = data.dxDocumentId || '';
                 window.__dxTargetHeightPx = data.dxTargetHeightPx || 0;
                 window.__dxTargetWidthPx = data.dxTargetWidthPx || 0;
-                window.__dxTargetHeightSafePx = data.dxTargetHeightSafePx || 0;
-                window.__dxTargetWidthSafePx = data.dxTargetWidthSafePx || 0;
+                window.__dxRenderPadWidthPx = data.dxRenderPadWidthPx || 0;
+                window.__dxRenderPadHeightPx = data.dxRenderPadHeightPx || 0;
+                window.__dxLayoutWidthPx = data.dxLayoutWidthPx || 0;
+                window.__dxLayoutHeightPx = data.dxLayoutHeightPx || 0;
                 window.__dxLastRow = data.dxLastRow || 0;
                 window.__dxLastCol = data.dxLastCol || 0;
                 window.__dxLastA1 = data.dxLastA1 || '';
@@ -478,15 +516,46 @@ else
         <div id="dxComposeWrap"
              style="height:@(dxInitialHeightPx)px; min-height:@(dxInitialHeightPx)px; width:@(dxInitialWidthPx)px; min-width:@(dxInitialWidthPx)px;">
             @{
-                Html.DevExpress().Spreadsheet("dxComposeSheet")
+                ComposeViewMark("before-spreadsheet-write");
+
+                var dxSpreadsheet = Html.DevExpress().Spreadsheet("dxComposeSheet")
                 .Height("100%")
                 .Width("100%")
                 .WorkDirectory(workDir)
                 .DocumentRequestHandlerUrl(dxCallbackUrl)
-                .Open(openRel)
+                // 2026.06.12 Fixed: 시트 보호 상태에서도 Unlock 셀 입력을 허용하려면 컨트롤 자체는 편집 가능 상태여야 한다.
                 .ReadOnly(false)
-                .ConfirmOnLosingChanges(c => c.Enabled(false))
-                .WriteTo(ViewContext.Writer, HtmlEncoder.Default);
+                .ConfirmOnLosingChanges(c => c.Enabled(false));
+
+                if (dxOpenByBytes)
+                {
+                    composeViewLogger.LogInformation(
+                    "COMPOSEDX-VIEW-PERF open-mode mode=BytesWithExplicitFormat format={Format} templateCode={TemplateCode} documentId={DocumentId} excelPath={ExcelPath}",
+                    DevExpress.Spreadsheet.DocumentFormat.Xlsx,
+                    templateCode ?? string.Empty,
+                    dxDocumentId ?? string.Empty,
+                    excelPath ?? string.Empty);
+
+                    dxSpreadsheet.Open(
+                    dxDocumentId,
+                    DevExpress.Spreadsheet.DocumentFormat.Xlsx,
+                    dxOpenContentAccessor);
+                }
+                else
+                {
+                    composeViewLogger.LogInformation(
+                    "COMPOSEDX-VIEW-PERF open-mode mode=PathFallback openRel={OpenRel} templateCode={TemplateCode} documentId={DocumentId} excelPath={ExcelPath}",
+                    openRel ?? string.Empty,
+                    templateCode ?? string.Empty,
+                    dxDocumentId ?? string.Empty,
+                    excelPath ?? string.Empty);
+
+                    dxSpreadsheet.Open(openRel);
+                }
+
+                dxSpreadsheet.WriteTo(ViewContext.Writer, HtmlEncoder.Default);
+
+                ComposeViewMark("after-spreadsheet-write");
             }
         </div>
 
@@ -544,6 +613,10 @@ else
     </form>
 </div>
 
+@{
+    ComposeViewMark("view-end");
+}
+
 @section Scripts {
     <script src="~/js/eb.csrf.js"></script>
     <script>
@@ -580,8 +653,10 @@ else
                 serverExtent: {
                     width: Number(window.__dxTargetWidthPx || 0),
                     height: Number(window.__dxTargetHeightPx || 0),
-                    safeWidth: Number(window.__dxTargetWidthSafePx || 0),
-                    safeHeight: Number(window.__dxTargetHeightSafePx || 0),
+                    renderPadWidth: Number(window.__dxRenderPadWidthPx || 0),
+                    renderPadHeight: Number(window.__dxRenderPadHeightPx || 0),
+                    layoutWidth: Number(window.__dxLayoutWidthPx || 0),
+                    layoutHeight: Number(window.__dxLayoutHeightPx || 0),
                     lastRow: Number(window.__dxLastRow || 0),
                     lastCol: Number(window.__dxLastCol || 0),
                     lastA1: String(window.__dxLastA1 || 'A1'),
@@ -780,218 +855,31 @@ else
             // 크기 레이아웃 유틸
             // ──────────────────────────────────────────
 
-            function excelColWidthToPx(w) {
-                const n = Number(w);
-                if (!isFinite(n) || n < 0) return 0;
-                return Math.floor(n * 7 + 5);
-            }
+            function getServerDxExtent() {
+                const rawWidth = Number(state.serverExtent?.width || 0);
+                const rawHeight = Number(state.serverExtent?.height || 0);
+                const layoutWidth = Number(state.serverExtent?.layoutWidth || 0);
+                const layoutHeight = Number(state.serverExtent?.layoutHeight || 0);
+                const padW = Number(state.serverExtent?.renderPadWidth || 0);
+                const padH = Number(state.serverExtent?.renderPadHeight || 0);
 
-            function ptToPx(pt) {
-                return ((Number(pt) || 0) * 96 / 72);
-            }
+                const width = layoutWidth > 0
+                    ? layoutWidth
+                    : (rawWidth > 0 ? rawWidth + padW : 900);
 
-            function hasVisibleStyle(st) {
-                if (!st) return false;
-                if (st.fill?.bg) return true;
-                if (st.font && (st.font.bold || st.font.italic || st.font.underline || st.font.size || st.font.name)) return true;
-                const b = st.border || {};
-                return !!(
-                    (b.l && b.l !== 'None') || (b.r && b.r !== 'None') ||
-                    (b.t && b.t !== 'None') || (b.b && b.b !== 'None')
-                );
-            }
-                 
-            function computePreviewExtent(preview) {
-                const serverWidth = Number(state.serverExtent?.width || 0);
-                const serverHeight = Number(state.serverExtent?.height || 0);
-                const serverSafeWidth = Number(state.serverExtent?.safeWidth || 0);
-                const serverSafeHeight = Number(state.serverExtent?.safeHeight || 0);
-                const serverLastCol0 = Number(state.serverExtent?.lastCol || 0);
-                const serverTargetRow1 = Number(state.serverExtent?.targetRow1 || 0);
-                const serverTargetCol1 = Number(state.serverExtent?.targetCol1 || 0);
-
-                const p = preview || {};
-                const styles = p.styles || {};
-                const cells = Array.isArray(p.cells) ? p.cells : [];
-                const merges = Array.isArray(p.merges) ? p.merges : [];
-                const rowH = Array.isArray(p.rowH) ? p.rowH : [];
-                const colW = Array.isArray(p.colW) ? p.colW : [];
-                const colPx = Array.isArray(p.colPx) ? p.colPx : [];
-                const rowPx = Array.isArray(p.rowPx) ? p.rowPx : [];
-
-                let minR = Infinity;
-                let maxR = -Infinity;
-                let minC = Infinity;
-                let maxC = -Infinity;
-                let contentMergeMaxC = 0;
-
-                function mark(r, c) {
-                    if (!Number.isFinite(r) || !Number.isFinite(c) || r < 1 || c < 1) return;
-                    minR = Math.min(minR, r);
-                    maxR = Math.max(maxR, r);
-                    minC = Math.min(minC, c);
-                    maxC = Math.max(maxC, c);
-                }
-
-                for (let r = 1; r <= cells.length; r++) {
-                    const row = Array.isArray(cells[r - 1]) ? cells[r - 1] : [];
-                    for (let c = 1; c <= row.length; c++) {
-                        const v = row[c - 1];
-                        if (v !== null && v !== undefined && v !== '' && String(v).trim() !== '') {
-                            mark(r, c);
-                            if (c > contentMergeMaxC) contentMergeMaxC = c;
-                        }
-                    }
-                }
-
-                for (const m of merges) {
-                    if (!Array.isArray(m) || m.length < 4) continue;
-
-                    const r1 = parseInt(m[0], 10) || 0;
-                    const c1 = parseInt(m[1], 10) || 0;
-                    const r2 = parseInt(m[2], 10) || 0;
-                    const c2 = parseInt(m[3], 10) || 0;
-
-                    mark(r1, c1);
-                    mark(r2, c2);
-
-                    if (c2 > contentMergeMaxC) contentMergeMaxC = c2;
-                }
-
-                if (contentMergeMaxC > 0) {
-                    for (let r = 1; r <= cells.length; r++) {
-                        for (let c = 1; c <= contentMergeMaxC; c++) {
-                            const st = styles[`${r},${c}`];
-                            if (!st) continue;
-
-                            const b = st.border || {};
-                            if ((b.l && b.l !== 'None') ||
-                                (b.r && b.r !== 'None') ||
-                                (b.t && b.t !== 'None') ||
-                                (b.b && b.b !== 'None')) {
-                                mark(r, c);
-                            }
-                        }
-                    }
-                }
-
-                if (!isFinite(minR) || !isFinite(minC)) {
-                    minR = 1;
-                    maxR = 1;
-                    minC = 1;
-                    maxC = 1;
-                }
-
-                const effectiveMaxC = Math.max(
-                    1,
-                    contentMergeMaxC || maxC || 1,
-                    serverLastCol0 > 0 ? serverLastCol0 + 1 : 1,
-                    serverTargetCol1 > 0 ? serverTargetCol1 : 1
-                );
-
-                const effectiveMaxR = Math.max(
-                    1,
-                    maxR || 1,
-                    serverTargetRow1 > 0 ? serverTargetRow1 : 1
-                );
-
-                state._effectiveMaxC = effectiveMaxC;
-                state._effectiveMaxR = effectiveMaxR;
-
-                let colSum = 0;
-                for (let c = 1; c <= effectiveMaxC; c++) {
-                    if (Number(colPx[c - 1] || 0) > 0) {
-                        colSum += Number(colPx[c - 1]);
-                    } else {
-                        colSum += Math.round(Number(colW[c - 1] ?? 8.43) * 7 + 5);
-                    }
-                }
-
-                state._colSum = colSum;
-
-                let rowSum = 0;
-                for (let r = 1; r <= effectiveMaxR; r++) {
-                    if (Number(rowPx[r - 1] || 0) > 0) {
-                        rowSum += Number(rowPx[r - 1]);
-                    } else {
-                        const pt = Number(rowH[r - 1] || 15);
-                        rowSum += pt * 96 / 72;
-                    }
-                }
-
-                const previewWidth = Math.ceil(colSum + 48);
-                const previewHeight = Math.ceil(rowSum + 40);
-
-                const widthCandidates = [
-                    serverSafeWidth,
-                    serverWidth,
-                    previewWidth
-                ].filter(v => Number.isFinite(v) && v > 0);
-
-                /*
-                  높이는 previewJson의 전체 rows/p.rows를 사용하지 않는다.
-                  일부 템플릿에서 previewJson 행 범위가 실제 문서보다 커져 3000px 이상으로 튀는 문제 방지.
-                  서버 visual extent가 있으면 서버 높이를 우선하고, previewHeight는 실제 감지 행 기준 보조값으로만 사용.
-                */                        
-                const serverMode = String(state.serverExtent?.mode || '');
-                const hasReliableServerHeight =
-                    serverSafeHeight > 0 &&
-                    serverHeight > 0 &&
-                    serverMode !== 'ErrorFallbackToClient' &&
-                    !serverMode.startsWith('Error');
-
-                const width = Math.max(900, ...widthCandidates);
-
-                /*
-                    높이는 폭처럼 max()로 잡지 않는다.
-                    previewJson은 일부 템플릿에서 실제 문서 끝보다 크게 계산될 수 있으므로,
-                    서버 VisualTrim 높이가 있으면 서버값을 우선한다.
-                */
-                let height;
-
-                if (hasReliableServerHeight) {
-                    height = Math.max(600, serverSafeHeight);
-                } else {
-                    const heightCandidates = [
-                        serverSafeHeight,
-                        serverHeight,
-                        previewHeight
-                    ].filter(v => Number.isFinite(v) && v > 0);
-
-                    height = Math.max(600, ...heightCandidates);
-                }
-
-                console.log('[DX] computePreviewExtent:', {
-                    mode: state.serverExtent?.mode,
-                    lastA1: state.serverExtent?.lastA1,
-                    effectiveMaxR,
-                    effectiveMaxC,
-                    serverWidth,
-                    serverSafeWidth,
-                    previewWidth,
-                    finalHintWidth: width,
-                    serverHeight,
-                    serverSafeHeight,
-                    previewHeight,
-                    hasReliableServerHeight,
-                    finalHintHeight: height
-                });
+                const height = layoutHeight > 0
+                    ? layoutHeight
+                    : (rawHeight > 0 ? rawHeight + padH : 900);
 
                 return {
                     width,
                     height,
-                    serverWidth,
-                    serverHeight,
-                    serverSafeWidth,
-                    serverSafeHeight,
-                    previewWidth,
-                    previewHeight,
-                    effectiveMaxR,
-                    effectiveMaxC,
-                    hasReliableServerHeight
-                };                
+                    rawWidth,
+                    rawHeight,
+                    mode: String(state.serverExtent?.mode || ''),
+                    lastA1: String(state.serverExtent?.lastA1 || '')
+                };
             }
-
 
             // ──────────────────────────────────────────
             // 편집 가능 셀 맵 구축
@@ -1002,11 +890,21 @@ else
                 const byA1 = new Map();
                 const dateSet = new Set();
 
-                for (const f of (Array.isArray(descriptor?.inputs) ? descriptor.inputs : [])) {
-                    const key = String(f?.key || '').trim();
-                    const type = String(f?.type || 'Text').trim() || 'Text';
-                    const a1 = String(f?.a1 || '').trim().toUpperCase();
-                    if (!key || !a1) continue;
+                function normalizeType(type) {
+                    const t = String(type || 'Text').trim();
+                    const low = t.toLowerCase();
+                    if (low.startsWith('date')) return 'Date';
+                    if (low.startsWith('num') || low.includes('number') || low.includes('decimal') || low.includes('integer')) return 'Num';
+                    return 'Text';
+                }
+
+                function addEditable(key, type, a1) {
+                    key = String(key || '').trim();
+                    type = normalizeType(type);
+                    a1 = String(a1 || '').replace(/\$/g, '').replace(/'/g, '').trim().toUpperCase();
+                    const bang = a1.lastIndexOf('!');
+                    if (bang >= 0) a1 = a1.substring(bang + 1).trim().toUpperCase();
+                    if (!key || !a1) return;
 
                     map.set(key, { key, type, a1 });
 
@@ -1016,9 +914,37 @@ else
                     }
                 }
 
+                const inputs = Array.isArray(descriptor?.inputs) ? descriptor.inputs
+                    : (Array.isArray(descriptor?.Inputs) ? descriptor.Inputs : []);
+
+                for (const f of inputs) {
+                    addEditable(
+                        f?.key ?? f?.Key,
+                        f?.type ?? f?.Type,
+                        f?.a1 ?? f?.A1 ?? f?.cellA1 ?? f?.CellA1
+                    );
+                }
+
+                const fields = Array.isArray(descriptor?.Fields) ? descriptor.Fields
+                    : (Array.isArray(descriptor?.fields) ? descriptor.fields : []);
+
+                for (const f of fields) {
+                    const cell = f?.Cell || f?.cell || {};
+                    addEditable(
+                        f?.Key ?? f?.key,
+                        f?.Type ?? f?.type,
+                        f?.A1 ?? f?.a1 ?? f?.CellA1 ?? f?.cellA1 ?? cell?.A1 ?? cell?.a1 ?? cell?.CellA1 ?? cell?.cellA1
+                    );
+                }
+
                 state.editableMap = map;
                 state.editableByA1 = byA1;
                 state.dateA1Set = dateSet;
+
+                console.log('[DX] editableMap built:', {
+                    keys: state.editableMap.size,
+                    cells: state.editableByA1.size
+                });
             }
 
             // ──────────────────────────────────────────
@@ -1767,115 +1693,7 @@ else
 
             // ──────────────────────────────────────────
             // DX 레이아웃
-            // ──────────────────────────────────────────                   
-            function measureDxRenderedExtent() {
-                const wrap = document.getElementById('dxComposeWrap');
-                if (!wrap) return { width: 0, height: 0 };
-
-                let width = 0;
-                let height = 0;
-
-                function take(node) {
-                    if (!node) return;
-
-                    try {
-                        const rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
-
-                        width = Math.max(
-                            width,
-                            Number(node.scrollWidth || 0),
-                            Number(node.offsetWidth || 0),
-                            rect ? Math.ceil(rect.width || 0) : 0
-                        );
-
-                        height = Math.max(
-                            height,
-                            Number(node.scrollHeight || 0),
-                            Number(node.offsetHeight || 0),
-                            rect ? Math.ceil(rect.height || 0) : 0
-                        );
-                    } catch { }
-                }
-
-                const selectors = [
-                    '#dxComposeSheet_WBC',
-                    '#dxComposeSheet_Grid',
-                    '#dxComposeSheet_ScrollContainer',
-                    '[id$="_WBC"]',
-                    '[id$="_Grid"]',
-                    '[id$="_ScrollContainer"]',
-                    '[id*="_ScrollContent"]',
-                    '.dxssControlSys',
-                    '.dxss-md',
-                    '.dxss-page',
-                    '.dxss-print-area'
-                ];
-
-                take(wrap);
-
-                for (const sel of selectors) {
-                    try {
-                        wrap.querySelectorAll(sel).forEach(take);
-                    } catch { }
-                }
-
-                try {
-                    const itFrame = document.getElementById('dxComposeSheet_IT');
-                    const iDoc = itFrame?.contentDocument || itFrame?.contentWindow?.document;
-                    if (iDoc) {
-                        take(iDoc.documentElement);
-                        take(iDoc.body);
-                    }
-                } catch { }
-
-                return {
-                    width: Math.ceil(width),
-                    height: Math.ceil(height)
-                };
-            }
-                    
-            function resolveDxExtent(baseExtent) {
-                const base = baseExtent || { width: 0, height: 0 };
-                const rendered = measureDxRenderedExtent();
-
-                const currentW = Number(state._lastAppliedWidth || 0);
-
-                /*
-                  폭은 DevExpress 실제 렌더 폭을 참고한다.
-                  높이는 DevExpress DOM 값을 참고하지 않는다.
-                  Grid/ScrollContainer가 가상 스크롤 때문에 100000px 같은 값을 만들 수 있기 때문.
-                */
-                const renderedW = rendered.width > currentW + 2 ? rendered.width : 0;
-
-                const DX_RENDER_SAFE_W = 160;
-                const DX_RENDER_SAFE_H = 32;
-
-                const width = Math.ceil(Math.max(
-                    900,
-                    Number(base.width || 0),
-                    renderedW
-                ) + DX_RENDER_SAFE_W);
-
-                const height = Math.ceil(Math.max(
-                    600,
-                    Number(base.height || 0)
-                ) + DX_RENDER_SAFE_H);
-
-                console.log('[DX] resolveDxExtent:', {
-                    baseWidth: base.width,
-                    renderedWidth: rendered.width,
-                    usedRenderedWidth: renderedW,
-                    finalWidth: width,
-                    baseHeight: base.height,
-                    renderedHeightIgnored: rendered.height,
-                    finalHeight: height,
-                    mode: state.serverExtent?.mode,
-                    lastA1: state.serverExtent?.lastA1
-                });
-
-                return { width, height };
-            }
-
+            // ──────────────────────────────────────────
             function applyExtentToDxWrap(ext) {
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap || !ext || ext.width <= 0 || ext.height <= 0) return;
@@ -1891,34 +1709,24 @@ else
                 state._lastAppliedWidth = ext.width;
                 state._lastAppliedHeight = ext.height;
             }
-                    
+
             function applyDxWrapSize() {
-                const base = computePreviewExtent(state.preview);
-
-                state.basePreviewExtent = base;
-                state.previewExtent = resolveDxExtent(base);
-
+                state.previewExtent = getServerDxExtent();
                 applyExtentToDxWrap(state.previewExtent);
 
-                console.log('[DX] applyDxWrapSize:', {
+                console.log('[DX] applyDxWrapSize db-metric:', {
                     width: state.previewExtent.width,
                     height: state.previewExtent.height,
-                    mode: state.serverExtent?.mode,
-                    lastA1: state.serverExtent?.lastA1
+                    mode: state.previewExtent.mode,
+                    lastA1: state.previewExtent.lastA1
                 });
             }
 
             function clampDxHorizontalExtent() {
+                applyDxWrapSize();
+
                 const wrap = document.getElementById('dxComposeWrap');
                 if (!wrap) return;
-
-                const base = state.basePreviewExtent || computePreviewExtent(state.preview);
-                const ext = resolveDxExtent(base);
-
-                state.basePreviewExtent = base;
-                state.previewExtent = ext;
-
-                applyExtentToDxWrap(ext);
 
                 const inner =
                     document.getElementById('dxComposeSheet_ScrollContainer')
@@ -2561,15 +2369,9 @@ else
 
             function hookDxReady() {
                 installOuterScrollOnly();
-                        
+
                 function applySize() {
-                    const base = state.basePreviewExtent || computePreviewExtent(state.preview);
-                    state.basePreviewExtent = base;
-                    state.previewExtent = resolveDxExtent(base);
-
-                    applyExtentToDxWrap(state.previewExtent);
-
-                    console.log('[DX] applySize width=', state.previewExtent.width, 'height=', state.previewExtent.height, 'mode=', state.serverExtent?.mode, 'lastA1=', state.serverExtent?.lastA1);
+                    applyDxWrapSize();
 
                     const scroll = document.getElementById('doc-scroll');
                     if (scroll) scroll.classList.add('dx-page-ready');

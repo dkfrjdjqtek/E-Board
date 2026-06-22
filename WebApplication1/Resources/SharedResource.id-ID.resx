@@ -957,9 +957,6 @@
   <data name="DOC_Filter_Title_Label" xml:space="preserve">
     <value>Status</value>
   </data>
-  <data name="DOC_Filter_Title_All" xml:space="preserve">
-    <value>Semua</value>
-  </data>
   <data name="DOC_Filter_Title_Approved" xml:space="preserve">
     <value>Disetujui</value>
   </data>
@@ -974,9 +971,6 @@
   </data>
   <data name="DOC_Filter_ApprovalView_Label" xml:space="preserve">
     <value>Tampilan persetujuan</value>
-  </data>
-  <data name="DOC_Filter_ApprovalView_All" xml:space="preserve">
-    <value>Semua</value>
   </data>
   <data name="DOC_Filter_ApprovalView_Pending" xml:space="preserve">
     <value>Tertunda</value>
@@ -1335,9 +1329,6 @@
   <data name="DTM_Label_Keyword" xml:space="preserve">
     <value>Kata kunci</value>
   </data>
-  <data name="DTM_Option_All" xml:space="preserve">
-    <value>Semua</value>
-  </data>
   <data name="DTM_Option_Active" xml:space="preserve">
     <value>Aktif</value>
   </data>
@@ -1412,9 +1403,6 @@
   </data>
   <data name="DTM_PathStatus_Exists" xml:space="preserve">
     <value>Normal</value>
-  </data>
-  <data name="DTM_PathStatus_FileMissing" xml:space="preserve">
-    <value>File tidak ada</value>
   </data>
   <data name="DTM_PathStatus_OutOfRoot" xml:space="preserve">
     <value>Bukan jalur standar</value>
@@ -1544,5 +1532,134 @@
   </data>
   <data name="_CM_OK" xml:space="preserve">
     <value>OK</value>
+  </data>
+  <data name="DTM_Col_VisualRangeA1" xml:space="preserve">
+    <value>Rentang visual</value>
+  </data>
+  <data name="DTM_Col_VisualWidthPx" xml:space="preserve">
+    <value>Lebar visual</value>
+  </data>
+  <data name="DTM_Col_VisualHeightPx" xml:space="preserve">
+    <value>Tinggi visual</value>
+  </data>
+  <data name="DTM_Btn_BackfillVisualMetrics" xml:space="preserve">
+    <value>Lengkapi metadata yang hilang</value>
+  </data>
+  <data name="DTM_Confirm_BackfillVisualMetrics" xml:space="preserve">
+    <value>Apakah Anda ingin melengkapi metadata templat yang hilang? File templat yang ada akan dicadangkan lalu disiapkan ulang.</value>
+  </data>
+  <data name="DTM_Message_BackfillRunning" xml:space="preserve">
+    <value>Sedang melengkapi</value>
+  </data>
+  <data name="DTM_Message_BackfillCompleted" xml:space="preserve">
+    <value>Pelengkapan telah selesai.</value>
+  </data>
+  <data name="DTM_Message_BackfillFailed" xml:space="preserve">
+    <value>Terjadi kesalahan saat melengkapi.</value>
+  </data>
+  <data name="_CM_Success" xml:space="preserve">
+    <value>Berhasil</value>
+  </data>
+  <data name="_CM_Exclusion" xml:space="preserve">
+    <value>Lewati</value>
+  </data>
+  <data name="_CM_Fail" xml:space="preserve">
+    <value>Gagal</value>
+  </data>
+  <data name="DTL_Col_DelegationApprover" xml:space="preserve">
+    <value>Penyetuju delegasi</value>
+  </data>
+  <data name="DTL_Section_Delegation" xml:space="preserve">
+    <value>Pengaturan delegasi</value>
+  </data>
+  <data name="DTL_Label_DelegationEnabled" xml:space="preserve">
+    <value>Gunakan delegasi</value>
+  </data>
+  <data name="DTL_Label_DelegationCondition" xml:space="preserve">
+    <value>Kondisi delegasi</value>
+  </data>
+  <data name="DTL_Label_DelegationNone" xml:space="preserve">
+    <value>Tidak digunakan</value>
+  </data>
+  <data name="DTL_Label_DelegationAlways" xml:space="preserve">
+    <value>Selalu delegasikan</value>
+  </data>
+  <data name="DTL_Label_DelegationAmountLimit" xml:space="preserve">
+    <value>Delegasikan di bawah batas jumlah</value>
+  </data>
+  <data name="DTL_Label_DelegationStep" xml:space="preserve">
+    <value>Urutan penyetuju delegasi</value>
+  </data>
+  <data name="DTL_Label_DelegationSkipRange" xml:space="preserve">
+    <value>Urutan yang dilewati</value>
+  </data>
+  <data name="DTL_Label_AmountField" xml:space="preserve">
+    <value>Kolom jumlah</value>
+  </data>
+  <data name="DTL_Label_CurrencyField" xml:space="preserve">
+    <value>Kolom mata uang</value>
+  </data>
+  <data name="DTL_Label_CurrencyCode" xml:space="preserve">
+    <value>Kode mata uang</value>
+  </data>
+  <data name="DTL_Label_LimitAmount" xml:space="preserve">
+    <value>Jumlah batas</value>
+  </data>
+  <data name="DTL_Btn_AddAmountLimit" xml:space="preserve">
+    <value>Tambah jumlah batas</value>
+  </data>
+  <data name="DTL_V_DelegationStepRequired" xml:space="preserve">
+    <value>Silakan pilih urutan penyetuju delegasi.</value>
+  </data>
+  <data name="DTL_V_DelegationConditionRequired" xml:space="preserve">
+    <value>Silakan pilih kondisi delegasi.</value>
+  </data>
+  <data name="DTL_V_DelegationSkipStepRequired" xml:space="preserve">
+    <value>Silakan periksa urutan delegasi yang dilewati.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldRequired" xml:space="preserve">
+    <value>Silakan pilih kolom jumlah.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldRequired" xml:space="preserve">
+    <value>Silakan pilih kolom mata uang.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountLimitRequired" xml:space="preserve">
+    <value>Silakan masukkan jumlah batas untuk setiap mata uang.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeRequired" xml:space="preserve">
+    <value>Silakan masukkan kode mata uang.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountInvalid" xml:space="preserve">
+    <value>Jumlah batas harus lebih besar dari 0.</value>
+  </data>
+  <data name="DTL_V_DelegationAmountFieldInvalid" xml:space="preserve">
+    <value>Kolom jumlah tidak ada dalam daftar kolom input.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyFieldInvalid" xml:space="preserve">
+    <value>Kolom mata uang tidak ada dalam daftar kolom input.</value>
+  </data>
+  <data name="DTL_Label_AmountCellA1" xml:space="preserve">
+    <value>Sel jumlah</value>
+  </data>
+  <data name="DTL_Label_CurrencyCellA1" xml:space="preserve">
+    <value>Sel mata uang</value>
+  </data>
+  <data name="DTL_PH_AmountCellA1" xml:space="preserve">
+    <value>Contoh: R31</value>
+  </data>
+  <data name="DTL_PH_CurrencyCellA1" xml:space="preserve">
+    <value>Contoh: Q10</value>
+  </data>
+  <data name="DTL_V_DelegationAmountCellRequired" xml:space="preserve">
+    <value>Silakan masukkan sel jumlah.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCellRequired" xml:space="preserve">
+    <value>Silakan masukkan sel mata uang.</value>
+  </data>
+  <data name="DTL_V_DelegationCurrencyCodeDup" xml:space="preserve">
+    <value>Kode mata uang duplikat.</value>
+  </data>
+  <data name="DTL_Approver_Drafter" xml:space="preserve">
+    <value>Pembuat konsep</value>
   </data>
 </root>
