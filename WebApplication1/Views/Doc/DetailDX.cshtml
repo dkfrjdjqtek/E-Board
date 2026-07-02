@@ -1,14 +1,11 @@
-@* 2026.06.19 Changed: DetailDX 엑셀 렌더링 구조를 ComposeDX와 동일하게 맞추기 위해 행열 헤더와 시트 스크롤바를 화면 렌더 영역에서 완전히 제거 *@
+@* 2026.06.19 Changed: DetailDX 스탬프 좌표 계산용 행열 헤더 숨김 방식을 수정함 Contents 화면에는 숨기되 좌표 계산에 필요한 크기와 셀 위치는 유지 *@
 @* 2026.06.15 Changed: DetailDX 렌더링을 ComposeDX와 동일하게 DB VisualMetric + 72px layout, byte accessor 직접 Open 방식으로 정리하고 DOM/Preview 기반 크기 재계산 제거 *@
 @* 2026.06.10 Added: DetailDX View 서버 렌더링/DevExpress Spreadsheet WriteTo/클라이언트 DX 이벤트 성능 계측 추가 *@
-@* 2026.06.10 Changed: 서버 StampRectsJson 의존 제거 확인 — 스탬프 오버레이는 ApprovalCellsJson/ApprovalsJson/CooperationsJson과 DX 렌더 좌표로 클라이언트에서 계산함 *@
-@* 2026.04.08 Changed: ApprovalCellsJson 좌표 범위 정보를 우선 복원하여 병합 결재란의 가로 폭이 단일 열 50px로 축소되지 않도록 클라이언트 계산 로직을 수정함 *@
 @* 2026.03.20 Changed: 협조 버튼을 공통 flex 규칙에서 분리하고 승인 버튼과 동일 폭으로 표시되도록 승인 영역 CSS와 마크업을 수정함 *@
 @* 2026.03.16 Added: DX Spreadsheet 기반 상세 화면 DetailDX 구성 ComposeDX 와 동일한 scroll host 및 DX 렌더링 구조 적용 기존 Detail 섹션 댓글 승인 공유 UI 유지 *@
 @* 2026.03.16 Changed: btnPrint → DX v25 내장 PrintPreview, btnExport → DX 클라이언트 사이드 xlsx export *@
 @* 2026.03.18 Fixed: 승인 스탬프 위치 크기 오류 수정 pxPerColUnit pxPerRowPt 직접 역산 이중 scale 적용 제거 *@
 @* 2026.03.20 Fixed: 스탬프 x좌표 rhRect.right 기준 col1부터 누적 pxPerColUnit = cellArea totalAllColW 중복 스탬프 제거 *@
-@* 2026.03.24 Added: 협조 스탬프 지원 — CooperationsJson 추가, renderApprovalOverlay에 협조 루프 통합 *@
 @* 2026.06.10 Changed: DetailDX 렌더링 성능 개선 — DX 로그 기본 비활성화, AdjustControl 재시도 축소, finalize 이후 관찰자 정리 *@
 @using System.IO
 @using System.Text.Json
@@ -18,6 +15,7 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject Microsoft.Extensions.Localization.IStringLocalizer<SharedResource> S
 @inject Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory
+@inject Microsoft.Extensions.Configuration.IConfiguration Cfg
 
 @functions {
     public class __DocFileVm
@@ -100,8 +98,10 @@
     var approvalsJson = (string?)ViewBag.ApprovalsJson ?? "[]";
     var viewLogsJson = (string?)ViewBag.ViewLogsJson ?? "[]";
     var approvalTableRowsJson = (string?)ViewBag.ApprovalTableRowsJson ?? "[]";
-    var approvalCellsJson = (string?)ViewBag.ApprovalCellsJson ?? "[]";
     var cooperationsJson = (string?)ViewBag.CooperationsJson ?? "[]";
+    var stampWorkPath = (string?)ViewBag.StampWorkPath ?? string.Empty;
+    var stampBackfillRequired = (bool?)ViewBag.StampBackfillRequired ?? false;
+    var dxWorkbookOpenPassword = Cfg["DocumentStamp:WorkbookPassword"] ?? string.Empty;
     var createdAtText = (string?)ViewBag.CreatedAtText ?? string.Empty;
     var recalledAtText = (string?)ViewBag.RecalledAtText ?? string.Empty;
     var excelPath = (string?)ViewBag.ExcelPath ?? string.Empty;
@@ -261,14 +261,14 @@ else
         overscroll-behavior: contain !important;
         box-sizing: border-box !important;
         background: #fff !important;
-        z-index: 100 !important;
+        z-index: 1000 !important;
         padding: 16px 24px 24px 16px !important;
-        opacity: 0;
-        transition: opacity 0.2s ease;
+        opacity: 1 !important;
+        transition: none !important;
     }
 
         #doc-scroll.dx-page-ready {
-            opacity: 1;
+            opacity: 1 !important;
         }
 
     .page-header {
@@ -384,15 +384,34 @@ else
         box-shadow: none !important;
     }
 
-    /* 2026.06.19 Changed: DetailDX 엑셀 렌더링 구조를 ComposeDX와 동일하게 맞추기 위해 행열 헤더와 시트 스크롤바를 화면 렌더 영역에서 완전히 제거 */
+    /* 2026.06.19 Changed: 스탬프 좌표 계산용 행열 헤더 숨김 방식 변경 Contents 화면에는 보이지 않게 유지하되 getBoundingClientRect 계산에 필요한 크기는 보존 */
     #dxDetailWrap #dxDetailSheet_ColumnHeader,
     #dxDetailWrap #dxDetailSheet_RowHeader,
-    #dxDetailWrap #dxDetailSheet_SSB,
     #dxDetailWrap [id$="_ColumnHeader"],
     #dxDetailWrap [id$="_RowHeader"],
-    #dxDetailWrap [id$="_SSB"],
     #dxDetailWrap .dxss-columnHeader,
     #dxDetailWrap .dxss-rowHeader {
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        overflow: visible !important;
+        background: transparent !important;
+    }
+
+        #dxDetailWrap #dxDetailSheet_ColumnHeader *,
+        #dxDetailWrap #dxDetailSheet_RowHeader *,
+        #dxDetailWrap [id$="_ColumnHeader"] *,
+        #dxDetailWrap [id$="_RowHeader"] *,
+        #dxDetailWrap .dxss-columnHeader *,
+        #dxDetailWrap .dxss-rowHeader * {
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            background: transparent !important;
+        }
+
+    #dxDetailWrap #dxDetailSheet_SSB,
+    #dxDetailWrap [id$="_SSB"] {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
@@ -409,14 +428,8 @@ else
         pointer-events: none !important;
     }
 
-        #dxDetailWrap #dxDetailSheet_ColumnHeader *,
-        #dxDetailWrap #dxDetailSheet_RowHeader *,
         #dxDetailWrap #dxDetailSheet_SSB *,
-        #dxDetailWrap [id$="_ColumnHeader"] *,
-        #dxDetailWrap [id$="_RowHeader"] *,
-        #dxDetailWrap [id$="_SSB"] *,
-        #dxDetailWrap .dxss-columnHeader *,
-        #dxDetailWrap .dxss-rowHeader * {
+        #dxDetailWrap [id$="_SSB"] * {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -461,45 +474,40 @@ else
         box-shadow: none !important;
     }
 
-
-    /* ── 승인 스탬프 오버레이 ── */
-    .dx-detail-overlay {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        z-index: 20;
-        overflow: visible !important;
+    /* 2026.07.02 Added: DetailDX Spreadsheet 선택 표시 숨김 Contents 읽기 전용 상세 화면에서 선택 셀 포커스 테두리와 선택 핸들을 보이지 않게 한다 */
+    #dxDetailWrap [id*="Selection"],
+    #dxDetailWrap [id*="selection"],
+    #dxDetailWrap [id*="Selected"],
+    #dxDetailWrap [id*="selected"],
+    #dxDetailWrap [id*="ActiveCell"],
+    #dxDetailWrap [id*="activeCell"],
+    #dxDetailWrap [id*="FocusedCell"],
+    #dxDetailWrap [id*="focusedCell"],
+    #dxDetailWrap [class*="selection"],
+    #dxDetailWrap [class*="Selection"],
+    #dxDetailWrap [class*="selected"],
+    #dxDetailWrap [class*="Selected"],
+    #dxDetailWrap [class*="activeCell"],
+    #dxDetailWrap [class*="ActiveCell"],
+    #dxDetailWrap [class*="focusedCell"],
+    #dxDetailWrap [class*="FocusedCell"],
+    #dxDetailWrap [class*="focusCell"],
+    #dxDetailWrap [class*="FocusCell"],
+    #dxDetailWrap [class*="rangeSelector"],
+    #dxDetailWrap [class*="RangeSelector"],
+    #dxDetailWrap [class*="fillHandle"],
+    #dxDetailWrap [class*="FillHandle"] {
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        outline: 0 !important;
+        box-shadow: none !important;
+        border-color: transparent !important;
+        background: transparent !important;
     }
 
-    .dx-approval-stamp {
-        position: absolute;
-        overflow: hidden;
-    }
 
-        .dx-approval-stamp img {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            /* image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-            image-rendering: high-quality; */
-            image-rendering: auto;
-            will-change: transform;
-        }
-
-    .dx-approval-caption {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 2px;
-        text-align: center;
-        font-size: .65rem;
-        line-height: 1.05;
-        background: rgba(255,255,255,.6);
-        color: #111;
-        pointer-events: none;
-    }
+    /* 2026.06.23 Removed: 기존 DOM 스탬프 오버레이 CSS 삭제 Contents 스탬프는 DevExpress Spreadsheet 문서에 직접 삽입 */
 
     /* ── 하단 섹션 공통 ── */
     .doc-section {
@@ -742,12 +750,12 @@ else
         <input type="hidden" id="dx-open-rel" value="@openRel" />
         <input type="hidden" id="dx-excel-path" value="@excelPath" />
         <input type="hidden" id="dx-doc-id" value="@dxDocumentId" />
+        <input type="hidden" id="dx-stamp-work-path" value="@stampWorkPath" />
 
         <script type="application/json" id="DescriptorJson">@Html.Raw(descJson)</script>
         <script type="application/json" id="PreviewJson">@Html.Raw(previewJson)</script>
         <script type="application/json" id="ApprovalsJson">@Html.Raw(approvalsJson)</script>
         <script type="application/json" id="ViewLogsJson">@Html.Raw(viewLogsJson)</script>
-        <script type="application/json" id="ApprovalCellsJson">@Html.Raw(approvalCellsJson)</script>
         <script type="application/json" id="CooperationsJson">@Html.Raw(cooperationsJson)</script>            
         <script type="application/json" id="ApprovalTableRowsJson">@Html.Raw(approvalTableRowsJson)</script>
 
@@ -796,6 +804,8 @@ else
             window.__dxCallbackUrl = @Html.Raw(JsonSerializer.Serialize(dxCallbackUrl ?? "/Doc/dx-callback"));
             window.__dxExcelAbsPath = @Html.Raw(JsonSerializer.Serialize(excelPath ?? string.Empty));
             window.__dxDocumentId = @Html.Raw(JsonSerializer.Serialize(dxDocumentId ?? string.Empty));
+            window.__dxStampWorkPath = @Html.Raw(JsonSerializer.Serialize(stampWorkPath ?? string.Empty));
+            window.__dxStampBackfillRequired = @Html.Raw(JsonSerializer.Serialize(stampBackfillRequired));
             window.__dxRenderUsedLastCellA1 = @Html.Raw(JsonSerializer.Serialize(renderUsedLastCellA1));
             window.__dxRenderLastCellA1 = @Html.Raw(JsonSerializer.Serialize(renderLastCellA1));
             window.__dxRenderMaxRow = @Html.Raw(JsonSerializer.Serialize(renderMaxRow));
@@ -981,6 +991,37 @@ else
             @{
                 __MarkDetailDxViewPerf("before-spreadsheet-write");
 
+                void __DetailDxSpreadsheet_EncryptedFilePasswordRequest(object? sender, DevExpress.Spreadsheet.EncryptedFilePasswordRequestEventArgs e)
+                {
+                    if (string.IsNullOrWhiteSpace(dxWorkbookOpenPassword))
+                        return;
+
+                    e.Password = dxWorkbookOpenPassword;
+                    e.Handled = true;
+                }
+
+                void __DetailDxSpreadsheet_InitializeDocument(object? sender, DevExpress.Web.ASPxSpreadsheet.SpreadsheetInitializeDocumentEventArgs e)
+                {
+                    var document = e?.Document;
+                    if (document == null || string.IsNullOrWhiteSpace(dxWorkbookOpenPassword))
+                        return;
+
+                    try
+                    {
+                        document.EncryptedFilePasswordRequest -= __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
+                        document.EncryptedFilePasswordRequest += __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(dxWorkbookOpenPassword))
+                {
+                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument -= __DetailDxSpreadsheet_InitializeDocument;
+                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument += __DetailDxSpreadsheet_InitializeDocument;
+                }
+
                 var dxSpreadsheet = Html.DevExpress().Spreadsheet("dxDetailSheet")
                     .Height("100%")
                     .Width("100%")
@@ -1006,39 +1047,6 @@ else
                         dxDocumentId ?? string.Empty,
                         excelPath ?? string.Empty);
 
-                    // 2026.06.22 Added: 암호화된 xlsx 문서 열기 테스트를 위해 Open 직전에 암호 요청 이벤트를 연결 Contents 기존 byte accessor Open 방식은 유지
-                    const string dxWorkbookOpenPassword = "qkrwjdghroTlqtoRl";
-
-                    void __DetailDxSpreadsheet_EncryptedFilePasswordRequest(object? sender, DevExpress.Spreadsheet.EncryptedFilePasswordRequestEventArgs e)
-                    {
-                        try
-                        {
-                            e.Password = dxWorkbookOpenPassword;
-                            e.Handled = true;
-                        }
-                        catch
-                        {
-                        }
-                    }
-
-                    void __DetailDxSpreadsheet_InitializeDocument(object? sender, DevExpress.Web.ASPxSpreadsheet.SpreadsheetInitializeDocumentEventArgs e)
-                    {
-                        try
-                        {
-                            if (e?.Document == null)
-                                return;
-
-                            e.Document.EncryptedFilePasswordRequest -= __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
-                            e.Document.EncryptedFilePasswordRequest += __DetailDxSpreadsheet_EncryptedFilePasswordRequest;
-                        }
-                        catch
-                        {
-                        }
-                    }
-
-                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument -= __DetailDxSpreadsheet_InitializeDocument;
-                    DevExpress.Web.ASPxSpreadsheet.ASPxSpreadsheet.InitializeDocument += __DetailDxSpreadsheet_InitializeDocument;
-
                     dxSpreadsheet.Open(
                         dxDocumentId,
                         DevExpress.Spreadsheet.DocumentFormat.Xlsx,
@@ -1060,7 +1068,6 @@ else
 
                 __MarkDetailDxViewPerf("after-spreadsheet-write");
             }
-            <div id="dxApprovalOverlay" class="dx-detail-overlay"></div>
         </div>
     </form>
 
@@ -1241,6 +1248,80 @@ else
         const docId = "@(docId ?? "")";
         const compCd = "@(compCd ?? "")";
 
+        let detailDxStampTempCleanupSent = false;
+
+        function getRequestVerificationToken() {
+            const el = document.querySelector('input[name="__RequestVerificationToken"]');
+            return el ? String(el.value || '') : '';
+        }
+
+        // 2026.06.23 Changed: DetailDX 임시파일 정리 요청 트리거를 보강 Contents 링크 이동 및 폼 제출 시에도 DocDXStamp 작업 파일 삭제 요청을 보낸다
+        function cleanupDetailDxStampTemp(reason) {
+            if (detailDxStampTempCleanupSent) return;
+
+            const stampWorkPath = String(window.__dxStampWorkPath || '').trim();
+            if (!docId || !stampWorkPath) return;
+
+            detailDxStampTempCleanupSent = true;
+
+            const token = getRequestVerificationToken();
+            const payload = {
+                docId: docId,
+                stampWorkPath: stampWorkPath,
+                dxDocumentId: String(window.__dxDocumentId || ''),
+                reason: String(reason || '')
+            };
+
+            try {
+                fetch('/Doc/CleanupDetailDxStampTemp', {
+                    method: 'POST',
+                    keepalive: true,
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'RequestVerificationToken': token
+                    },
+                    body: JSON.stringify(payload)
+                }).catch(function () { });
+            } catch (e) {
+            }
+        }
+
+        // 2026.06.23 Added: DetailDX 화면 이탈 감지 보강 Contents pagehide beforeunload 외에 일반 링크 이동과 폼 제출도 정리 대상으로 처리한다
+        function installDetailDxTempCleanupTriggers() {
+            if (window.__DETAIL_DX_TEMP_CLEANUP_TRIGGERS_INSTALLED__) return;
+            window.__DETAIL_DX_TEMP_CLEANUP_TRIGGERS_INSTALLED__ = true;
+
+            window.addEventListener('pagehide', function () {
+                cleanupDetailDxStampTemp('pagehide');
+            }, { capture: true });
+
+            window.addEventListener('beforeunload', function () {
+                cleanupDetailDxStampTemp('beforeunload');
+            }, { capture: true });
+
+            document.addEventListener('click', function (ev) {
+                const target = ev && ev.target;
+                if (!target || !target.closest) return;
+
+                const link = target.closest('a[href]');
+                if (!link) return;
+
+                const href = String(link.getAttribute('href') || '').trim();
+                if (!href || href === '#' || href.toLowerCase().startsWith('javascript:')) return;
+                if (link.target && link.target !== '_self') return;
+
+                cleanupDetailDxStampTemp('link-click');
+            }, true);
+
+            document.addEventListener('submit', function () {
+                cleanupDetailDxStampTemp('form-submit');
+            }, true);
+        }
+
+        installDetailDxTempCleanupTriggers();
+
         const state = {
             preview: {},
             descriptor: {},
@@ -1306,142 +1387,166 @@ else
             box.innerHTML = `<div class="alert ${cls} py-1 my-1">${msg}</div>`;
         }
 
-        function excelColWidthToPx(w) {
-            const n = Number(w);
-            if (!isFinite(n) || n < 0) return 0;
-            const MDW = 7;
-            return Math.floor((n * MDW + 5) / MDW) * MDW + 2;
-        }
-
-        function ptToPx(pt) {
-            return ((Number(pt) || 0) * 96 / 72);
-        }
-
-        function normalizeStampBucketSeed(v) {
-            const s = String(v || '').trim().toLowerCase();
-            if (!s) return '';
-            if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
-            if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
-            return '';
-        }
-
-        function inferStampBucketSeed(row) {
-            if (!row) return 'approval';
-
-            const candidates = [
-                row.kind, row.Kind,
-                row.type, row.Type,
-                row.group, row.Group,
-                row.section, row.Section,
-                row.category, row.Category,
-                row.mode, row.Mode,
-                row.stampType, row.StampType,
-                row.approvalType, row.ApprovalType
-            ];
-
-            for (let i = 0; i < candidates.length; i++) {
-                const bucket = normalizeStampBucketSeed(candidates[i]);
-                if (bucket) return bucket;
-            }
-
-            const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
-            if (roleKey.startsWith('C')) return 'cooperation';
-            if (roleKey.startsWith('A')) return 'approval';
-
-            if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
-            return 'approval';
-        }
-
-        function normalizeStampBucketName(v) {
-            const s = String(v || '').trim().toLowerCase();
-            if (!s) return '';
-            if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
-            if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
-            return '';
-        }
-
-        function inferStampBucketFromRow(row) {
-            if (!row) return 'approval';
-
-            const candidates = [
-                row.kind, row.Kind,
-                row.type, row.Type,
-                row.group, row.Group,
-                row.section, row.Section,
-                row.category, row.Category,
-                row.mode, row.Mode,
-                row.stampType, row.StampType,
-                row.approvalType, row.ApprovalType,
-                row.bucket, row.Bucket,
-                row.lane, row.Lane
-            ];
-
-            for (let i = 0; i < candidates.length; i++) {
-                const bucket = normalizeStampBucketName(candidates[i]);
-                if (bucket) return bucket;
-            }
-
-            const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
-            if (roleKey.startsWith('C')) return 'cooperation';
-            if (roleKey.startsWith('A')) return 'approval';
-
-            if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
-            return 'approval';
-        }
-
-        function buildLegacyApprovalCellMap(rows) {
-            const built = {
-                approval: { byStep: {}, byRoleKey: {} },
-                cooperation: { byStep: {}, byRoleKey: {} }
-            };
-
-            if (!Array.isArray(rows)) return built;
-
-            rows.forEach(function (row) {
-                if (!row) return;
-
-                const a1 = String(row.a1 || row.A1 || row.cellA1 || row.CellA1 || '').trim();
-                if (!a1) return;
-
-                const bucket = inferStampBucketFromRow(row);
-                const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
-                const roleKey = String(row.roleKey || row.RoleKey || '').trim();
-                const payload = { row: row, a1: a1 };
-
-                if (step != null && step !== '') {
-                    built[bucket].byStep[String(step)] = payload;
-                    if (bucket === 'approval') built[String(step)] = a1;
-                }
-
-                if (roleKey) {
-                    built[bucket].byRoleKey[roleKey] = payload;
-                    if (bucket === 'approval') built[roleKey] = a1;
-                }
-            });
-
-            return built;
-        }
+        // 2026.06.23 Removed: 기존 클라이언트 DOM 스탬프 좌표 계산 함수 제거 Contents 스탬프는 서버 DevExpress Spreadsheet 문서에 직접 삽입한다
 
         // ================== DX 인스턴스 취득 ==================
-        function getDxInstance() {
-            try { if (window.dxDetailSheet && typeof window.dxDetailSheet === 'object') return window.dxDetailSheet; } catch (e) { }
+        // 2026.06.23 Changed: DevExpress Spreadsheet 인스턴스 취득 함수를 전역 함수로 고정 Contents 콘솔 확인과 자동 스탬프 보정 요청에서 동일한 인스턴스 조회 루틴을 사용한다
+        window.getDxInstance = function getDxInstance() {
             try {
-                if (typeof ASPxClientSpreadsheet !== 'undefined' && typeof ASPxClientSpreadsheet.Cast === 'function') {
-                    const inst = ASPxClientSpreadsheet.Cast(window.dxDetailSheet);
-                    if (inst) return inst;
+                if (window.dxDetailSheet && typeof window.dxDetailSheet === 'object')
+                    return window.dxDetailSheet;
+            } catch (e) { }
+
+            try {
+                if (typeof ASPxClientSpreadsheet !== 'undefined' &&
+                    typeof ASPxClientSpreadsheet.Cast === 'function') {
+                    var casted = ASPxClientSpreadsheet.Cast(window.dxDetailSheet);
+                    if (casted) return casted;
                 }
             } catch (e) { }
+
             try {
-                if (typeof ASPxClientControl !== 'undefined' && typeof ASPxClientControl.GetControlCollection === 'function') {
-                    const col = ASPxClientControl.GetControlCollection();
-                    if (col) {
-                        const inst = col.GetByName('dxDetailSheet');
-                        if (inst) return inst;
+                if (typeof ASPxClientControl !== 'undefined' &&
+                    typeof ASPxClientControl.GetControlCollection === 'function') {
+                    var collection = ASPxClientControl.GetControlCollection();
+                    if (collection && typeof collection.GetByName === 'function') {
+                        var byName = collection.GetByName('dxDetailSheet');
+                        if (byName) return byName;
                     }
                 }
             } catch (e) { }
+
             return null;
+        };
+
+        // 2026.06.23 Changed: SpreadsheetClientState 취득 함수를 window 전역에 노출 Contents BackfillStampsDX 및 승인 협조 요청에서 동일한 세션 상태를 서버로 전달한다
+        window.getSpreadsheetStatePayload = function getSpreadsheetStatePayload() {
+            var inst = window.getDxInstance ? window.getDxInstance() : null;
+            if (!inst || typeof inst.getSpreadsheetState !== 'function')
+                return null;
+
+            try {
+                return inst.getSpreadsheetState();
+            } catch (e) {
+                if (window.__dxWarn) window.__dxWarn('[DX] getSpreadsheetState failed', e);
+                return null;
+            }
+        };
+
+        // 2026.06.23 Added: EBCSRF가 없을 때도 JSON POST가 가능하도록 보조 전송 함수 추가 Contents 스탬프 보정 요청이 CSRF 토큰과 함께 서버에 도달하도록 한다
+        async function postDetailDxJson(url, payload) {
+            var EBC = window.EBCSRF || window.EBCsrf || null;
+            if (EBC && typeof EBC.json === 'function')
+                return await EBC.json(url, payload, 'POST');
+
+            var tokenEl = document.querySelector('input[name="__RequestVerificationToken"]');
+            var token = tokenEl ? String(tokenEl.value || '') : '';
+
+            var res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'RequestVerificationToken': token
+                },
+                body: JSON.stringify(payload || {})
+            });
+
+            var json = await res.json().catch(function () { return {}; });
+            if (!res.ok) {
+                var err = new Error('request failed');
+                err.payload = json;
+                throw err;
+            }
+
+            return json;
         }
+
+        var stampBackfillRequested = false;
+        var stampBackfillRetryCount = 0;
+
+        // 2026.06.23 Changed: 스탬프 누락 보정 요청을 전역 함수로 고정 Contents 문서 로드 완료 후 SpreadsheetState가 준비될 때까지 재시도한다
+        window.requestStampBackfillOnce = async function requestStampBackfillOnce(reason) {
+            if (stampBackfillRequested) return;
+            if (!window.__dxStampBackfillRequired) return;
+
+            var spreadsheetState = window.getSpreadsheetStatePayload ? window.getSpreadsheetStatePayload() : null;
+            if (!spreadsheetState) {
+                stampBackfillRetryCount++;
+                if (stampBackfillRetryCount <= 60) {
+                    setTimeout(function () {
+                        window.requestStampBackfillOnce(reason || 'retry');
+                    }, 500);
+                } else if (window.__dxWarn) {
+                    window.__dxWarn('[DX] stamp backfill stopped: spreadsheetState not ready');
+                }
+                return;
+            }
+
+            stampBackfillRequested = true;
+
+            try {
+                var result = await postDetailDxJson('/Doc/BackfillStampsDX', {
+                    docId: docId,
+                    spreadsheetState: spreadsheetState,
+                    stampWorkPath: String(window.__dxStampWorkPath || '')
+                });
+
+                if (window.__dxLog)
+                    window.__dxLog('[DX] stamp backfill result', result);
+
+                if (result && result.ok === true) {
+                    window.__dxStampBackfillRequired = false;
+
+                    // 2026.07.01 Changed: 스탬프 최초 표시 보정 Contents BackfillStampsDX 저장 성공 후 같은 문서를 한 번 다시 열어 최초 열람 화면에도 스탬프가 보이게 한다
+                    var appliedCount = Number(result.applied || 0);
+                    if (appliedCount > 0 && !window.__DETAIL_DX_STAMP_BACKFILL_RELOAD_SENT__) {
+                        window.__DETAIL_DX_STAMP_BACKFILL_RELOAD_SENT__ = true;
+                        window.setTimeout(function () {
+                            window.location.reload();
+                        }, 300);
+                    }
+                }
+                else
+                    stampBackfillRequested = false;
+            } catch (err) {
+                stampBackfillRequested = false;
+                if (window.__dxWarn)
+                    window.__dxWarn('[DX] stamp backfill failed', reason || '', err);
+            }
+        };
+
+        // 2026.06.23 Added: DetailDX 문서 로드 후 스탬프 보정 자동 시작 Contents 서버에서 stampBackfillRequired가 true인 경우 최초 1회 보정 요청을 실행한다
+        function scheduleStampBackfill(reason) {
+            if (!window.__dxStampBackfillRequired) return;
+
+            setTimeout(function () {
+                window.requestStampBackfillOnce(reason || 'scheduled');
+            }, 1200);
+
+            setTimeout(function () {
+                window.requestStampBackfillOnce((reason || 'scheduled') + '-late');
+            }, 3500);
+        }
+
+        // 2026.06.23 Added: DetailDX 스탬프 보정 요청 직접 실행 헬퍼 Contents DOMContentLoaded 또는 load 이벤트를 놓쳐도 run 이후 반드시 BackfillStampsDX 요청을 시도한다
+        function forceStampBackfill(reason) {
+            if (!window.__dxStampBackfillRequired) return;
+
+            setTimeout(function () {
+                if (window.requestStampBackfillOnce)
+                    window.requestStampBackfillOnce(reason || 'force');
+            }, 300);
+
+            setTimeout(function () {
+                if (window.requestStampBackfillOnce)
+                    window.requestStampBackfillOnce((reason || 'force') + '-late');
+            }, 1800);
+        }
+
+        // 2026.06.23 Removed: 문서 열람 시 자동 Backfill 호출 중지 Contents 문서 Open 안정화 전 세션 저장으로 원본 파일이 빈 문서로 교체되는 문제를 방지한다
+
 
         // ================== ComposeDX 동일 렌더 크기 적용 ==================
         function getServerDxExtent() {
@@ -1563,6 +1668,174 @@ else
             }
         }
 
+        // 2026.07.02 Changed: DetailDX Spreadsheet 선택 표시 숨김 보강 Contents 클래스명 없는 파란 선택 테두리와 선택 핸들 점까지 숨긴다
+        function installDetailDxSelectionChromeHider() {
+            if (window.__DETAIL_DX_SELECTION_CHROME_HIDER_INSTALLED__) return;
+            window.__DETAIL_DX_SELECTION_CHROME_HIDER_INSTALLED__ = true;
+
+            const wrap = document.getElementById('dxDetailWrap');
+            if (!wrap) return;
+
+            let rafId = 0;
+
+            function parseRgb(value) {
+                const s = String(value || '').trim();
+                const m = s.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+                if (!m) return null;
+                return {
+                    r: parseInt(m[1], 10),
+                    g: parseInt(m[2], 10),
+                    b: parseInt(m[3], 10)
+                };
+            }
+
+            function isBlueSelectionColor(value) {
+                const c = parseRgb(value);
+                if (!c) return false;
+
+                return c.b >= 120
+                    && c.g >= 70
+                    && c.r <= 140
+                    && c.b > c.r + 30
+                    && c.b >= c.g;
+            }
+
+            function hideElementChrome(el) {
+                if (!el || !el.style) return;
+
+                el.style.setProperty('visibility', 'hidden', 'important');
+                el.style.setProperty('opacity', '0', 'important');
+                el.style.setProperty('pointer-events', 'none', 'important');
+                el.style.setProperty('outline', '0', 'important');
+                el.style.setProperty('box-shadow', 'none', 'important');
+                el.style.setProperty('border-color', 'transparent', 'important');
+                el.style.setProperty('background', 'transparent', 'important');
+                el.style.setProperty('background-color', 'transparent', 'important');
+            }
+
+            function hideSelectionChrome() {
+                rafId = 0;
+
+                const nameSelectors = [
+                    '[id*="Selection"]',
+                    '[id*="selection"]',
+                    '[id*="Selected"]',
+                    '[id*="selected"]',
+                    '[id*="ActiveCell"]',
+                    '[id*="activeCell"]',
+                    '[id*="FocusedCell"]',
+                    '[id*="focusedCell"]',
+                    '[class*="selection"]',
+                    '[class*="Selection"]',
+                    '[class*="selected"]',
+                    '[class*="Selected"]',
+                    '[class*="activeCell"]',
+                    '[class*="ActiveCell"]',
+                    '[class*="focusedCell"]',
+                    '[class*="FocusedCell"]',
+                    '[class*="focusCell"]',
+                    '[class*="FocusCell"]',
+                    '[class*="rangeSelector"]',
+                    '[class*="RangeSelector"]',
+                    '[class*="fillHandle"]',
+                    '[class*="FillHandle"]',
+                    '[class*="resizeHandle"]',
+                    '[class*="ResizeHandle"]',
+                    '[class*="sizeHandle"]',
+                    '[class*="SizeHandle"]'
+                ].join(',');
+
+                try {
+                    wrap.querySelectorAll(nameSelectors).forEach(hideElementChrome);
+                } catch (e) {
+                }
+
+                // 2026.07.02 Changed: 색상 기반 선택 표시 숨김 Contents DevExpress 버전에 따라 클래스명이 없는 파란 테두리와 작은 파란 핸들을 제거한다
+                try {
+                    wrap.querySelectorAll('*').forEach(function (el) {
+                        const cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                        if (!cs) return;
+
+                        const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                        const width = rect ? Math.abs(rect.width || 0) : 0;
+                        const height = rect ? Math.abs(rect.height || 0) : 0;
+                        const isSmallHandle = width > 0 && height > 0 && width <= 18 && height <= 18;
+
+                        const hasBlueBorder =
+                            isBlueSelectionColor(cs.borderTopColor)
+                            || isBlueSelectionColor(cs.borderRightColor)
+                            || isBlueSelectionColor(cs.borderBottomColor)
+                            || isBlueSelectionColor(cs.borderLeftColor)
+                            || isBlueSelectionColor(cs.outlineColor);
+
+                        const hasBlueBackground =
+                            isBlueSelectionColor(cs.backgroundColor)
+                            || isBlueSelectionColor(cs.background);
+
+                        const hasBlueBoxShadow = String(cs.boxShadow || '').toLowerCase().indexOf('rgb') >= 0
+                            && isBlueSelectionColor(String(cs.boxShadow || ''));
+
+                        const hasVisibleLine =
+                            cs.borderTopStyle !== 'none'
+                            || cs.borderRightStyle !== 'none'
+                            || cs.borderBottomStyle !== 'none'
+                            || cs.borderLeftStyle !== 'none'
+                            || cs.outlineStyle !== 'none'
+                            || hasBlueBoxShadow;
+
+                        if ((hasBlueBorder && hasVisibleLine) || (hasBlueBackground && isSmallHandle)) {
+                            hideElementChrome(el);
+                        }
+                    });
+                } catch (e) {
+                }
+
+                // 2026.07.02 Changed: SVG 선택선 숨김 Contents 선택된 그림 테두리와 핸들이 SVG stroke 또는 fill로 렌더링되는 경우를 숨긴다
+                try {
+                    wrap.querySelectorAll('svg [stroke], svg [fill]').forEach(function (el) {
+                        const stroke = el.getAttribute('stroke') || '';
+                        const fill = el.getAttribute('fill') || '';
+                        const cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                        const strokeColor = stroke || (cs ? cs.stroke : '');
+                        const fillColor = fill || (cs ? cs.fill : '');
+
+                        if (isBlueSelectionColor(strokeColor) || isBlueSelectionColor(fillColor)) {
+                            el.style.setProperty('stroke', 'transparent', 'important');
+                            el.style.setProperty('fill', 'transparent', 'important');
+                            el.style.setProperty('opacity', '0', 'important');
+                            el.style.setProperty('pointer-events', 'none', 'important');
+                        }
+                    });
+                } catch (e) {
+                }
+            }
+
+            function scheduleHideSelectionChrome() {
+                if (rafId) return;
+                rafId = requestAnimationFrame(function () {
+                    requestAnimationFrame(hideSelectionChrome);
+                });
+            }
+
+            hideSelectionChrome();
+            scheduleHideSelectionChrome();
+
+            try {
+                const observer = new MutationObserver(scheduleHideSelectionChrome);
+                observer.observe(wrap, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'stroke', 'fill']
+                });
+            } catch (e) {
+            }
+
+            ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'focusin'].forEach(function (eventName) {
+                document.addEventListener(eventName, scheduleHideSelectionChrome, true);
+            });
+        }
+
         // ================== 상태 헬퍼 ==================
         function mapStatusKey(raw) {
             const s = String(raw || '').toUpperCase();
@@ -1614,1486 +1887,10 @@ else
             return parts[0];
         }
 
-        // ================== A1 셀 주소 파싱 ==================
-        function parseA1(a1) {
-            const m = String(a1 || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
-            if (!m) return null;
-            let col = 0;
-            for (let i = 0; i < m[1].length; i++) col = (col * 26) + (m[1].charCodeAt(i) - 64);
-            return { col1: col, row1: parseInt(m[2], 10) };
-        }
-
-        // ================== 스탬프 div 공통 생성 헬퍼 ==================
-        function buildStampDiv(x, y, w, h, stampUrl, captionText, fallbackUrl, options) {
-            options = options || {};
-
-            const placementMode = String(options.placementMode || 'boxed');
-            const padX = Math.max(0, Number(options.padX || 0));
-            const padTop = Math.max(0, Number(options.padTop || 0));
-            const captionHeight = Math.max(0, Number(options.captionHeight || 0));
-            const bodyBottomPad = Math.max(0, Number(options.bodyBottomPad || 0));
-            const scaleBoost = Math.max(0.1, Number(options.scaleBoost || 1));
-            const targetWidthRatio = Math.max(0.1, Number(options.targetWidthRatio || 1));
-            const targetHeightRatio = Math.max(0.1, Number(options.targetHeightRatio || 1));
-            const maxWidthRatio = Math.max(0.5, Number(options.maxWidthRatio || 1));
-            const maxHeightRatio = Math.max(0.5, Number(options.maxHeightRatio || 1));
-
-            const boxW = Math.max(8, Math.round(w));
-            const boxH = Math.max(8, Math.round(h));
-
-            const div = document.createElement('div');
-            div.dataset.stampOverlay = '1';
-            div.style.cssText = [
-                'position:absolute',
-                'left:0',
-                'top:0',
-                'width:0',
-                'height:0',
-                'pointer-events:none',
-                'z-index:20',
-                'overflow:visible'
-            ].join(';');
-
-            const img = document.createElement('img');
-            img.alt = 'stamp';
-            img.crossOrigin = 'anonymous';
-            img.style.cssText = [
-                'position:absolute',
-                'left:0',
-                'top:0',
-                'width:1px',
-                'height:1px',
-                'opacity:0',
-                'transform:none',
-                'object-fit:fill',
-                'pointer-events:none'
-            ].join(';');
-
-            function renderCaption(drawW) {
-                if (!captionText) return;
-
-                const oldCap = div.querySelector('[data-stamp-caption="1"]');
-                if (oldCap) oldCap.remove();
-
-                const cap = document.createElement('div');
-                const capW = Math.max(drawW, boxW + 56, 96);
-                const capTop = Math.round(y + boxH - captionHeight);
-
-                cap.dataset.stampCaption = '1';
-                cap.textContent = captionText;
-                cap.style.cssText = [
-                    'position:absolute',
-                    `left:${Math.round(x + boxW / 2)}px`,
-                    `top:${capTop}px`,
-                    'transform:translateX(-50%)',
-                    `min-width:${Math.round(capW)}px`,
-                    `max-width:${Math.round(capW + 24)}px`,
-                    `height:${captionHeight}px`,
-                    `line-height:${captionHeight}px`,
-                    'font-size:12px',
-                    'text-align:center',
-                    'color:#111',
-                    'background:transparent',
-                    'pointer-events:none',
-                    'white-space:nowrap',
-                    'overflow:visible',
-                    'text-overflow:clip',
-                    'padding:0 2px',
-                    'font-family:sans-serif',
-                    'font-weight:400',
-                    'z-index:10'
-                ].join(';');
-
-                div.appendChild(cap);
-            }
-
-            function getBoundsFromMask(mask, width, height) {
-                let minX = width;
-                let minY = height;
-                let maxX = -1;
-                let maxY = -1;
-                let count = 0;
-
-                for (let py = 0; py < height; py++) {
-                    const rowBase = py * width;
-                    for (let px = 0; px < width; px++) {
-                        if (!mask[rowBase + px]) continue;
-                        count++;
-                        if (px < minX) minX = px;
-                        if (py < minY) minY = py;
-                        if (px > maxX) maxX = px;
-                        if (py > maxY) maxY = py;
-                    }
-                }
-
-                if (count <= 0 || maxX < minX || maxY < minY) return null;
-
-                return {
-                    minX: minX,
-                    minY: minY,
-                    maxX: maxX,
-                    maxY: maxY,
-                    count: count
-                };
-            }
-
-            function filterSmallComponents(mask, width, height, totalForegroundCount) {
-                const visited = new Uint8Array(mask.length);
-                const keptMask = new Uint8Array(mask.length);
-                const minArea = Math.max(6, Math.round(totalForegroundCount * 0.0015));
-
-                let keptCount = 0;
-                let unionMinX = width;
-                let unionMinY = height;
-                let unionMaxX = -1;
-                let unionMaxY = -1;
-
-                const stack = [];
-                const cells = [];
-
-                function pushNeighbor(nx, ny) {
-                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
-                    const nidx = ny * width + nx;
-                    if (visited[nidx] || !mask[nidx]) return;
-                    visited[nidx] = 1;
-                    stack.push(nidx);
-                }
-
-                for (let idx = 0; idx < mask.length; idx++) {
-                    if (!mask[idx] || visited[idx]) continue;
-
-                    visited[idx] = 1;
-                    stack.length = 0;
-                    cells.length = 0;
-                    stack.push(idx);
-
-                    let area = 0;
-                    let minX = width;
-                    let minY = height;
-                    let maxX = -1;
-                    let maxY = -1;
-
-                    while (stack.length) {
-                        const cur = stack.pop();
-                        cells.push(cur);
-                        area++;
-
-                        const py = Math.floor(cur / width);
-                        const px = cur - py * width;
-
-                        if (px < minX) minX = px;
-                        if (py < minY) minY = py;
-                        if (px > maxX) maxX = px;
-                        if (py > maxY) maxY = py;
-
-                        pushNeighbor(px - 1, py - 1);
-                        pushNeighbor(px,     py - 1);
-                        pushNeighbor(px + 1, py - 1);
-                        pushNeighbor(px - 1, py);
-                        pushNeighbor(px + 1, py);
-                        pushNeighbor(px - 1, py + 1);
-                        pushNeighbor(px,     py + 1);
-                        pushNeighbor(px + 1, py + 1);
-                    }
-
-                    if (area < minArea) continue;
-
-                    for (let i = 0; i < cells.length; i++) {
-                        keptMask[cells[i]] = 1;
-                    }
-
-                    keptCount += area;
-                    if (minX < unionMinX) unionMinX = minX;
-                    if (minY < unionMinY) unionMinY = minY;
-                    if (maxX > unionMaxX) unionMaxX = maxX;
-                    if (maxY > unionMaxY) unionMaxY = maxY;
-                }
-
-                return {
-                    keptMask: keptMask,
-                    keptCount: keptCount,
-                    bounds: (keptCount > 0 && unionMaxX >= unionMinX && unionMaxY >= unionMinY)
-                        ? { minX: unionMinX, minY: unionMinY, maxX: unionMaxX, maxY: unionMaxY, count: keptCount }
-                        : null,
-                    minArea: minArea
-                };
-            }
-
-            function buildForegroundBounds(imageEl) {
-                const srcW = Math.max(1, imageEl.naturalWidth || 1);
-                const srcH = Math.max(1, imageEl.naturalHeight || 1);
-
-                const srcCanvas = document.createElement('canvas');
-                srcCanvas.width = srcW;
-                srcCanvas.height = srcH;
-
-                const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-                if (!srcCtx) return null;
-                srcCtx.clearRect(0, 0, srcW, srcH);
-                srcCtx.drawImage(imageEl, 0, 0);
-
-                const scanCanvas = document.createElement('canvas');
-                scanCanvas.width = srcW;
-                scanCanvas.height = srcH;
-
-                const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-                if (!scanCtx) return null;
-
-                scanCtx.fillStyle = '#ffffff';
-                scanCtx.fillRect(0, 0, srcW, srcH);
-                scanCtx.drawImage(imageEl, 0, 0);
-
-                const srcImageData = srcCtx.getImageData(0, 0, srcW, srcH);
-                const scanImageData = scanCtx.getImageData(0, 0, srcW, srcH);
-
-                const srcData = srcImageData.data;
-                const scanData = scanImageData.data;
-                const gray = new Uint8Array(srcW * srcH);
-                const mask = new Uint8Array(srcW * srcH);
-
-                let borderSum = 0;
-                let borderCount = 0;
-
-                for (let py = 0; py < srcH; py++) {
-                    for (let px = 0; px < srcW; px++) {
-                        const i = (py * srcW + px) * 4;
-                        const r = scanData[i];
-                        const g = scanData[i + 1];
-                        const b = scanData[i + 2];
-                        const luminance = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-                        gray[py * srcW + px] = luminance;
-
-                        if (py === 0 || px === 0 || py === srcH - 1 || px === srcW - 1) {
-                            borderSum += luminance;
-                            borderCount++;
-                        }
-                    }
-                }
-
-                const bgGray = borderCount > 0 ? (borderSum / borderCount) : 255;
-                const threshold = Math.max(180, Math.min(245, Math.round(bgGray - 10)));
-
-                let foregroundCount = 0;
-
-                for (let py = 0; py < srcH; py++) {
-                    const rowBase = py * srcW;
-                    for (let px = 0; px < srcW; px++) {
-                        const idx = rowBase + px;
-                        const i = idx * 4;
-
-                        const luminance = gray[idx];
-                        const alpha = srcData[i + 3];
-
-                        if (luminance <= threshold) {
-                            mask[idx] = 1;
-                            foregroundCount++;
-                            continue;
-                        }
-
-                        if (alpha > 24 && luminance <= 252) {
-                            mask[idx] = 1;
-                            foregroundCount++;
-                        }
-                    }
-                }
-
-                if (foregroundCount <= 0) {
-                    return null;
-                }
-
-                const filtered = filterSmallComponents(mask, srcW, srcH, foregroundCount);
-                let bounds = filtered.bounds;
-
-                if (!bounds) {
-                    bounds = getBoundsFromMask(mask, srcW, srcH);
-                }
-
-                if (!bounds) {
-                    return null;
-                }
-
-                const pad = 1;
-                const minX = Math.max(0, bounds.minX - pad);
-                const minY = Math.max(0, bounds.minY - pad);
-                const maxX = Math.min(srcW - 1, bounds.maxX + pad);
-                const maxY = Math.min(srcH - 1, bounds.maxY + pad);
-
-                const cropW = Math.max(1, maxX - minX + 1);
-                const cropH = Math.max(1, maxY - minY + 1);
-
-                const cropCanvas = document.createElement('canvas');
-                cropCanvas.width = cropW;
-                cropCanvas.height = cropH;
-
-                const cropCtx = cropCanvas.getContext('2d');
-                if (!cropCtx) return null;
-
-                cropCtx.clearRect(0, 0, cropW, cropH);
-                cropCtx.drawImage(srcCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
-
-                window.__dxLog('[DX-DBG] stamp-bounds', {
-                    originalW: srcW,
-                    originalH: srcH,
-                    cropW: cropW,
-                    cropH: cropH,
-                    bgGray: Math.round(bgGray),
-                    threshold: threshold,
-                    foregroundCount: foregroundCount,
-                    keptCount: filtered.keptCount,
-                    minArea: filtered.minArea,
-                    minX: minX,
-                    minY: minY,
-                    maxX: maxX,
-                    maxY: maxY
-                });
-
-                return cropCanvas.toDataURL('image/png');
-            }
-
-            function applyImageBox() {
-                const bodyW = Math.max(8, boxW - padX * 2);
-                const bodyH = Math.max(8, boxH - padTop - bodyBottomPad);
-
-                const nw = Math.max(1, Number(img.naturalWidth || 1));
-                const nh = Math.max(1, Number(img.naturalHeight || 1));
-
-                let scale;
-                let drawW;
-                let drawH;
-                let absLeft;
-                let absTop;
-
-                if (placementMode === 'fit-box-expanded') {
-                    const widthScale = (bodyW * targetWidthRatio) / nw;
-                    const heightScale = (bodyH * targetHeightRatio) / nh;
-
-                    scale = Math.max(widthScale, heightScale) * scaleBoost;
-                    if (!isFinite(scale) || scale <= 0) scale = 1;
-
-                    drawW = Math.max(1, Math.round(nw * scale));
-                    drawH = Math.max(1, Math.round(nh * scale));
-
-                    const maxAllowedW = Math.max(bodyW, Math.round(bodyW * maxWidthRatio));
-                    const maxAllowedH = Math.max(bodyH, Math.round(bodyH * maxHeightRatio));
-
-                    if (drawW > maxAllowedW || drawH > maxAllowedH) {
-                        const capScale = Math.min(
-                            maxAllowedW / drawW,
-                            maxAllowedH / drawH
-                        );
-                        drawW = Math.max(1, Math.round(drawW * capScale));
-                        drawH = Math.max(1, Math.round(drawH * capScale));
-                    }
-
-                    absLeft = Math.round(x + (boxW - drawW) / 2);
-                    absTop = Math.round(y + padTop + (bodyH - drawH) / 2);
-                } else {
-                    scale = Math.min(bodyW / nw, bodyH / nh);
-                    if (!isFinite(scale) || scale <= 0) scale = 1;
-                    scale *= scaleBoost;
-
-                    drawW = Math.max(1, Math.round(nw * scale));
-                    drawH = Math.max(1, Math.round(nh * scale));
-
-                    absLeft = Math.round(x + padX + (bodyW - drawW) / 2);
-                    absTop = Math.round(y + padTop + (bodyH - drawH) / 2);
-                }
-
-                img.style.left = absLeft + 'px';
-                img.style.top = absTop + 'px';
-                img.style.width = drawW + 'px';
-                img.style.height = drawH + 'px';
-                img.style.opacity = '1';
-
-                renderCaption(drawW);
-
-                window.__dxLog('[DX-DBG] stamp-size', {
-                    placementMode: placementMode,
-                    x: x,
-                    y: y,
-                    boxW: boxW,
-                    boxH: boxH,
-                    bodyW: bodyW,
-                    bodyH: bodyH,
-                    naturalW: nw,
-                    naturalH: nh,
-                    targetWidthRatio: targetWidthRatio,
-                    targetHeightRatio: targetHeightRatio,
-                    maxWidthRatio: maxWidthRatio,
-                    maxHeightRatio: maxHeightRatio,
-                    scaleBoost: scaleBoost,
-                    drawW: drawW,
-                    drawH: drawH,
-                    absLeft: absLeft,
-                    absTop: absTop,
-                    captionHeight: captionHeight
-                });
-            }
-
-            img.onload = function () {
-                try {
-                    if (img.dataset.trimmed !== '1') {
-                        const trimmedDataUrl = buildForegroundBounds(img);
-                        if (trimmedDataUrl) {
-                            img.dataset.trimmed = '1';
-                            img.src = trimmedDataUrl;
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    window.__dxWarn('[DX-DBG] stamp-trim-failed', e);
-                }
-
-                applyImageBox();
-            };
-
-            if (fallbackUrl) {
-                img.onerror = function () {
-                    if (img.dataset.fallbackTried === '1') return;
-                    img.dataset.fallbackTried = '1';
-                    img.dataset.trimmed = '0';
-                    img.src = fallbackUrl;
-                };
-            }
-
-            img.src = stampUrl;
-            div.appendChild(img);
-
-            return div;
-        }
+        // 2026.06.23 Removed: A1 DOM 좌표 계산 및 클라이언트 스탬프 렌더링 함수 제거 Contents 화면 오버레이가 아니라 서버 DevExpress Spreadsheet 문서 삽입만 사용한다
 
         // ================== 승인 스탬프 렌더링 ==================
-        function renderApprovalOverlay() {
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return;
-            if (state.overlayRendering) {
-                window.__dxLog('[DX] renderApprovalOverlay skipped: overlayRendering');
-                return;
-            }
 
-            state.overlayRendering = true;
-
-            try {
-                const overlay = document.getElementById('dxApprovalOverlay') || wrap;
-                overlay.querySelectorAll('div[data-stamp-overlay]').forEach(el => el.remove());
-
-                if (!window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__) {
-                    window.__DX_DETAIL_PREVIEW_MERGES_LOGGED__ = true;
-                    window.__dxLog('[DX-DBG] preview.merges:', JSON.stringify(state.preview?.merges));
-                }
-
-                const approvals = Array.isArray(state.approvalsData) ? state.approvalsData : [];
-                const cooperations = Array.isArray(state.cooperationsData) ? state.cooperationsData : [];
-                if (!approvals.length && !cooperations.length) return;
-
-                const chEl =
-                    document.getElementById('dxDetailSheet_ColumnHeader') ||
-                    document.querySelector('#dxDetailWrap [id$="_ColumnHeader"]');
-
-                const rhEl =
-                    document.getElementById('dxDetailSheet_RowHeader') ||
-                    document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-
-                if (!chEl || !rhEl) {
-                    state.overlayRetryCount = Number(state.overlayRetryCount || 0);
-                    if (state.overlayRetryCount < 6) {
-                        clearTimeout(state.overlayRetryTimer);
-                        state.overlayRetryTimer = setTimeout(function () {
-                            state.overlayRetryCount++;
-                            window.__dxLog('[DX] renderApprovalOverlay retry: missing headers', state.overlayRetryCount);
-                            renderApprovalOverlay();
-                        }, 300);
-                    } else {
-                        window.__dxWarn('[DX] renderApprovalOverlay stopped: missing headers');
-                    }
-                    return;
-                }
-
-                const wrapRect = wrap.getBoundingClientRect();
-                const chRect = chEl.getBoundingClientRect();
-                const rhRect = rhEl.getBoundingClientRect();
-
-                if (chRect.width < 50 || rhRect.height < 50) {
-                    state.overlayRetryCount = Number(state.overlayRetryCount || 0);
-                    if (state.overlayRetryCount < 6) {
-                        clearTimeout(state.overlayRetryTimer);
-                        state.overlayRetryTimer = setTimeout(function () {
-                            state.overlayRetryCount++;
-                            window.__dxLog('[DX] renderApprovalOverlay retry: header size too small', state.overlayRetryCount, chRect.width, rhRect.height);
-                            renderApprovalOverlay();
-                        }, 300);
-                    } else {
-                        window.__dxWarn('[DX] renderApprovalOverlay stopped: header size too small');
-                    }
-                    return;
-                }
-
-                state.overlayRetryCount = 0;
-
-                function parseA1CellLocal(a1Cell) {
-                    const m = String(a1Cell || '').trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
-                    if (!m) return null;
-                    return { colLabel: m[1], row: parseInt(m[2], 10) };
-                }
-
-                function colLabelToIndex(label) {
-                    let col = 0;
-                    const s = String(label || '').trim().toUpperCase();
-                    for (let i = 0; i < s.length; i++) col = col * 26 + (s.charCodeAt(i) - 64);
-                    return col;
-                }
-
-                function colIndexToLabel(idx) {
-                    let n = Number(idx || 0);
-                    let out = '';
-                    while (n > 0) {
-                        const r = (n - 1) % 26;
-                        out = String.fromCharCode(65 + r) + out;
-                        n = Math.floor((n - 1) / 26);
-                    }
-                    return out || 'A';
-                }
-
-                function parseA1RangeLocal(a1) {
-                    const raw = String(a1 || '').trim().toUpperCase();
-                    if (!raw) return null;
-
-                    const parts = raw.split(':').map(v => v.trim()).filter(Boolean);
-                    const start = parseA1CellLocal(parts[0]);
-                    const end = parseA1CellLocal(parts[1] || parts[0]);
-
-                    if (!start || !end) return null;
-
-                    const fromCol = Math.min(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
-                    const toCol = Math.max(colLabelToIndex(start.colLabel), colLabelToIndex(end.colLabel));
-                    const fromRow = Math.min(start.row, end.row);
-                    const toRow = Math.max(start.row, end.row);
-
-                    return {
-                        raw,
-                        from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
-                        to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
-                    };
-                }
-
-                function buildColumnRectMap() {
-                    const actualItems = [];
-                    const legacyItems = [];
-
-                    function pushItem(list, label, left, width, source) {
-                        const cleanLabel = String(label || '').trim().toUpperCase();
-                        if (!/^[A-Z]+$/.test(cleanLabel)) return;
-
-                        const colNo = colLabelToIndex(cleanLabel);
-                        const safeLeft = Number(left);
-                        const safeWidth = Number(width);
-
-                        if (!isFinite(colNo) || colNo <= 0) return;
-                        if (!isFinite(safeLeft)) return;
-                        if (!isFinite(safeWidth) || safeWidth <= 0) return;
-
-                        list.push({
-                            label: cleanLabel,
-                            colNo: colNo,
-                            left: safeLeft,
-                            width: safeWidth,
-                            right: safeLeft + safeWidth,
-                            source: source || ''
-                        });
-                    }
-
-                    const actualCells = chEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                    actualCells.forEach(function (el) {
-                        const label = String(el.textContent || '').trim().toUpperCase();
-                        if (!/^[A-Z]+$/.test(label)) return;
-
-                        const r = el.getBoundingClientRect();
-                        if (r.width <= 0 || r.height <= 0) return;
-
-                        pushItem(
-                            actualItems,
-                            label,
-                            r.left - wrapRect.left,
-                            r.width,
-                            'actual-dom'
-                        );
-                    });
-
-                    const colBaseLeft = parseFloat(chEl.style.left || '0') || 0;
-                    let tileOffsetLeft = 0;
-                    const colTiles = chEl.querySelectorAll('.dxss-ht');
-
-                    colTiles.forEach(function (tile) {
-                        const tileWidth = parseFloat(tile.style.width || '0') || 0;
-                        const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                        cells.forEach(function (el) {
-                            const label = String(el.textContent || '').trim().toUpperCase();
-                            if (!/^[A-Z]+$/.test(label)) return;
-
-                            const cellLeft = parseFloat(el.style.left || '0') || 0;
-                            let cellWidth = parseFloat(el.style.width || '0') || 0;
-
-                            if (cellWidth <= 0) {
-                                const r = el.getBoundingClientRect();
-                                cellWidth = r.width || 0;
-                            }
-
-                            if (cellWidth <= 0) return;
-
-                            pushItem(
-                                legacyItems,
-                                label,
-                                colBaseLeft + tileOffsetLeft + cellLeft,
-                                cellWidth,
-                                'legacy-style'
-                            );
-                        });
-
-                        tileOffsetLeft += tileWidth;
-                    });
-
-                    function normalizeItems(items, source) {
-                        const map = {};
-
-                        if (!Array.isArray(items) || !items.length) {
-                            return {
-                                map: map,
-                                count: 0,
-                                source: source,
-                                outOfRange: true,
-                                minLeft: 0,
-                                maxRight: 0
-                            };
-                        }
-
-                        items.sort(function (a, b) {
-                            if (a.colNo !== b.colNo) return a.colNo - b.colNo;
-                            return a.left - b.left;
-                        });
-
-                        const minLeft = items.reduce(function (min, item) {
-                            return Math.min(min, item.left);
-                        }, items[0].left);
-
-                        const maxRight = items.reduce(function (max, item) {
-                            return Math.max(max, item.right);
-                        }, items[0].right);
-
-                        const renderLimitW = Math.max(
-                            Number(window.__dxLayoutWidthPx || 0),
-                            Number(window.__dxRenderWidthPx || 0),
-                            900
-                        ) + 300;
-
-                        let outOfRange = false;
-
-                        items.forEach(function (item) {
-                            const left = item.left - minLeft;
-                            const right = item.right - minLeft;
-                            const width = Math.max(1, item.width);
-
-                            if (!isFinite(left) || !isFinite(right) || left < -50 || right > renderLimitW) {
-                                outOfRange = true;
-                            }
-
-                            if (!map[item.label] || left < map[item.label].left) {
-                                map[item.label] = {
-                                    left: left,
-                                    right: right,
-                                    width: width
-                                };
-                            }
-                        });
-
-                        return {
-                            map: map,
-                            count: Object.keys(map).length,
-                            source: source,
-                            outOfRange: outOfRange,
-                            minLeft: minLeft,
-                            maxRight: maxRight,
-                            renderLimitW: renderLimitW
-                        };
-                    }
-
-                    const actual = normalizeItems(actualItems, 'actual-dom-normalized');
-                    const legacy = normalizeItems(legacyItems, 'legacy-style-normalized');
-
-                    let selected = actual;
-
-                    if (
-                        actual.count <= 0 ||
-                        actual.outOfRange ||
-                        (
-                            legacy.count > 0 &&
-                            !legacy.outOfRange &&
-                            legacy.count >= actual.count
-                        )
-                    ) {
-                        selected = legacy;
-                    }
-
-                    // 2026.06.19 Changed: DevExpress 열 헤더 가상 오프셋이 스탬프 x 좌표에 반영되지 않도록 첫 열 기준 상대 좌표로 보정
-                    window.__dxLog('[DX] column map mode', {
-                        mode: selected.source,
-                        colsActual: actual.count,
-                        colsLegacy: legacy.count,
-                        actualOutOfRange: actual.outOfRange,
-                        legacyOutOfRange: legacy.outOfRange,
-                        actualMinLeft: Math.round(actual.minLeft || 0),
-                        actualMaxRight: Math.round(actual.maxRight || 0),
-                        legacyMinLeft: Math.round(legacy.minLeft || 0),
-                        legacyMaxRight: Math.round(legacy.maxRight || 0),
-                        renderLimitW: Math.round(selected.renderLimitW || 0)
-                    });
-
-                    return selected.map || {};
-                }
-
-                function buildRowRectMap() {
-                    const wrap = document.getElementById('dxDetailWrap');
-                    if (!wrap) return {};
-
-                    const rhEl =
-                        document.getElementById('dxDetailSheet_RowHeader')
-                        || document.querySelector('#dxDetailWrap [id$="_RowHeader"]');
-
-                    if (!rhEl) return {};
-
-                    const legacyMap = {};
-                    const actualMap = {};
-
-                    const rowBaseTop = parseFloat(rhEl.style.top || '0') || 0;
-                    let tileOffsetTop = 0;
-                    const rowTiles = rhEl.querySelectorAll('.dxss-ht');
-
-                    rowTiles.forEach(function (tile) {
-                        const tileHeight = parseFloat(tile.style.height || '0') || 0;
-                        const cells = tile.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                        cells.forEach(function (el) {
-                            const label = String(el.textContent || '').trim();
-                            if (!/^\d+$/.test(label)) return;
-
-                            const rowNo = parseInt(label, 10);
-                            const cellTop = parseFloat(el.style.top || '0') || 0;
-                            const cellHeight = parseFloat(el.style.height || '0') || 0;
-                            if (cellHeight <= 0) return;
-
-                            const top = rowBaseTop + tileOffsetTop + cellTop;
-
-                            legacyMap[rowNo] = {
-                                top: top,
-                                bottom: top + cellHeight,
-                                height: cellHeight
-                            };
-                        });
-
-                        tileOffsetTop += tileHeight;
-                    });
-
-                    const wrapRect = wrap.getBoundingClientRect();
-                    const actualCells = rhEl.querySelectorAll('.dxss-htd[data-header-cell-index]');
-
-                    actualCells.forEach(function (el) {
-                        const label = String(el.textContent || '').trim();
-                        if (!/^\d+$/.test(label)) return;
-
-                        const rowNo = parseInt(label, 10);
-                        const rect = el.getBoundingClientRect();
-
-                        if (rect.width <= 0 || rect.height <= 0) return;
-
-                        const top = rect.top - wrapRect.top;
-                        const bottom = rect.bottom - wrapRect.top;
-
-                        actualMap[rowNo] = {
-                            top: top,
-                            bottom: bottom,
-                            height: Math.max(0, bottom - top)
-                        };
-                    });
-
-                    const diffs = Object.keys(legacyMap)
-                        .map(function (k) {
-                            const rowNo = parseInt(k, 10);
-                            if (!actualMap[rowNo]) return null;
-                            return legacyMap[rowNo].top - actualMap[rowNo].top;
-                        })
-                        .filter(function (v) {
-                            return typeof v === 'number' && isFinite(v);
-                        })
-                        .sort(function (a, b) { return a - b; });
-
-                    let useActual = false;
-                    let medianDiff = 0;
-                    let maxSpread = 0;
-
-                    if (diffs.length >= 3) {
-                        const mid = Math.floor(diffs.length / 2);
-                        medianDiff = diffs.length % 2
-                            ? diffs[mid]
-                            : (diffs[mid - 1] + diffs[mid]) / 2;
-
-                        maxSpread = diffs.reduce(function (max, v) {
-                            return Math.max(max, Math.abs(v - medianDiff));
-                        }, 0);
-
-                        useActual = Math.abs(medianDiff) >= 8 && maxSpread <= 3;
-                    }
-
-                    window.__dxLog('[DX] row map mode', {
-                        mode: useActual ? 'actual-dom-corrected' : 'legacy-style',
-                        rowsLegacy: Object.keys(legacyMap).length,
-                        rowsActual: Object.keys(actualMap).length,
-                        medianDiff: Math.round(medianDiff),
-                        maxSpread: Math.round(maxSpread)
-                    });
-
-                    return useActual ? actualMap : legacyMap;
-                }
-
-                function normalizeMergeRange(rawMerge) {
-                    const m = parseA1RangeLocal(rawMerge);
-                    if (!m) return null;
-                    return {
-                        fromCol: m.from.col,
-                        toCol: m.to.col,
-                        fromRow: m.from.row,
-                        toRow: m.to.row
-                    };
-                }
-
-                function getPreviewMergeRanges() {
-                    const preview = state.preview || {};
-                    const rawMerges = Array.isArray(preview.merges) ? preview.merges : [];
-                    const list = [];
-
-                    rawMerges.forEach(function (m) {
-                        if (typeof m === 'string') {
-                            const parsed = normalizeMergeRange(m);
-                            if (parsed) list.push(parsed);
-                            return;
-                        }
-
-                        if (Array.isArray(m) && m.length >= 4) {
-                            const fromRow = parseInt(m[0], 10);
-                            const fromCol = parseInt(m[1], 10);
-                            const toRow = parseInt(m[2], 10);
-                            const toCol = parseInt(m[3], 10);
-
-                            if (
-                                Number.isFinite(fromCol) && Number.isFinite(toCol) &&
-                                Number.isFinite(fromRow) && Number.isFinite(toRow) &&
-                                fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0
-                            ) {
-                                list.push({
-                                    fromCol: Math.min(fromCol, toCol),
-                                    toCol: Math.max(fromCol, toCol),
-                                    fromRow: Math.min(fromRow, toRow),
-                                    toRow: Math.max(fromRow, toRow)
-                                });
-                            }
-                            return;
-                        }
-
-                        const a1 = m && (m.a1 || m.A1 || m.range || m.Range);
-                        if (typeof a1 === 'string') {
-                            const parsed = normalizeMergeRange(a1);
-                            if (parsed) list.push(parsed);
-                            return;
-                        }
-
-                        if (m && m.s && m.e) {
-                            const fromCol = Number(m.s.c || m.s.col || 0) + 1;
-                            const toCol = Number(m.e.c || m.e.col || 0) + 1;
-                            const fromRow = Number(m.s.r || m.s.row || 0) + 1;
-                            const toRow = Number(m.e.r || m.e.row || 0) + 1;
-
-                            if (fromCol > 0 && toCol > 0 && fromRow > 0 && toRow > 0) {
-                                list.push({
-                                    fromCol: Math.min(fromCol, toCol),
-                                    toCol: Math.max(fromCol, toCol),
-                                    fromRow: Math.min(fromRow, toRow),
-                                    toRow: Math.max(fromRow, toRow)
-                                });
-                            }
-                        }
-                    });
-
-                    return list;
-                }
-
-                function expandRangeByMerges(range) {
-                    if (!range) return null;
-
-                    const merges = getPreviewMergeRanges();
-                    let fromCol = range.from.col;
-                    let toCol = range.to.col;
-                    let fromRow = range.from.row;
-                    let toRow = range.to.row;
-                    let changed = true;
-
-                    while (changed) {
-                        changed = false;
-
-                        merges.forEach(function (mg) {
-                            const overlapCol = !(mg.toCol < fromCol || mg.fromCol > toCol);
-                            const overlapRow = !(mg.toRow < fromRow || mg.fromRow > toRow);
-
-                            if (overlapCol && overlapRow) {
-                                const nextFromCol = Math.min(fromCol, mg.fromCol);
-                                const nextToCol = Math.max(toCol, mg.toCol);
-                                const nextFromRow = Math.min(fromRow, mg.fromRow);
-                                const nextToRow = Math.max(toRow, mg.toRow);
-
-                                if (
-                                    nextFromCol !== fromCol ||
-                                    nextToCol !== toCol ||
-                                    nextFromRow !== fromRow ||
-                                    nextToRow !== toRow
-                                ) {
-                                    fromCol = nextFromCol;
-                                    toCol = nextToCol;
-                                    fromRow = nextFromRow;
-                                    toRow = nextToRow;
-                                    changed = true;
-                                }
-                            }
-                        });
-                    }
-
-                    return {
-                        raw: range.raw,
-                        from: { col: fromCol, row: fromRow, colLabel: colIndexToLabel(fromCol) },
-                        to: { col: toCol, row: toRow, colLabel: colIndexToLabel(toCol) }
-                    };
-                }
-
-                function getRangeBox(range, colRectMap, rowRectMap) {
-                    if (!range) return null;
-
-                    const expanded = expandRangeByMerges(range);
-
-                    const c1 = colRectMap[expanded.from.colLabel];
-                    const c2 = colRectMap[expanded.to.colLabel];
-                    const r1 = rowRectMap[expanded.from.row];
-                    const r2 = rowRectMap[expanded.to.row];
-
-                    if (!c1 || !c2 || !r1 || !r2) return null;
-
-                    const left = Math.min(c1.left, c2.left);
-                    const right = Math.max(c1.right, c2.right);
-                    const top = Math.min(r1.top, r2.top);
-                    const bottom = Math.max(r1.bottom, r2.bottom);
-
-                    const box = {
-                        x: left,
-                        y: top,
-                        w: Math.max(1, right - left),
-                        h: Math.max(1, bottom - top)
-                    };
-
-                    window.__dxLog('[DX-DBG] expanded-range-box', {
-                        raw: range.raw,
-                        expandedFrom: expanded.from.colLabel + expanded.from.row,
-                        expandedTo: expanded.to.colLabel + expanded.to.row,
-                        box: box
-                    });
-
-                    return box;
-                }
-
-                function normalizeBucketName(v) {
-                    const s = String(v || '').trim().toLowerCase();
-                    if (!s) return '';
-                    if (s.includes('coop') || s.includes('cooperation') || s.includes('협조')) return 'cooperation';
-                    if (s.includes('approv') || s.includes('approval') || s.includes('결재')) return 'approval';
-                    return '';
-                }
-
-                function inferBucketFromRow(row) {
-                    const candidates = [
-                        row.kind, row.Kind,
-                        row.type, row.Type,
-                        row.group, row.Group,
-                        row.section, row.Section,
-                        row.category, row.Category,
-                        row.mode, row.Mode,
-                        row.stampType, row.StampType,
-                        row.approvalType, row.ApprovalType
-                    ];
-
-                    for (let i = 0; i < candidates.length; i++) {
-                        const bucket = normalizeBucketName(candidates[i]);
-                        if (bucket) return bucket;
-                    }
-
-                    const roleKey = String(row.roleKey || row.RoleKey || '').trim().toUpperCase();
-                    if (roleKey.startsWith('C')) return 'cooperation';
-                    if (roleKey.startsWith('A')) return 'approval';
-
-                    if (row.isCooperation === true || row.IsCooperation === true) return 'cooperation';
-                    return 'approval';
-                }
-
-                function __rangePickFirst() {
-                    for (let i = 0; i < arguments.length; i++) {
-                        const v = arguments[i];
-                        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-                    }
-                    return null;
-                }
-
-                function __rangeToFinite(v) {
-                    const n = Number(v);
-                    return isFinite(n) ? n : null;
-                }
-
-                function __rangeToColNo(v, zeroBased) {
-                    if (v == null || String(v).trim() === '') return null;
-
-                    const s = String(v).trim().toUpperCase();
-                    if (/^[A-Z]+$/.test(s)) return colLabelToIndex(s);
-
-                    const n = __rangeToFinite(v);
-                    if (n == null) return null;
-
-                    return zeroBased ? (n + 1) : n;
-                }
-
-                function __rangeToRowNo(v, zeroBased) {
-                    if (v == null || String(v).trim() === '') return null;
-
-                    const n = __rangeToFinite(v);
-                    if (n == null) return null;
-
-                    return zeroBased ? (n + 1) : n;
-                }
-
-                function __normalizeA1Text(v) {
-                    const raw = String(v || '').trim().toUpperCase();
-                    if (!raw) return '';
-
-                    const parsed = parseA1RangeLocal(raw);
-                    return parsed ? parsed.raw : '';
-                }
-
-                function __buildMappedA1FromRow(row) {
-                    if (!row) return '';
-
-                    if (typeof row === 'string') {
-                        return __normalizeA1Text(row);
-                    }
-
-                    if (typeof row !== 'object') return '';
-
-                    const directRange =
-                        __normalizeA1Text(__rangePickFirst(
-                            row.a1Range, row.A1Range,
-                            row.rangeA1, row.RangeA1,
-                            row.cellRange, row.CellRange,
-                            row.range, row.Range,
-                            row.address, row.Address,
-                            row.ref, row.Ref
-                        ));
-
-                    if (directRange) return directRange;
-
-                    const anchorA1 =
-                        __normalizeA1Text(__rangePickFirst(
-                            row.a1, row.A1,
-                            row.cellA1, row.CellA1,
-                            row.anchorA1, row.AnchorA1,
-                            row.startA1, row.StartA1
-                        ));
-
-                    const anchor = anchorA1 ? parseA1RangeLocal(anchorA1) : null;
-
-                    let fromCol =
-                        __rangeToColNo(__rangePickFirst(
-                            row.fromCol, row.FromCol,
-                            row.startCol, row.StartCol,
-                            row.firstCol, row.FirstCol,
-                            row.leftCol, row.LeftCol,
-                            row.col1, row.Col1
-                        ), false);
-
-                    let toCol =
-                        __rangeToColNo(__rangePickFirst(
-                            row.toCol, row.ToCol,
-                            row.endCol, row.EndCol,
-                            row.lastCol, row.LastCol,
-                            row.rightCol, row.RightCol,
-                            row.col2, row.Col2
-                        ), false);
-
-                    let fromRow =
-                        __rangeToRowNo(__rangePickFirst(
-                            row.fromRow, row.FromRow,
-                            row.startRow, row.StartRow,
-                            row.firstRow, row.FirstRow,
-                            row.topRow, row.TopRow,
-                            row.row1, row.Row1
-                        ), false);
-
-                    let toRow =
-                        __rangeToRowNo(__rangePickFirst(
-                            row.toRow, row.ToRow,
-                            row.endRow, row.EndRow,
-                            row.lastRow, row.LastRow,
-                            row.bottomRow, row.BottomRow,
-                            row.row2, row.Row2
-                        ), false);
-
-                    if (fromCol == null) {
-                        fromCol = __rangeToColNo(__rangePickFirst(
-                            row.sc, row.SC,
-                            row.scol, row.SCol,
-                            row.startCol0, row.StartCol0,
-                            row.fromCol0, row.FromCol0
-                        ), true);
-                    }
-
-                    if (toCol == null) {
-                        toCol = __rangeToColNo(__rangePickFirst(
-                            row.ec, row.EC,
-                            row.ecol, row.ECol,
-                            row.endCol0, row.EndCol0,
-                            row.toCol0, row.ToCol0
-                        ), true);
-                    }
-
-                    if (fromRow == null) {
-                        fromRow = __rangeToRowNo(__rangePickFirst(
-                            row.sr, row.SR,
-                            row.srow, row.SRow,
-                            row.startRow0, row.StartRow0,
-                            row.fromRow0, row.FromRow0
-                        ), true);
-                    }
-
-                    if (toRow == null) {
-                        toRow = __rangeToRowNo(__rangePickFirst(
-                            row.er, row.ER,
-                            row.erow, row.ERow,
-                            row.endRow0, row.EndRow0,
-                            row.toRow0, row.ToRow0
-                        ), true);
-                    }
-
-                    const colSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
-                        row.colSpan, row.ColSpan,
-                        row.columnSpan, row.ColumnSpan,
-                        row.spanX, row.SpanX,
-                        row.widthCells, row.WidthCells
-                    )) || 1);
-
-                    const rowSpan = Math.max(1, __rangeToFinite(__rangePickFirst(
-                        row.rowSpan, row.RowSpan,
-                        row.heightSpan, row.HeightSpan,
-                        row.spanY, row.SpanY,
-                        row.heightCells, row.HeightCells
-                    )) || 1);
-
-                    if (anchor) {
-                        if (fromCol == null) fromCol = anchor.from.col;
-                        if (fromRow == null) fromRow = anchor.from.row;
-
-                        if (toCol == null) {
-                            if (anchor.to && anchor.to.col && anchor.to.col !== anchor.from.col) toCol = anchor.to.col;
-                            else if (colSpan > 1) toCol = fromCol + colSpan - 1;
-                            else toCol = fromCol;
-                        }
-
-                        if (toRow == null) {
-                            if (anchor.to && anchor.to.row && anchor.to.row !== anchor.from.row) toRow = anchor.to.row;
-                            else if (rowSpan > 1) toRow = fromRow + rowSpan - 1;
-                            else toRow = fromRow;
-                        }
-                    }
-
-                    if (
-                        fromCol == null || toCol == null ||
-                        fromRow == null || toRow == null ||
-                        fromCol <= 0 || toCol <= 0 ||
-                        fromRow <= 0 || toRow <= 0
-                    ) {
-                        return anchorA1 || '';
-                    }
-
-                    const finalFromCol = Math.min(fromCol, toCol);
-                    const finalToCol = Math.max(fromCol, toCol);
-                    const finalFromRow = Math.min(fromRow, toRow);
-                    const finalToRow = Math.max(fromRow, toRow);
-
-                    const out =
-                        colIndexToLabel(finalFromCol) + finalFromRow +
-                        ':' +
-                        colIndexToLabel(finalToCol) + finalToRow;
-
-                    return __normalizeA1Text(out);
-                }
-
-                function buildLocalCellMap() {
-                    const rows = readJsonFromScript('ApprovalCellsJson', []);
-                    const built = {
-                        approval: { byStep: {}, byRoleKey: {} },
-                        cooperation: { byStep: {}, byRoleKey: {} }
-                    };
-
-                    if (!Array.isArray(rows)) return built;
-
-                    rows.forEach(function (row) {
-                        const resolvedA1 = __buildMappedA1FromRow(row);
-                        if (!resolvedA1) return;
-
-                        const bucket = inferStampBucketFromRow(row);
-                        const step = row.step || row.Step || row.stepOrder || row.StepOrder || row.slot || row.Slot;
-                        const roleKey = String(row.roleKey || row.RoleKey || '').trim();
-
-                        const payload = {
-                            row: row,
-                            a1: resolvedA1
-                        };
-
-                        if (step != null && step !== '') built[bucket].byStep[String(step)] = payload;
-                        if (roleKey) built[bucket].byRoleKey[roleKey] = payload;
-                    });
-
-                    return built;
-                }
-
-                const localMap = buildLocalCellMap();
-                const legacyApprovalMap = state.approvalCellMap || { byStep: {}, byRoleKey: {} };
-                const legacyCooperationMap = state.cooperationCellMap || { byStep: {}, byRoleKey: {} };
-
-                function __unwrapMappedA1(v) {
-                    if (!v) return '';
-                    if (typeof v === 'string') return __normalizeA1Text(v);
-                    if (typeof v === 'object') {
-                        if (v.a1) return __normalizeA1Text(v.a1);
-                        return __buildMappedA1FromRow(v.row || v);
-                    }
-                    return '';
-                }
-
-                function resolveMappedA1(raw, step, bucketName) {
-                    const roleKey = String(raw.roleKey || raw.RoleKey || '').trim();
-                    const bucket = bucketName === 'cooperation' ? 'cooperation' : 'approval';
-
-                    if (roleKey && localMap[bucket].byRoleKey[roleKey]) {
-                        return __unwrapMappedA1(localMap[bucket].byRoleKey[roleKey]);
-                    }
-
-                    if (localMap[bucket].byStep[String(step)]) {
-                        return __unwrapMappedA1(localMap[bucket].byStep[String(step)]);
-                    }
-
-                    const legacyBucketMap = bucket === 'cooperation'
-                        ? legacyCooperationMap
-                        : legacyApprovalMap;
-
-                    if (legacyBucketMap && typeof legacyBucketMap === 'object') {
-                        if (roleKey && legacyBucketMap.byRoleKey && legacyBucketMap.byRoleKey[roleKey]) {
-                            return __unwrapMappedA1(legacyBucketMap.byRoleKey[roleKey]);
-                        }
-
-                        if (legacyBucketMap.byStep && legacyBucketMap.byStep[String(step)]) {
-                            return __unwrapMappedA1(legacyBucketMap.byStep[String(step)]);
-                        }
-                    }
-
-                    if (bucket === 'approval') {
-                        const legacyFlat = state.approvalCellMap;
-                        if (legacyFlat && typeof legacyFlat === 'object') {
-                            if (roleKey && legacyFlat[roleKey]) return __unwrapMappedA1(legacyFlat[roleKey]);
-                            if (legacyFlat[String(step)]) return __unwrapMappedA1(legacyFlat[String(step)]);
-                            if (legacyFlat[step]) return __unwrapMappedA1(legacyFlat[step]);
-                        }
-                    }
-                    return __buildMappedA1FromRow(raw);
-                }
-
-                function getStampLayout(box, kind) {
-                    return {
-                        x: box.x,
-                        y: box.y,
-                        w: box.w,
-                        h: box.h,
-                        placementMode: 'boxed',
-                        padX: 0,
-                        padTop: kind === 'status' ? 1 : 2,
-                        captionHeight: 14,
-                        bodyBottomPad: 0,
-                        targetWidthRatio: 1,
-                        targetHeightRatio: 1,
-                        maxWidthRatio: 1,
-                        maxHeightRatio: 1,
-                        scaleBoost: 1
-                    };
-                }
-
-                function resolveStampMeta(raw) {
-                    const STAMP_BASE = '/images/signatures/';
-                    const HOLDING_STAMP = STAMP_BASE + 'Holding.png';
-                    const REJECTED_STAMP = STAMP_BASE + 'Rejected.png';
-                    const APPROVED_STAMP = STAMP_BASE + 'Approved.png';
-
-                    const actionRaw = String(raw.action || raw.Action || '').trim().toUpperCase();
-                    const statusRaw = String(raw.status || raw.Status || '').trim().toUpperCase();
-                    const sigPathRaw = String(raw.signaturePath || raw.SignaturePath || '').trim();
-
-                    if (actionRaw === 'APPROVE' || statusRaw === 'APPROVED') {
-                        if (sigPathRaw) {
-                            return {
-                                stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
-                                fallbackUrl: APPROVED_STAMP,
-                                kind: 'signature'
-                            };
-                        }
-                        return {
-                            stampUrl: APPROVED_STAMP,
-                            fallbackUrl: APPROVED_STAMP,
-                            kind: 'status'
-                        };
-                    }
-
-                    if (
-                        actionRaw === 'HOLD' ||
-                        statusRaw === 'HOLD' ||
-                        statusRaw === 'ONHOLD' ||
-                        statusRaw.startsWith('PENDINGHOLD')
-                    ) {
-                        return {
-                            stampUrl: HOLDING_STAMP,
-                            fallbackUrl: HOLDING_STAMP,
-                            kind: 'status'
-                        };
-                    }
-
-                    if (actionRaw === 'REJECT' || statusRaw === 'REJECTED') {
-                        return {
-                            stampUrl: REJECTED_STAMP,
-                            fallbackUrl: REJECTED_STAMP,
-                            kind: 'status'
-                        };
-                    }
-
-                    if (actionRaw === 'COOPERATE' || statusRaw === 'COOPERATED') {
-                        if (sigPathRaw) {
-                            return {
-                                stampUrl: STAMP_BASE + sigPathRaw.replace(/^[\\/]+/, '').replace(/\\/g, '/'),
-                                fallbackUrl: APPROVED_STAMP,
-                                kind: 'signature'
-                            };
-                        }
-                        return {
-                            stampUrl: APPROVED_STAMP,
-                            fallbackUrl: APPROVED_STAMP,
-                            kind: 'status'
-                        };
-                    }
-
-                    return null;
-                }
-
-                function appendStamp(raw, step, a1, debugPrefix, bucketName, colRectMap, rowRectMap) {
-                    const range = parseA1RangeLocal(a1);
-                    if (!range) return;
-
-                    const box = getRangeBox(range, colRectMap, rowRectMap);
-                    if (!box || box.w < 8 || box.h < 8) return;
-
-                    const meta = resolveStampMeta(raw);
-                    if (!meta || !meta.stampUrl) return;
-
-                    const captionText = formatApprovalCaption(raw);
-                    const fit = getStampLayout(box, meta.kind);
-
-                    const div = buildStampDiv(
-                        fit.x,
-                        fit.y,
-                        fit.w,
-                        fit.h,
-                        meta.stampUrl,
-                        captionText,
-                        meta.fallbackUrl,
-                        {
-                            placementMode: fit.placementMode,
-                            padX: fit.padX,
-                            padTop: fit.padTop,
-                            captionHeight: fit.captionHeight,
-                            bodyBottomPad: fit.bodyBottomPad,
-                            targetWidthRatio: fit.targetWidthRatio,
-                            targetHeightRatio: fit.targetHeightRatio,
-                            maxWidthRatio: fit.maxWidthRatio,
-                            maxHeightRatio: fit.maxHeightRatio,
-                            scaleBoost: fit.scaleBoost
-                        }
-                    );
-
-                    overlay.appendChild(div);
-
-                    window.__dxLog(
-                        `[DX] ${debugPrefix} stamp`,
-                        'bucket=' + bucketName,
-                        'step=' + step,
-                        'a1=' + a1,
-                        'box=(' + Math.round(box.x) + ',' + Math.round(box.y) + ',' + Math.round(box.w) + ',' + Math.round(box.h) + ')',
-                        'placementMode=' + fit.placementMode,
-                        'padX=' + fit.padX,
-                        'padTop=' + fit.padTop,
-                        'captionHeight=' + fit.captionHeight,
-                        'bodyBottomPad=' + fit.bodyBottomPad,
-                        'scaleBoost=' + fit.scaleBoost
-                    );
-                }
-
-                const colRectMap = buildColumnRectMap();
-                const rowRectMap = buildRowRectMap();
-
-                window.__dxLog(
-                    '[DX] measured header maps',
-                    'cols=' + Object.keys(colRectMap).length,
-                    'rows=' + Object.keys(rowRectMap).length
-                );
-
-                overlay.style.position = 'absolute';
-                wrap.style.position = 'relative';
-
-                approvals.forEach(function (a, idx) {
-                    let step = parseInt(a.step || a.Step || a.stepOrder || a.StepOrder || (idx + 1), 10);
-                    if (!step || !isFinite(step)) step = idx + 1;
-
-                    const a1 = resolveMappedA1(a, step, 'approval');
-                    if (!a1) return;
-
-                    appendStamp(a, step, a1, 'approval', 'approval', colRectMap, rowRectMap);
-                });
-
-                cooperations.forEach(function (c, idx) {
-                    let step = parseInt(c.step || c.Step || c.stepOrder || c.StepOrder || c.slot || c.Slot || (idx + 1), 10);
-                    if (!step || !isFinite(step)) step = idx + 1;
-
-                    const a1 = resolveMappedA1(c, step, 'cooperation');
-                    window.__dxLog('[DX] cooperation mapped a1', {
-                        step: step,
-                        roleKey: String(c.roleKey || c.RoleKey || ''),
-                        a1: a1,
-                        source: state.cooperationCellMap
-                    });
-
-                    if (!a1) return;
-
-                    appendStamp(c, step, a1, 'cooperation', 'cooperation', colRectMap, rowRectMap);
-                });
-            } finally {
-                state.overlayRendering = false;
-            }
-        }
 
         // ================== 파일 헬퍼 ==================
         function normalizeCommentFiles(c) {
@@ -3131,61 +1928,12 @@ else
             return String(s || '').replace(/\n/g, '<br>');
         }
 
-        function cancelOverlayRefresh() {
-            if (state.overlayRefreshTimer) {
-                clearTimeout(state.overlayRefreshTimer);
-                state.overlayRefreshTimer = 0;
-            }
-            if (state.overlayRefreshRaf) {
-                cancelAnimationFrame(state.overlayRefreshRaf);
-                state.overlayRefreshRaf = 0;
-            }
-        }
 
-        function renderApprovalOverlayStable(reason, pass) {
-            const currentPass = Number(pass || 0);
 
-            state.overlayRefreshRaf = requestAnimationFrame(function () {
-                requestAnimationFrame(function () {
-                    try { renderApprovalOverlay(); } catch (e) { window.__dxWarn('[DX] renderApprovalOverlayStable failed', e); }
 
-                    if (currentPass < 1) {
-                        state.overlayRefreshTimer = window.setTimeout(function () {
-                            renderApprovalOverlayStable(reason, currentPass + 1);
-                        }, 200);
-                    } else {
-                        const scroll = document.getElementById('doc-scroll');
-                        if (scroll) scroll.classList.add('dx-page-ready');
-                    }
-                });
-            });
-        }
 
-        function scheduleOverlayRefresh(reason) {
-            cancelOverlayRefresh();
-            renderApprovalOverlayStable(reason || 'overlay-refresh', 0);
-        }
 
-        function bindOverlayResizeObserver() {
-            if (state.overlayResizeObserver || typeof ResizeObserver === 'undefined') return;
 
-            const wrap = document.getElementById('dxDetailWrap');
-            if (!wrap) return;
-
-            let debounceTimer = 0;
-
-            state.overlayResizeObserver = new ResizeObserver(function () {
-                if (!state.overlayReady) return;
-
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(function () {
-                    window.__dxLog('[DX] overlay resize observer refresh');
-                    try { renderApprovalOverlay(); } catch (e) { window.__dxWarn('[DX] overlay resize observer failed', e); }
-                }, 500);
-            });
-
-            try { state.overlayResizeObserver.observe(wrap); } catch (e) { }
-        }
 
         // ================== 수신자 ==================
         function collectSelectedRecipientUserIds_Detail() {
@@ -3644,7 +2392,13 @@ else
             if (!docId) return;
             async function call(action) {
                 try {
-                    const res = await EBC.json('/Doc/ApproveOrHoldDX', { docId, action }, 'POST');
+                    // 2026.06.23 Changed: 승인 협조 처리 시 전역 SpreadsheetState 취득 함수 사용 Contents strict IIFE 범위에서 전역 함수명 직접 참조 오류를 방지한다
+                    const res = await EBC.json('/Doc/ApproveOrHoldDX', {
+                        docId,
+                        action,
+                        spreadsheetState: window.getSpreadsheetStatePayload ? window.getSpreadsheetStatePayload() : null,
+                        stampWorkPath: String(window.__dxStampWorkPath || '')
+                    }, 'POST');
                     if (!res || res.ok === false) throw { payload: res };
                     showAlert(T('DOC_Msg_Approve_Success'), 'alert-success');
                     location.reload();
@@ -3747,37 +2501,295 @@ else
         }
 
         function hookDxReady() {
-            installOuterScrollOnly();
-
-            function applySize() {
-                applyDxWrapSize();
-
-                const scroll = document.getElementById('doc-scroll');
-                if (scroll) scroll.classList.add('dx-page-ready');
-            }
-
             const wrap = document.getElementById('dxDetailWrap');
+            const scroll = document.getElementById('doc-scroll');
             if (!wrap) return;
 
-            let applied = false;
-            function tryApply() {
-                if (applied) return;
-                const wbc = document.getElementById('dxDetailSheet_WBC')
-                         || document.querySelector('#dxDetailWrap [id$="_WBC"]');
-                if (wbc && wbc.offsetWidth > 0 && wbc.offsetHeight > 0) {
-                    applied = true;
-                    observer.disconnect();
-                    applySize();
+            let finalized = false;
+            let rafId = 0;
+            let domObserver = null;
+            let sizeObserver = null;
+            let stableSignature = '';
+            let stableCount = 0;
+            let readySignal = false;
+            let readyReason = '';
+            let adjustKickCount = 0;
+            let postFinalizeRaf = 0;
+            let resizeRaf = 0;
+
+            function getWbc() {
+                return document.getElementById('dxDetailSheet_WBC')
+                    || document.querySelector('#dxDetailWrap [id$="_WBC"]');
+            }
+
+            function getPage() {
+                return wrap.querySelector('.dxss-print-area')
+                    || wrap.querySelector('.dxss-page');
+            }
+
+            function getInnerScroll() {
+                return document.getElementById('dxDetailSheet_ScrollContainer')
+                    || document.getElementById('dxDetailSheet_Grid')
+                    || document.querySelector('#dxDetailWrap [id$="_ScrollContainer"]')
+                    || document.querySelector('#dxDetailWrap [id$="_Grid"]');
+            }
+
+            function readBox(el) {
+                if (!el) return { width: 0, height: 0 };
+                const rect = el.getBoundingClientRect();
+                return {
+                    width: Math.max(
+                        Math.ceil(rect.width || 0),
+                        Math.ceil(el.clientWidth || 0),
+                        Math.ceil(el.offsetWidth || 0)
+                    ),
+                    height: Math.max(
+                        Math.ceil(rect.height || 0),
+                        Math.ceil(el.clientHeight || 0),
+                        Math.ceil(el.offsetHeight || 0)
+                    )
+                };
+            }
+
+            function hasVisibleContent() {
+                const wbcBox = readBox(getWbc());
+                const pageBox = readBox(getPage());
+
+                if ((wbcBox.width > 120 && wbcBox.height > 120) || (pageBox.width > 120 && pageBox.height > 120)) {
+                    return true;
+                }
+
+                const visibleTargets = wrap.querySelectorAll('[id*="_ctb."], .dxss-ftc');
+                for (let i = 0; i < visibleTargets.length; i++) {
+                    const r = visibleTargets[i].getBoundingClientRect();
+                    if (r.width > 20 && r.height > 10) return true;
+                }
+
+                return false;
+            }
+
+            function getSignature() {
+                const wbcBox = readBox(getWbc());
+                const pageBox = readBox(getPage());
+
+                return JSON.stringify({
+                    w: wbcBox.width,
+                    h: wbcBox.height,
+                    pw: pageBox.width,
+                    ph: pageBox.height
+                });
+            }
+
+            function requestLayoutKick(reason) {
+                if (!finalized && adjustKickCount < 1) {
+                    adjustKickCount++;
+                    try {
+                        const inst = getDxInstance();
+                        if (inst && typeof inst.AdjustControl === 'function') {
+                            inst.AdjustControl();
+                        }
+                    } catch (e) { }
+                }
+
+                const inner = getInnerScroll();
+                if (inner) {
+                    try {
+                        if (inner.scrollLeft !== 0) inner.scrollLeft = 0;
+                        if (inner.scrollTop !== 0) inner.scrollTop = 0;
+                    } catch (e) { }
+                }
+
+                window.__dxLog('[DX] requestLayoutKick:', reason || '', 'adjustKickCount=' + adjustKickCount);
+            }
+
+            function isReadyReason(reason) {
+                const r = String(reason || '').toLowerCase();
+                return r.indexOf('dx-end-sync') >= 0
+                    || r.indexOf('dx-after-document-response') >= 0
+                    || r.indexOf('dx-process-document-response') >= 0
+                    || r.indexOf('dx-init-raf') >= 0;
+            }
+
+            function cleanupObservers() {
+                if (rafId) {
+                    cancelAnimationFrame(rafId);
+                    rafId = 0;
+                }
+
+                if (domObserver) {
+                    try { domObserver.disconnect(); } catch (e) { }
+                    domObserver = null;
+                }
+
+                if (sizeObserver) {
+                    try { sizeObserver.disconnect(); } catch (e) { }
+                    sizeObserver = null;
                 }
             }
 
-            // 2026.06.19 Changed: DetailDX 엑셀 렌더링 완료 판단을 ComposeDX와 동일한 WBC 감지 방식으로 단순화
-            const observer = new MutationObserver(function () {
-                tryApply();
+            function applyAndRender(reason) {
+                state.previewExtent = { width: 0, height: 0 };
+                applyDxWrapSize(reason || 'dx-stable');
+            }
+
+            function finalize(reason) {
+                if (finalized) return;
+                finalized = true;
+                cleanupObservers();
+
+                applyAndRender(reason || 'dx-stable');
+                installOuterScrollOnly();
+
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        applyAndRender((reason || 'dx-stable') + '-postoverlay');
+
+                        if (scroll) scroll.classList.add('dx-page-ready');
+                        state.overlayReady = true;
+
+                        try {
+                            var inst = getDxInstance();
+                            if (inst && typeof inst.AdjustControl === 'function') {
+                                inst.AdjustControl();
+                            }
+                        } catch (e) { }
+
+                        requestAnimationFrame(function () {
+                            applyAndRender('post-adjust-once');
+                        });
+
+                        window.__dxLog('[DX] page shown by', reason || 'dx-stable');
+                    });
+                });
+            }
+
+            function evaluateStable(reason) {
+                if (finalized) return;
+                if (state.dxSyncing) return;
+                if (!readySignal) return;
+                if (!hasVisibleContent()) return;
+
+                const sig = getSignature();
+                const parsed = JSON.parse(sig);
+
+                if (parsed.w <= 0 || parsed.h <= 0) return;
+
+                if (sig === stableSignature) {
+                    stableCount++;
+                } else {
+                    stableSignature = sig;
+                    stableCount = 1;
+                }
+
+                window.__dxLog('[DX] stable-check:', {
+                    reason: reason || '',
+                    readyReason: readyReason,
+                    stableCount: stableCount,
+                    signature: parsed
+                });
+
+                if (stableCount >= 1) {
+                    finalize(readyReason || reason || 'dx-stable');
+                    return;
+                }
+
+                rafId = requestAnimationFrame(function () {
+                    rafId = requestAnimationFrame(function () {
+                        evaluateStable((reason || 'dx-stable') + '-raf');
+                    });
+                });
+            }
+
+            function scheduleEvaluate(reason) {
+                if (!readySignal && !isReadyReason(reason)) return;
+
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(function () {
+                    rafId = requestAnimationFrame(function () {
+                        evaluateStable(reason || 'dx-eval');
+                    });
+                });
+            }
+
+            function schedulePostFinalizeRefresh(reason) {
+                if (!finalized) return;
+                if (postFinalizeRaf) return;
+
+                postFinalizeRaf = requestAnimationFrame(function () {
+                    postFinalizeRaf = requestAnimationFrame(function () {
+                        postFinalizeRaf = 0;
+                        applyAndRender('post-finalize:' + (reason || ''));
+                    });
+                });
+            }
+
+            domObserver = new MutationObserver(function () {
+                if (!finalized) scheduleEvaluate('dx-dom-mutation');
             });
 
-            observer.observe(wrap, { childList: true, subtree: true, attributes: true });
-            tryApply();
+            domObserver.observe(wrap, {
+                childList: true,
+                subtree: true,
+                attributes: false
+            });
+
+            if (typeof ResizeObserver !== 'undefined') {
+                sizeObserver = new ResizeObserver(function () {
+                    if (!finalized) scheduleEvaluate('dx-resize-observer');
+                });
+
+                [wrap, getWbc(), getPage()].filter(Boolean).forEach(function (el) {
+                    try { sizeObserver.observe(el); } catch (e) { }
+                });
+            }
+
+            window.__dxDetailOnEndSyncImpl = function (reason) {
+                state.dxSyncing = false;
+
+                if (isReadyReason(reason)) {
+                    readySignal = true;
+                    readyReason = reason || '';
+                    stableCount = 0;
+                    stableSignature = '';
+                    window.__dxLog('[DX] ready-signal accepted:', readyReason);
+                } else {
+                    window.__dxLog('[DX] ready-signal ignored:', reason || '');
+                }
+
+                if (finalized) {
+                    schedulePostFinalizeRefresh(reason || 'dx-end-sync');
+                    return;
+                }
+
+                // 2026.06.23 Removed: DevExpress 동기화 완료 시 자동 Backfill 호출 중지 Contents 문서 열람 안정화 후 승인 협조 이벤트에서만 스탬프 저장을 수행한다
+
+                requestLayoutKick(reason || 'dx-end-sync');
+                scheduleEvaluate(reason || 'dx-end-sync');
+            };
+
+            if (window.__dxDetailOnEndSyncPending) {
+                const pendingReason = window.__dxDetailOnEndSyncPending;
+                window.__dxDetailOnEndSyncPending = null;
+                requestLayoutKick(pendingReason || 'pending-sync');
+                scheduleEvaluate(pendingReason || 'pending-sync');
+            } else {
+                requestLayoutKick('hook-start');
+            }
+
+            if (!window.__DETAIL_DX_RESIZE_BOUND__) {
+                window.__DETAIL_DX_RESIZE_BOUND__ = true;
+                window.addEventListener('resize', function () {
+                    if (resizeRaf) cancelAnimationFrame(resizeRaf);
+                    resizeRaf = requestAnimationFrame(function () {
+                        resizeRaf = 0;
+                        if (state.overlayReady) {
+                            applyAndRender('window-resize');
+                        } else {
+                            scheduleEvaluate('window-resize');
+                        }
+                    });
+                }, { passive: true });
+            }
         }
 
         function run() {
@@ -3794,14 +2806,9 @@ else
                 ? readJsonFromScript('CooperationsJson', [])
                 : [];
 
-            const mapRows = readJsonFromScript('ApprovalCellsJson', []);
-            const builtMap = buildLegacyApprovalCellMap(Array.isArray(mapRows) ? mapRows : []);
-
-            state.approvalCellMap = builtMap.approval || { byStep: {}, byRoleKey: {} };
-            state.cooperationCellMap = builtMap.cooperation || { byStep: {}, byRoleKey: {} };
-
-            window.__dxLog('approvalCellMap', state.approvalCellMap, mapRows);
-            window.__dxLog('cooperationCellMap', state.cooperationCellMap, mapRows);
+            // 2026.06.23 Removed: 기존 DOM 좌표 계산 제거 Contents 스탬프 위치는 서버에서 대상 A1 범위로 직접 처리한다
+            state.approvalCellMap = { byStep: {}, byRoleKey: {} };
+            state.cooperationCellMap = { byStep: {}, byRoleKey: {} };
 
             applyDxWrapSize();
 
@@ -3815,6 +2822,152 @@ else
             initRecallButton();
             initPrintExport();
             hookDxReady();
+            installDetailDxSelectionChromeHider();
+
+            (function installDetailDxStampBackfillAfterOpen() {
+            if (window.__DETAIL_DX_STAMP_BACKFILL_AFTER_OPEN_INSTALLED__) return;
+            window.__DETAIL_DX_STAMP_BACKFILL_AFTER_OPEN_INSTALLED__ = true;
+
+            let backfillRunning = false;
+            let backfillDone = false;
+            let backfillRetryCount = 0;
+
+            function getRequestVerificationTokenForStamp() {
+                const el = document.querySelector('input[name="__RequestVerificationToken"]');
+                return el ? String(el.value || '') : '';
+            }
+
+            function getSpreadsheetStateForStamp() {
+                try {
+                    if (window.getSpreadsheetStatePayload && typeof window.getSpreadsheetStatePayload === 'function') {
+                        const state = window.getSpreadsheetStatePayload();
+                        if (state) return state;
+                    }
+                } catch (e) {
+                }
+
+                try {
+                    if (window.dxDetailSheet && typeof window.dxDetailSheet.getSpreadsheetState === 'function') {
+                        const state = window.dxDetailSheet.getSpreadsheetState();
+                        if (state) return state;
+                    }
+                } catch (e) {
+                }
+
+                try {
+                    if (typeof ASPxClientControl !== 'undefined' &&
+                        ASPxClientControl.GetControlCollection &&
+                        ASPxClientControl.GetControlCollection()) {
+                        const ctl = ASPxClientControl.GetControlCollection().GetByName('dxDetailSheet');
+                        if (ctl && typeof ctl.getSpreadsheetState === 'function') {
+                            const state = ctl.getSpreadsheetState();
+                            if (state) return state;
+                        }
+                    }
+                } catch (e) {
+                }
+
+                return null;
+            }
+
+            async function postDetailDxStampBackfill(payload) {
+                const token = getRequestVerificationTokenForStamp();
+
+                const res = await fetch('/Doc/BackfillStampsDX', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'RequestVerificationToken': token
+                    },
+                    body: JSON.stringify(payload || {})
+                });
+
+                const json = await res.json().catch(function () { return {}; });
+
+                if (!res.ok) {
+                    const err = new Error('BackfillStampsDX failed');
+                    err.payload = json;
+                    throw err;
+                }
+
+                return json;
+            }
+
+            function scheduleBackfillRetry(reason, delayMs) {
+                window.setTimeout(function () {
+                    requestDetailDxStampBackfill(reason);
+                }, delayMs);
+            }
+
+            async function requestDetailDxStampBackfill(reason) {
+                if (backfillDone || backfillRunning) return;
+                if (!window.__dxStampBackfillRequired) return;
+
+                const stampWorkPath = String(window.__dxStampWorkPath || '').trim();
+                if (!stampWorkPath) return;
+
+                const spreadsheetState = getSpreadsheetStateForStamp();
+                if (!spreadsheetState) {
+                    backfillRetryCount++;
+                    if (backfillRetryCount <= 40)
+                        scheduleBackfillRetry(reason || 'state-wait', 750);
+                    return;
+                }
+
+                backfillRunning = true;
+
+                try {
+                    const result = await postDetailDxStampBackfill({
+                        docId: docId,
+                        spreadsheetState: spreadsheetState,
+                        stampWorkPath: stampWorkPath
+                    });
+
+                    if (window.__dxLog)
+                        window.__dxLog('[DX] BackfillStampsDX result', result);
+
+                    if (result && result.ok === true) {
+                        backfillDone = true;
+                        window.__dxStampBackfillRequired = false;
+
+                        // 2026.07.01 Changed: 스탬프 최초 표시 보정 Contents BackfillStampsDX 저장 성공 후 현재 열린 Spreadsheet가 저장된 파일을 다시 읽도록 한 번만 새로고침한다
+                        var appliedCount = Number(result.applied || 0);
+                        if (appliedCount > 0 && !window.__DETAIL_DX_STAMP_BACKFILL_RELOAD_SENT__) {
+                            window.__DETAIL_DX_STAMP_BACKFILL_RELOAD_SENT__ = true;
+                            window.setTimeout(function () {
+                                window.location.reload();
+                            }, 300);
+                        }
+                    } else {
+                        backfillRunning = false;
+                    }
+                } catch (err) {
+                    backfillRunning = false;
+
+                    if (window.__dxWarn)
+                        window.__dxWarn('[DX] BackfillStampsDX failed', reason || '', err);
+
+                    backfillRetryCount++;
+                    if (backfillRetryCount <= 3)
+                        scheduleBackfillRetry(reason || 'failed-retry', 1500);
+                }
+            }
+
+            function startBackfillAfterOpen() {
+                if (!window.__dxStampBackfillRequired) return;
+
+                scheduleBackfillRetry('after-open', 1800);
+                scheduleBackfillRetry('after-open-late', 4000);
+            }
+
+            if (document.readyState === 'complete') {
+                startBackfillAfterOpen();
+            } else {
+                window.addEventListener('load', startBackfillAfterOpen, { once: true });
+            }
+        })();
         }
 
         if (document.readyState === 'loading') {

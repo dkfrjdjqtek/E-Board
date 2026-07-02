@@ -4,6 +4,8 @@
 // 2026.03.24 Added: 협조 스탬프 지원 — DescriptorJson.Cooperations에서 CellA1 파싱, UserProfiles.SignatureRelativePath JOIN
 // 2026.03.25 Fixed: 협조 셀맵 파싱 시 cellA1 키 추가 탐색 (Cell.A1 / A1 / cellA1 / CellA1 순서로 탐색)
 // 2026.03.26 Fixed: Documents.DescriptorJson에 cellA1 없을 때 DocTemplateVersion.DescriptorJson Cooperations[].Cell.A1 fallback 추가
+using DevExpress.AspNetCore.Spreadsheet;
+using DevExpress.Spreadsheet;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -20,11 +22,16 @@ using System.Linq;
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using WebApplication1.Models;
 using WebApplication1.Services;
-using ClosedXML.Excel;
+using GdiBitmap = System.Drawing.Bitmap;
+using GdiColor = System.Drawing.Color;
+using GdiImage = System.Drawing.Image;
+using GdiPixelFormat = System.Drawing.Imaging.PixelFormat;
+using GdiRectangle = System.Drawing.Rectangle;
 using static WebApplication1.Controllers.DocControllerHelper;
 
 namespace WebApplication1.Controllers
@@ -41,6 +48,14 @@ namespace WebApplication1.Controllers
         private readonly DocControllerHelper _helper;
         // 2026.06.15 Added: DetailDX warm-up workbook 최초 생성 시 동시 요청 충돌을 방지한다.
         private static readonly object _detailDxWarmupWorkbookLock = new();
+
+        // 2026.06.23 Added: DetailDX 스탬프 작업 파일 및 서버 삽입 처리 기준 상수 추가 Contents ComposeDX 세션 저장 방식과 동일하게 Spreadsheet 세션에서 이미지 삽입 후 저장한다
+        private static readonly object _detailDxStampFileLock = new();
+        // 2026.07.02 Changed: 스탬프 규칙 버전 갱신 Contents 여백 제거와 셀 비율 90퍼센트 배치 방식으로 기존 삽입분을 다시 처리한다
+        private const string StampRuleVersion = "DetailDXDevExpressStampV25";
+        private const string ApprovalLineType = "Approval";
+        private const string CooperationLineType = "Cooperation";
+        private const string StampPicturePrefix = "EB_STAMP_";
 
         public DetailDXController(
             IStringLocalizer<SharedResource> S,
@@ -219,16 +234,31 @@ ORDER BY v.VersionNo DESC, v.Id DESC;";
                 }
             }
 
-            var dxOpenAbsPath = ResolveContentRootRelativePath(outputPath) ?? string.Empty;
+            // 2026.06.23 Changed: DetailDX 작업 파일과 DevExpress documentId를 같은 세션 단위로 생성 Contents documentId 재사용으로 기존 메모리 문서가 열리는 문제 방지
+            var dxSourceAbsPath = ResolveContentRootRelativePath(outputPath) ?? string.Empty;
+            var detailDxStampSessionId = DateTime.Now.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture)
+                + "_"
+                + Guid.NewGuid().ToString("N");
+
+            var dxDocumentId = "detail_"
+                + SafeStampFilePart(id)
+                + "_"
+                + SafeStampFilePart(detailDxStampSessionId);
+
+            var dxOpenAbsPath = CreateDetailDxStampWorkbookCopy(id!, dxSourceAbsPath, detailDxStampSessionId);
+            var stampBackfillRequired = await HasPendingStampRowsAsync(conn, id!, templateVersionId, descriptorJson);
+
             _log.LogInformation(
-                "DetailDX: dxOpenAbsPath={Path} exists={Exists} templateVersionId={TemplateVersionId} visualRange={VisualRangeA1} visualWidth={VisualWidthPx} visualHeight={VisualHeightPx} visualSource={VisualSource}",
+                "DetailDX: dxSourceAbsPath={SourcePath} dxOpenAbsPath={OpenPath} exists={Exists} templateVersionId={TemplateVersionId} visualRange={VisualRangeA1} visualWidth={VisualWidthPx} visualHeight={VisualHeightPx} visualSource={VisualSource} stampBackfillRequired={StampBackfillRequired}",
+                dxSourceAbsPath,
                 dxOpenAbsPath,
                 System.IO.File.Exists(dxOpenAbsPath ?? ""),
                 templateVersionId,
                 templateVisualRangeA1,
                 templateVisualWidthPx,
                 templateVisualHeightPx,
-                templateVisualSource);
+                templateVisualSource,
+                stampBackfillRequired);
 
             // 2026.06.12 Changed: DetailDX는 ComposeDX와 동일하게 DB 저장값만 사용한다.
             // output xlsx 재스캔/Preview 재생성/RenderDiag 계산은 하지 않는다.
@@ -719,6 +749,9 @@ ORDER BY v.ViewedAt DESC;";
             ViewBag.RecalledAtText = recalledAtText;
             ViewBag.ExcelPath = dxOpenAbsPath ?? string.Empty;
             ViewBag.OpenRel = openRel ?? string.Empty;
+            ViewBag.SourceExcelPath = dxSourceAbsPath ?? string.Empty;
+            ViewBag.StampWorkPath = dxOpenAbsPath ?? string.Empty;
+            ViewBag.StampBackfillRequired = stampBackfillRequired;
 
             var http = HttpContext;
             if (http == null)
@@ -726,7 +759,8 @@ ORDER BY v.ViewedAt DESC;";
             var request = http.Request;
 
             ViewBag.DxCallbackUrl = "/Doc/dx-callback";
-            ViewBag.DxDocumentId = "detail_" + (id ?? Guid.NewGuid().ToString("N"));
+            ViewBag.DxDocumentId = dxDocumentId;
+            ViewBag.StampSessionId = detailDxStampSessionId;
             ViewBag.CanRecall = caps.canRecall;
             ViewBag.CanApprove = caps.canApprove;
             ViewBag.CanHold = caps.canHold;
@@ -799,303 +833,26 @@ ORDER BY v.ViewedAt DESC;";
             return true;
         }
 
-        private static ExcelRenderAreaInfo GetRenderAreaInfoFromExcel(string excelPath, ILogger? log = null)
-        {
-            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
-                return new ExcelRenderAreaInfo();
-
-            try
-            {
-                using var wb = new XLWorkbook(excelPath);
-                var ws = wb.Worksheets.First();
-
-                double defaultRowPt = ws.RowHeight <= 0 ? 15 : ws.RowHeight;
-                double defaultColChar = ws.ColumnWidth <= 0 ? 8.43 : ws.ColumnWidth;
-
-                var bbox = BuildVisibleBBox(ws);
-
-                var usedMaxRow = Math.Max(1, bbox.usedMaxRow);
-                var usedMaxCol = Math.Max(1, bbox.usedMaxCol);
-
-                var renderMaxRow = Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1);
-                var renderMaxCol = Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1);
-
-                double widthPx = 0d;
-                for (int c = 1; c <= renderMaxCol; c++)
-                {
-                    var colWidth = ws.Column(c).Width <= 0 ? defaultColChar : ws.Column(c).Width;
-                    widthPx += ExcelColWidthToPx(colWidth);
-                }
-
-                double heightPx = 0d;
-                for (int r = 1; r <= renderMaxRow; r++)
-                {
-                    var rowHeight = ws.Row(r).Height <= 0 ? defaultRowPt : ws.Row(r).Height;
-                    heightPx += RowHeightPtToPx(rowHeight);
-                }
-
-                return new ExcelRenderAreaInfo
-                {
-                    UsedMaxRow = usedMaxRow,
-                    UsedMaxCol = usedMaxCol,
-                    RenderMaxRow = renderMaxRow,
-                    RenderMaxCol = renderMaxCol,
-                    UsedLastCellA1 = ToA1(usedMaxRow, usedMaxCol),
-                    RenderLastCellA1 = ToA1(renderMaxRow, renderMaxCol),
-                    WidthPx = Math.Round(widthPx, 2),
-                    HeightPx = Math.Round(heightPx, 2)
-                };
-            }
-            catch (Exception ex)
-            {
-                log?.LogWarning(ex, "GetRenderAreaInfoFromExcel failed path={Path}", excelPath);
-                return new ExcelRenderAreaInfo();
-            }
-        }
-
-        private static double ExcelColWidthToPx(double widthChars)
-        {
-            const double mdw = 7d;
-            var w = widthChars < 0 ? 0 : widthChars;
-            return Math.Floor((w * mdw + 5d) / mdw) * mdw + 2d;
-        }
-
-        private static double RowHeightPtToPx(double heightPt)
-        {
-            return Math.Round((heightPt <= 0 ? 15d : heightPt) * 96d / 72d, 2);
-        }
-
-        private static bool HasVisibleBorder(IXLCell cell)
-        {
-            if (cell == null) return false;
-
-            var b = cell.Style.Border;
-            return b.LeftBorder != XLBorderStyleValues.None
-                || b.RightBorder != XLBorderStyleValues.None
-                || b.TopBorder != XLBorderStyleValues.None
-                || b.BottomBorder != XLBorderStyleValues.None
-                || b.DiagonalBorder != XLBorderStyleValues.None;
-        }
-
-        private static bool HasVisibleFill(IXLCell cell)
-        {
-            if (cell == null) return false;
-
-            var f = cell.Style.Fill;
-            if (f == null) return false;
-
-            return f.PatternType != XLFillPatternValues.None;
-            //return f.PatternType != null
-            //    && f.PatternType != XLFillPatternValues.None;
-        }
-
-
-        private static bool HasStrongExtentSignal(IXLCell cell)
-        {
-            if (cell == null) return false;
-
-            try
-            {
-                if (cell.HasFormula)
-                    return true;
-
-                if (cell.DataType != XLDataType.Blank)
-                {
-                    var s = cell.GetString();
-                    if (!string.IsNullOrWhiteSpace(s))
-                        return true;
-
-                    if (cell.DataType == XLDataType.Number
-                        || cell.DataType == XLDataType.DateTime
-                        || cell.DataType == XLDataType.Boolean
-                        || cell.DataType == XLDataType.TimeSpan
-                        || cell.DataType == XLDataType.Error)
-                        return true;
-                }
-
-                if (HasVisibleBorder(cell))
-                    return true;
-
-                return false;
-            }
-            catch
-            {
-                try
-                {
-                    var fallback = cell.Value.ToString();
-                    if (!string.IsNullOrWhiteSpace(fallback))
-                        return true;
-                }
-                catch
-                {
-                }
-
-                try
-                {
-                    if (HasVisibleBorder(cell))
-                        return true;
-                }
-                catch
-                {
-                }
-
-                return false;
-            }
-        }
-
-        private static bool HasWeakExtentSignal(IXLCell cell)
-        {
-            // fill-only 셀은 약한 신호로만 취급
-            return HasVisibleFill(cell) && !HasVisibleBorder(cell);
-        }
-
-        private static bool HasMeaningfulValue(IXLCell cell)
-        {
-            return HasStrongExtentSignal(cell) || HasWeakExtentSignal(cell);
-        }
-
-        private static bool TryGetMergeBounds(List<(int r1, int c1, int r2, int c2)> mergedRanges, int row, int col, out (int r1, int c1, int r2, int c2) bounds)
-        {
-            foreach (var mr in mergedRanges)
-            {
-                if (row >= mr.r1 && row <= mr.r2 && col >= mr.c1 && col <= mr.c2)
-                {
-                    bounds = mr;
-                    return true;
-                }
-            }
-
-            bounds = (row, col, row, col);
-            return false;
-        }
-
+        // 2026.06.23 Added: DB VisualRangeA1 마지막 셀 주소 변환 헬퍼 복원 Contents ClosedXML 렌더 재계산 코드 제거 중 남은 ToA1 호출을 처리한다
         private static string ToA1(int row1, int col1)
         {
-            return ToColName(col1) + row1.ToString();
-        }
+            if (row1 <= 0 || col1 <= 0)
+                return string.Empty;
 
-        private static string ToA1Range(int r1, int c1, int r2, int c2)
-        {
-            var s = ToA1(r1, c1);
-            var e = ToA1(r2, c2);
-            return string.Equals(s, e, StringComparison.OrdinalIgnoreCase) ? s : s + ":" + e;
-        }
-        private static string ToColName(int col1)
-        {
-            if (col1 <= 0) return string.Empty;
-            var chars = new Stack<char>();
+            var letters = string.Empty;
             var n = col1;
+
             while (n > 0)
             {
                 n--;
-                chars.Push((char)('A' + (n % 26)));
+                letters = (char)('A' + (n % 26)) + letters;
                 n /= 26;
             }
-            return new string(chars.ToArray());
+
+            return letters + row1.ToString(CultureInfo.InvariantCulture);
         }
 
-        private static bool IsMeaningfulVisualCell(IXLCell cell, List<(int r1, int c1, int r2, int c2)> mergedRanges)
-        {
-            if (!HasMeaningfulValue(cell))
-                return false;
-
-            var row = cell.Address.RowNumber;
-            var col = cell.Address.ColumnNumber;
-
-            if (TryGetMergeBounds(mergedRanges, row, col, out var mr))
-                return mr.r1 == row && mr.c1 == col;
-
-            return true;
-        }
-
-        private static (int usedMaxRow, int usedMaxCol, string usedLastCellA1, List<(int r1, int c1, int r2, int c2)> merged) BuildVisibleBBox(IXLWorksheet ws)
-        {
-            var merged = ws.MergedRanges
-                .Select(m => (
-                    r1: m.RangeAddress.FirstAddress.RowNumber,
-                    c1: m.RangeAddress.FirstAddress.ColumnNumber,
-                    r2: m.RangeAddress.LastAddress.RowNumber,
-                    c2: m.RangeAddress.LastAddress.ColumnNumber
-                ))
-                .ToList();
-
-            // 값/서식 모두 후보에 넣되, 최종 반영은 strong/weak 규칙으로 나눔
-            var scanOptions = XLCellsUsedOptions.All;
-
-            int maxRow = 1;
-            int maxCol = 1;
-            bool found = false;
-
-            var weakCells = new List<IXLCell>();
-
-            void ApplyCell(IXLCell cell)
-            {
-                var row = cell.Address.RowNumber;
-                var col = cell.Address.ColumnNumber;
-
-                if (TryGetMergeBounds(merged, row, col, out var mb))
-                {
-                    if (mb.r1 != row || mb.c1 != col)
-                        return;
-
-                    if (mb.r2 > maxRow) maxRow = mb.r2;
-                    if (mb.c2 > maxCol) maxCol = mb.c2;
-                }
-                else
-                {
-                    if (row > maxRow) maxRow = row;
-                    if (col > maxCol) maxCol = col;
-                }
-
-                found = true;
-            }
-
-            // 1차: 값/수식/보더 기준으로 본체 범위 확정
-            foreach (var cell in ws.CellsUsed(scanOptions))
-            {
-                if (HasStrongExtentSignal(cell))
-                {
-                    ApplyCell(cell);
-                }
-                else if (HasWeakExtentSignal(cell))
-                {
-                    weakCells.Add(cell);
-                }
-            }
-
-            // strong 신호가 하나도 없으면 약한 신호만으로 fallback
-            if (!found)
-            {
-                foreach (var cell in weakCells)
-                    ApplyCell(cell);
-
-                if (!found)
-                    return (1, 1, "A1", merged);
-
-                return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
-            }
-
-            // 2차: fill-only 셀은 "본체 바로 아래/오른쪽 1칸"까지만 허용
-            // -> B43:Y43 는 포함, C54:K61/M54:M61 같은 고립 하단 블록은 제외
-            var strongMaxRow = maxRow;
-            var strongMaxCol = maxCol;
-
-            foreach (var cell in weakCells)
-            {
-                var row = cell.Address.RowNumber;
-                var col = cell.Address.ColumnNumber;
-
-                if (row > strongMaxRow + 1)
-                    continue;
-
-                if (col > strongMaxCol + 1)
-                    continue;
-
-                ApplyCell(cell);
-            }
-
-            return (maxRow, maxCol, ToA1(maxRow, maxCol), merged);
-        }
+        // 2026.06.23 Removed: xlsx 재스캔 기반 렌더 범위 재계산 함수 제거 Contents DetailDX는 DB VisualMetric만 사용한다
 
         // ========== ApproveOrHold ==========
         [HttpPost("ApproveOrHoldDX")]
@@ -1399,7 +1156,7 @@ WHERE DocId = @DocId
 
                 ///
 
-                return Json(new { ok = true, docId = dto.docId, status = "Cooperated" });
+                return await ApplyStampsAndReturnAsync(dto, "Cooperated");
             }
 
 
@@ -1892,7 +1649,7 @@ WHERE DocId = @DocId;";
             }
 
             var previewJson2 = BuildPreviewJsonFromExcel(outXlsx);
-            return Json(new { ok = true, docId = dto.docId, status = newStatus, previewJson = previewJson2 });
+            return await ApplyStampsAndReturnAsync(dto, newStatus, previewJson2);
         }
 
         //        // ========== UpdateShares ==========
@@ -2223,163 +1980,1154 @@ ORDER BY dc.RoleKey;";
             public List<string> Sample { get; set; } = new();
         }
 
-        private static string BuildRenderAreaDiagJsonFromExcel(string excelPath, ILogger? log = null)
+        // 2026.06.23 Removed: xlsx 재스캔 기반 렌더 진단 함수 제거 Contents DetailDX 렌더링 외 목표와 무관하여 제거한다
+
+        // 2026.06.23 Added: DetailDX 작업 파일 복사 생성 Contents ComposeDX와 동일하게 원본을 직접 열지 않고 DocDXStamp 복사본을 DX Spreadsheet로 연다
+        private string CreateDetailDxStampWorkbookCopy(string docId, string sourceAbsPath, string stampSessionId)
         {
-            if (string.IsNullOrWhiteSpace(excelPath) || !System.IO.File.Exists(excelPath))
-                return "{}";
+            if (string.IsNullOrWhiteSpace(sourceAbsPath) || !System.IO.File.Exists(sourceAbsPath))
+                return sourceAbsPath ?? string.Empty;
+
+            var now = DateTime.Now;
+            var safeDocId = SafeStampFilePart(docId);
+            var safeSessionId = SafeStampFilePart(stampSessionId);
+            var ext = Path.GetExtension(sourceAbsPath);
+
+            if (string.IsNullOrWhiteSpace(ext))
+                ext = ".xlsx";
+
+            var dir = Path.Combine(
+                _env.ContentRootPath,
+                "App_Data",
+                "DocDXStamp",
+                now.ToString("yyyy", CultureInfo.InvariantCulture),
+                now.ToString("MM", CultureInfo.InvariantCulture),
+                now.ToString("dd", CultureInfo.InvariantCulture),
+                safeDocId
+            );
+
+            Directory.CreateDirectory(dir);
+
+            var destPath = Path.Combine(dir, safeDocId + "_" + safeSessionId + ext);
+
+            lock (_detailDxStampFileLock)
+            {
+                System.IO.File.Copy(sourceAbsPath, destPath, overwrite: true);
+            }
+
+            return destPath;
+        }
+
+        [HttpPost("CleanupDetailDxStampTemp")]
+        [ValidateAntiForgeryToken]
+        [Produces("application/json")]
+        public IActionResult CleanupDetailDxStampTemp([FromBody] DetailDxStampTempCleanupRequest? request)
+        {
+            var docId = (request?.DocId ?? string.Empty).Trim();
+            var stampWorkPath = (request?.StampWorkPath ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(docId) || string.IsNullOrWhiteSpace(stampWorkPath))
+                return Json(new { ok = true, deleted = false });
+
+            var deleted = TryDeleteDetailDxStampTempFile(docId, stampWorkPath);
+
+            return Json(new { ok = true, deleted });
+        }
+
+        // 2026.06.23 Added: DetailDX embedded 누락 여부 확인 Contents NULL 또는 해시 불일치 대상이 있을 때만 클라이언트에서 1회 보정 요청한다
+        private async Task<bool> HasPendingStampRowsAsync(SqlConnection conn, string docId, long? templateVersionId, string? descriptorJson)
+        {
+            var rows = await LoadStampRowsAsync(conn, docId, templateVersionId, descriptorJson);
+            return rows.Any(x => x.ShouldEmbed);
+        }
+
+        // 2026.06.23 Added: 승인 협조 처리 후 스탬프 삽입 응답 생성 Contents Spreadsheet 세션 저장 성공 후에만 파일 교체 및 embedded 필드를 업데이트한다
+        private async Task<IActionResult> ApplyStampsAndReturnAsync(ApproveDto dto, string status, string? previewJson = null)
+        {
+            var stampResult = await ApplyDocumentStampsFromSpreadsheetStateAsync(dto.docId, dto.spreadsheetState, dto.stampWorkPath);
+            if (!string.IsNullOrWhiteSpace(previewJson))
+                return Json(new { ok = true, docId = dto.docId, status, previewJson, stampApplied = stampResult.applied, stampSkipped = stampResult.skipped });
+
+            return Json(new { ok = true, docId = dto.docId, status, stampApplied = stampResult.applied, stampSkipped = stampResult.skipped });
+        }
+
+        [HttpPost("BackfillStampsDX")]
+        [ValidateAntiForgeryToken]
+        [Produces("application/json")]
+        public async Task<IActionResult> BackfillStampsDX([FromBody] BackfillStampsDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto?.docId) || dto.spreadsheetState == null)
+                return BadRequest(new { messages = new[] { "DOC_Err_BadRequest" }, stage = "stamp-arg" });
+
+            var result = await ApplyDocumentStampsFromSpreadsheetStateAsync(dto.docId, dto.spreadsheetState, dto.stampWorkPath);
+            return Json(new { ok = result.ok, applied = result.applied, skipped = result.skipped, messages = result.messages });
+        }
+
+        // 2026.06.23 Changed: 현재 열린 DevExpress Spreadsheet 세션에 스탬프 이미지를 삽입 Contents 임시 PNG 파일 생성 없이 System.Drawing.Image 객체를 직접 AddPicture에 전달한다
+        private async Task<(bool ok, int applied, int skipped, string[] messages)> ApplyDocumentStampsFromSpreadsheetStateAsync(string? docId, SpreadsheetClientState? spreadsheetState, string? stampWorkPath)
+        {
+            var safeDocId = (docId ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(safeDocId))
+                return (false, 0, 0, new[] { "DOC_Err_BadRequest" });
+
+            if (spreadsheetState == null)
+                return (false, 0, 0, new[] { "DOC_Err_SaveFailed" });
+
+            var cs = _cfg.GetConnectionString("DefaultConnection") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs))
+                return (false, 0, 0, new[] { "DOC_Err_RequestFailed" });
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            var docInfo = await LoadStampDocumentInfoAsync(conn, safeDocId);
+            if (docInfo == null)
+                return (false, 0, 0, new[] { "DOC_Err_DocumentNotFound" });
+
+            var sourcePath = ResolveContentRootRelativePath(docInfo.OutputPath) ?? string.Empty;
+            var workPath = ValidateStampWorkPath(stampWorkPath) ? stampWorkPath!.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(workPath) || !System.IO.File.Exists(workPath))
+                return (false, 0, 0, new[] { "DOC_Err_SaveFailed" });
+
+            var targets = await LoadStampRowsAsync(conn, safeDocId, docInfo.TemplateVersionId, docInfo.DescriptorJson);
+            targets = targets.Where(x => x.ShouldEmbed).ToList();
+            if (targets.Count == 0)
+                return (true, 0, 0, Array.Empty<string>());
+
+            var generatedImages = new List<IDisposable>();
 
             try
             {
-                using var wb = new XLWorkbook(excelPath);
-                var ws = wb.Worksheets.First();
+                var spreadsheet = SpreadsheetRequestProcessor.GetSpreadsheetFromState(spreadsheetState);
+                if (spreadsheet == null)
+                    return (false, 0, 0, new[] { "DOC_Err_SaveFailed" });
 
-                var bbox = BuildVisibleBBox(ws);
-                var usedMaxRow = Math.Max(1, bbox.usedMaxRow);
-                var usedMaxCol = Math.Max(1, bbox.usedMaxCol);
-                var renderMaxRow = Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1);
-                var renderMaxCol = Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1);
+                var workbook = spreadsheet.Document;
+                if (workbook == null || workbook.Worksheets.Count == 0)
+                    return (false, 0, 0, new[] { "DOC_Err_SaveFailed" });
 
-                var scanOptions = XLCellsUsedOptions.All;
+                var appliedTargets = new List<StampRow>();
 
-                bool IncludeDiagCell(IXLCell c)
+                foreach (var target in targets)
                 {
-                    if (HasStrongExtentSignal(c))
-                        return true;
-
-                    if (HasWeakExtentSignal(c)
-                        && c.Address.RowNumber <= usedMaxRow
-                        && c.Address.ColumnNumber <= usedMaxCol)
-                        return true;
-
-                    return false;
-                }
-
-                int ExpandCol(IXLCell c)
-                {
-                    var row = c.Address.RowNumber;
-                    var col = c.Address.ColumnNumber;
-
-                    if (TryGetMergeBounds(bbox.merged, row, col, out var mb) && mb.r1 == row && mb.c1 == col)
-                        return mb.c2;
-
-                    return col;
-                }
-
-                int ExpandRow(IXLCell c)
-                {
-                    var row = c.Address.RowNumber;
-                    var col = c.Address.ColumnNumber;
-
-                    if (TryGetMergeBounds(bbox.merged, row, col, out var mb) && mb.r1 == row && mb.c1 == col)
-                        return mb.r2;
-
-                    return row;
-                }
-
-                var rowsNearEdge = new List<object>();
-                foreach (var row in ws.RowsUsed(scanOptions))
-                {
-                    var lastCol = row.CellsUsed(scanOptions)
-                        .Where(IncludeDiagCell)
-                        .Select(ExpandCol)
-                        .DefaultIfEmpty(0)
-                        .Max();
-
-                    if (lastCol <= 0) continue;
-
-                    rowsNearEdge.Add(new
+                    try
                     {
-                        row = row.RowNumber(),
-                        lastCellA1 = ToA1(row.RowNumber(), lastCol),
-                        lastCol
-                    });
+                        var (sheetName, localA1) = SplitSheetAndA1ForStamp(target.TargetA1);
+                        if (string.IsNullOrWhiteSpace(localA1))
+                        {
+                            target.SkipReason = "target-empty";
+                            continue;
+                        }
+
+                        DevExpress.Spreadsheet.Worksheet ws;
+                        if (!string.IsNullOrWhiteSpace(sheetName))
+                        {
+                            DevExpress.Spreadsheet.Worksheet? matched = null;
+                            for (var sheetIndex = 0; sheetIndex < workbook.Worksheets.Count; sheetIndex++)
+                            {
+                                var candidate = workbook.Worksheets[sheetIndex];
+                                if (string.Equals(candidate.Name, sheetName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    matched = candidate;
+                                    break;
+                                }
+                            }
+
+                            if (matched == null)
+                            {
+                                target.SkipReason = "worksheet-not-found";
+                                continue;
+                            }
+
+                            ws = matched;
+                        }
+                        else
+                        {
+                            try { ws = workbook.Worksheets.ActiveWorksheet; }
+                            catch { ws = workbook.Worksheets[0]; }
+                        }
+
+                        var range = ResolveStampTargetRange(ws, localA1);
+                        var stampCanvasInfo = BuildStampCanvasInfo(ws, range);
+
+                        // 2026.07.01 Changed: 기존 그림 삭제 범위 제한 Contents 같은 그림 이름만 삭제하여 다른 결재 협조 스탬프가 지워지지 않게 한다
+                        var deletedPictureCount = DeleteExistingStampPictures(ws, target.PictureName);
+
+                        // 2026.07.02 Changed: 날인 텍스트 분리 Contents 텍스트를 이미지에 합성하지 않고 엑셀 셀 값과 서식으로 표시한다
+                        ApplyStampCaptionToRange(range, target.CaptionText, stampCanvasInfo);
+
+                        using var stampImage = CreateTrimmedStampImageForInsert(target, stampCanvasInfo, out var stampLayoutInfo);
+                        var stampImageForInsert = new GdiBitmap(stampImage);
+                        generatedImages.Add(stampImageForInsert);
+
+                        // 2026.07.02 Changed: 스탬프 삽입 방식 보정 Contents 잘라낸 이미지에 셀 비율 투명 여백을 추가한 뒤 결재란 범위에 삽입한다
+                        var picture = ws.Pictures.AddPicture(stampImageForInsert, range);
+                        picture.Name = target.PictureName;
+
+                        _log.LogInformation(
+                            "DetailDX stamp inserted docId={DocId} lineType={LineType} id={Id} a1={A1} sheet={SheetName} localA1={LocalA1} rangeTopRow={RangeTopRow} rangeBottomRow={RangeBottomRow} rangeLeftCol={RangeLeftCol} rangeRightCol={RangeRightCol} canvasWidth={CanvasWidth} canvasHeight={CanvasHeight} caption={Caption} sourcePath={SourcePath} sourceExists={SourceExists} sourceWidth={SourceWidth} sourceHeight={SourceHeight} trimLeft={TrimLeft} trimTop={TrimTop} trimRight={TrimRight} trimBottom={TrimBottom} trimWidth={TrimWidth} trimHeight={TrimHeight} deletedPictures={DeletedPictures} pictureName={PictureName}",
+                            safeDocId,
+                            target.LineType,
+                            target.Id,
+                            target.TargetA1,
+                            ws.Name,
+                            localA1,
+                            range.TopRowIndex,
+                            range.BottomRowIndex,
+                            range.LeftColumnIndex,
+                            range.RightColumnIndex,
+                            stampCanvasInfo.WidthPx,
+                            stampCanvasInfo.HeightPx,
+                            target.CaptionText,
+                            stampLayoutInfo.SourceImagePath,
+                            stampLayoutInfo.SourceExists,
+                            stampLayoutInfo.SourceWidthPx,
+                            stampLayoutInfo.SourceHeightPx,
+                            stampLayoutInfo.TrimLeftPx,
+                            stampLayoutInfo.TrimTopPx,
+                            stampLayoutInfo.TrimRightPx,
+                            stampLayoutInfo.TrimBottomPx,
+                            stampLayoutInfo.TrimWidthPx,
+                            stampLayoutInfo.TrimHeightPx,
+                            deletedPictureCount,
+                            target.PictureName);
+
+                        appliedTargets.Add(target);
+
+                    }
+                    catch (Exception exTarget)
+                    {
+                        _log.LogWarning(exTarget, "DetailDX stamp target skipped docId={DocId} lineType={LineType} id={Id} a1={A1}", safeDocId, target.LineType, target.Id, target.TargetA1);
+                    }
                 }
 
-                rowsNearEdge = rowsNearEdge
-                    .OrderByDescending(x => (int)x.GetType().GetProperty("lastCol")!.GetValue(x)!)
-                    .ThenByDescending(x => (int)x.GetType().GetProperty("row")!.GetValue(x)!)
-                    .Take(8)
-                    .Cast<object>()
-                    .ToList();
+                if (appliedTargets.Count == 0)
+                    return (true, 0, targets.Count, Array.Empty<string>());
 
-                var mergeNearEdge = bbox.merged
-                    .OrderByDescending(x => x.c2)
-                    .ThenByDescending(x => x.r2)
-                    .Take(8)
-                    .Select(x => new
-                    {
-                        rangeA1 = ToA1Range(x.r1, x.c1, x.r2, x.c2),
-                        row2 = x.r2,
-                        col2 = x.c2
-                    })
-                    .Cast<object>()
-                    .ToList();
+                // 2026.06.23 Changed: byte accessor Open 문서는 SaveCopy 결과를 작업 파일에 기록 Contents 빈 세션이 원본을 덮어쓰지 않도록 applied 대상이 있을 때만 저장한다
+                var savedBytes = spreadsheet.SaveCopy(DevExpress.Spreadsheet.DocumentFormat.Xlsx);
+                if (savedBytes == null || savedBytes.Length <= 0)
+                    return (false, appliedTargets.Count, targets.Count - appliedTargets.Count, new[] { "DOC_Err_SaveFailed" });
 
-                var tailCols = new List<RenderDiagTailColVm>();
-                for (int c = Math.Max(1, usedMaxCol - 3); c <= Math.Min(XLHelper.MaxColumnNumber, usedMaxCol + 1); c++)
-                {
-                    var samples = ws.Column(c).CellsUsed(scanOptions)
-                        .Where(IncludeDiagCell)
-                        .Take(5)
-                        .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
-                        .ToList();
+                System.IO.File.WriteAllBytes(workPath, savedBytes);
 
-                    tailCols.Add(new RenderDiagTailColVm
-                    {
-                        A1 = ToA1(1, c),
-                        Col = c,
-                        Hidden = ws.Column(c).IsHidden,
-                        Width = Math.Round(ws.Column(c).Width <= 0 ? 8.43 : ws.Column(c).Width, 2),
-                        UsedCount = ws.Column(c).CellsUsed(scanOptions).Count(IncludeDiagCell),
-                        Sample = samples
-                    });
-                }
+                ReplaceSourceDocumentFromStampWorkFile(sourcePath, workPath, safeDocId);
+                await UpdateStampEmbeddedRowsAsync(conn, appliedTargets);
 
-                var tailRows = new List<RenderDiagTailRowVm>();
-                for (int r = Math.Max(1, usedMaxRow - 3); r <= Math.Min(XLHelper.MaxRowNumber, usedMaxRow + 1); r++)
-                {
-                    var samples = ws.Row(r).CellsUsed(scanOptions)
-                        .Where(IncludeDiagCell)
-                        .Take(5)
-                        .Select(x => ToA1(ExpandRow(x), ExpandCol(x)))
-                        .ToList();
-
-                    tailRows.Add(new RenderDiagTailRowVm
-                    {
-                        Row = r,
-                        Hidden = ws.Row(r).IsHidden,
-                        Height = Math.Round(ws.Row(r).Height <= 0 ? 15 : ws.Row(r).Height, 2),
-                        UsedCount = ws.Row(r).CellsUsed(scanOptions).Count(IncludeDiagCell),
-                        Sample = samples
-                    });
-                }
-
-                var json = JsonSerializer.Serialize(new
-                {
-                    worksheet = ws.Name,
-                    finalUsedLastCellA1 = ToA1(usedMaxRow, usedMaxCol),
-                    finalUsedMaxCol = usedMaxCol,
-                    finalUsedMaxRow = usedMaxRow,
-                    renderLastCellA1 = ToA1(renderMaxRow, renderMaxCol),
-                    renderMaxCol = renderMaxCol,
-                    renderMaxRow = renderMaxRow,
-                    rowsNearEdge,
-                    mergeNearEdge,
-                    tailCols,
-                    tailRows
-                });
-
-                log?.LogInformation("DetailDX BuildRenderAreaDiagJson {Diag}", json);
-                return json;
+                return (true, appliedTargets.Count, targets.Count - appliedTargets.Count, Array.Empty<string>());
             }
             catch (Exception ex)
             {
-                log?.LogWarning(ex, "BuildRenderAreaDiagJsonFromExcel failed path={Path}", excelPath);
-                return "{}";
+                _log.LogError(ex, "DetailDX stamp apply failed docId={DocId}", safeDocId);
+                return (false, 0, targets.Count, new[] { "DOC_Err_SaveFailed" });
+            }
+            finally
+            {
+                foreach (var image in generatedImages)
+                {
+                    try { image.Dispose(); } catch { }
+                }
+            }
+        }
+
+        private async Task<StampDocumentInfo?> LoadStampDocumentInfoAsync(SqlConnection conn, string docId)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT TOP 1 DocId, OutputPath, DescriptorJson, TemplateVersionId
+FROM dbo.Documents
+WHERE DocId = @DocId;";
+            cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+            await using var rd = await cmd.ExecuteReaderAsync();
+            if (!await rd.ReadAsync())
+                return null;
+
+            return new StampDocumentInfo
+            {
+                DocId = rd["DocId"]?.ToString() ?? string.Empty,
+                OutputPath = rd["OutputPath"]?.ToString() ?? string.Empty,
+                DescriptorJson = rd["DescriptorJson"]?.ToString() ?? "{}",
+                TemplateVersionId = rd["TemplateVersionId"] == DBNull.Value ? null : Convert.ToInt64(rd["TemplateVersionId"], CultureInfo.InvariantCulture)
+            };
+        }
+
+        private async Task<List<StampRow>> LoadStampRowsAsync(SqlConnection conn, string docId, long? templateVersionId, string? descriptorJson)
+        {
+            var rows = new List<StampRow>();
+
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT a.Id,
+       a.StepOrder,
+       a.RoleKey,
+       a.UserId,
+       a.ApproverValue,
+       a.Status,
+       a.Action,
+       a.ActedAt,
+       a.ApproverDisplayText,
+       a.SignaturePath,
+       a.StampEmbeddedAt,
+       a.StampStateHash,
+       ISNULL(ta.CellA1, ta.A1) AS TargetA1
+FROM dbo.DocumentApprovals a
+LEFT JOIN dbo.DocTemplateApproval ta
+       ON ta.VersionId = @VersionId
+      AND ta.Slot = a.StepOrder
+WHERE a.DocId = @DocId
+ORDER BY a.StepOrder;";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+                cmd.Parameters.Add(new SqlParameter("@VersionId", SqlDbType.BigInt) { Value = (object?)templateVersionId ?? DBNull.Value });
+
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    rows.Add(new StampRow
+                    {
+                        LineType = ApprovalLineType,
+                        Id = Convert.ToInt64(rd["Id"], CultureInfo.InvariantCulture),
+                        StepOrder = rd["StepOrder"] == DBNull.Value ? null : Convert.ToInt32(rd["StepOrder"], CultureInfo.InvariantCulture),
+                        RoleKey = rd["RoleKey"]?.ToString() ?? string.Empty,
+                        UserId = rd["UserId"]?.ToString() ?? string.Empty,
+                        ApproverValue = rd["ApproverValue"]?.ToString() ?? string.Empty,
+                        Status = rd["Status"]?.ToString() ?? string.Empty,
+                        Action = rd["Action"]?.ToString() ?? string.Empty,
+                        ActedAtUtc = rd["ActedAt"] == DBNull.Value ? null : Convert.ToDateTime(rd["ActedAt"], CultureInfo.InvariantCulture),
+                        DisplayText = rd["ApproverDisplayText"]?.ToString() ?? string.Empty,
+                        SignaturePath = rd["SignaturePath"]?.ToString() ?? string.Empty,
+                        StampEmbeddedAt = rd["StampEmbeddedAt"] == DBNull.Value ? null : Convert.ToDateTime(rd["StampEmbeddedAt"], CultureInfo.InvariantCulture),
+                        StampStateHash = rd["StampStateHash"]?.ToString() ?? string.Empty,
+                        TargetA1 = rd["TargetA1"]?.ToString() ?? string.Empty
+                    });
+                }
+            }
+
+            var templateDescriptorJson = "{}";
+            if (templateVersionId.HasValue)
+            {
+                try
+                {
+                    await using var td = conn.CreateCommand();
+                    td.CommandText = "SELECT TOP 1 DescriptorJson FROM dbo.DocTemplateVersion WHERE Id = @Id;";
+                    td.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = templateVersionId.Value });
+                    var obj = await td.ExecuteScalarAsync();
+                    templateDescriptorJson = obj == null || obj == DBNull.Value ? "{}" : obj.ToString() ?? "{}";
+                }
+                catch
+                {
+                    templateDescriptorJson = "{}";
+                }
+            }
+
+            var coopMaps = BuildStampCooperationCellMaps(descriptorJson, templateDescriptorJson);
+
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT dc.Id,
+       dc.RoleKey,
+       dc.UserId,
+       dc.ApproverValue,
+       dc.Status,
+       dc.Action,
+       dc.ActedAt,
+       dc.ApproverDisplayText,
+       COALESCE(NULLIF(LTRIM(RTRIM(ISNULL(dc.SignaturePath, N''))), N''), up.SignatureRelativePath, N'') AS SignaturePath,
+       dc.StampEmbeddedAt,
+       dc.StampStateHash
+FROM dbo.DocumentCooperations dc
+LEFT JOIN dbo.UserProfiles up ON up.UserId = dc.UserId
+WHERE dc.DocId = @DocId
+ORDER BY dc.RoleKey;";
+                cmd.Parameters.Add(new SqlParameter("@DocId", SqlDbType.NVarChar, 40) { Value = docId });
+
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var roleKey = rd["RoleKey"]?.ToString() ?? string.Empty;
+                    var userId = rd["UserId"]?.ToString() ?? string.Empty;
+                    var approverValue = rd["ApproverValue"]?.ToString() ?? string.Empty;
+
+                    var targetA1 = string.Empty;
+                    if (!string.IsNullOrWhiteSpace(roleKey) && coopMaps.ByRoleKey.TryGetValue(roleKey, out var byRole))
+                        targetA1 = byRole;
+                    else if (!string.IsNullOrWhiteSpace(userId) && coopMaps.ByApprover.TryGetValue(userId, out var byUser))
+                        targetA1 = byUser;
+                    else if (!string.IsNullOrWhiteSpace(approverValue) && coopMaps.ByApprover.TryGetValue(approverValue, out var byValue))
+                        targetA1 = byValue;
+
+                    rows.Add(new StampRow
+                    {
+                        LineType = CooperationLineType,
+                        Id = Convert.ToInt64(rd["Id"], CultureInfo.InvariantCulture),
+                        StepOrder = ParseRoleOrder(roleKey),
+                        RoleKey = roleKey,
+                        UserId = userId,
+                        ApproverValue = approverValue,
+                        Status = rd["Status"]?.ToString() ?? string.Empty,
+                        Action = rd["Action"]?.ToString() ?? string.Empty,
+                        ActedAtUtc = rd["ActedAt"] == DBNull.Value ? null : Convert.ToDateTime(rd["ActedAt"], CultureInfo.InvariantCulture),
+                        DisplayText = rd["ApproverDisplayText"]?.ToString() ?? string.Empty,
+                        SignaturePath = rd["SignaturePath"]?.ToString() ?? string.Empty,
+                        StampEmbeddedAt = rd["StampEmbeddedAt"] == DBNull.Value ? null : Convert.ToDateTime(rd["StampEmbeddedAt"], CultureInfo.InvariantCulture),
+                        StampStateHash = rd["StampStateHash"]?.ToString() ?? string.Empty,
+                        TargetA1 = targetA1
+                    });
+                }
+            }
+
+            foreach (var row in rows)
+            {
+                ResolveStampRow(row);
+                _log.LogInformation(
+                    "DetailDX stamp row resolved docId={DocId} lineType={LineType} id={Id} roleKey={RoleKey} step={StepOrder} status={Status} action={Action} targetA1={TargetA1} displayText={DisplayText} caption={Caption} signaturePath={SignaturePath} sourcePath={SourcePath} sourceExists={SourceExists} shouldEmbed={ShouldEmbed} skipReason={SkipReason} oldHash={OldHash} newHash={NewHash}",
+                    docId,
+                    row.LineType,
+                    row.Id,
+                    row.RoleKey,
+                    row.StepOrder,
+                    row.Status,
+                    row.Action,
+                    row.TargetA1,
+                    row.DisplayText,
+                    row.CaptionText,
+                    row.SignaturePath,
+                    row.SourceImagePath,
+                    !string.IsNullOrWhiteSpace(row.SourceImagePath) && System.IO.File.Exists(row.SourceImagePath),
+                    row.ShouldEmbed,
+                    row.SkipReason,
+                    row.StampStateHash,
+                    row.NewStateHash);
+            }
+
+            return rows;
+        }
+
+        private void ResolveStampRow(StampRow row)
+        {
+            var kind = ResolveStampKind(row.Status, row.Action);
+            if (kind == null)
+            {
+                row.SkipReason = "not-stamp-status";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(row.TargetA1))
+            {
+                row.SkipReason = "target-empty";
+                return;
+            }
+
+            row.StampKind = kind.Value;
+            row.CaptionText = FormatStampCaption(row.DisplayText);
+
+            var imagePath = ResolveCommonStampPath(kind.Value);
+            if (kind.Value == StampKind.Approved)
+            {
+                var signaturePath = ResolveSignaturePhysicalPath(row.SignaturePath);
+                if (!string.IsNullOrWhiteSpace(signaturePath) && System.IO.File.Exists(signaturePath))
+                    imagePath = signaturePath;
+            }
+
+            if (string.IsNullOrWhiteSpace(imagePath) || !System.IO.File.Exists(imagePath))
+            {
+                row.SkipReason = "stamp-image-not-found";
+                return;
+            }
+
+            row.SourceImagePath = imagePath;
+            row.PictureName = BuildStampPictureName(row);
+            row.NewStateHash = BuildStampStateHash(row);
+            row.ShouldEmbed = row.StampEmbeddedAt == null || !string.Equals(row.StampStateHash ?? string.Empty, row.NewStateHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static StampKind? ResolveStampKind(string? status, string? action)
+        {
+            var s = (status ?? string.Empty).Trim().ToUpperInvariant();
+            var a = (action ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (a == "RECALLED" || s == "RECALLED") return null;
+            if (a == "HOLD" || s == "HOLD" || s == "ONHOLD" || s.StartsWith("PENDINGHOLD", StringComparison.OrdinalIgnoreCase)) return StampKind.Holding;
+            if (a == "REJECT" || a == "COOPERATEREJECT" || s == "REJECTED" || s.StartsWith("REJECTED", StringComparison.OrdinalIgnoreCase)) return StampKind.Rejected;
+            if (a == "APPROVE" || a == "COOPERATE" || s == "APPROVED" || s == "COOPERATED") return StampKind.Approved;
+            return null;
+        }
+
+        // 2026.06.23 Added: 스탬프 대상 범위를 병합셀 전체 범위로 보정 Contents 단일 셀 주소가 병합 영역 안에 있을 때 이미지가 1칸 크기로 삽입되는 문제를 방지한다
+        private static CellRange ResolveStampTargetRange(DevExpress.Spreadsheet.Worksheet worksheet, string localA1)
+        {
+            var range = worksheet.Range[localA1];
+            var mergedRanges = range.GetMergedRanges();
+            if (mergedRanges != null && mergedRanges.Count > 0)
+                return mergedRanges[0];
+
+            return range;
+        }
+
+        // 2026.07.01 Changed: 기존 스탬프 그림 삭제 기준 수정 Contents 현재 대상과 같은 그림 이름만 삭제하고 겹침 범위 삭제는 사용하지 않는다
+        private static int DeleteExistingStampPictures(DevExpress.Spreadsheet.Worksheet worksheet, string pictureName)
+        {
+            if (string.IsNullOrWhiteSpace(pictureName))
+                return 0;
+
+            var deleted = 0;
+
+            try
+            {
+                var oldPictures = worksheet.Pictures.GetPicturesByName(pictureName);
+                for (var picIndex = oldPictures.Count - 1; picIndex >= 0; picIndex--)
+                {
+                    try
+                    {
+                        oldPictures[picIndex].Delete();
+                        deleted++;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return deleted;
+        }
+
+
+        // 2026.07.01 Changed: 스탬프 대상 승인셀 크기 계산 Contents DevExpress 행 높이 단위가 quarter point 계열로 들어오는 경우를 픽셀로 정상 환산한다
+        private static StampCanvasInfo BuildStampCanvasInfo(DevExpress.Spreadsheet.Worksheet worksheet, CellRange range)
+        {
+            var widthPx = 0d;
+            var heightPx = 0d;
+
+            for (var colIndex = range.LeftColumnIndex; colIndex <= range.RightColumnIndex; colIndex++)
+            {
+                try
+                {
+                    var column = worksheet.Columns[colIndex];
+                    if (!column.Visible)
+                        continue;
+
+                    var columnWidth = Convert.ToDouble(column.WidthInPixels, CultureInfo.InvariantCulture);
+                    if (columnWidth > 0)
+                        widthPx += columnWidth;
+                }
+                catch
+                {
+                }
+            }
+
+            for (var rowIndex = range.TopRowIndex; rowIndex <= range.BottomRowIndex; rowIndex++)
+            {
+                try
+                {
+                    var row = worksheet.Rows[rowIndex];
+                    if (!row.Visible)
+                        continue;
+
+                    var rowHeightPx = ResolveSpreadsheetRowHeightPx(row);
+                    if (rowHeightPx > 0)
+                        heightPx += rowHeightPx;
+                }
+                catch
+                {
+                }
+            }
+
+            return new StampCanvasInfo
+            {
+                WidthPx = ClampStampCanvasSize(widthPx, 24, 1600, 96),
+                HeightPx = ClampStampCanvasSize(heightPx, 24, 1600, 80)
+            };
+        }
+
+        // 2026.07.01 Added: DevExpress 행 높이 픽셀 환산 Contents row Height 값이 quarter point 계열이면 4로 나눈 뒤 96 DPI 기준 픽셀로 변환한다
+        private static double ResolveSpreadsheetRowHeightPx(DevExpress.Spreadsheet.Row row)
+        {
+            if (TryGetNumericPropertyValue(row, "HeightInPixels", out var heightInPixels) && heightInPixels > 0d)
+                return heightInPixels;
+
+            if (TryGetNumericPropertyValue(row, "HeightInPoints", out var heightInPoints) && heightInPoints > 0d)
+                return heightInPoints * 96d / 72d;
+
+            var rawHeight = Convert.ToDouble(row.Height, CultureInfo.InvariantCulture);
+            if (double.IsNaN(rawHeight) || double.IsInfinity(rawHeight) || rawHeight <= 0d)
+                return 0d;
+
+            if (rawHeight > 40d)
+                return rawHeight / 4d * 96d / 72d;
+
+            return rawHeight * 96d / 72d;
+        }
+
+        // 2026.07.01 Added: 숫자 속성 조회 Contents DevExpress 버전별 행 높이 속성 차이를 안전하게 처리한다
+        private static bool TryGetNumericPropertyValue(object source, string propertyName, out double value)
+        {
+            value = 0d;
+
+            if (source == null || string.IsNullOrWhiteSpace(propertyName))
+                return false;
+
+            try
+            {
+                var property = source.GetType().GetProperty(propertyName);
+                if (property == null)
+                    return false;
+
+                var raw = property.GetValue(source);
+                if (raw == null)
+                    return false;
+
+                value = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
+                return !double.IsNaN(value) && !double.IsInfinity(value);
+            }
+            catch
+            {
+                value = 0d;
+                return false;
+            }
+        }
+
+        private static int ClampStampCanvasSize(double value, int min, int max, int fallback)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value <= 0)
+                return fallback;
+
+            var rounded = (int)Math.Ceiling(value);
+            if (rounded < min) return min;
+            if (rounded > max) return max;
+            return rounded;
+        }
+        // 2026.07.02 Changed: 스탬프 이미지 생성 보정 Contents 이진화로 찾은 실제 스탬프 경계를 기준으로 원본 비율을 유지하고 텍스트 영역 예약 없이 셀 이미지 영역 전체에 최대 배치한다
+        // 2026.07.02 Changed: 스탬프 이미지 처리 보정 Contents 원본 이미지에서 실제 내용 영역만 잘라낸 뒤 셀 비율 투명 여백을 추가한다
+        private GdiBitmap CreateTrimmedStampImageForInsert(StampRow row, StampCanvasInfo canvasInfo, out StampImageLayoutInfo layoutInfo)
+        {
+            using var sourceImage = GdiImage.FromFile(row.SourceImagePath);
+            using var source = new GdiBitmap(sourceImage);
+
+            var trimBounds = FindStampContentBounds(source);
+            if (trimBounds.Width <= 0 || trimBounds.Height <= 0)
+                trimBounds = new GdiRectangle(0, 0, source.Width, source.Height);
+
+            layoutInfo = new StampImageLayoutInfo
+            {
+                SourceImagePath = row.SourceImagePath,
+                SourceExists = !string.IsNullOrWhiteSpace(row.SourceImagePath) && System.IO.File.Exists(row.SourceImagePath),
+                SourceWidthPx = source.Width,
+                SourceHeightPx = source.Height,
+                TrimLeftPx = trimBounds.Left,
+                TrimTopPx = trimBounds.Top,
+                TrimRightPx = trimBounds.Right - 1,
+                TrimBottomPx = trimBounds.Bottom - 1,
+                TrimWidthPx = trimBounds.Width,
+                TrimHeightPx = trimBounds.Height
+            };
+
+            using var trimmed = source.Clone(trimBounds, GdiPixelFormat.Format32bppArgb);
+            return CreateStampImageWithCellPadding(trimmed, canvasInfo, 0.9d);
+        }
+
+        // 2026.07.02 Changed: 스탬프 외곽 여백 추가 보정 Contents 잘라낸 원본 픽셀은 변경하지 않고 셀 비율의 투명 여백을 추가하여 셀 영역의 90퍼센트 안에 표시한다
+        private static GdiBitmap CreateStampImageWithCellPadding(GdiBitmap source, StampCanvasInfo canvasInfo, double contentRatio)
+        {
+            if (source.Width <= 0 || source.Height <= 0)
+                return new GdiBitmap(1, 1, GdiPixelFormat.Format32bppArgb);
+
+            if (double.IsNaN(contentRatio) || double.IsInfinity(contentRatio) || contentRatio <= 0d || contentRatio > 1d)
+                contentRatio = 1d;
+
+            var targetAspect = Math.Max(1, canvasInfo.WidthPx) / (double)Math.Max(1, canvasInfo.HeightPx);
+            var sourceAspect = source.Width / (double)source.Height;
+
+            var canvasWidth = sourceAspect >= targetAspect
+                ? (int)Math.Ceiling(source.Width / contentRatio)
+                : (int)Math.Ceiling((source.Height / contentRatio) * targetAspect);
+
+            var canvasHeight = sourceAspect >= targetAspect
+                ? (int)Math.Ceiling(canvasWidth / targetAspect)
+                : (int)Math.Ceiling(source.Height / contentRatio);
+
+            canvasWidth = Math.Max(source.Width, canvasWidth);
+            canvasHeight = Math.Max(source.Height, canvasHeight);
+
+            var offsetX = Math.Max(0, (canvasWidth - source.Width) / 2);
+            var offsetY = Math.Max(0, (canvasHeight - source.Height) / 2);
+
+            var canvas = new GdiBitmap(canvasWidth, canvasHeight, GdiPixelFormat.Format32bppArgb);
+
+            for (var y = 0; y < canvasHeight; y++)
+                for (var x = 0; x < canvasWidth; x++)
+                    canvas.SetPixel(x, y, GdiColor.Transparent);
+
+            // 2026.07.02 Added: 원본 픽셀 복사 Contents 잘라낸 이미지의 픽셀 값을 그대로 복사하고 크기 색상 투명도는 변경하지 않는다
+            for (var y = 0; y < source.Height; y++)
+                for (var x = 0; x < source.Width; x++)
+                    canvas.SetPixel(offsetX + x, offsetY + y, source.GetPixel(x, y));
+
+            return canvas;
+        }
+
+        // 2026.07.02 Added: 스탬프 실제 내용 영역 계산 Contents 바깥 여백만 잘라내기 위해 이미지 가장자리 배경과 다른 첫 픽셀 위치를 찾는다
+        private static GdiRectangle FindStampContentBounds(GdiBitmap source)
+        {
+            if (source.Width <= 0 || source.Height <= 0)
+                return GdiRectangle.Empty;
+
+            if (HasTransparentMargin(source))
+                return FindOpaqueBounds(source);
+
+            var backgroundColor = GetCornerAverageColor(source);
+
+            var top = 0;
+            while (top < source.Height && IsBackgroundRow(source, top, backgroundColor))
+                top++;
+
+            var bottom = source.Height - 1;
+            while (bottom >= top && IsBackgroundRow(source, bottom, backgroundColor))
+                bottom--;
+
+            var left = 0;
+            while (left < source.Width && IsBackgroundColumn(source, left, top, bottom, backgroundColor))
+                left++;
+
+            var right = source.Width - 1;
+            while (right >= left && IsBackgroundColumn(source, right, top, bottom, backgroundColor))
+                right--;
+
+            if (left > right || top > bottom)
+                return new GdiRectangle(0, 0, source.Width, source.Height);
+
+            return GdiRectangle.FromLTRB(left, top, right + 1, bottom + 1);
+        }
+
+        // 2026.07.02 Added: 투명 여백 우선 판단 Contents 투명 배경 서명 파일은 알파값 기준으로 바깥 여백만 잘라낸다
+        private static bool HasTransparentMargin(GdiBitmap source)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                if (source.GetPixel(x, 0).A == 0 || source.GetPixel(x, source.Height - 1).A == 0)
+                    return true;
+            }
+
+            for (var y = 0; y < source.Height; y++)
+            {
+                if (source.GetPixel(0, y).A == 0 || source.GetPixel(source.Width - 1, y).A == 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        // 2026.07.02 Added: 투명 배경 내용 영역 계산 Contents 알파값이 있는 픽셀만 실제 내용으로 간주한다
+        private static GdiRectangle FindOpaqueBounds(GdiBitmap source)
+        {
+            var left = source.Width;
+            var top = source.Height;
+            var right = -1;
+            var bottom = -1;
+
+            for (var y = 0; y < source.Height; y++)
+            {
+                for (var x = 0; x < source.Width; x++)
+                {
+                    if (source.GetPixel(x, y).A == 0)
+                        continue;
+
+                    if (x < left) left = x;
+                    if (y < top) top = y;
+                    if (x > right) right = x;
+                    if (y > bottom) bottom = y;
+                }
+            }
+
+            if (right < left || bottom < top)
+                return new GdiRectangle(0, 0, source.Width, source.Height);
+
+            return GdiRectangle.FromLTRB(left, top, right + 1, bottom + 1);
+        }
+
+        // 2026.07.02 Added: 모서리 평균 배경색 계산 Contents 흰 종이 스캔 이미지의 바깥 여백을 제거하기 위한 기준색을 만든다
+        private static GdiColor GetCornerAverageColor(GdiBitmap source)
+        {
+            var samples = new[]
+            {
+                source.GetPixel(0, 0),
+                source.GetPixel(source.Width - 1, 0),
+                source.GetPixel(0, source.Height - 1),
+                source.GetPixel(source.Width - 1, source.Height - 1)
+            };
+
+            var a = (int)Math.Round(samples.Average(x => x.A));
+            var r = (int)Math.Round(samples.Average(x => x.R));
+            var g = (int)Math.Round(samples.Average(x => x.G));
+            var b = (int)Math.Round(samples.Average(x => x.B));
+
+            return GdiColor.FromArgb(a, r, g, b);
+        }
+
+        // 2026.07.02 Added: 배경 행 판단 Contents 행 전체가 모서리 배경색과 같으면 바깥 여백으로 본다
+        private static bool IsBackgroundRow(GdiBitmap source, int rowIndex, GdiColor backgroundColor)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                if (!IsBackgroundLikePixel(source.GetPixel(x, rowIndex), backgroundColor))
+                    return false;
+            }
+
+            return true;
+        }
+
+        // 2026.07.02 Added: 배경 열 판단 Contents 열 전체가 모서리 배경색과 같으면 바깥 여백으로 본다
+        private static bool IsBackgroundColumn(GdiBitmap source, int colIndex, int top, int bottom, GdiColor backgroundColor)
+        {
+            for (var y = top; y <= bottom; y++)
+            {
+                if (!IsBackgroundLikePixel(source.GetPixel(colIndex, y), backgroundColor))
+                    return false;
+            }
+
+            return true;
+        }
+
+        // 2026.07.02 Added: 배경 유사 픽셀 판단 Contents 색상 비교는 여백 판정에만 사용하고 실제 출력 픽셀은 변경하지 않는다
+        private static bool IsBackgroundLikePixel(GdiColor color, GdiColor backgroundColor)
+        {
+            if (color.A == 0)
+                return true;
+
+            return Math.Abs(color.A - backgroundColor.A) <= 24
+                && Math.Abs(color.R - backgroundColor.R) <= 24
+                && Math.Abs(color.G - backgroundColor.G) <= 24
+                && Math.Abs(color.B - backgroundColor.B) <= 24;
+        }
+
+        // 2026.07.01 Changed: 날인 텍스트 셀 글꼴 크기 계산 Contents 엑셀 기본 11포인트를 우선 사용하고 셀이 작을 때만 축소한다
+        private static double ResolveStampCaptionFontSizePt(StampCanvasInfo canvasInfo)
+        {
+            const double excelDefaultFontSizePt = 11d;
+            const double minFontSizePt = 8d;
+
+            var cellHeightPt = Math.Max(1d, canvasInfo.HeightPx * 72d / 96d);
+            if (cellHeightPt >= 32d)
+                return excelDefaultFontSizePt;
+
+            var maxByHeight = Math.Max(minFontSizePt, cellHeightPt * 0.32d);
+            return Math.Max(minFontSizePt, Math.Min(excelDefaultFontSizePt, maxByHeight));
+        }
+
+        // 2026.07.01 Added: 날인 텍스트 셀 표시 Contents 텍스트를 bitmap에 합성하지 않고 엑셀 셀 값과 서식으로 표시한다
+        private static void ApplyStampCaptionToRange(CellRange range, string? caption, StampCanvasInfo canvasInfo)
+        {
+            var text = (caption ?? string.Empty).Trim();
+
+            try
+            {
+                range.Value = text;
+                range.Font.Name = "Malgun Gothic";
+                range.Font.Size = ResolveStampCaptionFontSizePt(canvasInfo);
+                range.Font.Bold = false;
+                range.Alignment.Horizontal = SpreadsheetHorizontalAlignment.Center;
+                range.Alignment.Vertical = SpreadsheetVerticalAlignment.Bottom;
+                range.Alignment.WrapText = false;
+            }
+            catch
+            {
             }
         }
 
 
+
+        private void ReplaceSourceDocumentFromStampWorkFile(string sourcePath, string workPath, string docId)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(workPath))
+                return;
+
+            if (!System.IO.File.Exists(workPath))
+                return;
+
+            lock (_detailDxStampFileLock)
+            {
+                System.IO.File.Copy(workPath, sourcePath, overwrite: true);
+            }
+        }
+
+        private async Task UpdateStampEmbeddedRowsAsync(SqlConnection conn, IReadOnlyList<StampRow> rows)
+        {
+            if (rows.Count == 0) return;
+            await using var tx = await conn.BeginTransactionAsync();
+            try
+            {
+                foreach (var row in rows)
+                {
+                    if (string.Equals(row.LineType, ApprovalLineType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await using var cmd = conn.CreateCommand();
+                        cmd.Transaction = (SqlTransaction)tx;
+                        cmd.CommandText = @"
+UPDATE dbo.DocumentApprovals
+SET StampEmbeddedAt = SYSUTCDATETIME(),
+    StampStateHash = @Hash
+WHERE Id = @Id;";
+                        cmd.Parameters.Add(new SqlParameter("@Hash", SqlDbType.VarChar, 64) { Value = row.NewStateHash });
+                        cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = row.Id });
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                    else if (string.Equals(row.LineType, CooperationLineType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await using var cmd = conn.CreateCommand();
+                        cmd.Transaction = (SqlTransaction)tx;
+                        cmd.CommandText = @"
+UPDATE dbo.DocumentCooperations
+SET StampEmbeddedAt = SYSUTCDATETIME(),
+    StampStateHash = @Hash,
+    SignaturePath = CASE
+                        WHEN NULLIF(LTRIM(RTRIM(ISNULL(SignaturePath, N''))), N'') IS NULL
+                             AND NULLIF(LTRIM(RTRIM(ISNULL(@SignaturePath, N''))), N'') IS NOT NULL
+                        THEN @SignaturePath
+                        ELSE SignaturePath
+                    END
+WHERE Id = @Id;";
+                        cmd.Parameters.Add(new SqlParameter("@Hash", SqlDbType.VarChar, 64) { Value = row.NewStateHash });
+                        cmd.Parameters.Add(new SqlParameter("@SignaturePath", SqlDbType.NVarChar, 400) { Value = (object?)row.SignaturePath ?? DBNull.Value });
+                        cmd.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = row.Id });
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                try { await tx.RollbackAsync(); } catch { }
+                throw;
+            }
+        }
+
+        private string ResolveCommonStampPath(StampKind kind)
+        {
+            var fileName = kind switch
+            {
+                StampKind.Approved => "Approved.png",
+                StampKind.Holding => "Holding.png",
+                StampKind.Rejected => "Rejected.png",
+                _ => "Approved.png"
+            };
+            return Path.Combine(_env.ContentRootPath, "App_Data", "Signatures", fileName);
+        }
+
+        private string ResolveSignaturePhysicalPath(string? relativePath)
+        {
+            var raw = (relativePath ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+            if (Path.IsPathRooted(raw)) return raw;
+
+            var normalized = raw.TrimStart('\\', '/').Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+            if (normalized.StartsWith("App_Data" + Path.DirectorySeparatorChar + "Signatures", StringComparison.OrdinalIgnoreCase))
+                return Path.Combine(_env.ContentRootPath, normalized);
+
+            return Path.Combine(_env.ContentRootPath, "App_Data", "Signatures", normalized);
+        }
+
+        private static string BuildStampPictureName(StampRow row)
+        {
+            var line = string.Equals(row.LineType, CooperationLineType, StringComparison.OrdinalIgnoreCase) ? "COOPERATION" : "APPROVAL";
+            return StampPicturePrefix + line + "_" + row.Id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static string BuildStampStateHash(StampRow row)
+        {
+            var imageTicks = 0L;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(row.SourceImagePath) && System.IO.File.Exists(row.SourceImagePath))
+                    imageTicks = System.IO.File.GetLastWriteTimeUtc(row.SourceImagePath).Ticks;
+            }
+            catch
+            {
+                imageTicks = 0L;
+            }
+
+            var raw = string.Join("\u001F", new[]
+            {
+                StampRuleVersion,
+                row.LineType,
+                row.Id.ToString(CultureInfo.InvariantCulture),
+                row.StepOrder?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                row.RoleKey,
+                row.Status,
+                row.Action,
+                row.ActedAtUtc?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
+                row.DisplayText,
+                row.SignaturePath,
+                row.SourceImagePath,
+                imageTicks.ToString(CultureInfo.InvariantCulture),
+                row.TargetA1,
+                row.StampKind?.ToString() ?? string.Empty
+            });
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            return Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(raw))).ToLowerInvariant();
+        }
+
+        private static string FormatStampCaption(string? displayText)
+        {
+            var parts = Regex.Split((displayText ?? string.Empty).Trim(), @"\s+").Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            if (parts.Length >= 3) return string.Join(" ", parts.Skip(parts.Length - 2));
+            if (parts.Length == 2) return string.Join(" ", parts);
+            return parts.Length == 1 ? parts[0] : string.Empty;
+        }
+
+        private static (string sheetName, string localA1) SplitSheetAndA1ForStamp(string? a1)
+        {
+            var s = (a1 ?? string.Empty).Trim().Replace("$", string.Empty).Replace("'", string.Empty);
+            if (string.IsNullOrWhiteSpace(s)) return (string.Empty, string.Empty);
+            var bang = s.LastIndexOf('!');
+            return bang >= 0 ? (s[..bang].Trim(), s[(bang + 1)..].Trim()) : (string.Empty, s);
+        }
+
+        private static CooperationStampCellMaps BuildStampCooperationCellMaps(string? documentDescriptorJson, string? templateDescriptorJson)
+        {
+            var maps = new CooperationStampCellMaps();
+            AppendStampCooperationCells(documentDescriptorJson, maps);
+            if (maps.ByRoleKey.Count == 0) AppendStampCooperationCells(templateDescriptorJson, maps);
+            return maps;
+        }
+
+        private static void AppendStampCooperationCells(string? descriptorJson, CooperationStampCellMaps maps)
+        {
+            if (string.IsNullOrWhiteSpace(descriptorJson) || descriptorJson.Trim() == "{}") return;
+            try
+            {
+                using var doc = JsonDocument.Parse(descriptorJson);
+                if (!(doc.RootElement.TryGetProperty("Cooperations", out var coops) || doc.RootElement.TryGetProperty("cooperations", out coops)) || coops.ValueKind != JsonValueKind.Array)
+                    return;
+
+                var seq = 1;
+                foreach (var coop in coops.EnumerateArray())
+                {
+                    var roleKey = TryGetJsonString(coop, "RoleKey") ?? TryGetJsonString(coop, "roleKey") ?? "C" + seq.ToString(CultureInfo.InvariantCulture);
+                    var approver = TryGetJsonString(coop, "ApproverValue") ?? TryGetJsonString(coop, "approverValue") ?? TryGetJsonString(coop, "value") ?? string.Empty;
+                    var a1 = TryGetStampCooperationCellA1(coop);
+                    if (!string.IsNullOrWhiteSpace(roleKey) && !string.IsNullOrWhiteSpace(a1)) maps.ByRoleKey[roleKey] = a1;
+                    if (!string.IsNullOrWhiteSpace(approver) && !string.IsNullOrWhiteSpace(a1)) maps.ByApprover[approver] = a1;
+                    seq++;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static string TryGetStampCooperationCellA1(JsonElement coop)
+        {
+            if (coop.TryGetProperty("Cell", out var cell) && cell.ValueKind == JsonValueKind.Object)
+            {
+                var a1 = TryGetJsonString(cell, "A1") ?? TryGetJsonString(cell, "a1") ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(a1)) return a1;
+            }
+            if (coop.TryGetProperty("cell", out var cell2) && cell2.ValueKind == JsonValueKind.Object)
+            {
+                var a1 = TryGetJsonString(cell2, "A1") ?? TryGetJsonString(cell2, "a1") ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(a1)) return a1;
+            }
+            return TryGetJsonString(coop, "A1") ?? TryGetJsonString(coop, "a1") ?? TryGetJsonString(coop, "cellA1") ?? TryGetJsonString(coop, "CellA1") ?? string.Empty;
+        }
+
+        private bool ValidateStampWorkPath(string? path)
+        {
+            var raw = (path ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(raw) || !Path.IsPathRooted(raw)) return false;
+            var root = Path.GetFullPath(Path.Combine(_env.ContentRootPath, "App_Data", "DocDXStamp"));
+            var full = Path.GetFullPath(raw);
+            return full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string SafeStampFilePart(string? value)
+        {
+            var s = string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
+            foreach (var ch in Path.GetInvalidFileNameChars()) s = s.Replace(ch, '_');
+            return Regex.Replace(s, @"[^a-zA-Z0-9_\-.]", "_");
+        }
+
+        private static void TryDeleteStampFile(string? path)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+                    System.IO.File.Delete(path);
+            }
+            catch
+            {
+            }
+        }
+
+        private sealed class StampDocumentInfo
+        {
+            public string DocId { get; set; } = string.Empty;
+            public string OutputPath { get; set; } = string.Empty;
+            public string DescriptorJson { get; set; } = "{}";
+            public long? TemplateVersionId { get; set; }
+        }
+
+        private sealed class StampRow
+        {
+            public string LineType { get; set; } = string.Empty;
+            public long Id { get; set; }
+            public int? StepOrder { get; set; }
+            public string RoleKey { get; set; } = string.Empty;
+            public string UserId { get; set; } = string.Empty;
+            public string ApproverValue { get; set; } = string.Empty;
+            public string Status { get; set; } = string.Empty;
+            public string Action { get; set; } = string.Empty;
+            public DateTime? ActedAtUtc { get; set; }
+            public string DisplayText { get; set; } = string.Empty;
+            public string CaptionText { get; set; } = string.Empty;
+            public string SignaturePath { get; set; } = string.Empty;
+            public DateTime? StampEmbeddedAt { get; set; }
+            public string StampStateHash { get; set; } = string.Empty;
+            public string NewStateHash { get; set; } = string.Empty;
+            public string TargetA1 { get; set; } = string.Empty;
+            public string SourceImagePath { get; set; } = string.Empty;
+            public StampKind? StampKind { get; set; }
+            public bool ShouldEmbed { get; set; }
+            public string PictureName { get; set; } = string.Empty;
+            public string SkipReason { get; set; } = string.Empty;
+        }
+
+        private sealed class CooperationStampCellMaps
+        {
+            public Dictionary<string, string> ByRoleKey { get; } = new(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, string> ByApprover { get; } = new(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private sealed class StampCanvasInfo
+        {
+            public int WidthPx { get; set; }
+            public int HeightPx { get; set; }
+        }
+
+        private sealed class StampImageLayoutInfo
+        {
+            public string SourceImagePath { get; set; } = string.Empty;
+            public bool SourceExists { get; set; }
+            public int SourceWidthPx { get; set; }
+            public int SourceHeightPx { get; set; }
+            public int TrimLeftPx { get; set; }
+            public int TrimTopPx { get; set; }
+            public int TrimRightPx { get; set; }
+            public int TrimBottomPx { get; set; }
+            public int TrimWidthPx { get; set; }
+            public int TrimHeightPx { get; set; }
+        }
+
+        private enum StampKind
+        {
+            Approved,
+            Holding,
+            Rejected
+        }
 
         private string BuildRoleText(string? roleKey, string rowType)
         {
@@ -2866,6 +3614,75 @@ WHERE DocId=@DocId AND StepOrder=@StepOrder AND ISNULL(Status,N'Pending') LIKE N
             return View("~/Views/Doc/DetailDXWarmup.cshtml");
         }
 
+
+        // 2026.06.23 Added: DocDXStamp 하위 파일만 삭제하는 안전 삭제 헬퍼 Contents App_Data Docs 원본 문서 삭제를 방지한다
+        private bool TryDeleteDetailDxStampTempFile(string docId, string stampWorkPath)
+        {
+            try
+            {
+                var root = Path.GetFullPath(Path.Combine(_env.ContentRootPath, "App_Data", "DocDXStamp"));
+                var fullPath = Path.GetFullPath(stampWorkPath);
+
+                if (!fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                var safeDocId = SafeStampFilePart(docId);
+                var fileName = Path.GetFileName(fullPath);
+
+                if (string.IsNullOrWhiteSpace(fileName) ||
+                    !fileName.StartsWith(safeDocId + "_", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (!System.IO.File.Exists(fullPath))
+                    return false;
+
+                System.IO.File.Delete(fullPath);
+
+                TryDeleteEmptyDirectoriesUpToRoot(Path.GetDirectoryName(fullPath), root);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "DetailDX stamp temp cleanup failed docId={DocId} path={Path}", docId, stampWorkPath);
+                return false;
+            }
+        }
+
+        // 2026.06.23 Added: 빈 임시 하위 폴더 정리 Contents 파일 삭제 후 빈 문서별 날짜 폴더를 가능한 범위에서 제거한다
+        private static void TryDeleteEmptyDirectoriesUpToRoot(string? startDir, string rootDir)
+        {
+            if (string.IsNullOrWhiteSpace(startDir) || string.IsNullOrWhiteSpace(rootDir))
+                return;
+
+            var root = Path.GetFullPath(rootDir).TrimEnd(Path.DirectorySeparatorChar);
+            var current = Path.GetFullPath(startDir);
+
+            while (!string.Equals(current.TrimEnd(Path.DirectorySeparatorChar), root, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (!Directory.Exists(current))
+                        break;
+
+                    if (Directory.EnumerateFileSystemEntries(current).Any())
+                        break;
+
+                    Directory.Delete(current, recursive: false);
+
+                    var parent = Directory.GetParent(current);
+                    if (parent == null)
+                        break;
+
+                    current = parent.FullName;
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        }
+
         // 2026.06.15 Added: 서버 시작 warm-up endpoint를 외부에서 호출하지 못하도록 loopback 요청만 허용한다.
         private bool IsLocalWarmupRequest()
         {
@@ -2887,64 +3704,104 @@ WHERE DocId=@DocId AND StepOrder=@StepOrder AND ISNULL(Status,N'Pending') LIKE N
             return false;
         }
 
-        // 2026.06.15 Changed: ClosedXML SaveAs 대상 임시 파일 확장자를 xlsx로 유지하고 동시 생성 충돌을 방지한다.
+        // 2026.06.23 Changed: 기존 workbook 생성 방식을 제거 Contents 표준 zip 패키지로 최소 xlsx만 생성한다
         private string EnsureDetailDxWarmupWorkbookPath()
         {
-            var dir = Path.Combine(_env.ContentRootPath, "App_Data", "DxWarmup");
-            Directory.CreateDirectory(dir);
+            var warmupDir = Path.Combine(_env.ContentRootPath, "App_Data", "DocDXWarmup");
+            Directory.CreateDirectory(warmupDir);
 
-            var path = Path.Combine(dir, "detaildx_warmup.xlsx");
-
-            if (System.IO.File.Exists(path))
-                return path;
+            var warmupPath = Path.Combine(warmupDir, "DetailDXWarmup.xlsx");
+            if (System.IO.File.Exists(warmupPath))
+                return warmupPath;
 
             lock (_detailDxWarmupWorkbookLock)
             {
-                if (System.IO.File.Exists(path))
-                    return path;
+                if (System.IO.File.Exists(warmupPath))
+                    return warmupPath;
 
-                var tempPath = Path.Combine(dir, "detaildx_warmup_" + Guid.NewGuid().ToString("N") + ".xlsx");
-
-                try
-                {
-                    using (var wb = new XLWorkbook())
-                    {
-                        var ws = wb.Worksheets.Add("Warmup");
-                        ws.Cell("A1").Value = "DetailDX Warmup";
-                        ws.Cell("B2").Value = DateTime.Now;
-                        ws.Range("A1:D8").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                        ws.Column(1).Width = 18;
-                        ws.Column(2).Width = 18;
-                        ws.Row(1).Height = 22;
-                        wb.SaveAs(tempPath);
-                    }
-
-                    if (!System.IO.File.Exists(path))
-                        System.IO.File.Move(tempPath, path);
-
-                    return path;
-                }
-                finally
-                {
-                    try
-                    {
-                        if (System.IO.File.Exists(tempPath))
-                            System.IO.File.Delete(tempPath);
-                    }
-                    catch
-                    {
-                    }
-                }
+                var tmp = warmupPath + ".tmp";
+                TryDeleteStampFile(tmp);
+                WriteMinimalDetailDxWarmupWorkbook(tmp);
+                System.IO.File.Move(tmp, warmupPath);
             }
+
+            return warmupPath;
         }
 
-        // ========== DTOs ==========
+        // 2026.06.23 Changed: 기존 workbook 생성 방식을 제거 Contents 표준 zip 패키지로 최소 xlsx만 생성하고 엑셀 핸들링은 수행하지 않는다
+        private static void WriteMinimalDetailDxWarmupWorkbook(string path)
+        {
+            using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+
+            AddZipText(zip, "[Content_Types].xml", """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>
+""");
+
+            AddZipText(zip, "_rels/.rels", """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>
+""");
+
+            AddZipText(zip, "xl/workbook.xml", """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>
+""");
+
+            AddZipText(zip, "xl/_rels/workbook.xml.rels", """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>
+""");
+
+            AddZipText(zip, "xl/worksheets/sheet1.xml", """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>DetailDX Warmup</t></is></c>
+    </row>
+  </sheetData>
+</worksheet>
+""");
+        }
+
+        private static void AddZipText(System.IO.Compression.ZipArchive zip, string entryName, string content)
+        {
+            var entry = zip.CreateEntry(entryName, System.IO.Compression.CompressionLevel.Fastest);
+            using var stream = entry.Open();
+            using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+            writer.Write(content.TrimStart());
+        }
+
         public sealed class ApproveDto
         {
             public string? docId { get; set; }
             public string? action { get; set; }
             public int slot { get; set; } = 1;
             public string? comment { get; set; }
+            // 2026.06.23 Added: 현재 열린 DevExpress Spreadsheet 세션 상태 전달 Contents ComposeDX BatchEditDX와 동일한 SpreadsheetClientState 사용
+            public SpreadsheetClientState? spreadsheetState { get; set; }
+            public string? stampWorkPath { get; set; }
+        }
+
+        public sealed class BackfillStampsDto
+        {
+            public string? docId { get; set; }
+            public SpreadsheetClientState? spreadsheetState { get; set; }
+            public string? stampWorkPath { get; set; }
         }
 
         public sealed class DocCommentPostDto
@@ -2967,6 +3824,13 @@ WHERE DocId=@DocId AND StepOrder=@StepOrder AND ISNULL(Status,N'Pending') LIKE N
         {
             public string? DocId { get; set; }
             public List<string>? SelectedRecipientUserIds { get; set; }
+        }
+
+        public sealed class DetailDxStampTempCleanupRequest
+        {
+            public string? DocId { get; set; }
+            public string? StampWorkPath { get; set; }
+            public string? DxDocumentId { get; set; }
         }
     }
 }
